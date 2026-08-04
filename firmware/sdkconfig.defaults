@@ -1,0 +1,41 @@
+# Target
+CONFIG_IDF_TARGET="esp32s3"
+
+# 16 MB flash
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# 8 MB QSPI (quad) PSRAM - APS6404L, NOT octal
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_SPEED_80M=y
+# Skip 16MB PSRAM memtest at boot (hangs boot on this board's timing fallback)
+CONFIG_SPIRAM_MEMTEST=n
+
+# USB-Serial-JTAG console (native USB on the S3)
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# CPU
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+# LVGL object creation + first full render needs a large main task stack
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+
+# RTOS tick: 1000 Hz so LVGL timer delays (ms) map to real FreeRTOS ticks
+# (100 Hz truncated pdMS_TO_TICKS(5) to 0, causing a busy main loop)
+CONFIG_FREERTOS_HZ=1000
+
+# Logging (INFO: keeps the console/UART clean; the DEBUG touch raw logs
+# flooded the USB-Serial-JTAG and interfered with the REPL and dumps)
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_DEFAULT_LEVEL=3
+
+# LVGL
+CONFIG_LV_COLOR_DEPTH_16=y
+CONFIG_LV_USE_SNAPSHOT=y
+CONFIG_LV_USE_LOG=n
+# Use the C library malloc so LVGL allocations land in PSRAM (8MB) via SPIRAM_USE_MALLOC
+CONFIG_LV_USE_CLIB_MALLOC=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
