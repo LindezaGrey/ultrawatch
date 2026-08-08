@@ -1,0 +1,6 @@
+.DS_Store
+.venv/
+firmware/build/
+firmware/managed_components/
+firmware/sdkconfig
+firmware/sdkconfig.old
