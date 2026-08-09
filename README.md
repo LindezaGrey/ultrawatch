@@ -6,7 +6,7 @@ the BHI260AP orientation, and MIA-M10Q GPS data over Bluetooth Low Energy.
 
 - Device name: `UltraWatch`
 - Service: `7a1e0001-7a1e-4b6c-8d9e-001122334455`
-- RTC: `7a1e0002-7a1e-4b6c-8d9e-001122334455`, read/write/notify each second,
+- RTC: `7a1e0002-7a1e-4b6c-8d9e-001122334455`, read/write/notify each minute,
   payload `YYYY-MM-DDTHH:MM:SS`
 - Battery/power: `7a1e0003-7a1e-4b6c-8d9e-001122334455`, read/notify every five
   seconds, payload `percentage,millivolts,direction,vbus,present`
@@ -47,7 +47,14 @@ the BHI260AP orientation, and MIA-M10Q GPS data over Bluetooth Low Energy.
   Reads return two bytes, `requested,ready`; writes accept the one-byte
   `requested` mask. Bit 0 controls IMU, bit 1 GPS, and bit 2 touch. The
   requested mask is stored in NVS and restored after restart. A watch without
-  a stored preference starts with all three sensors enabled.
+  a stored preference starts with touch enabled and IMU/GPS disabled so
+  automatic light sleep is effective by default.
+- ESP32 power: `7a1e000b-7a1e-4b6c-8d9e-001122334455`, read/write. The
+  three-byte little-endian payload is `maximum_cpu_mhz` (u16), followed by
+  `automatic_light_sleep` (u8). Supported maximum frequencies are 80, 160,
+  and 240 MHz; the idle frequency is the ESP32-S3 crystal frequency of 40 MHz.
+  Settings are stored in NVS. The first boot defaults to 160 MHz with automatic
+  light sleep enabled.
 
 Power direction values are `0` standby, `1` charging, `2` discharging, and `3`
 reserved/unknown. `vbus` and `present` are `0` or `1`.
@@ -63,14 +70,41 @@ offset. Its hardware year range is represented here as 2000 through 2099. This
 minimal iteration does not require BLE pairing or an encrypted connection.
 
 The clock/display path runs first at startup: after RTC and panel setup, the
-display task renders the time before it reads battery data. NVS, PMIC
+display task renders `HH:MM`, battery charge, and a small `BLE ON` status above
+the bottom-left contour before it reads the remaining sensor state. It sleeps
+until the next minute boundary instead of repainting seconds. NVS, PMIC
 measurement, haptics, BLE, and enabled sensor initialization follow. This keeps
 IMU firmware loading and GPS probing outside the first-time-display path.
+
+After 10 seconds without a CST9217 touch interrupt, the firmware writes black
+pixels across the complete 410 x 502 framebuffer and stops display refreshes.
+It does not send the AMOLED sleep/display-off commands and does not switch off
+the panel power rail. A touch interrupt first restores the complete calibrated
+frame and blue contour, then redraws the clock, charge, and BLE state and starts
+a new 10-second inactivity period. Other events, including the side button and
+BLE writes, do not wake the black screen. Touch must remain enabled in the
+sensor controls for touch-to-wake to be available.
+
+The physical side button is the AXP2101 PWRON key, not a direct ESP32 GPIO.
+Its events arrive through the PMIC interrupt line on GPIO 7. A completed button
+click toggles BLE advertising on the AXP2101 PWRON release event and redraws the
+display as `BLE ON` or `BLE OFF`; the separate long-press event suppresses that
+toggle so the AXP2101's hardware power-key behavior is retained. An established
+connection is not forcibly disconnected. With advertising disabled, disconnect
+and advertising-complete events do not restart advertising.
 
 Disabling IMU switches off AXP2101 ALDO4 after stopping its data path;
 disabling GPS stops its UART/parser and switches off BLDO1; disabling touch
 holds the CST9217 in reset. Re-enabling a sensor initializes it again. The web
 page distinguishes the persisted requested state from the live ready state.
+
+ESP-IDF dynamic frequency scaling, tickless idle, and Bluetooth modem sleep are
+enabled. When no task or peripheral holds a power-management lock, the CPU can
+scale down to 40 MHz and enter automatic light sleep without losing BLE or
+application state. The CST9217 active-low interrupt on GPIO12 wakes the chip and
+drives touch reads, replacing the former 20 ms polling loop. An enabled GPS
+holds an ESP-IDF no-light-sleep lock so UART responses are not lost; disabling
+unused sensors therefore remains important for runtime.
 
 The BHI260AP is initialized with Bosch's BHI2xy SensorAPI v1.6.0 and its stock
 RAM firmware. The vendored driver, firmware image, and BSD-3-Clause license are
@@ -92,8 +126,9 @@ and DRV2605L device IDs, selects internal-trigger mode and ERM Library A, and
 limits BLE commands to finite ROM effects. The browser provides several named
 presets plus explicit read and stop controls.
 
-The firmware embeds only the Cascadia Code glyphs required by the clock and
-percentage display. They are generated from `CascadiaCode-Regular.otf` with
+The firmware embeds only the Cascadia Code glyphs required by the clock,
+percentage, and BLE-state display. They are generated from
+`CascadiaCode-Regular.otf` with
 `firmware/tools/generate_cascadia_font.py`; the font license is included beside
 the generated header in `firmware/main/CASCADIA_CODE_LICENSE.txt`.
 
@@ -112,8 +147,9 @@ Build with ESP-IDF 5.3:
 docker run --rm -v "$PWD/firmware:/project" -w /project espressif/idf:release-v5.3 idf.py -B build -D SDKCONFIG=build/sdkconfig build
 ```
 
-Keeping `sdkconfig` inside the build directory ensures that the committed BLE
-defaults are used even if an older generated `firmware/sdkconfig` exists.
+The committed defaults configure BLE and power management. If an existing
+generated build configuration predates those defaults, configure a fresh build
+directory so the new defaults are applied.
 
 Flash on macOS (replace the serial port if it differs):
 

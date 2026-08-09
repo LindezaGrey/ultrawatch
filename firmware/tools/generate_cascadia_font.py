@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 FONT_SIZE = 72
-CHARACTERS = "0123456789:%-"
+CHARACTERS = " 0123456789:%-BLEONF?"
 THRESHOLD = 128
 
 

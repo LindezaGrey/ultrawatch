@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #include "esp_err.h"
@@ -15,3 +16,6 @@ esp_err_t ble_rtc_get_time_payload(char *output, size_t output_size);
 
 /* Format power as percent,millivolts,direction,vbus,present. */
 esp_err_t ble_power_get_payload(char *output, size_t output_size);
+
+/* Return whether new BLE connections are currently being advertised. */
+bool ble_rtc_advertising_enabled(void);

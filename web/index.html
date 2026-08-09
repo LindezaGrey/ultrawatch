@@ -95,6 +95,7 @@
       </div>
       <nav aria-label="Sensors">
         <a href="#sensorControl">Sensor power</a>
+        <a href="#systemPower">ESP32 power</a>
         <a href="#rtc">RTC</a>
         <a href="#power">Battery &amp; power</a>
         <a href="#imu">IMU</a>
@@ -138,9 +139,40 @@
       <button id="readSensorControl" data-connected disabled>Read sensor status</button>
     </section>
 
+    <section id="systemPower" class="sensor">
+      <header><h2>ESP32 power</h2><span class="tag">persisted · runtime control</span></header>
+      <div class="settings">
+        <div class="setting">
+          <label for="cpuFrequency">Maximum CPU frequency</label>
+          <select id="cpuFrequency" data-connected disabled>
+            <option value="80">80 MHz</option>
+            <option value="160" selected>160 MHz</option>
+            <option value="240">240 MHz</option>
+          </select>
+        </div>
+        <div class="setting">
+          <label>Automatic light sleep</label>
+          <label class="toggle"><input id="automaticLightSleep" type="checkbox" checked data-connected disabled> Enabled</label>
+        </div>
+        <div class="setting">
+          <label>Idle CPU frequency</label>
+          <output>40 MHz</output>
+        </div>
+        <div class="setting">
+          <label>Wake source</label>
+          <output>CST9217 · GPIO12</output>
+        </div>
+      </div>
+      <div class="buttons">
+        <button id="readSystemPower" data-connected disabled>Read power state</button>
+        <button id="writeSystemPower" data-connected disabled>Apply power state</button>
+      </div>
+      <p>Light sleep preserves BLE and application state. Active sensors can still wake the CPU for their scheduled work.</p>
+    </section>
+
     <section id="rtc" class="sensor">
-      <header><h2>Real-time clock</h2><span class="tag">read · write · 1 s notify</span></header>
-      <div id="clock" class="clock">---- -- -- --:--:--</div>
+      <header><h2>Real-time clock</h2><span class="tag">read · write · 1 min notify</span></header>
+      <div id="clock" class="clock">---- -- -- --:--</div>
       <label for="dateTime">Watch local time</label>
       <input id="dateTime" type="datetime-local" step="1">
       <div class="buttons">
@@ -328,7 +360,8 @@
       touch: '7a1e0007-7a1e-4b6c-8d9e-001122334455',
       gps: '7a1e0008-7a1e-4b6c-8d9e-001122334455',
       haptic: '7a1e0009-7a1e-4b6c-8d9e-001122334455',
-      sensorControl: '7a1e000a-7a1e-4b6c-8d9e-001122334455'
+      sensorControl: '7a1e000a-7a1e-4b6c-8d9e-001122334455',
+      systemPower: '7a1e000b-7a1e-4b6c-8d9e-001122334455'
     };
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -345,15 +378,18 @@
       'hapticEffect', 'hapticRepeats', 'hapticDriver', 'hapticState',
       'hapticLast', 'hapticFaults', 'playHaptic', 'stopHaptic', 'readHaptic',
       'sensorImu', 'sensorGps', 'sensorTouch', 'sensorImuState',
-      'sensorGpsState', 'sensorTouchState', 'readSensorControl'];
+      'sensorGpsState', 'sensorTouchState', 'readSensorControl',
+      'cpuFrequency', 'automaticLightSleep', 'readSystemPower',
+      'writeSystemPower'];
     const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
     let device = null;
     let characteristics = {};
     let touchCounter = 0;
-    let sensorEnabledMask = 0x07;
+    let sensorEnabledMask = 0x04;
     let sensorReadyMask = 0;
     let sensorWriteInProgress = false;
+    let systemPowerWriteInProgress = false;
 
     function setConnected(connected) {
       ui.dot.classList.toggle('connected', connected);
@@ -368,7 +404,7 @@
       if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(value)) {
         throw new Error(`Unexpected RTC value: ${value}`);
       }
-      ui.clock.textContent = value.replace('T', ' ');
+      ui.clock.textContent = value.slice(0, 16).replace('T', ' ');
       ui.dateTime.value = value;
     }
 
@@ -436,6 +472,17 @@
         toggle.checked = Boolean(enabled & bit);
         state.value = !(enabled & bit) ? 'Off' : (ready & bit) ? 'Ready' : 'Starting';
       });
+    }
+
+    function showSystemPower(dataView) {
+      if (dataView.byteLength !== 3) throw new Error('Unexpected ESP32 power payload');
+      const frequency = dataView.getUint16(0, true);
+      const lightSleep = dataView.getUint8(2);
+      if (![80, 160, 240].includes(frequency) || lightSleep > 1) {
+        throw new Error('ESP32 power value outside valid range');
+      }
+      ui.cpuFrequency.value = String(frequency);
+      ui.automaticLightSleep.checked = Boolean(lightSleep);
     }
 
     function showImu(dataView) {
@@ -581,6 +628,7 @@
         characteristics.gps = await service.getCharacteristic(CHAR_UUID.gps);
         characteristics.haptic = await service.getCharacteristic(CHAR_UUID.haptic);
         characteristics.sensorControl = await service.getCharacteristic(CHAR_UUID.sensorControl);
+        characteristics.systemPower = await service.getCharacteristic(CHAR_UUID.systemPower);
         characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
         characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
         characteristics.imu.addEventListener('characteristicvaluechanged', notificationHandler(showImu));
@@ -600,15 +648,16 @@
         const powerReady = await readPower(false);
         const configReady = await readPowerConfig(false);
         const sensorControlReady = await readSensorControl(false);
+        const systemPowerReady = await readSystemPower(false);
         const imuReady = !(sensorEnabledMask & 0x01) || !(sensorReadyMask & 0x01) || await readImu(false);
         const screenReady = await readScreen(false);
         const touchReady = !(sensorEnabledMask & 0x04) || !(sensorReadyMask & 0x04) || await readTouch(false);
         const gpsReady = !(sensorEnabledMask & 0x02) || !(sensorReadyMask & 0x02) || await readGps(false);
         const hapticReady = await readHaptic(false);
         const sensorsStarting = Boolean(sensorEnabledMask & ~sensorReadyMask);
-        if (rtcReady && powerReady && configReady && sensorControlReady && imuReady && screenReady && touchReady && gpsReady && hapticReady && sensorsStarting) {
+        if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && imuReady && screenReady && touchReady && gpsReady && hapticReady && sensorsStarting) {
           ui.message.textContent = 'Core controls ready. Enabled sensors are starting.';
-        } else if (rtcReady && powerReady && configReady && sensorControlReady && imuReady && screenReady && touchReady && gpsReady && hapticReady) {
+        } else if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && imuReady && screenReady && touchReady && gpsReady && hapticReady) {
           ui.message.textContent = 'Live sensor updates enabled.';
         } else if (!rtcReady) {
           ui.message.textContent = 'RTC unavailable. Set the browser time first.';
@@ -618,6 +667,8 @@
           ui.message.textContent = 'Charge settings are currently unavailable.';
         } else if (!sensorControlReady) {
           ui.message.textContent = 'Sensor power settings are currently unavailable.';
+        } else if (!systemPowerReady) {
+          ui.message.textContent = 'ESP32 power settings are currently unavailable.';
         } else if (!imuReady) {
           ui.message.textContent = 'IMU data is currently unavailable.';
         } else if (!screenReady) {
@@ -699,6 +750,47 @@
       } finally {
         if (device?.gatt?.connected) toggles.forEach(toggle => { toggle.disabled = false; });
         sensorWriteInProgress = false;
+      }
+    }
+
+    async function readSystemPower(reportError = true) {
+      try {
+        showSystemPower(await characteristics.systemPower.readValue());
+        return true;
+      } catch (error) {
+        if (reportError) ui.message.textContent = `ESP32 power read failed: ${error.message}`;
+        return false;
+      }
+    }
+
+    async function writeSystemPower() {
+      if (systemPowerWriteInProgress) return;
+      const frequency = Number(ui.cpuFrequency.value);
+      systemPowerWriteInProgress = true;
+      ui.cpuFrequency.disabled = true;
+      ui.automaticLightSleep.disabled = true;
+      ui.writeSystemPower.disabled = true;
+      try {
+        const payload = new Uint8Array(3);
+        new DataView(payload.buffer).setUint16(0, frequency, true);
+        payload[2] = ui.automaticLightSleep.checked ? 1 : 0;
+        if (characteristics.systemPower.writeValueWithResponse) {
+          await characteristics.systemPower.writeValueWithResponse(payload);
+        } else {
+          await characteristics.systemPower.writeValue(payload);
+        }
+        await readSystemPower(false);
+        ui.message.textContent = `ESP32 power state saved: ${frequency} MHz, light sleep ${payload[2] ? 'on' : 'off'}.`;
+      } catch (error) {
+        ui.message.textContent = `ESP32 power write failed: ${error.message}`;
+        await readSystemPower(false);
+      } finally {
+        if (device?.gatt?.connected) {
+          ui.cpuFrequency.disabled = false;
+          ui.automaticLightSleep.disabled = false;
+          ui.writeSystemPower.disabled = false;
+        }
+        systemPowerWriteInProgress = false;
       }
     }
 
@@ -838,6 +930,8 @@
     ui.readPower.addEventListener('click', readPower);
     ui.readPowerConfig.addEventListener('click', readPowerConfig);
     ui.readSensorControl.addEventListener('click', readSensorControl);
+    ui.readSystemPower.addEventListener('click', readSystemPower);
+    ui.writeSystemPower.addEventListener('click', writeSystemPower);
     [ui.sensorImu, ui.sensorGps, ui.sensorTouch].forEach(toggle => {
       toggle.addEventListener('change', writeSensorControl);
     });

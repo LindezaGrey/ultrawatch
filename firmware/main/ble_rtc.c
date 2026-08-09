@@ -9,10 +9,13 @@
 #include "bhy2.h"
 #include "bhy2_parse.h"
 #include "driver/i2c.h"
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "esp_rom_sys.h"
+#include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -46,13 +49,20 @@
 #define HAPTIC_STATUS_PAYLOAD_LENGTH 6
 #define HAPTIC_COMMAND_PAYLOAD_LENGTH 2
 #define SENSOR_CONTROL_PAYLOAD_LENGTH 2
+#define SYSTEM_POWER_PAYLOAD_LENGTH 3
 
 #define SENSOR_IMU_BIT   (1U << 0)
 #define SENSOR_GPS_BIT   (1U << 1)
 #define SENSOR_TOUCH_BIT (1U << 2)
 #define SENSOR_ALL_MASK  (SENSOR_IMU_BIT | SENSOR_GPS_BIT | SENSOR_TOUCH_BIT)
+#define SENSOR_DEFAULT_MASK SENSOR_TOUCH_BIT
 #define SENSOR_NVS_NAMESPACE "sensor_control"
 #define SENSOR_NVS_KEY "enabled"
+#define SYSTEM_POWER_NVS_NAMESPACE "system_power"
+#define SYSTEM_POWER_NVS_FREQUENCY_KEY "max_mhz"
+#define SYSTEM_POWER_NVS_SLEEP_KEY "light_sleep"
+#define SYSTEM_POWER_DEFAULT_MAX_MHZ 160
+#define SYSTEM_POWER_MIN_MHZ 40
 
 #define DRV2605_STATUS_REGISTER       0x00
 #define DRV2605_MODE_REGISTER         0x01
@@ -83,6 +93,8 @@
 #define AXP_CHARGE_CURRENT_REGISTER 0x62
 #define AXP_CHARGE_VOLTAGE_REGISTER 0x64
 #define AXP_BATTERY_DETECT_REGISTER 0x68
+#define AXP_IRQ_ENABLE1_REGISTER   0x41
+#define AXP_IRQ_STATUS0_REGISTER   0x48
 #define AXP_CHIP_ID                0x4a
 #define AXP_INPUT_CURRENT_MASK     0x07
 #define AXP_CELL_CHARGE_ENABLE_BIT 1
@@ -90,6 +102,9 @@
 #define AXP_CHARGE_VOLTAGE_MASK    0x07
 #define AXP_BATTERY_ADC_ENABLE_BIT 0
 #define AXP_BATTERY_DETECT_BIT     0
+#define AXP_POWERON_SHORT_PRESS_BIT 3
+#define AXP_POWERON_LONG_PRESS_BIT  2
+#define AXP_POWERON_POSITIVE_EDGE_BIT 0
 #define AXP_BATTERY_EMPTY_MV       3200
 #define AXP_BATTERY_FULL_MV        4200
 
@@ -147,6 +162,12 @@ static const ble_uuid128_t sensor_control_characteristic_uuid =
         0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
         0x6c, 0x4b, 0x1e, 0x7a, 0x0a, 0x00, 0x1e, 0x7a);
 
+/* 7a1e000b-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t system_power_characteristic_uuid =
+    BLE_UUID128_INIT(
+        0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+        0x6c, 0x4b, 0x1e, 0x7a, 0x0b, 0x00, 0x1e, 0x7a);
+
 typedef struct {
     int year;
     int month;
@@ -195,10 +216,15 @@ static bool haptic_ready;
 static uint8_t haptic_device_id;
 static uint8_t haptic_last_effect;
 static uint8_t haptic_last_repeats;
-static volatile uint8_t requested_sensor_mask = SENSOR_ALL_MASK;
+static volatile uint8_t requested_sensor_mask = SENSOR_DEFAULT_MASK;
 static TaskHandle_t imu_control_task_handle;
 static TaskHandle_t gps_control_task_handle;
 static TaskHandle_t touch_control_task_handle;
+static TaskHandle_t touch_task_handle;
+static TaskHandle_t power_button_task_handle;
+static uint16_t system_power_max_mhz = SYSTEM_POWER_DEFAULT_MAX_MHZ;
+static bool system_power_light_sleep = true;
+static volatile bool advertising_enabled = true;
 
 extern const uint8_t
     bhi260_firmware_start[] asm("_binary_BHI260AP_fw_start");
@@ -421,11 +447,11 @@ static esp_err_t sensor_control_load(void)
     nvs_handle_t handle;
     ESP_RETURN_ON_ERROR(nvs_open(SENSOR_NVS_NAMESPACE, NVS_READWRITE, &handle),
                         TAG, "sensor preference open failed");
-    uint8_t stored_mask = SENSOR_ALL_MASK;
+    uint8_t stored_mask = SENSOR_DEFAULT_MASK;
     esp_err_t result = nvs_get_u8(handle, SENSOR_NVS_KEY, &stored_mask);
     nvs_close(handle);
     if (result == ESP_ERR_NVS_NOT_FOUND) {
-        requested_sensor_mask = SENSOR_ALL_MASK;
+        requested_sensor_mask = SENSOR_DEFAULT_MASK;
         return ESP_OK;
     }
     if (result != ESP_OK || (stored_mask & ~SENSOR_ALL_MASK) != 0) {
@@ -447,6 +473,88 @@ static esp_err_t sensor_control_store(uint8_t mask)
     }
     nvs_close(handle);
     return result;
+}
+
+static bool system_power_frequency_valid(uint16_t frequency_mhz)
+{
+    return frequency_mhz == 80 || frequency_mhz == 160 ||
+           frequency_mhz == 240;
+}
+
+static esp_err_t system_power_apply(uint16_t frequency_mhz,
+                                    bool light_sleep)
+{
+    if (!system_power_frequency_valid(frequency_mhz)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_pm_config_t config = {
+        .max_freq_mhz = frequency_mhz,
+        .min_freq_mhz = SYSTEM_POWER_MIN_MHZ,
+        .light_sleep_enable = light_sleep,
+    };
+    ESP_RETURN_ON_ERROR(esp_pm_configure(&config), TAG,
+                        "ESP32 power configuration failed");
+    system_power_max_mhz = frequency_mhz;
+    system_power_light_sleep = light_sleep;
+    ESP_LOGI(TAG, "ESP32 power: %u MHz max, automatic light sleep %s",
+             frequency_mhz, light_sleep ? "enabled" : "disabled");
+    return ESP_OK;
+}
+
+static esp_err_t system_power_load(void)
+{
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(SYSTEM_POWER_NVS_NAMESPACE, NVS_READWRITE,
+                                 &handle),
+                        TAG, "system power preference open failed");
+    uint16_t frequency_mhz = SYSTEM_POWER_DEFAULT_MAX_MHZ;
+    uint8_t light_sleep = 1;
+    esp_err_t frequency_result = nvs_get_u16(
+        handle, SYSTEM_POWER_NVS_FREQUENCY_KEY, &frequency_mhz);
+    esp_err_t sleep_result = nvs_get_u8(
+        handle, SYSTEM_POWER_NVS_SLEEP_KEY, &light_sleep);
+    nvs_close(handle);
+    if (frequency_result != ESP_OK && frequency_result != ESP_ERR_NVS_NOT_FOUND) {
+        return frequency_result;
+    }
+    if (sleep_result != ESP_OK && sleep_result != ESP_ERR_NVS_NOT_FOUND) {
+        return sleep_result;
+    }
+    if (!system_power_frequency_valid(frequency_mhz) || light_sleep > 1) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return system_power_apply(frequency_mhz, light_sleep != 0);
+}
+
+static esp_err_t system_power_store(uint16_t frequency_mhz,
+                                    bool light_sleep)
+{
+    ESP_RETURN_ON_ERROR(system_power_apply(frequency_mhz, light_sleep), TAG,
+                        "system power apply failed");
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(SYSTEM_POWER_NVS_NAMESPACE, NVS_READWRITE,
+                                 &handle),
+                        TAG, "system power preference open failed");
+    esp_err_t result = nvs_set_u16(handle,
+                                   SYSTEM_POWER_NVS_FREQUENCY_KEY,
+                                   frequency_mhz);
+    if (result == ESP_OK) {
+        result = nvs_set_u8(handle, SYSTEM_POWER_NVS_SLEEP_KEY,
+                            light_sleep ? 1 : 0);
+    }
+    if (result == ESP_OK) {
+        result = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return result;
+}
+
+static void system_power_get_payload(
+    uint8_t output[SYSTEM_POWER_PAYLOAD_LENGTH])
+{
+    output[0] = (uint8_t)system_power_max_mhz;
+    output[1] = (uint8_t)(system_power_max_mhz >> 8);
+    output[2] = system_power_light_sleep ? 1 : 0;
 }
 
 static void sensor_control_notify(void)
@@ -682,6 +790,17 @@ enum {
     TOUCH_EVENT_UP = 3,
 };
 
+static void IRAM_ATTR touch_interrupt_handler(void *argument)
+{
+    (void)argument;
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    if (touch_task_handle != NULL) {
+        vTaskNotifyGiveFromISR(touch_task_handle,
+                               &higher_priority_task_woken);
+    }
+    portYIELD_FROM_ISR(higher_priority_task_woken);
+}
+
 static esp_err_t cst9217_initialize(void)
 {
     gpio_config_t interrupt_config = {
@@ -689,7 +808,7 @@ static esp_err_t cst9217_initialize(void)
         .mode = GPIO_MODE_INPUT,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .pull_up_en = GPIO_PULLUP_ENABLE,
-        .intr_type = GPIO_INTR_DISABLE,
+        .intr_type = GPIO_INTR_NEGEDGE,
     };
     ESP_RETURN_ON_ERROR(gpio_config(&interrupt_config), TAG,
                         "touch interrupt GPIO setup failed");
@@ -739,7 +858,25 @@ static esp_err_t cst9217_initialize(void)
                         TAG, "touch normal mode failed");
     vTaskDelay(pdMS_TO_TICKS(10));
 
+    esp_err_t isr_result = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+    if (isr_result != ESP_OK && isr_result != ESP_ERR_INVALID_STATE) {
+        return isr_result;
+    }
+    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(BOARD_TOUCH_INTERRUPT,
+                                             touch_interrupt_handler, NULL),
+                        TAG, "touch interrupt handler failed");
+    ESP_RETURN_ON_ERROR(gpio_wakeup_enable(BOARD_TOUCH_INTERRUPT,
+                                           GPIO_INTR_LOW_LEVEL),
+                        TAG, "touch wake source failed");
+    ESP_RETURN_ON_ERROR(esp_sleep_enable_gpio_wakeup(), TAG,
+                        "GPIO light-sleep wake failed");
+    ESP_RETURN_ON_ERROR(gpio_intr_enable(BOARD_TOUCH_INTERRUPT), TAG,
+                        "touch interrupt enable failed");
     touch_ready = true;
+    if (gpio_get_level(BOARD_TOUCH_INTERRUPT) == 0 &&
+        touch_task_handle != NULL) {
+        xTaskNotifyGive(touch_task_handle);
+    }
     ESP_LOGI(TAG, "CST9217 touch ready at 0x%02x", touch_address);
     return ESP_OK;
 }
@@ -747,6 +884,9 @@ static esp_err_t cst9217_initialize(void)
 static esp_err_t cst9217_disable(void)
 {
     touch_ready = false;
+    gpio_intr_disable(BOARD_TOUCH_INTERRUPT);
+    gpio_isr_handler_remove(BOARD_TOUCH_INTERRUPT);
+    gpio_wakeup_disable(BOARD_TOUCH_INTERRUPT);
     portENTER_CRITICAL(&touch_lock);
     touch_pressed = false;
     touch_event = TOUCH_EVENT_IDLE;
@@ -1491,6 +1631,42 @@ static int sensor_control_gatt_access(
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+static int system_power_gatt_access(
+    uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *context, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+
+    if (context->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t payload[SYSTEM_POWER_PAYLOAD_LENGTH];
+        system_power_get_payload(payload);
+        return os_mbuf_append(context->om, payload, sizeof(payload)) == 0
+                   ? 0
+                   : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (context->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t payload[SYSTEM_POWER_PAYLOAD_LENGTH];
+        uint16_t length = 0;
+        int result = ble_hs_mbuf_to_flat(context->om, payload,
+                                         sizeof(payload), &length);
+        if (result != 0 || length != sizeof(payload)) {
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        }
+        uint16_t frequency_mhz = (uint16_t)payload[0] |
+                                 (uint16_t)payload[1] << 8;
+        if (!system_power_frequency_valid(frequency_mhz) || payload[2] > 1) {
+            return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+        }
+        if (system_power_store(frequency_mhz, payload[2] != 0) != ESP_OK) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+        return 0;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 static const struct ble_gatt_svc_def rtc_gatt_services[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -1549,6 +1725,11 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
                          BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &sensor_control_value_handle,
             },
+            {
+                .uuid = &system_power_characteristic_uuid.u,
+                .access_cb = system_power_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+            },
             {0},
         },
     },
@@ -1556,6 +1737,11 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
 };
 
 static void start_advertising(void);
+
+bool ble_rtc_advertising_enabled(void)
+{
+    return advertising_enabled;
+}
 
 static int gap_event(struct ble_gap_event *event, void *arg)
 {
@@ -1607,6 +1793,10 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 
 static void start_advertising(void)
 {
+    if (!advertising_enabled || connection_handle != BLE_HS_CONN_HANDLE_NONE ||
+        ble_gap_adv_active()) {
+        return;
+    }
     const struct ble_hs_adv_fields advertising_fields = {
         .flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP,
         .uuids128 = (ble_uuid128_t *)&rtc_service_uuid,
@@ -1643,6 +1833,118 @@ static void start_advertising(void)
     }
 }
 
+static void set_advertising_enabled(bool enabled)
+{
+    advertising_enabled = enabled;
+    if (enabled) {
+        start_advertising();
+    } else if (ble_gap_adv_active()) {
+        int result = ble_gap_adv_stop();
+        if (result != 0) {
+            ESP_LOGW(TAG, "advertising stop failed: %d", result);
+        }
+    }
+    ESP_LOGI(TAG, "BLE advertising %s", enabled ? "enabled" : "disabled");
+    screen_request_refresh();
+}
+
+static void IRAM_ATTR power_button_interrupt_handler(void *argument)
+{
+    (void)argument;
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    gpio_intr_disable(BOARD_PMU_INTERRUPT);
+    if (power_button_task_handle != NULL) {
+        vTaskNotifyGiveFromISR(power_button_task_handle,
+                               &higher_priority_task_woken);
+    }
+    portYIELD_FROM_ISR(higher_priority_task_woken);
+}
+
+static void power_button_task(void *parameter)
+{
+    (void)parameter;
+    bool long_press_seen = false;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        uint8_t status[3];
+        esp_err_t result = axp_read_registers(AXP_IRQ_STATUS0_REGISTER,
+                                              status, sizeof(status));
+        if (result != ESP_OK) {
+            ESP_LOGW(TAG, "PMIC interrupt status read failed: %s",
+                     esp_err_to_name(result));
+            gpio_intr_enable(BOARD_PMU_INTERRUPT);
+            continue;
+        }
+        result = i2c_write_registers(BOARD_AXP2101_ADDR,
+                                     AXP_IRQ_STATUS0_REGISTER,
+                                     status, sizeof(status));
+        if (result != ESP_OK) {
+            ESP_LOGW(TAG, "PMIC interrupt status clear failed: %s",
+                     esp_err_to_name(result));
+        }
+        ESP_LOGI(TAG, "PMIC IRQ status %02x %02x %02x",
+                 status[0], status[1], status[2]);
+        if ((status[1] & (1U << AXP_POWERON_LONG_PRESS_BIT)) != 0) {
+            long_press_seen = true;
+        }
+        if ((status[1] & (1U << AXP_POWERON_POSITIVE_EDGE_BIT)) != 0) {
+            if (!long_press_seen) {
+                set_advertising_enabled(!advertising_enabled);
+            }
+            long_press_seen = false;
+        }
+        gpio_intr_enable(BOARD_PMU_INTERRUPT);
+    }
+}
+
+static esp_err_t power_button_initialize(void)
+{
+    gpio_config_t interrupt_config = {
+        .pin_bit_mask = 1ULL << BOARD_PMU_INTERRUPT,
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .intr_type = GPIO_INTR_LOW_LEVEL,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&interrupt_config), TAG,
+                        "PMIC interrupt GPIO setup failed");
+
+    uint8_t irq_enable;
+    ESP_RETURN_ON_ERROR(axp_read_registers(AXP_IRQ_ENABLE1_REGISTER,
+                                           &irq_enable, 1),
+                        TAG, "PMIC interrupt enable read failed");
+    irq_enable |= (1U << AXP_POWERON_SHORT_PRESS_BIT) |
+                  (1U << AXP_POWERON_LONG_PRESS_BIT) |
+                  (1U << AXP_POWERON_POSITIVE_EDGE_BIT);
+    ESP_RETURN_ON_ERROR(axp_write_register(AXP_IRQ_ENABLE1_REGISTER,
+                                           irq_enable),
+                        TAG, "power-button interrupt enable failed");
+
+    uint8_t pending[3];
+    ESP_RETURN_ON_ERROR(axp_read_registers(AXP_IRQ_STATUS0_REGISTER,
+                                           pending, sizeof(pending)),
+                        TAG, "PMIC pending interrupt read failed");
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_AXP2101_ADDR,
+                                            AXP_IRQ_STATUS0_REGISTER,
+                                            pending, sizeof(pending)),
+                        TAG, "PMIC pending interrupt clear failed");
+
+    esp_err_t isr_result = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+    if (isr_result != ESP_OK && isr_result != ESP_ERR_INVALID_STATE) {
+        return isr_result;
+    }
+    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(BOARD_PMU_INTERRUPT,
+                                             power_button_interrupt_handler,
+                                             NULL),
+                        TAG, "power-button interrupt handler failed");
+    ESP_RETURN_ON_ERROR(gpio_wakeup_enable(BOARD_PMU_INTERRUPT,
+                                           GPIO_INTR_LOW_LEVEL),
+                        TAG, "power-button wake source failed");
+    ESP_RETURN_ON_ERROR(esp_sleep_enable_gpio_wakeup(), TAG,
+                        "GPIO light-sleep wake failed");
+    return gpio_intr_enable(BOARD_PMU_INTERRUPT);
+}
+
 static void host_sync(void)
 {
     int result = ble_hs_id_infer_auto(0, &own_address_type);
@@ -1668,7 +1970,8 @@ static void notify_task(void *parameter)
         vTaskDelay(pdMS_TO_TICKS(1000));
         seconds++;
         uint16_t handle = connection_handle;
-        if (handle != BLE_HS_CONN_HANDLE_NONE && rtc_notifications_enabled) {
+        if (handle != BLE_HS_CONN_HANDLE_NONE && rtc_notifications_enabled &&
+            seconds % 60 == 0) {
             int result = ble_gatts_notify(handle, rtc_value_handle);
             if (result != 0 && result != BLE_HS_ENOTCONN) {
                 ESP_LOGD(TAG, "RTC notification skipped: %d", result);
@@ -1724,10 +2027,11 @@ static void touch_task(void *parameter)
     (void)parameter;
     unsigned read_failures = 0;
     for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         if (!touch_ready) {
-            vTaskDelay(pdMS_TO_TICKS(TOUCH_POLL_INTERVAL_MS));
             continue;
         }
+        screen_wake_from_touch();
         bool pressed;
         uint16_t x = 0;
         uint16_t y = 0;
@@ -1737,7 +2041,10 @@ static void touch_task(void *parameter)
                 ESP_LOGW(TAG, "CST9217 read failed: %s",
                          esp_err_to_name(result));
             }
-            vTaskDelay(pdMS_TO_TICKS(TOUCH_POLL_INTERVAL_MS));
+            if (gpio_get_level(BOARD_TOUCH_INTERRUPT) == 0) {
+                vTaskDelay(pdMS_TO_TICKS(TOUCH_POLL_INTERVAL_MS));
+                xTaskNotifyGive(touch_task_handle);
+            }
             continue;
         }
         read_failures = 0;
@@ -1771,7 +2078,6 @@ static void touch_task(void *parameter)
                          notify_result);
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(TOUCH_POLL_INTERVAL_MS));
     }
 }
 
@@ -1912,6 +2218,14 @@ esp_err_t ble_rtc_start(void)
     ESP_RETURN_ON_ERROR(result, TAG, "NVS init failed");
     ESP_RETURN_ON_ERROR(sensor_control_load(), TAG,
                         "sensor preference load failed");
+    esp_err_t system_power_result = system_power_load();
+    if (system_power_result != ESP_OK) {
+        system_power_light_sleep = false;
+        ESP_LOGW(TAG,
+                 "stored ESP32 power state unavailable; continuing with "
+                 "the compiled clock configuration: %s",
+                 esp_err_to_name(system_power_result));
+    }
     ESP_LOGI(TAG, "restoring sensor mask 0x%02x", requested_sensor_mask);
 
     ESP_RETURN_ON_ERROR(axp_initialize_measurement(),
@@ -1954,9 +2268,16 @@ esp_err_t ble_rtc_start(void)
     if (xTaskCreate(imu_task, "imu", 4096, NULL, 6, NULL) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
-    if (xTaskCreate(touch_task, "touch", 3072, NULL, 5, NULL) != pdPASS) {
+    if (xTaskCreate(touch_task, "touch", 3072, NULL, 5,
+                    &touch_task_handle) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
+    if (xTaskCreate(power_button_task, "power_button", 3072, NULL, 5,
+                    &power_button_task_handle) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_RETURN_ON_ERROR(power_button_initialize(), TAG,
+                        "power-button initialization failed");
     if (xTaskCreate(imu_control_task, "imu_control", 4096, NULL, 5,
                     &imu_control_task_handle) != pdPASS) {
         return ESP_ERR_NO_MEM;

@@ -24,10 +24,18 @@
     (CONTOUR_OUTER_INSET_PIXELS + CONTOUR_WIDTH_PIXELS)
 #define CONTOUR_Y_OFFSET_PIXELS 1
 #define TOP_CORNER_RADIUS_EXTRA_PIXELS 3
-#define TIME_TEXT_LENGTH 8
+#define TIME_TEXT_LENGTH 5
 #define DISPLAY_TEXT_GAP_ROWS 28
 #define DISPLAY_TEXT_ROWS \
     (2 * CASCADIA_CODE_GLYPH_HEIGHT + DISPLAY_TEXT_GAP_ROWS)
+#define STATUS_TEXT_SCALE 3
+#define STATUS_CELL_WIDTH \
+    ((CASCADIA_CODE_CELL_WIDTH + STATUS_TEXT_SCALE - 1) / STATUS_TEXT_SCALE)
+#define STATUS_GLYPH_HEIGHT \
+    ((CASCADIA_CODE_GLYPH_HEIGHT + STATUS_TEXT_SCALE - 1) / STATUS_TEXT_SCALE)
+#define SCREEN_IDLE_TICKS pdMS_TO_TICKS(10000)
+#define SCREEN_EVENT_REFRESH (1U << 0)
+#define SCREEN_EVENT_TOUCH   (1U << 1)
 
 typedef struct
 {
@@ -37,6 +45,7 @@ typedef struct
 } display_init_command_t;
 
 static spi_device_handle_t display_spi;
+static TaskHandle_t display_task_handle;
 static volatile uint8_t display_brightness_percentage = 100;
 
 static const display_init_command_t display_init_commands[] = {
@@ -185,6 +194,22 @@ esp_err_t screen_set_brightness(uint8_t percentage)
 uint8_t screen_get_brightness(void)
 {
     return display_brightness_percentage;
+}
+
+void screen_request_refresh(void)
+{
+    if (display_task_handle != NULL)
+    {
+        xTaskNotify(display_task_handle, SCREEN_EVENT_REFRESH, eSetBits);
+    }
+}
+
+void screen_wake_from_touch(void)
+{
+    if (display_task_handle != NULL)
+    {
+        xTaskNotify(display_task_handle, SCREEN_EVENT_TOUCH, eSetBits);
+    }
 }
 
 static void initialize_display(void)
@@ -364,13 +389,8 @@ static void display_pixel_rows(const uint16_t *pixels, int start_y, int rows)
     }
 }
 
-static void draw_validation_pattern(void)
+static void draw_validation_pattern_with_buffer(uint16_t *pixels)
 {
-    const size_t band_pixels = BOARD_DISPLAY_WIDTH * DISPLAY_BAND_ROWS;
-    uint16_t *pixels = heap_caps_malloc(band_pixels * sizeof(*pixels),
-                                        MALLOC_CAP_DMA);
-    ESP_ERROR_CHECK(pixels == NULL ? ESP_ERR_NO_MEM : ESP_OK);
-
     for (int band_y = 0; band_y < BOARD_DISPLAY_HEIGHT;
          band_y += DISPLAY_BAND_ROWS)
     {
@@ -398,7 +418,16 @@ static void draw_validation_pattern(void)
         set_address_window(band_y, rows);
         display_color_band(pixels, pixels_in_band);
     }
+}
 
+static void draw_validation_pattern(void)
+{
+    const size_t band_pixels = BOARD_DISPLAY_WIDTH * DISPLAY_BAND_ROWS;
+    uint16_t *pixels = heap_caps_malloc(band_pixels * sizeof(*pixels),
+                                        MALLOC_CAP_DMA);
+    ESP_ERROR_CHECK(pixels == NULL ? ESP_ERR_NO_MEM : ESP_OK);
+
+    draw_validation_pattern_with_buffer(pixels);
     heap_caps_free(pixels);
 }
 
@@ -460,6 +489,96 @@ static void display_text_band(uint16_t *pixels, const char *text,
     display_pixel_rows(pixels, start_y, CASCADIA_CODE_GLYPH_HEIGHT);
 }
 
+static int status_text_start_x(int start_y)
+{
+    int start_x = 0;
+    for (int y = start_y; y < start_y + STATUS_GLYPH_HEIGHT; y++)
+    {
+        int row_start_x = 0;
+        while (row_start_x < BOARD_DISPLAY_WIDTH &&
+               !pixel_is_safe_content(row_start_x, y))
+        {
+            row_start_x++;
+        }
+        if (row_start_x > start_x)
+        {
+            start_x = row_start_x;
+        }
+    }
+    return start_x;
+}
+
+static bool pixel_is_small_cascadia_text(const char *text, size_t length,
+                                         int start_x, int start_y,
+                                         int x, int y)
+{
+    const int relative_x = x - start_x;
+    const int relative_y = y - start_y;
+    if (relative_x < 0 || relative_y < 0 ||
+        relative_x >= (int)length * STATUS_CELL_WIDTH ||
+        relative_y >= STATUS_GLYPH_HEIGHT)
+    {
+        return false;
+    }
+
+    const int character_index = relative_x / STATUS_CELL_WIDTH;
+    const int glyph_column =
+        (relative_x % STATUS_CELL_WIDTH) * STATUS_TEXT_SCALE;
+    const int glyph_row = relative_y * STATUS_TEXT_SCALE;
+    if (glyph_column >= CASCADIA_CODE_CELL_WIDTH ||
+        glyph_row >= CASCADIA_CODE_GLYPH_HEIGHT)
+    {
+        return false;
+    }
+    const int glyph_index = cascadia_glyph_index(text[character_index]);
+    const uint8_t row_bits =
+        cascadia_code_glyphs[glyph_index][glyph_row][glyph_column / 8];
+    return (row_bits & (1U << (7 - glyph_column % 8))) != 0;
+}
+
+static void display_ble_status(uint16_t *pixels, const char *text)
+{
+    const int start_y = BOARD_DISPLAY_HEIGHT - SAFE_CONTENT_INSET_PIXELS -
+                        3 * STATUS_GLYPH_HEIGHT;
+    const int start_x = status_text_start_x(start_y);
+    const size_t pixel_count = BOARD_DISPLAY_WIDTH * STATUS_GLYPH_HEIGHT;
+    const size_t length = strlen(text);
+    for (size_t i = 0; i < pixel_count; i++)
+    {
+        const int x = i % BOARD_DISPLAY_WIDTH;
+        const int y = start_y + i / BOARD_DISPLAY_WIDTH;
+        const int shape_y = y - CONTOUR_Y_OFFSET_PIXELS;
+        const bool contour =
+            shape_y >= 0 &&
+            pixel_is_safe_at_inset(x, shape_y,
+                                   CONTOUR_OUTER_INSET_PIXELS) &&
+            !pixel_is_safe_content(x, y);
+        const bool text_pixel =
+            pixel_is_safe_content(x, y) &&
+            pixel_is_small_cascadia_text(text, length, start_x, start_y,
+                                         x, y);
+        pixels[i] = text_pixel ? 0xffff : (contour ? 0x1f00 : 0x0000);
+    }
+    display_pixel_rows(pixels, start_y, STATUS_GLYPH_HEIGHT);
+}
+
+static void display_black_screen(uint16_t *pixels)
+{
+    const size_t band_pixels = BOARD_DISPLAY_WIDTH * DISPLAY_BAND_ROWS;
+    memset(pixels, 0, band_pixels * sizeof(*pixels));
+    for (int band_y = 0; band_y < BOARD_DISPLAY_HEIGHT;
+         band_y += DISPLAY_BAND_ROWS)
+    {
+        int rows = BOARD_DISPLAY_HEIGHT - band_y;
+        if (rows > DISPLAY_BAND_ROWS)
+        {
+            rows = DISPLAY_BAND_ROWS;
+        }
+        set_address_window(band_y, rows);
+        display_color_band(pixels, BOARD_DISPLAY_WIDTH * rows);
+    }
+}
+
 static void display_time_task(void *parameter)
 {
     (void)parameter;
@@ -471,15 +590,42 @@ static void display_time_task(void *parameter)
     uint16_t *pixels = heap_caps_malloc(pixel_count * sizeof(*pixels),
                                         MALLOC_CAP_DMA);
     ESP_ERROR_CHECK(pixels == NULL ? ESP_ERR_NO_MEM : ESP_OK);
-    TickType_t last_update = xTaskGetTickCount();
-
+    TickType_t last_touch = xTaskGetTickCount();
+    bool awake = true;
     for (;;)
     {
+        TickType_t now = xTaskGetTickCount();
+        TickType_t idle_elapsed = now - last_touch;
+        if (awake && idle_elapsed >= SCREEN_IDLE_TICKS)
+        {
+            display_black_screen(pixels);
+            awake = false;
+        }
+
+        if (!awake)
+        {
+            uint32_t events = 0;
+            xTaskNotifyWait(0, UINT32_MAX, &events, portMAX_DELAY);
+            if ((events & SCREEN_EVENT_TOUCH) != 0)
+            {
+                last_touch = xTaskGetTickCount();
+                awake = true;
+                draw_validation_pattern_with_buffer(pixels);
+            }
+            continue;
+        }
+
         char payload[20];
-        char time_text[TIME_TEXT_LENGTH + 1] = "--:--:--";
+        char time_text[TIME_TEXT_LENGTH + 1] = "--:--";
+        unsigned seconds = 0;
+        TickType_t next_update = pdMS_TO_TICKS(60000);
         if (ble_rtc_get_time_payload(payload, sizeof(payload)) == ESP_OK)
         {
             memcpy(time_text, payload + 11, TIME_TEXT_LENGTH);
+            if (sscanf(payload + 17, "%u", &seconds) == 1 && seconds < 60)
+            {
+                next_update = pdMS_TO_TICKS((60U - seconds) * 1000U);
+            }
         }
 
         display_text_band(pixels, time_text, TIME_TEXT_LENGTH, time_start_y);
@@ -494,7 +640,26 @@ static void display_time_task(void *parameter)
 
         display_text_band(pixels, battery_text, strlen(battery_text),
                           battery_start_y);
-        vTaskDelayUntil(&last_update, pdMS_TO_TICKS(1000));
+
+        const char *ble_text = ble_rtc_advertising_enabled()
+                                   ? "BLE ON"
+                                   : "BLE OFF";
+        display_ble_status(pixels, ble_text);
+
+        now = xTaskGetTickCount();
+        idle_elapsed = now - last_touch;
+        TickType_t idle_remaining = idle_elapsed >= SCREEN_IDLE_TICKS
+                                        ? 0
+                                        : SCREEN_IDLE_TICKS - idle_elapsed;
+        TickType_t wait_ticks = next_update < idle_remaining
+                                    ? next_update
+                                    : idle_remaining;
+        uint32_t events = 0;
+        if (xTaskNotifyWait(0, UINT32_MAX, &events, wait_ticks) == pdTRUE &&
+            (events & SCREEN_EVENT_TOUCH) != 0)
+        {
+            last_touch = xTaskGetTickCount();
+        }
     }
 }
 
@@ -506,7 +671,8 @@ void app_main(void)
     initialize_display();
     draw_validation_pattern();
     BaseType_t task_result = xTaskCreate(display_time_task, "display_time",
-                                         4096, NULL, 4, NULL);
+                                         4096, NULL, 4,
+                                         &display_task_handle);
     ESP_ERROR_CHECK(task_result == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(ble_rtc_start());
 }

@@ -8,6 +8,7 @@
 #include "driver/uart.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -65,6 +66,7 @@ static bool driver_started;
 static bool uart_installed;
 static volatile bool cancel_requested;
 static TaskHandle_t gps_task_handle;
+static esp_pm_lock_handle_t gps_sleep_lock;
 
 static void write_uint32_le(uint8_t *output, uint32_t value)
 {
@@ -409,6 +411,17 @@ esp_err_t gps_initialize(void)
         return ESP_ERR_INVALID_STATE;
     }
     cancel_requested = false;
+    esp_err_t result = esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0,
+                                          "gps_uart", &gps_sleep_lock);
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = esp_pm_lock_acquire(gps_sleep_lock);
+    if (result != ESP_OK) {
+        esp_pm_lock_delete(gps_sleep_lock);
+        gps_sleep_lock = NULL;
+        return result;
+    }
     const uart_config_t uart_config = {
         .baud_rate = GPS_INITIAL_BAUD,
         .data_bits = UART_DATA_8_BITS,
@@ -417,18 +430,21 @@ esp_err_t gps_initialize(void)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .source_clk = UART_SCLK_DEFAULT,
     };
-    esp_err_t result = uart_param_config(BOARD_GPS_UART, &uart_config);
+    result = uart_param_config(BOARD_GPS_UART, &uart_config);
     if (result != ESP_OK) {
+        gps_deinitialize();
         return result;
     }
     result = uart_set_pin(BOARD_GPS_UART, BOARD_GPS_TX, BOARD_GPS_RX,
                           UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     if (result != ESP_OK) {
+        gps_deinitialize();
         return result;
     }
     result = uart_driver_install(BOARD_GPS_UART, GPS_UART_BUFFER_SIZE,
                                  GPS_UART_BUFFER_SIZE, 0, NULL, 0);
     if (result != ESP_OK) {
+        gps_deinitialize();
         return result;
     }
     uart_installed = true;
@@ -478,6 +494,14 @@ esp_err_t gps_deinitialize(void)
     if (uart_installed) {
         result = uart_driver_delete(BOARD_GPS_UART);
         uart_installed = false;
+    }
+    if (gps_sleep_lock != NULL) {
+        esp_err_t release_result = esp_pm_lock_release(gps_sleep_lock);
+        if (result == ESP_OK) {
+            result = release_result;
+        }
+        esp_pm_lock_delete(gps_sleep_lock);
+        gps_sleep_lock = NULL;
     }
     portENTER_CRITICAL(&status_lock);
     memset(&current_status, 0, sizeof(current_status));
