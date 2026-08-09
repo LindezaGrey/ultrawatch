@@ -46,6 +46,13 @@ extern "C" {
 esp_err_t co5300_init(void);
 esp_err_t co5300_deinit(void);
 
+/* Access to the underlying esp_lcd SH8601 panel / panel IO handles (for
+ * integration with LVGL via esp_lvgl_adapter). */
+#include "esp_lcd_panel_io.h"
+#include "esp_lcd_panel_ops.h"
+esp_lcd_panel_handle_t co5300_get_panel(void);
+esp_lcd_panel_io_handle_t co5300_get_panel_io(void);
+
 /* Draw an inclusive rectangle (x0,y0)-(x1,y1) from RGB565 pixels. */
 esp_err_t co5300_draw_bitmap(int x0, int y0, int x1, int y1, const void *pixdata);
 

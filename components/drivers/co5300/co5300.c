@@ -16,6 +16,7 @@ static const char *TAG = "co5300";
 #define CO5300_BAND_H     48   /* even fill-band height */
 
 static esp_lcd_panel_handle_t s_panel = NULL;
+static esp_lcd_panel_io_handle_t s_panel_io = NULL;
 static bool s_initialized = false;
 
 /* The CO5300 panel samples RGB565 big-endian (high byte first); our color
@@ -46,9 +47,9 @@ esp_err_t co5300_init(void)
                                                                  CO5300_RES_X * 80 * sizeof(uint16_t));
     ESP_RETURN_ON_ERROR(spi_bus_initialize(CO5300_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO), TAG, "spi bus init");
 
-    esp_lcd_panel_io_handle_t io_handle = NULL;
-    const esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(CO5300_PIN_CS, NULL, NULL);
-    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)CO5300_SPI_HOST, &io_config, &io_handle),
+    esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(CO5300_PIN_CS, NULL, NULL);
+    io_config.pclk_hz = 80 * 1000 * 1000;   /* ESP32-S3 SPI max; panel proven at 80 MHz by factory fw */
+    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)CO5300_SPI_HOST, &io_config, &s_panel_io),
                         TAG, "panel io init");
 
     sh8601_vendor_config_t vendor_config = {
@@ -64,7 +65,7 @@ esp_err_t co5300_init(void)
         .bits_per_pixel = 16,
         .vendor_config = &vendor_config,
     };
-    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_sh8601(io_handle, &panel_config, &s_panel), TAG, "panel driver init");
+    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_sh8601(s_panel_io, &panel_config, &s_panel), TAG, "panel driver init");
 
     ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "panel reset");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "panel init");
@@ -131,4 +132,14 @@ esp_err_t co5300_fill(uint16_t color)
         }
     }
     return ESP_OK;
+}
+
+esp_lcd_panel_handle_t co5300_get_panel(void)
+{
+    return s_panel;
+}
+
+esp_lcd_panel_io_handle_t co5300_get_panel_io(void)
+{
+    return s_panel_io;
 }
