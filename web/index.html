@@ -538,14 +538,23 @@
         characteristics.imu.addEventListener('characteristicvaluechanged', notificationHandler(showImu));
         characteristics.touch.addEventListener('characteristicvaluechanged', notificationHandler(showTouch));
         characteristics.gps.addEventListener('characteristicvaluechanged', notificationHandler(showGps));
-        await Promise.all([characteristics.rtc.startNotifications(), characteristics.power.startNotifications(),
-          characteristics.imu.startNotifications(), characteristics.touch.startNotifications(),
-          characteristics.gps.startNotifications()]);
+        const notificationCharacteristics = [
+          characteristics.rtc, characteristics.power, characteristics.imu,
+          characteristics.touch, characteristics.gps
+        ];
+        // Android Web Bluetooth rejects overlapping GATT procedures.
+        for (const characteristic of notificationCharacteristics) {
+          await characteristic.startNotifications();
+        }
         setConnected(true);
-        const [rtcReady, powerReady, configReady, imuReady, screenReady, touchReady, gpsReady, hapticReady] = await Promise.all([
-          readTime(false), readPower(false), readPowerConfig(false), readImu(false), readScreen(false), readTouch(false),
-          readGps(false), readHaptic(false)
-        ]);
+        const rtcReady = await readTime(false);
+        const powerReady = await readPower(false);
+        const configReady = await readPowerConfig(false);
+        const imuReady = await readImu(false);
+        const screenReady = await readScreen(false);
+        const touchReady = await readTouch(false);
+        const gpsReady = await readGps(false);
+        const hapticReady = await readHaptic(false);
         if (rtcReady && powerReady && configReady && imuReady && screenReady && touchReady && gpsReady && hapticReady) {
           ui.message.textContent = 'Live sensor updates enabled.';
         } else if (!rtcReady) {
@@ -699,7 +708,8 @@
         } else {
           await characteristics.powerConfig.writeValue(payload);
         }
-        await Promise.all([readPowerConfig(false), readPower(false)]);
+        await readPowerConfig(false);
+        await readPower(false);
         ui.message.textContent = `Charge settings applied and verified: ${value}.`;
       } catch (error) {
         ui.message.textContent = `Charge settings write failed: ${error.message}`;
