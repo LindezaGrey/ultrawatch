@@ -1,0 +1,26 @@
+# ESP-IDF build artifacts
+build/
+sdkconfig
+sdkconfig.old
+*.elf
+*.bin
+*.map
+
+# ESP-IDF component manager managed components
+managed_components/
+
+# SD card mount / logs
+sdcard/
+
+# OpenOCD / tooling temp files
+openocd.log
+.gdb_history
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Stray opencode session note
+session.txt

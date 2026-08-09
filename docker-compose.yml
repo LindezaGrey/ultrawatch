@@ -1,0 +1,19 @@
+services:
+  esp-idf:
+    build: .
+    image: uwatch-esp-idf:v6.0.2
+    working_dir: /project
+    environment:
+      - ESPPORT=/dev/ttyACM0
+    volumes:
+      - .:/project
+      - ${HOME}/.espressif:/root/.espressif
+    devices:
+      - /dev/ttyACM0
+    privileged: true
+    ports:
+      - "3333:3333"   # OpenOCD GDB server
+      - "5039:5039"   # idf.py monitor
+    stdin_open: true
+    tty: true
+    command: tail -f /dev/null
