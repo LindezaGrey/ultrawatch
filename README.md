@@ -1,8 +1,8 @@
-# T-Watch Ultra RTC over BLE
+# T-Watch Ultra sensors over BLE
 
 Displays the PCF85063A clock and AXP2101 charge level in Cascadia Code inside
-the validated blue safe-area contour, and exposes both sensors over Bluetooth
-Low Energy.
+the validated blue safe-area contour, and exposes the clock, power management,
+and BHI260AP orientation over Bluetooth Low Energy.
 
 - Device name: `UltraWatch`
 - Service: `7a1e0001-7a1e-4b6c-8d9e-001122334455`
@@ -13,6 +13,14 @@ Low Energy.
 - Charge configuration: `7a1e0004-7a1e-4b6c-8d9e-001122334455`, read/write.
   Reads return `charge_milliamps,input_milliamps,charge_millivolts,enabled`;
   writes accept `charge_milliamps,input_milliamps,enabled`.
+- IMU orientation: `7a1e0005-7a1e-4b6c-8d9e-001122334455`, read/notify at
+  25 Hz. Its 10-byte little-endian payload contains signed 16-bit
+  `x,y,z,w,accuracy` values. Divide every value by 16384; accuracy is in
+  radians. The game rotation vector uses accelerometer and gyroscope fusion,
+  so inclination is absolute while heading is relative and may drift.
+  The browser converts the BHI coordinate system (`Z` out of the display) to
+  the Three.js scene coordinate system (`Y` up), then applies a fixed 90°
+  clockwise preview offset before rotating the model.
 
 Power direction values are `0` standby, `1` charging, `2` discharging, and `3`
 reserved/unknown. `vbus` and `present` are `0` or `1`.
@@ -26,6 +34,12 @@ persisted across a PMIC power-on reset.
 The RTC stores local calendar time only; the payload has no timezone or UTC
 offset. Its hardware year range is represented here as 2000 through 2099. This
 minimal iteration does not require BLE pairing or an encrypted connection.
+
+The BHI260AP is initialized with Bosch's BHI2xy SensorAPI v1.6.0 and its stock
+RAM firmware. The vendored driver, firmware image, and BSD-3-Clause license are
+under `firmware/main/vendor/bhy2/`. Firmware loading failures are logged without
+restarting the watch, so RTC and power remain usable instead of causing a boot
+loop.
 
 The firmware embeds only the Cascadia Code glyphs required by the clock and
 percentage display. They are generated from `CascadiaCode-Regular.otf` with
@@ -58,7 +72,8 @@ python3 -m venv .venv && .venv/bin/pip install esptool==4.12.0
 ```
 
 Serve the minimal Web Bluetooth client from localhost, then open it in a
-Chromium-based browser:
+Chromium-based browser. The IMU demo imports Three.js 0.185.1 as an ES module
+from jsDelivr, so the browser also needs internet access:
 
 ```sh
 python3 -m http.server 8000 --directory web

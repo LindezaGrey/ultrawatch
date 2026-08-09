@@ -6,10 +6,13 @@
 #include <string.h>
 
 #include "board.h"
+#include "bhy2.h"
+#include "bhy2_parse.h"
 #include "driver/i2c.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -31,6 +34,9 @@
 #define POWER_PAYLOAD_MAX_LENGTH 20
 #define POWER_CONFIG_PAYLOAD_MAX_LENGTH 20
 #define POWER_CONFIG_WRITE_MAX_LENGTH 12
+#define IMU_PAYLOAD_LENGTH 10
+#define IMU_FIFO_BUFFER_SIZE 1024
+#define IMU_SAMPLE_RATE_HZ 25.0f
 
 #define AXP_STATUS1_REGISTER       0x00
 #define AXP_STATUS2_REGISTER       0x01
@@ -75,6 +81,11 @@ static const ble_uuid128_t power_config_characteristic_uuid = BLE_UUID128_INIT(
     0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
     0x6c, 0x4b, 0x1e, 0x7a, 0x04, 0x00, 0x1e, 0x7a);
 
+/* 7a1e0005-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t imu_characteristic_uuid = BLE_UUID128_INIT(
+    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+    0x6c, 0x4b, 0x1e, 0x7a, 0x05, 0x00, 0x1e, 0x7a);
+
 typedef struct {
     int year;
     int month;
@@ -95,9 +106,22 @@ static SemaphoreHandle_t i2c_mutex;
 static uint8_t own_address_type;
 static uint16_t rtc_value_handle;
 static uint16_t power_value_handle;
+static uint16_t imu_value_handle;
 static volatile uint16_t connection_handle = BLE_HS_CONN_HANDLE_NONE;
 static volatile bool rtc_notifications_enabled;
 static volatile bool power_notifications_enabled;
+static volatile bool imu_notifications_enabled;
+static volatile bool imu_ready;
+static volatile bool imu_sample_available;
+static bool imu_first_sample_logged;
+static portMUX_TYPE imu_lock = portMUX_INITIALIZER_UNLOCKED;
+static struct bhy2_dev imu_device;
+static struct bhy2_data_quaternion imu_quaternion = { .w = 16384 };
+
+extern const uint8_t
+    bhi260_firmware_start[] asm("_binary_BHI260AP_fw_start");
+extern const uint8_t
+    bhi260_firmware_end[] asm("_binary_BHI260AP_fw_end");
 
 static uint8_t decimal_to_bcd(int value)
 {
@@ -141,6 +165,168 @@ static esp_err_t i2c_write_registers(uint8_t address, uint8_t reg,
                                         portMAX_DELAY);
     xSemaphoreGive(i2c_mutex);
     return result;
+}
+
+static int8_t bhi260_i2c_read(uint8_t reg, uint8_t *data, uint32_t length,
+                              void *interface)
+{
+    (void)interface;
+    return i2c_read_registers(BOARD_BHI260_ADDR, reg, data, length) == ESP_OK
+               ? BHY2_INTF_RET_SUCCESS
+               : -1;
+}
+
+static int8_t bhi260_i2c_write(uint8_t reg, const uint8_t *data,
+                               uint32_t length, void *interface)
+{
+    (void)interface;
+    if (length > 256) {
+        return -1;
+    }
+
+    uint8_t buffer[257];
+    buffer[0] = reg;
+    memcpy(buffer + 1, data, length);
+
+    xSemaphoreTake(i2c_mutex, portMAX_DELAY);
+    esp_err_t result = i2c_master_write_to_device(
+        BOARD_I2C_PORT, BOARD_BHI260_ADDR, buffer, length + 1,
+        portMAX_DELAY);
+    xSemaphoreGive(i2c_mutex);
+    return result == ESP_OK ? BHY2_INTF_RET_SUCCESS : -1;
+}
+
+static void bhi260_delay_us(uint32_t period_us, void *interface)
+{
+    (void)interface;
+    esp_rom_delay_us(period_us);
+}
+
+static void imu_fifo_callback(
+    const struct bhy2_fifo_parse_data_info *callback_info, void *reference)
+{
+    (void)reference;
+    if (callback_info->data_size != 11) {
+        return;
+    }
+
+    struct bhy2_data_quaternion sample;
+    bhy2_parse_quaternion(callback_info->data_ptr, &sample);
+    portENTER_CRITICAL(&imu_lock);
+    imu_quaternion = sample;
+    imu_sample_available = true;
+    portEXIT_CRITICAL(&imu_lock);
+    if (!imu_first_sample_logged) {
+        imu_first_sample_logged = true;
+        ESP_LOGI(TAG, "BHI260 first quaternion: x=%d y=%d z=%d w=%d",
+                 sample.x, sample.y, sample.z, sample.w);
+    }
+}
+
+static esp_err_t bhi260_initialize(void)
+{
+    gpio_config_t interrupt_config = {
+        .pin_bit_mask = 1ULL << BOARD_BHI260_INTERRUPT,
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&interrupt_config), TAG,
+                        "IMU interrupt GPIO setup failed");
+
+    int8_t result = bhy2_init(BHY2_I2C_INTERFACE, bhi260_i2c_read,
+                              bhi260_i2c_write, bhi260_delay_us, 256, NULL,
+                              &imu_device);
+    if (result != BHY2_OK) {
+        return ESP_FAIL;
+    }
+    if (bhy2_soft_reset(&imu_device) != BHY2_OK) {
+        return ESP_FAIL;
+    }
+
+    uint8_t product_id = 0;
+    uint8_t boot_status = 0;
+    if (bhy2_get_product_id(&product_id, &imu_device) != BHY2_OK ||
+        product_id != BHY2_PRODUCT_ID ||
+        bhy2_get_boot_status(&boot_status, &imu_device) != BHY2_OK ||
+        !(boot_status & BHY2_BST_HOST_INTERFACE_READY)) {
+        ESP_LOGE(TAG, "BHI260 not ready (product 0x%02x, boot 0x%02x)",
+                 product_id, boot_status);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    uint8_t interrupt_control =
+        BHY2_ICTL_DISABLE_STATUS_FIFO | BHY2_ICTL_DISABLE_DEBUG;
+    if (bhy2_set_host_interrupt_ctrl(interrupt_control, &imu_device) !=
+            BHY2_OK ||
+        bhy2_set_host_intf_ctrl(0, &imu_device) != BHY2_OK) {
+        return ESP_FAIL;
+    }
+
+    size_t firmware_length = bhi260_firmware_end - bhi260_firmware_start;
+    ESP_LOGI(TAG, "uploading %u-byte BHI260 firmware",
+             (unsigned)firmware_length);
+    if (bhy2_upload_firmware_to_ram(bhi260_firmware_start, firmware_length,
+                                    &imu_device) != BHY2_OK ||
+        bhy2_boot_from_ram(&imu_device) != BHY2_OK) {
+        return ESP_FAIL;
+    }
+
+    uint16_t kernel_version = 0;
+    if (bhy2_get_kernel_version(&kernel_version, &imu_device) != BHY2_OK ||
+        kernel_version == 0) {
+        return ESP_FAIL;
+    }
+    const struct bhy2_orient_matrix watch_mount = {
+        .c = {-1, 0, 0, 0, -1, 0, 0, 0, 1},
+    };
+    if (bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_GAMERV,
+                                           imu_fifo_callback, NULL,
+                                           &imu_device) != BHY2_OK ||
+        bhy2_update_virtual_sensor_list(&imu_device) != BHY2_OK ||
+        bhy2_set_orientation_matrix(BHY2_PHYS_SENSOR_ID_ACCELEROMETER,
+                                    watch_mount, &imu_device) != BHY2_OK ||
+        bhy2_set_orientation_matrix(BHY2_PHYS_SENSOR_ID_GYROSCOPE,
+                                    watch_mount, &imu_device) != BHY2_OK ||
+        bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_GAMERV, IMU_SAMPLE_RATE_HZ,
+                                 0, &imu_device) != BHY2_OK) {
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "BHI260 ready: kernel %u, game rotation vector %.0f Hz",
+             kernel_version, IMU_SAMPLE_RATE_HZ);
+    imu_ready = true;
+    return ESP_OK;
+}
+
+static void encode_int16_le(uint8_t *output, int16_t value)
+{
+    output[0] = (uint8_t)value;
+    output[1] = (uint8_t)((uint16_t)value >> 8);
+}
+
+static void encode_uint16_le(uint8_t *output, uint16_t value)
+{
+    output[0] = (uint8_t)value;
+    output[1] = (uint8_t)(value >> 8);
+}
+
+static bool imu_get_payload(uint8_t output[IMU_PAYLOAD_LENGTH])
+{
+    struct bhy2_data_quaternion sample;
+    if (!imu_ready || !imu_sample_available) {
+        return false;
+    }
+    portENTER_CRITICAL(&imu_lock);
+    sample = imu_quaternion;
+    portEXIT_CRITICAL(&imu_lock);
+    encode_int16_le(output, sample.x);
+    encode_int16_le(output + 2, sample.y);
+    encode_int16_le(output + 4, sample.z);
+    encode_int16_le(output + 6, sample.w);
+    encode_uint16_le(output + 8, sample.accuracy);
+    return true;
 }
 
 static esp_err_t rtc_read_registers(uint8_t reg, uint8_t *data, size_t length)
@@ -621,6 +807,25 @@ static int power_config_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+static int imu_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
+                           struct ble_gatt_access_ctxt *context, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (context->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    }
+
+    uint8_t payload[IMU_PAYLOAD_LENGTH];
+    if (!imu_get_payload(payload)) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    return os_mbuf_append(context->om, payload, sizeof(payload)) == 0
+               ? 0
+               : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
 static const struct ble_gatt_svc_def rtc_gatt_services[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -643,6 +848,12 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
                 .uuid = &power_config_characteristic_uuid.u,
                 .access_cb = power_config_gatt_access,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+            },
+            {
+                .uuid = &imu_characteristic_uuid.u,
+                .access_cb = imu_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .val_handle = &imu_value_handle,
             },
             {0},
         },
@@ -668,6 +879,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         connection_handle = BLE_HS_CONN_HANDLE_NONE;
         rtc_notifications_enabled = false;
         power_notifications_enabled = false;
+        imu_notifications_enabled = false;
         ESP_LOGI(TAG, "BLE client disconnected");
         start_advertising();
         return 0;
@@ -676,6 +888,8 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             rtc_notifications_enabled = event->subscribe.cur_notify;
         } else if (event->subscribe.attr_handle == power_value_handle) {
             power_notifications_enabled = event->subscribe.cur_notify;
+        } else if (event->subscribe.attr_handle == imu_value_handle) {
+            imu_notifications_enabled = event->subscribe.cur_notify;
         }
         return 0;
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -765,6 +979,35 @@ static void notify_task(void *parameter)
     }
 }
 
+static void imu_task(void *parameter)
+{
+    (void)parameter;
+    uint8_t work_buffer[IMU_FIFO_BUFFER_SIZE];
+    for (;;) {
+        if (imu_ready &&
+            gpio_get_level(BOARD_BHI260_INTERRUPT) != 0) {
+            int8_t result = bhy2_get_and_process_fifo(
+                work_buffer, sizeof(work_buffer), &imu_device);
+            if (result != BHY2_OK) {
+                ESP_LOGW(TAG, "BHI260 FIFO read failed: %d", result);
+            } else {
+                uint16_t handle = connection_handle;
+                if (handle != BLE_HS_CONN_HANDLE_NONE &&
+                    imu_notifications_enabled && imu_sample_available) {
+                    int notify_result = ble_gatts_notify(handle,
+                                                         imu_value_handle);
+                    if (notify_result != 0 &&
+                        notify_result != BLE_HS_ENOTCONN) {
+                        ESP_LOGD(TAG, "IMU notification skipped: %d",
+                                 notify_result);
+                    }
+                }
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
 esp_err_t ble_rtc_initialize(void)
 {
     i2c_mutex = xSemaphoreCreateMutex();
@@ -792,6 +1035,11 @@ esp_err_t ble_rtc_initialize(void)
     } else {
         ESP_LOGW(TAG, "power configuration unavailable: %s",
                  esp_err_to_name(config_result));
+    }
+    esp_err_t imu_result = bhi260_initialize();
+    if (imu_result != ESP_OK) {
+        ESP_LOGW(TAG, "IMU unavailable; RTC and power remain active: %s",
+                 esp_err_to_name(imu_result));
     }
     return ESP_OK;
 }
@@ -822,6 +1070,9 @@ esp_err_t ble_rtc_start(void)
     ble_hs_cfg.sync_cb = host_sync;
     nimble_port_freertos_init(host_task);
     if (xTaskCreate(notify_task, "rtc_notify", 3072, NULL, 5, NULL) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xTaskCreate(imu_task, "imu", 4096, NULL, 6, NULL) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;

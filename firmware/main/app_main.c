@@ -128,6 +128,26 @@ static void enable_display_power(void)
     vTaskDelay(pdMS_TO_TICKS(20));
 }
 
+static void enable_sensor_power(void)
+{
+    uint8_t voltage;
+    uint8_t ldo_enable;
+
+    ESP_ERROR_CHECK(i2c_read_register(BOARD_AXP2101_ADDR,
+                                      BOARD_AXP2101_ALDO4_VOLTAGE, &voltage));
+    /* ALDO4 powers the BHI260AP: 0.5 V + 13 * 0.1 V = 1.8 V. */
+    voltage = (voltage & 0xe0) | 13;
+    ESP_ERROR_CHECK(i2c_write_register(BOARD_AXP2101_ADDR,
+                                       BOARD_AXP2101_ALDO4_VOLTAGE, voltage));
+
+    ESP_ERROR_CHECK(i2c_read_register(BOARD_AXP2101_ADDR,
+                                      BOARD_AXP2101_LDO_ENABLE, &ldo_enable));
+    ldo_enable |= 1U << BOARD_AXP2101_ALDO4_BIT;
+    ESP_ERROR_CHECK(i2c_write_register(BOARD_AXP2101_ADDR,
+                                       BOARD_AXP2101_LDO_ENABLE, ldo_enable));
+    vTaskDelay(pdMS_TO_TICKS(50));
+}
+
 static void display_command(uint8_t command, const uint8_t *parameters,
                             size_t length)
 {
@@ -444,6 +464,7 @@ static void display_time_task(void *parameter)
 void app_main(void)
 {
     initialize_i2c();
+    enable_sensor_power();
     ESP_ERROR_CHECK(ble_rtc_initialize());
     enable_display_power();
     initialize_display();

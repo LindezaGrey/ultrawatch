@@ -52,10 +52,17 @@
     .settings { display: grid; grid-template-columns: repeat(2, 1fr); gap: .8rem; }
     .setting output { display: block; min-height: 2.7rem; padding: .7rem; border: 1px solid #333; border-radius: .45rem; background: #141414; }
     .toggle { display: flex; align-items: center; gap: .6rem; min-height: 2.7rem; margin: 0; padding: .7rem; border: 1px solid #333; border-radius: .45rem; background: #141414; }
+    .imu-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(12rem, .8fr); gap: 1rem; margin-top: 1rem; }
+    .imu-scene { position: relative; min-height: 22rem; overflow: hidden; border: 1px solid #2d2d2d; border-radius: .65rem; background: radial-gradient(circle at 50% 35%, #252525, #111 70%); }
+    .imu-scene canvas { display: block; width: 100%; height: 100%; }
+    .scene-label { position: absolute; left: .8rem; bottom: .7rem; color: #777; font: .72rem ui-monospace, monospace; pointer-events: none; }
+    .quaternion { display: grid; grid-template-columns: repeat(2, 1fr); gap: .65rem; align-content: start; }
+    .quaternion .metric:last-child { grid-column: 1 / -1; }
     #message { min-height: 1.3em; margin: .8rem 0 0; font-size: .85rem; }
     @media (max-width: 34rem) {
       .heading, .connection { align-items: flex-start; flex-direction: column; }
-      .metrics, .settings { grid-template-columns: 1fr; }
+      .metrics, .settings, .imu-layout { grid-template-columns: 1fr; }
+      .imu-scene { min-height: 18rem; }
     }
   </style>
 </head>
@@ -69,7 +76,7 @@
       <nav aria-label="Sensors">
         <a href="#rtc">RTC</a>
         <a href="#power">Battery &amp; power</a>
-        <span class="upcoming">Motion · soon</span>
+        <a href="#imu">IMU</a>
         <span class="upcoming">GPS · soon</span>
       </nav>
     </div>
@@ -147,6 +154,25 @@
         </div>
       </div>
     </section>
+
+    <section id="imu" class="sensor">
+      <header><h2>IMU orientation</h2><span class="tag">read · 25 Hz notify</span></header>
+      <div class="imu-layout">
+        <div id="imuScene" class="imu-scene" aria-label="3D watch orientation">
+          <span class="scene-label">Drag-free live view · relative heading</span>
+        </div>
+        <div>
+          <div class="quaternion">
+            <div class="metric"><span>Quaternion X</span><strong id="imuX">--</strong></div>
+            <div class="metric"><span>Quaternion Y</span><strong id="imuY">--</strong></div>
+            <div class="metric"><span>Quaternion Z</span><strong id="imuZ">--</strong></div>
+            <div class="metric"><span>Quaternion W</span><strong id="imuW">--</strong></div>
+            <div class="metric"><span>Fusion mode</span><strong id="imuAccuracy">Game rotation vector</strong></div>
+          </div>
+          <div class="buttons"><button id="readImu" data-connected disabled>Read orientation</button></div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -154,7 +180,8 @@
     const CHAR_UUID = {
       rtc: '7a1e0002-7a1e-4b6c-8d9e-001122334455',
       power: '7a1e0003-7a1e-4b6c-8d9e-001122334455',
-      powerConfig: '7a1e0004-7a1e-4b6c-8d9e-001122334455'
+      powerConfig: '7a1e0004-7a1e-4b6c-8d9e-001122334455',
+      imu: '7a1e0005-7a1e-4b6c-8d9e-001122334455'
     };
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -162,7 +189,8 @@
       'dateTime', 'readTime', 'browserTime', 'writeTime', 'percentage',
       'batteryPresence', 'batteryFill', 'voltage', 'powerState',
       'externalPower', 'readPower', 'chargeCurrent', 'inputCurrent',
-      'chargeVoltage', 'chargerEnabled', 'readPowerConfig', 'writePowerConfig'];
+      'chargeVoltage', 'chargerEnabled', 'readPowerConfig', 'writePowerConfig',
+      'imuX', 'imuY', 'imuZ', 'imuW', 'imuAccuracy', 'readImu'];
     const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
     let device = null;
@@ -231,6 +259,24 @@
       ui.chargerEnabled.checked = Boolean(chargerEnabled);
     }
 
+    function showImu(dataView) {
+      if (dataView.byteLength !== 10) throw new Error('Unexpected IMU payload length');
+      const values = Array.from({ length: 4 }, (_, index) =>
+        dataView.getInt16(index * 2, true));
+      const quaternion = values.map(value => value / 16384);
+      const norm = Math.hypot(...quaternion);
+      if (norm < .5 || norm > 1.5) throw new Error('Invalid IMU quaternion');
+      const [x, y, z, w] = quaternion.map(value => value / norm);
+      [ui.imuX.textContent, ui.imuY.textContent, ui.imuZ.textContent, ui.imuW.textContent] =
+        [x, y, z, w].map(value => value.toFixed(4));
+      const accuracyDegrees = dataView.getUint16(8, true) * 180 / (16384 * Math.PI);
+      ui.imuAccuracy.textContent = accuracyDegrees > 0
+        ? `±${accuracyDegrees.toFixed(1)}°`
+        : 'Game rotation vector';
+      window.latestWatchQuaternion = { x, y, z, w };
+      window.applyWatchQuaternion?.(window.latestWatchQuaternion);
+    }
+
     function notificationHandler(parser) {
       return event => {
         try { parser(event.target.value); }
@@ -258,21 +304,26 @@
         characteristics.rtc = await service.getCharacteristic(CHAR_UUID.rtc);
         characteristics.power = await service.getCharacteristic(CHAR_UUID.power);
         characteristics.powerConfig = await service.getCharacteristic(CHAR_UUID.powerConfig);
+        characteristics.imu = await service.getCharacteristic(CHAR_UUID.imu);
         characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
         characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
-        await Promise.all([characteristics.rtc.startNotifications(), characteristics.power.startNotifications()]);
+        characteristics.imu.addEventListener('characteristicvaluechanged', notificationHandler(showImu));
+        await Promise.all([characteristics.rtc.startNotifications(), characteristics.power.startNotifications(),
+          characteristics.imu.startNotifications()]);
         setConnected(true);
-        const [rtcReady, powerReady, configReady] = await Promise.all([
-          readTime(false), readPower(false), readPowerConfig(false)
+        const [rtcReady, powerReady, configReady, imuReady] = await Promise.all([
+          readTime(false), readPower(false), readPowerConfig(false), readImu(false)
         ]);
-        if (rtcReady && powerReady && configReady) {
+        if (rtcReady && powerReady && configReady && imuReady) {
           ui.message.textContent = 'Live sensor updates enabled.';
         } else if (!rtcReady) {
           ui.message.textContent = 'RTC unavailable. Set the browser time first.';
         } else if (!powerReady) {
           ui.message.textContent = 'Power data is currently unavailable.';
-        } else {
+        } else if (!configReady) {
           ui.message.textContent = 'Charge settings are currently unavailable.';
+        } else {
+          ui.message.textContent = 'IMU data is currently unavailable.';
         }
       } catch (error) {
         ui.message.textContent = `Connection failed: ${error.message}`;
@@ -307,6 +358,16 @@
         return true;
       } catch (error) {
         if (reportError) ui.message.textContent = `Charge settings read failed: ${error.message}`;
+        return false;
+      }
+    }
+
+    async function readImu(reportError = true) {
+      try {
+        showImu(await characteristics.imu.readValue());
+        return true;
+      } catch (error) {
+        if (reportError) ui.message.textContent = `IMU read failed: ${error.message}`;
         return false;
       }
     }
@@ -364,9 +425,78 @@
     ui.readPower.addEventListener('click', readPower);
     ui.readPowerConfig.addEventListener('click', readPowerConfig);
     ui.writePowerConfig.addEventListener('click', writePowerConfig);
+    ui.readImu.addEventListener('click', readImu);
     ui.browserTime.addEventListener('click', () => setTime(localDateTime(new Date())));
     ui.writeTime.addEventListener('click', () => setTime(ui.dateTime.value));
     setConnected(false);
+  </script>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js';
+
+    const container = document.getElementById('imuScene');
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(34, 1, .1, 100);
+    camera.position.set(4.6, 3.4, 6.8);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    container.prepend(renderer.domElement);
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x202020, 2.2));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 3);
+    keyLight.position.set(3, 5, 6);
+    scene.add(keyLight);
+
+    const watch = new THREE.Group();
+    const caseMaterial = new THREE.MeshStandardMaterial({ color: 0x363636, metalness: .75, roughness: .28 });
+    const screenMaterial = new THREE.MeshStandardMaterial({ color: 0x050505, metalness: .1, roughness: .15 });
+    const strapMaterial = new THREE.MeshStandardMaterial({ color: 0x171717, roughness: .7 });
+    const caseMesh = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.7, .34), caseMaterial);
+    const screen = new THREE.Mesh(new THREE.BoxGeometry(1.9, 2.38, .055), screenMaterial);
+    screen.position.z = .195;
+    const topStrap = new THREE.Mesh(new THREE.BoxGeometry(1.15, 2.4, .16), strapMaterial);
+    const bottomStrap = topStrap.clone();
+    topStrap.position.set(0, 2.48, -.04);
+    bottomStrap.position.set(0, -2.48, -.04);
+    watch.add(caseMesh, screen, topStrap, bottomStrap);
+    scene.add(watch);
+
+    const axes = new THREE.AxesHelper(2.3);
+    scene.add(axes);
+    const grid = new THREE.GridHelper(10, 10, 0x444444, 0x292929);
+    grid.position.y = -3.8;
+    scene.add(grid);
+
+    /* BHI world axes are X=east, Y=north, Z=up; Three.js uses Y=up. */
+    const sensorWorldToScene = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+    const previewYaw = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 1, 0), -Math.PI / 2);
+    const sceneBasis = previewYaw.clone().multiply(sensorWorldToScene);
+    const target = sceneBasis.clone();
+    const sensorQuaternion = new THREE.Quaternion();
+    window.applyWatchQuaternion = ({ x, y, z, w }) => {
+      sensorQuaternion.set(x, y, z, w).normalize();
+      target.copy(sceneBasis).multiply(sensorQuaternion).normalize();
+    };
+    if (window.latestWatchQuaternion) window.applyWatchQuaternion(window.latestWatchQuaternion);
+
+    function resize() {
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(container);
+    resize();
+
+    renderer.setAnimationLoop(() => {
+      watch.quaternion.slerp(target, .22);
+      renderer.render(scene, camera);
+    });
   </script>
 </body>
 </html>
