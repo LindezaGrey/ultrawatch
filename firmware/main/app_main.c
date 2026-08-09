@@ -29,7 +29,8 @@
 #define DISPLAY_TEXT_ROWS \
     (2 * CASCADIA_CODE_GLYPH_HEIGHT + DISPLAY_TEXT_GAP_ROWS)
 
-typedef struct {
+typedef struct
+{
     uint8_t command;
     uint8_t parameters[4];
     uint8_t length;
@@ -165,11 +166,13 @@ static esp_err_t display_command(uint8_t command, const uint8_t *parameters,
     };
 
     esp_err_t result = spi_device_acquire_bus(display_spi, portMAX_DELAY);
-    if (result != ESP_OK) {
+    if (result != ESP_OK)
+    {
         return result;
     }
     result = spi_device_polling_transmit(display_spi, &command_transaction);
-    if (result == ESP_OK && length != 0) {
+    if (result == ESP_OK && length != 0)
+    {
         result = spi_device_polling_transmit(display_spi,
                                              &parameter_transaction);
     }
@@ -179,17 +182,20 @@ static esp_err_t display_command(uint8_t command, const uint8_t *parameters,
 
 esp_err_t screen_set_brightness(uint8_t percentage)
 {
-    if (percentage > 100) {
+    if (percentage > 100)
+    {
         return ESP_ERR_INVALID_ARG;
     }
-    if (display_spi == NULL) {
+    if (display_spi == NULL)
+    {
         return ESP_ERR_INVALID_STATE;
     }
 
     const uint8_t panel_level =
         (uint8_t)(((unsigned)percentage * 255U + 50U) / 100U);
     esp_err_t result = display_command(0x51, &panel_level, 1);
-    if (result == ESP_OK) {
+    if (result == ESP_OK)
+    {
         display_brightness_percentage = percentage;
     }
     return result;
@@ -236,14 +242,17 @@ static void initialize_display(void)
     ESP_ERROR_CHECK(spi_bus_add_device(BOARD_DISPLAY_SPI_HOST, &device,
                                        &display_spi));
 
-    for (int pass = 0; pass < 2; pass++) {
+    for (int pass = 0; pass < 2; pass++)
+    {
         for (size_t i = 0;
              i < sizeof(display_init_commands) / sizeof(display_init_commands[0]);
-             i++) {
+             i++)
+        {
             const display_init_command_t *entry = &display_init_commands[i];
             ESP_ERROR_CHECK(display_command(entry->command, entry->parameters,
                                             entry->length & 0x1F));
-            if (entry->length & 0x80) {
+            if (entry->length & 0x80)
+            {
                 vTaskDelay(pdMS_TO_TICKS(120));
             }
         }
@@ -251,7 +260,7 @@ static void initialize_display(void)
 
     const uint8_t portrait = 0x00;
     ESP_ERROR_CHECK(display_command(0x36, &portrait, 1));
-    ESP_ERROR_CHECK(screen_set_brightness(100));
+    ESP_ERROR_CHECK(screen_set_brightness(50));
 }
 
 static bool pixel_is_safe_at_inset(int x, int y, int inset)
@@ -267,7 +276,8 @@ static bool pixel_is_safe_at_inset(int x, int y, int inset)
         BOARD_DISPLAY_WIDTH;
 
     if (x_um < inset_um || x_um > BOARD_ACTIVE_WIDTH_UM - inset_um ||
-        y_um < inset_um || y_um > BOARD_ACTIVE_HEIGHT_UM - inset_um) {
+        y_um < inset_um || y_um > BOARD_ACTIVE_HEIGHT_UM - inset_um)
+    {
         return false;
     }
 
@@ -278,26 +288,30 @@ static bool pixel_is_safe_at_inset(int x, int y, int inset)
     int64_t dx;
     int64_t dy;
 
-    if (x_um < top_center && y_um < top_center) {
+    if (x_um < top_center && y_um < top_center)
+    {
         dx = (int64_t)x_um - top_center;
         dy = (int64_t)y_um - top_center;
         return dx * dx + dy * dy <= (int64_t)top_radius * top_radius;
     }
-    if (x_um > BOARD_ACTIVE_WIDTH_UM - top_center && y_um < top_center) {
+    if (x_um > BOARD_ACTIVE_WIDTH_UM - top_center && y_um < top_center)
+    {
         dx = (int64_t)x_um -
              (BOARD_ACTIVE_WIDTH_UM - top_center);
         dy = (int64_t)y_um - top_center;
         return dx * dx + dy * dy <= (int64_t)top_radius * top_radius;
     }
     if (x_um < BOARD_BOTTOM_RADIUS_UM &&
-        y_um > BOARD_ACTIVE_HEIGHT_UM - BOARD_BOTTOM_RADIUS_UM) {
+        y_um > BOARD_ACTIVE_HEIGHT_UM - BOARD_BOTTOM_RADIUS_UM)
+    {
         dx = (int64_t)x_um - BOARD_BOTTOM_RADIUS_UM;
         dy = (int64_t)y_um -
              (BOARD_ACTIVE_HEIGHT_UM - BOARD_BOTTOM_RADIUS_UM);
         return dx * dx + dy * dy <= (int64_t)bottom_radius * bottom_radius;
     }
     if (x_um > BOARD_ACTIVE_WIDTH_UM - BOARD_BOTTOM_RADIUS_UM &&
-        y_um > BOARD_ACTIVE_HEIGHT_UM - BOARD_BOTTOM_RADIUS_UM) {
+        y_um > BOARD_ACTIVE_HEIGHT_UM - BOARD_BOTTOM_RADIUS_UM)
+    {
         dx = (int64_t)x_um -
              (BOARD_ACTIVE_WIDTH_UM - BOARD_BOTTOM_RADIUS_UM);
         dy = (int64_t)y_um -
@@ -321,8 +335,10 @@ static void set_address_window(int y, int rows)
     const uint8_t columns[] = {0x00, 0x16, 0x01, 0xAF};
     const int end_y = y + rows - 1;
     const uint8_t row_address[] = {
-        (uint8_t)(y >> 8), (uint8_t)y,
-        (uint8_t)(end_y >> 8), (uint8_t)end_y,
+        (uint8_t)(y >> 8),
+        (uint8_t)y,
+        (uint8_t)(end_y >> 8),
+        (uint8_t)end_y,
     };
     ESP_ERROR_CHECK(display_command(0x2A, columns, sizeof(columns)));
     ESP_ERROR_CHECK(display_command(0x2B, row_address, sizeof(row_address)));
@@ -353,9 +369,11 @@ static void display_color_band(const uint16_t *pixels, size_t pixel_count)
 static void display_pixel_rows(const uint16_t *pixels, int start_y, int rows)
 {
     for (int row_offset = 0; row_offset < rows;
-         row_offset += DISPLAY_BAND_ROWS) {
+         row_offset += DISPLAY_BAND_ROWS)
+    {
         int rows_in_band = rows - row_offset;
-        if (rows_in_band > DISPLAY_BAND_ROWS) {
+        if (rows_in_band > DISPLAY_BAND_ROWS)
+        {
             rows_in_band = DISPLAY_BAND_ROWS;
         }
 
@@ -373,14 +391,17 @@ static void draw_validation_pattern(void)
     ESP_ERROR_CHECK(pixels == NULL ? ESP_ERR_NO_MEM : ESP_OK);
 
     for (int band_y = 0; band_y < BOARD_DISPLAY_HEIGHT;
-         band_y += DISPLAY_BAND_ROWS) {
+         band_y += DISPLAY_BAND_ROWS)
+    {
         int rows = BOARD_DISPLAY_HEIGHT - band_y;
-        if (rows > DISPLAY_BAND_ROWS) {
+        if (rows > DISPLAY_BAND_ROWS)
+        {
             rows = DISPLAY_BAND_ROWS;
         }
         const size_t pixels_in_band = BOARD_DISPLAY_WIDTH * rows;
 
-        for (size_t i = 0; i < pixels_in_band; i++) {
+        for (size_t i = 0; i < pixels_in_band; i++)
+        {
             const uint32_t index = band_y * BOARD_DISPLAY_WIDTH + i;
             const int x = index % BOARD_DISPLAY_WIDTH;
             const int y = index / BOARD_DISPLAY_WIDTH;
@@ -402,8 +423,10 @@ static void draw_validation_pattern(void)
 
 static int cascadia_glyph_index(char character)
 {
-    for (int index = 0; index < CASCADIA_CODE_GLYPH_COUNT; index++) {
-        if (cascadia_code_characters[index] == character) {
+    for (int index = 0; index < CASCADIA_CODE_GLYPH_COUNT; index++)
+    {
+        if (cascadia_code_characters[index] == character)
+        {
             return index;
         }
     }
@@ -420,7 +443,8 @@ static bool pixel_is_cascadia_text(const char *text, size_t length,
 
     if (relative_x < 0 || relative_y < 0 ||
         relative_x >= text_width ||
-        relative_y >= CASCADIA_CODE_GLYPH_HEIGHT) {
+        relative_y >= CASCADIA_CODE_GLYPH_HEIGHT)
+    {
         return false;
     }
 
@@ -437,7 +461,8 @@ static void display_text_band(uint16_t *pixels, const char *text,
 {
     const size_t pixel_count =
         BOARD_DISPLAY_WIDTH * CASCADIA_CODE_GLYPH_HEIGHT;
-    for (size_t i = 0; i < pixel_count; i++) {
+    for (size_t i = 0; i < pixel_count; i++)
+    {
         const int x = i % BOARD_DISPLAY_WIDTH;
         const int y = start_y + i / BOARD_DISPLAY_WIDTH;
         const int shape_y = y - CONTOUR_Y_OFFSET_PIXELS;
@@ -467,17 +492,20 @@ static void display_time_task(void *parameter)
     ESP_ERROR_CHECK(pixels == NULL ? ESP_ERR_NO_MEM : ESP_OK);
     TickType_t last_update = xTaskGetTickCount();
 
-    for (;;) {
+    for (;;)
+    {
         char payload[20];
         char time_text[TIME_TEXT_LENGTH + 1] = "--:--:--";
-        if (ble_rtc_get_time_payload(payload, sizeof(payload)) == ESP_OK) {
+        if (ble_rtc_get_time_payload(payload, sizeof(payload)) == ESP_OK)
+        {
             memcpy(time_text, payload + 11, TIME_TEXT_LENGTH);
         }
 
         char battery_text[5] = "--%";
         unsigned percentage;
         if (ble_power_get_payload(payload, sizeof(payload)) == ESP_OK &&
-            sscanf(payload, "%u,", &percentage) == 1 && percentage <= 100) {
+            sscanf(payload, "%u,", &percentage) == 1 && percentage <= 100)
+        {
             snprintf(battery_text, sizeof(battery_text), "%u%%", percentage);
         }
 

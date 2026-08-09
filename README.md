@@ -25,6 +25,13 @@ and BHI260AP orientation over Bluetooth Low Energy.
   payload is one unsigned byte from 0 through 100 percent. The firmware maps
   it to the AMOLED controller's 8-bit DCS brightness command; 0% leaves the
   display and BLE active but renders the AMOLED pixels black.
+- CST9217 touch: `7a1e0007-7a1e-4b6c-8d9e-001122334455`, read/notify on touch
+  transitions and coordinate changes. Its 6-byte little-endian payload is
+  `pressed,event,x,y`: one byte each for `pressed` and `event`, followed by
+  unsigned 16-bit X and Y coordinates. Event values are `0` idle, `1` down,
+  `2` move, and `3` up. Coordinates use the physical 410 x 502 display space.
+  The browser renders contacts on a Three.js watch face and pulses a ring for
+  every down event.
 
 Power direction values are `0` standby, `1` charging, `2` discharging, and `3`
 reserved/unknown. `vbus` and `present` are `0` or `1`.

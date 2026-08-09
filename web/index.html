@@ -61,11 +61,15 @@
     .brightness-control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 1rem; margin: 1.4rem 0 1rem; }
     .brightness-control input { padding: 0; accent-color: #4ade80; }
     .brightness-value { min-width: 4ch; font: 600 2rem ui-monospace, monospace; text-align: right; }
+    .touch-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(12rem, .8fr); gap: 1rem; margin-top: 1rem; }
+    .touch-scene { position: relative; min-height: 22rem; overflow: hidden; border: 1px solid #2d2d2d; border-radius: .65rem; background: radial-gradient(circle at 50% 35%, #202625, #111 70%); }
+    .touch-scene canvas { display: block; width: 100%; height: 100%; }
+    .touch-state.active { color: #4ade80; }
     #message { min-height: 1.3em; margin: .8rem 0 0; font-size: .85rem; }
     @media (max-width: 34rem) {
       .heading, .connection { align-items: flex-start; flex-direction: column; }
-      .metrics, .settings, .imu-layout { grid-template-columns: 1fr; }
-      .imu-scene { min-height: 18rem; }
+      .metrics, .settings, .imu-layout, .touch-layout { grid-template-columns: 1fr; }
+      .imu-scene, .touch-scene { min-height: 18rem; }
     }
   </style>
 </head>
@@ -81,6 +85,7 @@
         <a href="#power">Battery &amp; power</a>
         <a href="#imu">IMU</a>
         <a href="#screen">Screen</a>
+        <a href="#touch">Touch</a>
         <span class="upcoming">GPS · soon</span>
       </nav>
     </div>
@@ -191,6 +196,25 @@
         <button id="writeScreen" data-connected disabled>Apply brightness</button>
       </div>
     </section>
+
+    <section id="touch" class="sensor">
+      <header><h2>CST9217 touch</h2><span class="tag">read · live notify</span></header>
+      <div class="touch-layout">
+        <div id="touchScene" class="touch-scene" aria-label="3D touch position visualization">
+          <span class="scene-label">Touch the physical watch display</span>
+        </div>
+        <div>
+          <div class="quaternion">
+            <div class="metric"><span>Contact</span><strong id="touchState" class="touch-state">Idle</strong></div>
+            <div class="metric"><span>Event</span><strong id="touchEvent">Idle</strong></div>
+            <div class="metric"><span>X coordinate</span><strong id="touchX">--</strong></div>
+            <div class="metric"><span>Y coordinate</span><strong id="touchY">--</strong></div>
+            <div class="metric"><span>Touches</span><strong id="touchCount">0</strong></div>
+          </div>
+          <div class="buttons"><button id="readTouch" data-connected disabled>Read touch state</button></div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -200,7 +224,8 @@
       power: '7a1e0003-7a1e-4b6c-8d9e-001122334455',
       powerConfig: '7a1e0004-7a1e-4b6c-8d9e-001122334455',
       imu: '7a1e0005-7a1e-4b6c-8d9e-001122334455',
-      screen: '7a1e0006-7a1e-4b6c-8d9e-001122334455'
+      screen: '7a1e0006-7a1e-4b6c-8d9e-001122334455',
+      touch: '7a1e0007-7a1e-4b6c-8d9e-001122334455'
     };
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -210,11 +235,13 @@
       'externalPower', 'readPower', 'chargeCurrent', 'inputCurrent',
       'chargeVoltage', 'chargerEnabled', 'readPowerConfig', 'writePowerConfig',
       'imuX', 'imuY', 'imuZ', 'imuW', 'imuAccuracy', 'readImu',
-      'brightness', 'brightnessValue', 'readScreen', 'writeScreen'];
+      'brightness', 'brightnessValue', 'readScreen', 'writeScreen',
+      'touchState', 'touchEvent', 'touchX', 'touchY', 'touchCount', 'readTouch'];
     const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
     let device = null;
     let characteristics = {};
+    let touchCounter = 0;
 
     function setConnected(connected) {
       ui.dot.classList.toggle('connected', connected);
@@ -305,6 +332,26 @@
       ui.brightnessValue.value = `${percentage}%`;
     }
 
+    function showTouch(dataView, countEvent = true) {
+      if (dataView.byteLength !== 6) throw new Error('Unexpected touch payload length');
+      const pressed = dataView.getUint8(0);
+      const event = dataView.getUint8(1);
+      const x = dataView.getUint16(2, true);
+      const y = dataView.getUint16(4, true);
+      if (pressed > 1 || event > 3 || x >= 410 || y >= 502) {
+        throw new Error('Touch data outside valid range');
+      }
+      const eventNames = ['Idle', 'Down', 'Move', 'Up'];
+      if (event === 1 && countEvent) touchCounter++;
+      ui.touchState.textContent = pressed ? 'Pressed' : 'Idle';
+      ui.touchState.classList.toggle('active', Boolean(pressed));
+      ui.touchEvent.textContent = eventNames[event];
+      ui.touchX.textContent = String(x);
+      ui.touchY.textContent = String(y);
+      ui.touchCount.textContent = String(touchCounter);
+      window.applyTouchEvent?.({ pressed: Boolean(pressed), event, x, y });
+    }
+
     function notificationHandler(parser) {
       return event => {
         try { parser(event.target.value); }
@@ -334,16 +381,18 @@
         characteristics.powerConfig = await service.getCharacteristic(CHAR_UUID.powerConfig);
         characteristics.imu = await service.getCharacteristic(CHAR_UUID.imu);
         characteristics.screen = await service.getCharacteristic(CHAR_UUID.screen);
+        characteristics.touch = await service.getCharacteristic(CHAR_UUID.touch);
         characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
         characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
         characteristics.imu.addEventListener('characteristicvaluechanged', notificationHandler(showImu));
+        characteristics.touch.addEventListener('characteristicvaluechanged', notificationHandler(showTouch));
         await Promise.all([characteristics.rtc.startNotifications(), characteristics.power.startNotifications(),
-          characteristics.imu.startNotifications()]);
+          characteristics.imu.startNotifications(), characteristics.touch.startNotifications()]);
         setConnected(true);
-        const [rtcReady, powerReady, configReady, imuReady, screenReady] = await Promise.all([
-          readTime(false), readPower(false), readPowerConfig(false), readImu(false), readScreen(false)
+        const [rtcReady, powerReady, configReady, imuReady, screenReady, touchReady] = await Promise.all([
+          readTime(false), readPower(false), readPowerConfig(false), readImu(false), readScreen(false), readTouch(false)
         ]);
-        if (rtcReady && powerReady && configReady && imuReady && screenReady) {
+        if (rtcReady && powerReady && configReady && imuReady && screenReady && touchReady) {
           ui.message.textContent = 'Live sensor updates enabled.';
         } else if (!rtcReady) {
           ui.message.textContent = 'RTC unavailable. Set the browser time first.';
@@ -353,8 +402,10 @@
           ui.message.textContent = 'Charge settings are currently unavailable.';
         } else if (!imuReady) {
           ui.message.textContent = 'IMU data is currently unavailable.';
-        } else {
+        } else if (!screenReady) {
           ui.message.textContent = 'Screen controls are currently unavailable.';
+        } else {
+          ui.message.textContent = 'Touch data is currently unavailable.';
         }
       } catch (error) {
         ui.message.textContent = `Connection failed: ${error.message}`;
@@ -409,6 +460,16 @@
         return true;
       } catch (error) {
         if (reportError) ui.message.textContent = `Brightness read failed: ${error.message}`;
+        return false;
+      }
+    }
+
+    async function readTouch(reportError = true) {
+      try {
+        showTouch(await characteristics.touch.readValue(), false);
+        return true;
+      } catch (error) {
+        if (reportError) ui.message.textContent = `Touch read failed: ${error.message}`;
         return false;
       }
     }
@@ -485,6 +546,7 @@
     ui.readImu.addEventListener('click', readImu);
     ui.readScreen.addEventListener('click', readScreen);
     ui.writeScreen.addEventListener('click', writeScreen);
+    ui.readTouch.addEventListener('click', readTouch);
     ui.brightness.addEventListener('input', () => {
       ui.brightnessValue.value = `${ui.brightness.value}%`;
     });
@@ -558,6 +620,89 @@
     renderer.setAnimationLoop(() => {
       watch.quaternion.slerp(target, .22);
       renderer.render(scene, camera);
+    });
+
+    const touchContainer = document.getElementById('touchScene');
+    const touchScene = new THREE.Scene();
+    const touchCamera = new THREE.PerspectiveCamera(30, 1, .1, 100);
+    touchCamera.position.set(3.6, 3.1, 6.6);
+    touchCamera.lookAt(0, 0, 0);
+    const touchRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    touchRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    touchRenderer.outputColorSpace = THREE.SRGBColorSpace;
+    touchContainer.prepend(touchRenderer.domElement);
+
+    touchScene.add(new THREE.HemisphereLight(0xffffff, 0x17201d, 2.5));
+    const touchLight = new THREE.DirectionalLight(0xffffff, 3);
+    touchLight.position.set(3, 5, 6);
+    touchScene.add(touchLight);
+
+    const touchWatch = new THREE.Group();
+    touchWatch.rotation.x = -.18;
+    touchWatch.rotation.y = .28;
+    const touchCase = new THREE.Mesh(
+      new THREE.BoxGeometry(2.3, 2.82, .34),
+      new THREE.MeshStandardMaterial({ color: 0x363636, metalness: .75, roughness: .28 }));
+    const touchScreen = new THREE.Mesh(
+      new THREE.BoxGeometry(2.05, 2.51, .055),
+      new THREE.MeshStandardMaterial({ color: 0x07110d, metalness: .05, roughness: .22 }));
+    touchScreen.position.z = .2;
+    const touchTopStrap = new THREE.Mesh(
+      new THREE.BoxGeometry(1.15, 2.4, .16),
+      new THREE.MeshStandardMaterial({ color: 0x171717, roughness: .7 }));
+    const touchBottomStrap = touchTopStrap.clone();
+    touchTopStrap.position.set(0, 2.52, -.04);
+    touchBottomStrap.position.set(0, -2.52, -.04);
+    touchWatch.add(touchCase, touchScreen, touchTopStrap, touchBottomStrap);
+    touchScene.add(touchWatch);
+
+    const touchMarkerMaterial = new THREE.MeshStandardMaterial({
+      color: 0x4ade80, emissive: 0x1d7d45, emissiveIntensity: 2,
+      transparent: true, opacity: 0
+    });
+    const touchMarker = new THREE.Mesh(new THREE.SphereGeometry(.115, 24, 16), touchMarkerMaterial);
+    touchMarker.position.z = .28;
+    const rippleMaterial = new THREE.MeshBasicMaterial({
+      color: 0x4ade80, transparent: true, opacity: 0, side: THREE.DoubleSide
+    });
+    const touchRipple = new THREE.Mesh(new THREE.RingGeometry(.13, .18, 40), rippleMaterial);
+    touchRipple.position.z = .272;
+    touchWatch.add(touchMarker, touchRipple);
+
+    let rippleLife = 0;
+    window.applyTouchEvent = ({ pressed, event, x, y }) => {
+      const sceneX = (x / 409 - .5) * 1.92;
+      const sceneY = (.5 - y / 501) * 2.36;
+      touchMarker.position.set(sceneX, sceneY, .28);
+      touchRipple.position.set(sceneX, sceneY, .272);
+      touchMarkerMaterial.opacity = pressed ? 1 : .18;
+      if (event === 1) {
+        touchRipple.scale.setScalar(1);
+        rippleLife = 1;
+      } else if (event === 2) {
+        rippleLife = Math.max(rippleLife, .3);
+      }
+    };
+
+    function resizeTouch() {
+      const width = touchContainer.clientWidth;
+      const height = touchContainer.clientHeight;
+      touchRenderer.setSize(width, height, false);
+      touchCamera.aspect = width / height;
+      touchCamera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resizeTouch).observe(touchContainer);
+    resizeTouch();
+
+    touchRenderer.setAnimationLoop(() => {
+      if (rippleLife > 0) {
+        rippleLife = Math.max(0, rippleLife - .018);
+        touchRipple.scale.setScalar(1 + (1 - rippleLife) * 3.2);
+        rippleMaterial.opacity = rippleLife * .8;
+      } else {
+        rippleMaterial.opacity = 0;
+      }
+      touchRenderer.render(touchScene, touchCamera);
     });
   </script>
 </body>

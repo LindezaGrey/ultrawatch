@@ -38,6 +38,16 @@
 #define IMU_PAYLOAD_LENGTH 10
 #define IMU_FIFO_BUFFER_SIZE 1024
 #define IMU_SAMPLE_RATE_HZ 25.0f
+#define TOUCH_PAYLOAD_LENGTH 6
+#define TOUCH_POLL_INTERVAL_MS 20
+
+#define CST9217_REGISTER_TOUCH_DATA 0xd000
+#define CST9217_ACK 0xab
+#define CST9217_MAX_POINTS 2
+#define CST9217_EVENT_CONTACT 0x06
+#define CST9217_COMMAND_PREFIX 0xd1
+#define CST9217_COMMAND_ENABLE_REPORTING 0x01
+#define CST9217_COMMAND_NORMAL_MODE 0x09
 
 #define AXP_STATUS1_REGISTER       0x00
 #define AXP_STATUS2_REGISTER       0x01
@@ -92,6 +102,11 @@ static const ble_uuid128_t screen_characteristic_uuid = BLE_UUID128_INIT(
     0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
     0x6c, 0x4b, 0x1e, 0x7a, 0x06, 0x00, 0x1e, 0x7a);
 
+/* 7a1e0007-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t touch_characteristic_uuid = BLE_UUID128_INIT(
+    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+    0x6c, 0x4b, 0x1e, 0x7a, 0x07, 0x00, 0x1e, 0x7a);
+
 typedef struct {
     int year;
     int month;
@@ -113,16 +128,25 @@ static uint8_t own_address_type;
 static uint16_t rtc_value_handle;
 static uint16_t power_value_handle;
 static uint16_t imu_value_handle;
+static uint16_t touch_value_handle;
 static volatile uint16_t connection_handle = BLE_HS_CONN_HANDLE_NONE;
 static volatile bool rtc_notifications_enabled;
 static volatile bool power_notifications_enabled;
 static volatile bool imu_notifications_enabled;
+static volatile bool touch_notifications_enabled;
 static volatile bool imu_ready;
 static volatile bool imu_sample_available;
 static bool imu_first_sample_logged;
 static portMUX_TYPE imu_lock = portMUX_INITIALIZER_UNLOCKED;
 static struct bhy2_dev imu_device;
 static struct bhy2_data_quaternion imu_quaternion = { .w = 16384 };
+static volatile bool touch_ready;
+static portMUX_TYPE touch_lock = portMUX_INITIALIZER_UNLOCKED;
+static uint8_t touch_address = BOARD_CST9217_ADDR_PRIMARY;
+static bool touch_pressed;
+static uint8_t touch_event;
+static uint16_t touch_x;
+static uint16_t touch_y;
 
 extern const uint8_t
     bhi260_firmware_start[] asm("_binary_BHI260AP_fw_start");
@@ -169,6 +193,31 @@ static esp_err_t i2c_write_registers(uint8_t address, uint8_t reg,
                                         address,
                                         buffer, length + 1,
                                         portMAX_DELAY);
+    xSemaphoreGive(i2c_mutex);
+    return result;
+}
+
+static esp_err_t i2c_write_raw(uint8_t address, const uint8_t *data,
+                               size_t length)
+{
+    esp_err_t result;
+    xSemaphoreTake(i2c_mutex, portMAX_DELAY);
+    result = i2c_master_write_to_device(BOARD_I2C_PORT, address, data, length,
+                                        portMAX_DELAY);
+    xSemaphoreGive(i2c_mutex);
+    return result;
+}
+
+static esp_err_t i2c_transmit_receive(uint8_t address,
+                                      const uint8_t *write_data,
+                                      size_t write_length, uint8_t *read_data,
+                                      size_t read_length)
+{
+    esp_err_t result;
+    xSemaphoreTake(i2c_mutex, portMAX_DELAY);
+    result = i2c_master_write_read_device(BOARD_I2C_PORT, address, write_data,
+                                          write_length, read_data, read_length,
+                                          portMAX_DELAY);
     xSemaphoreGive(i2c_mutex);
     return result;
 }
@@ -332,6 +381,127 @@ static bool imu_get_payload(uint8_t output[IMU_PAYLOAD_LENGTH])
     encode_int16_le(output + 4, sample.z);
     encode_int16_le(output + 6, sample.w);
     encode_uint16_le(output + 8, sample.accuracy);
+    return true;
+}
+
+enum {
+    TOUCH_EVENT_IDLE = 0,
+    TOUCH_EVENT_DOWN = 1,
+    TOUCH_EVENT_MOVE = 2,
+    TOUCH_EVENT_UP = 3,
+};
+
+static esp_err_t cst9217_initialize(void)
+{
+    gpio_config_t interrupt_config = {
+        .pin_bit_mask = 1ULL << BOARD_TOUCH_INTERRUPT,
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&interrupt_config), TAG,
+                        "touch interrupt GPIO setup failed");
+
+    uint8_t output;
+    uint8_t config;
+    ESP_RETURN_ON_ERROR(i2c_read_registers(BOARD_XL9555_ADDR,
+                                           BOARD_XL9555_OUTPUT1, &output, 1),
+                        TAG, "touch reset output read failed");
+    output &= ~(1U << BOARD_XL9555_TOUCH_RESET_BIT);
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_XL9555_ADDR,
+                                            BOARD_XL9555_OUTPUT1, &output, 1),
+                        TAG, "touch reset low failed");
+    ESP_RETURN_ON_ERROR(i2c_read_registers(BOARD_XL9555_ADDR,
+                                           BOARD_XL9555_CONFIG1, &config, 1),
+                        TAG, "touch reset config read failed");
+    config &= ~(1U << BOARD_XL9555_TOUCH_RESET_BIT);
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_XL9555_ADDR,
+                                            BOARD_XL9555_CONFIG1, &config, 1),
+                        TAG, "touch reset config failed");
+    vTaskDelay(pdMS_TO_TICKS(10));
+    output |= 1U << BOARD_XL9555_TOUCH_RESET_BIT;
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_XL9555_ADDR,
+                                            BOARD_XL9555_OUTPUT1, &output, 1),
+                        TAG, "touch reset high failed");
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    const uint8_t candidates[] = {BOARD_CST9217_ADDR_PRIMARY,
+                                  BOARD_CST9217_ADDR_FALLBACK};
+    bool found = false;
+    for (size_t index = 0; index < sizeof(candidates); index++) {
+        uint8_t probe;
+        if (i2c_read_registers(candidates[index], 0x00, &probe, 1) ==
+            ESP_OK) {
+            touch_address = candidates[index];
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    const uint8_t enable_reporting[] = {
+        CST9217_COMMAND_PREFIX, CST9217_COMMAND_ENABLE_REPORTING, 0x01,
+    };
+    ESP_RETURN_ON_ERROR(i2c_write_raw(touch_address, enable_reporting,
+                                      sizeof(enable_reporting)),
+                        TAG, "touch reporting enable failed");
+    vTaskDelay(pdMS_TO_TICKS(10));
+    const uint8_t normal_mode[] = {
+        CST9217_COMMAND_PREFIX, CST9217_COMMAND_NORMAL_MODE,
+    };
+    ESP_RETURN_ON_ERROR(i2c_write_raw(touch_address, normal_mode,
+                                      sizeof(normal_mode)),
+                        TAG, "touch normal mode failed");
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    touch_ready = true;
+    ESP_LOGI(TAG, "CST9217 touch ready at 0x%02x", touch_address);
+    return ESP_OK;
+}
+
+static esp_err_t cst9217_read_point(bool *pressed, uint16_t *x, uint16_t *y)
+{
+    uint8_t data[CST9217_MAX_POINTS * 5 + 5] = {0};
+    const uint8_t command[] = {
+        (uint8_t)(CST9217_REGISTER_TOUCH_DATA >> 8),
+        (uint8_t)CST9217_REGISTER_TOUCH_DATA,
+    };
+    ESP_RETURN_ON_ERROR(i2c_transmit_receive(touch_address, command,
+                                             sizeof(command), data,
+                                             sizeof(data)),
+                        TAG, "touch data read failed");
+
+    *pressed = false;
+    uint8_t points = data[5] & 0x7f;
+    if (data[0] == CST9217_ACK || data[6] != CST9217_ACK || data[0] == 0x00 ||
+        points == 0 || points > CST9217_MAX_POINTS) {
+        return ESP_OK;
+    }
+
+    uint8_t event = data[0] & 0x0f;
+    uint8_t id = data[0] >> 4;
+    if (event == CST9217_EVENT_CONTACT && id < CST9217_MAX_POINTS) {
+        *x = ((uint16_t)data[1] << 4) | (data[3] >> 4);
+        *y = ((uint16_t)data[2] << 4) | (data[3] & 0x0f);
+        *pressed = true;
+    }
+    return ESP_OK;
+}
+
+static bool touch_get_payload(uint8_t output[TOUCH_PAYLOAD_LENGTH])
+{
+    if (!touch_ready) {
+        return false;
+    }
+    portENTER_CRITICAL(&touch_lock);
+    output[0] = touch_pressed ? 1 : 0;
+    output[1] = touch_event;
+    encode_uint16_le(output + 2, touch_x);
+    encode_uint16_le(output + 4, touch_y);
+    portEXIT_CRITICAL(&touch_lock);
     return true;
 }
 
@@ -867,6 +1037,25 @@ static int screen_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+static int touch_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
+                             struct ble_gatt_access_ctxt *context, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (context->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    }
+
+    uint8_t payload[TOUCH_PAYLOAD_LENGTH];
+    if (!touch_get_payload(payload)) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    return os_mbuf_append(context->om, payload, sizeof(payload)) == 0
+               ? 0
+               : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
 static const struct ble_gatt_svc_def rtc_gatt_services[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -901,6 +1090,12 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
                 .access_cb = screen_gatt_access,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
             },
+            {
+                .uuid = &touch_characteristic_uuid.u,
+                .access_cb = touch_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .val_handle = &touch_value_handle,
+            },
             {0},
         },
     },
@@ -926,6 +1121,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         rtc_notifications_enabled = false;
         power_notifications_enabled = false;
         imu_notifications_enabled = false;
+        touch_notifications_enabled = false;
         ESP_LOGI(TAG, "BLE client disconnected");
         start_advertising();
         return 0;
@@ -936,6 +1132,8 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             power_notifications_enabled = event->subscribe.cur_notify;
         } else if (event->subscribe.attr_handle == imu_value_handle) {
             imu_notifications_enabled = event->subscribe.cur_notify;
+        } else if (event->subscribe.attr_handle == touch_value_handle) {
+            touch_notifications_enabled = event->subscribe.cur_notify;
         }
         return 0;
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -1054,6 +1252,58 @@ static void imu_task(void *parameter)
     }
 }
 
+static void touch_task(void *parameter)
+{
+    (void)parameter;
+    unsigned read_failures = 0;
+    for (;;) {
+        bool pressed;
+        uint16_t x = 0;
+        uint16_t y = 0;
+        esp_err_t result = cst9217_read_point(&pressed, &x, &y);
+        if (result != ESP_OK) {
+            if (read_failures++ % 50 == 0) {
+                ESP_LOGW(TAG, "CST9217 read failed: %s",
+                         esp_err_to_name(result));
+            }
+            vTaskDelay(pdMS_TO_TICKS(TOUCH_POLL_INTERVAL_MS));
+            continue;
+        }
+        read_failures = 0;
+
+        bool notify = false;
+        portENTER_CRITICAL(&touch_lock);
+        if (pressed && !touch_pressed) {
+            touch_event = TOUCH_EVENT_DOWN;
+            touch_x = x;
+            touch_y = y;
+            notify = true;
+        } else if (pressed && touch_pressed &&
+                   (x != touch_x || y != touch_y)) {
+            touch_event = TOUCH_EVENT_MOVE;
+            touch_x = x;
+            touch_y = y;
+            notify = true;
+        } else if (!pressed && touch_pressed) {
+            touch_event = TOUCH_EVENT_UP;
+            notify = true;
+        }
+        touch_pressed = pressed;
+        portEXIT_CRITICAL(&touch_lock);
+
+        uint16_t handle = connection_handle;
+        if (notify && handle != BLE_HS_CONN_HANDLE_NONE &&
+            touch_notifications_enabled) {
+            int notify_result = ble_gatts_notify(handle, touch_value_handle);
+            if (notify_result != 0 && notify_result != BLE_HS_ENOTCONN) {
+                ESP_LOGD(TAG, "touch notification skipped: %d",
+                         notify_result);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(TOUCH_POLL_INTERVAL_MS));
+    }
+}
+
 esp_err_t ble_rtc_initialize(void)
 {
     i2c_mutex = xSemaphoreCreateMutex();
@@ -1092,6 +1342,12 @@ esp_err_t ble_rtc_initialize(void)
 
 esp_err_t ble_rtc_start(void)
 {
+    esp_err_t touch_result = cst9217_initialize();
+    if (touch_result != ESP_OK) {
+        ESP_LOGW(TAG, "touch unavailable; other sensors remain active: %s",
+                 esp_err_to_name(touch_result));
+    }
+
     esp_err_t result = nvs_flash_init();
     if (result == ESP_ERR_NVS_NO_FREE_PAGES ||
         result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -1119,6 +1375,10 @@ esp_err_t ble_rtc_start(void)
         return ESP_ERR_NO_MEM;
     }
     if (xTaskCreate(imu_task, "imu", 4096, NULL, 6, NULL) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (touch_ready &&
+        xTaskCreate(touch_task, "touch", 3072, NULL, 5, NULL) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
