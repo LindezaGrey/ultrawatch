@@ -15,6 +15,7 @@ static const char *TAG = "axp2101";
 #define AXP_REG_ADC_DATA1       0x35 /* batt volt lo */
 #define AXP_REG_BAT_PERCENT     0xA4
 #define AXP_REG_STATUS1         0x00
+#define AXP_REG_STATUS2         0x01
 #define AXP_REG_INTEN2     0x41
 #define AXP_REG_INTSTS1    0x48
 #define AXP_REG_INTSTS2    0x49
@@ -98,6 +99,15 @@ esp_err_t axp2101_is_battery_present(i2c_master_dev_handle_t dev, bool *present)
     uint8_t st = 0;
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_STATUS1, &st), TAG, "read status1");
     *present = (st & (1u << 3)) != 0;
+    return ESP_OK;
+}
+
+esp_err_t axp2101_is_vbus_present(i2c_master_dev_handle_t dev, bool *present)
+{
+    uint8_t st1 = 0, st2 = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_STATUS1, &st1), TAG, "read status1");
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_STATUS2, &st2), TAG, "read status2");
+    *present = ((st1 & (1u << 5)) != 0) && ((st2 & (1u << 3)) == 0);
     return ESP_OK;
 }
 

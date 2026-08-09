@@ -37,6 +37,7 @@ esp_err_t axp2101_read_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t *va
 esp_err_t axp2101_write_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t val);
 esp_err_t axp2101_read_chip_id(i2c_master_dev_handle_t dev, uint8_t *id);
 esp_err_t axp2101_is_battery_present(i2c_master_dev_handle_t dev, bool *present);
+esp_err_t axp2101_is_vbus_present(i2c_master_dev_handle_t dev, bool *present);
 
 esp_err_t axp2101_init(i2c_master_dev_handle_t dev);
 esp_err_t axp2101_set_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, uint16_t mv);

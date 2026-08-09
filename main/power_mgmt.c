@@ -95,6 +95,14 @@ static void pm_arm_gpio_wakeup(void)
 esp_err_t power_mgmt_enter_sleep(void *ctx)
 {
     (void)ctx;
+
+    /* Skip auto-sleep while on USB power (development / charging). */
+    bool vbus = false;
+    if (axp2101_is_vbus_present(twatch_pmu_dev, &vbus) == ESP_OK && vbus) {
+        ESP_LOGI(TAG, "on USB power, skipping auto sleep");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
     ESP_LOGI(TAG, "entering sleep: panel SLPIN, rails off");
     co5300_sleep();
 
