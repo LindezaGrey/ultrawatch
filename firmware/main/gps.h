@@ -22,5 +22,11 @@ typedef struct {
 /* Probe and configure the powered MIA-M10Q, then start 1 Hz NAV-PVT parsing. */
 esp_err_t gps_initialize(void);
 
+/* Abort a probe/configuration that is still in progress. */
+void gps_cancel_initialize(void);
+
+/* Stop parsing, release UART1, and clear the latest receiver state. */
+esp_err_t gps_deinitialize(void);
+
 /* Copy the latest receiver/fix status. Returns false until the driver starts. */
 bool gps_get_status(gps_status_t *status);

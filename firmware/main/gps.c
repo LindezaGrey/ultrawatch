@@ -62,6 +62,9 @@ typedef struct {
 static portMUX_TYPE status_lock = portMUX_INITIALIZER_UNLOCKED;
 static gps_status_t current_status;
 static bool driver_started;
+static bool uart_installed;
+static volatile bool cancel_requested;
+static TaskHandle_t gps_task_handle;
 
 static void write_uint32_le(uint8_t *output, uint32_t value)
 {
@@ -190,6 +193,9 @@ static esp_err_t wait_for_frame(uint8_t message_class, uint8_t message_id,
     int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
     uint8_t buffer[128];
     while (esp_timer_get_time() < deadline) {
+        if (cancel_requested) {
+            return ESP_ERR_INVALID_STATE;
+        }
         int count = uart_read_bytes(BOARD_GPS_UART, buffer, sizeof(buffer),
                                     pdMS_TO_TICKS(20));
         for (int index = 0; index < count; index++) {
@@ -234,6 +240,9 @@ static esp_err_t probe_receiver(int *found_baud)
     static const int baud_rates[] = {38400, 115200, 9600};
     for (size_t baud_index = 0;
          baud_index < sizeof(baud_rates) / sizeof(baud_rates[0]); baud_index++) {
+        if (cancel_requested) {
+            return ESP_ERR_INVALID_STATE;
+        }
         ESP_RETURN_ON_ERROR(uart_set_baudrate(BOARD_GPS_UART,
                                               baud_rates[baud_index]),
                             TAG, "GPS baud setup failed");
@@ -258,6 +267,9 @@ static esp_err_t wait_for_ack(uint8_t message_class, uint8_t message_id)
                        (int64_t)GPS_ACK_TIMEOUT_MS * 1000;
     uint8_t buffer[128];
     while (esp_timer_get_time() < deadline) {
+        if (cancel_requested) {
+            return ESP_ERR_INVALID_STATE;
+        }
         int count = uart_read_bytes(BOARD_GPS_UART, buffer, sizeof(buffer),
                                     pdMS_TO_TICKS(20));
         for (int index = 0; index < count; index++) {
@@ -318,6 +330,9 @@ static esp_err_t configure_receiver(int probe_baud)
     };
     for (size_t index = 0; index < sizeof(settings) / sizeof(settings[0]);
          index++) {
+        if (cancel_requested) {
+            return ESP_ERR_INVALID_STATE;
+        }
         ESP_RETURN_ON_ERROR(valset(settings[index].key, settings[index].value,
                                    1),
                             TAG, "GPS setting 0x%08lx failed",
@@ -390,6 +405,10 @@ static void gps_task(void *parameter)
 
 esp_err_t gps_initialize(void)
 {
+    if (driver_started || uart_installed) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    cancel_requested = false;
     const uart_config_t uart_config = {
         .baud_rate = GPS_INITIAL_BAUD,
         .data_bits = UART_DATA_8_BITS,
@@ -398,33 +417,72 @@ esp_err_t gps_initialize(void)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
         .source_clk = UART_SCLK_DEFAULT,
     };
-    ESP_RETURN_ON_ERROR(uart_param_config(BOARD_GPS_UART, &uart_config), TAG,
-                        "GPS UART config failed");
-    ESP_RETURN_ON_ERROR(uart_set_pin(BOARD_GPS_UART, BOARD_GPS_TX,
-                                     BOARD_GPS_RX, UART_PIN_NO_CHANGE,
-                                     UART_PIN_NO_CHANGE),
-                        TAG, "GPS UART pins failed");
-    ESP_RETURN_ON_ERROR(uart_driver_install(BOARD_GPS_UART,
-                                            GPS_UART_BUFFER_SIZE,
-                                            GPS_UART_BUFFER_SIZE, 0, NULL, 0),
-                        TAG, "GPS UART driver failed");
+    esp_err_t result = uart_param_config(BOARD_GPS_UART, &uart_config);
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = uart_set_pin(BOARD_GPS_UART, BOARD_GPS_TX, BOARD_GPS_RX,
+                          UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = uart_driver_install(BOARD_GPS_UART, GPS_UART_BUFFER_SIZE,
+                                 GPS_UART_BUFFER_SIZE, 0, NULL, 0);
+    if (result != ESP_OK) {
+        return result;
+    }
+    uart_installed = true;
 
     int probe_baud = 0;
-    ESP_RETURN_ON_ERROR(probe_receiver(&probe_baud), TAG,
-                        "MIA-M10Q not detected");
-    ESP_RETURN_ON_ERROR(configure_receiver(probe_baud), TAG,
-                        "MIA-M10Q configuration failed");
+    result = probe_receiver(&probe_baud);
+    if (result != ESP_OK) {
+        ESP_LOGW(TAG, "MIA-M10Q probe stopped: %s", esp_err_to_name(result));
+        gps_deinitialize();
+        return result;
+    }
+    result = configure_receiver(probe_baud);
+    if (result != ESP_OK) {
+        ESP_LOGW(TAG, "MIA-M10Q configuration stopped: %s",
+                 esp_err_to_name(result));
+        gps_deinitialize();
+        return result;
+    }
 
     portENTER_CRITICAL(&status_lock);
     current_status.ready = true;
     portEXIT_CRITICAL(&status_lock);
-    driver_started = true;
-    if (xTaskCreate(gps_task, "gps", 4096, NULL, 5, NULL) != pdPASS) {
-        driver_started = false;
+    if (xTaskCreate(gps_task, "gps", 4096, NULL, 5,
+                    &gps_task_handle) != pdPASS) {
+        gps_deinitialize();
         return ESP_ERR_NO_MEM;
     }
+    driver_started = true;
     ESP_LOGI(TAG, "MIA-M10Q ready: 115200 baud, NAV-PVT 1 Hz");
     return ESP_OK;
+}
+
+void gps_cancel_initialize(void)
+{
+    cancel_requested = true;
+}
+
+esp_err_t gps_deinitialize(void)
+{
+    cancel_requested = true;
+    driver_started = false;
+    if (gps_task_handle != NULL) {
+        vTaskDelete(gps_task_handle);
+        gps_task_handle = NULL;
+    }
+    esp_err_t result = ESP_OK;
+    if (uart_installed) {
+        result = uart_driver_delete(BOARD_GPS_UART);
+        uart_installed = false;
+    }
+    portENTER_CRITICAL(&status_lock);
+    memset(&current_status, 0, sizeof(current_status));
+    portEXIT_CRITICAL(&status_lock);
+    return result;
 }
 
 bool gps_get_status(gps_status_t *status)

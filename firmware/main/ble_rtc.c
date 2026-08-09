@@ -23,6 +23,7 @@
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "nvs_flash.h"
+#include "nvs.h"
 #include "os/os_mbuf.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
@@ -44,6 +45,14 @@
 #define GPS_PAYLOAD_LENGTH 30
 #define HAPTIC_STATUS_PAYLOAD_LENGTH 6
 #define HAPTIC_COMMAND_PAYLOAD_LENGTH 2
+#define SENSOR_CONTROL_PAYLOAD_LENGTH 2
+
+#define SENSOR_IMU_BIT   (1U << 0)
+#define SENSOR_GPS_BIT   (1U << 1)
+#define SENSOR_TOUCH_BIT (1U << 2)
+#define SENSOR_ALL_MASK  (SENSOR_IMU_BIT | SENSOR_GPS_BIT | SENSOR_TOUCH_BIT)
+#define SENSOR_NVS_NAMESPACE "sensor_control"
+#define SENSOR_NVS_KEY "enabled"
 
 #define DRV2605_STATUS_REGISTER       0x00
 #define DRV2605_MODE_REGISTER         0x01
@@ -132,6 +141,12 @@ static const ble_uuid128_t haptic_characteristic_uuid = BLE_UUID128_INIT(
     0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
     0x6c, 0x4b, 0x1e, 0x7a, 0x09, 0x00, 0x1e, 0x7a);
 
+/* 7a1e000a-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t sensor_control_characteristic_uuid =
+    BLE_UUID128_INIT(
+        0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+        0x6c, 0x4b, 0x1e, 0x7a, 0x0a, 0x00, 0x1e, 0x7a);
+
 typedef struct {
     int year;
     int month;
@@ -155,12 +170,14 @@ static uint16_t power_value_handle;
 static uint16_t imu_value_handle;
 static uint16_t touch_value_handle;
 static uint16_t gps_value_handle;
+static uint16_t sensor_control_value_handle;
 static volatile uint16_t connection_handle = BLE_HS_CONN_HANDLE_NONE;
 static volatile bool rtc_notifications_enabled;
 static volatile bool power_notifications_enabled;
 static volatile bool imu_notifications_enabled;
 static volatile bool touch_notifications_enabled;
 static volatile bool gps_notifications_enabled;
+static volatile bool sensor_control_notifications_enabled;
 static volatile bool imu_ready;
 static volatile bool imu_sample_available;
 static bool imu_first_sample_logged;
@@ -178,6 +195,10 @@ static bool haptic_ready;
 static uint8_t haptic_device_id;
 static uint8_t haptic_last_effect;
 static uint8_t haptic_last_repeats;
+static volatile uint8_t requested_sensor_mask = SENSOR_ALL_MASK;
+static TaskHandle_t imu_control_task_handle;
+static TaskHandle_t gps_control_task_handle;
+static TaskHandle_t touch_control_task_handle;
 
 extern const uint8_t
     bhi260_firmware_start[] asm("_binary_BHI260AP_fw_start");
@@ -344,6 +365,114 @@ static bool haptic_get_payload(uint8_t output[HAPTIC_STATUS_PAYLOAD_LENGTH])
     output[4] = haptic_last_repeats;
     output[5] = status & 0x0f;
     return true;
+}
+
+static esp_err_t sensor_rail_set(uint8_t voltage_register,
+                                 uint8_t voltage_code, uint8_t enable_bit,
+                                 bool enabled)
+{
+    uint8_t voltage;
+    uint8_t ldo_enable;
+    ESP_RETURN_ON_ERROR(i2c_read_registers(BOARD_AXP2101_ADDR,
+                                           voltage_register, &voltage, 1),
+                        TAG, "sensor voltage read failed");
+    voltage = (voltage & 0xe0) | voltage_code;
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_AXP2101_ADDR,
+                                            voltage_register, &voltage, 1),
+                        TAG, "sensor voltage write failed");
+    ESP_RETURN_ON_ERROR(i2c_read_registers(BOARD_AXP2101_ADDR,
+                                           BOARD_AXP2101_LDO_ENABLE,
+                                           &ldo_enable, 1),
+                        TAG, "sensor rail state read failed");
+    if (enabled) {
+        ldo_enable |= 1U << enable_bit;
+    } else {
+        ldo_enable &= ~(1U << enable_bit);
+    }
+    return i2c_write_registers(BOARD_AXP2101_ADDR,
+                               BOARD_AXP2101_LDO_ENABLE, &ldo_enable, 1);
+}
+
+static uint8_t sensor_ready_mask(void)
+{
+    uint8_t mask = 0;
+    if (imu_ready) {
+        mask |= SENSOR_IMU_BIT;
+    }
+    gps_status_t gps_status;
+    if (gps_get_status(&gps_status) && gps_status.ready) {
+        mask |= SENSOR_GPS_BIT;
+    }
+    if (touch_ready) {
+        mask |= SENSOR_TOUCH_BIT;
+    }
+    return mask;
+}
+
+static void sensor_control_get_payload(
+    uint8_t output[SENSOR_CONTROL_PAYLOAD_LENGTH])
+{
+    output[0] = requested_sensor_mask;
+    output[1] = sensor_ready_mask();
+}
+
+static esp_err_t sensor_control_load(void)
+{
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(SENSOR_NVS_NAMESPACE, NVS_READWRITE, &handle),
+                        TAG, "sensor preference open failed");
+    uint8_t stored_mask = SENSOR_ALL_MASK;
+    esp_err_t result = nvs_get_u8(handle, SENSOR_NVS_KEY, &stored_mask);
+    nvs_close(handle);
+    if (result == ESP_ERR_NVS_NOT_FOUND) {
+        requested_sensor_mask = SENSOR_ALL_MASK;
+        return ESP_OK;
+    }
+    if (result != ESP_OK || (stored_mask & ~SENSOR_ALL_MASK) != 0) {
+        return result == ESP_OK ? ESP_ERR_INVALID_RESPONSE : result;
+    }
+    requested_sensor_mask = stored_mask;
+    return ESP_OK;
+}
+
+static esp_err_t sensor_control_store(uint8_t mask)
+{
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(SENSOR_NVS_NAMESPACE, NVS_READWRITE,
+                                 &handle),
+                        TAG, "sensor preference open failed");
+    esp_err_t result = nvs_set_u8(handle, SENSOR_NVS_KEY, mask);
+    if (result == ESP_OK) {
+        result = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return result;
+}
+
+static void sensor_control_notify(void)
+{
+    uint16_t handle = connection_handle;
+    if (handle == BLE_HS_CONN_HANDLE_NONE ||
+        !sensor_control_notifications_enabled) {
+        return;
+    }
+    int result = ble_gatts_notify(handle, sensor_control_value_handle);
+    if (result != 0 && result != BLE_HS_ENOTCONN) {
+        ESP_LOGD(TAG, "sensor control notification skipped: %d", result);
+    }
+}
+
+static void sensor_control_wake_tasks(void)
+{
+    if (imu_control_task_handle != NULL) {
+        xTaskNotifyGive(imu_control_task_handle);
+    }
+    if (gps_control_task_handle != NULL) {
+        xTaskNotifyGive(gps_control_task_handle);
+    }
+    if (touch_control_task_handle != NULL) {
+        xTaskNotifyGive(touch_control_task_handle);
+    }
 }
 
 static esp_err_t i2c_write_raw(uint8_t address, const uint8_t *data,
@@ -613,6 +742,31 @@ static esp_err_t cst9217_initialize(void)
     touch_ready = true;
     ESP_LOGI(TAG, "CST9217 touch ready at 0x%02x", touch_address);
     return ESP_OK;
+}
+
+static esp_err_t cst9217_disable(void)
+{
+    touch_ready = false;
+    portENTER_CRITICAL(&touch_lock);
+    touch_pressed = false;
+    touch_event = TOUCH_EVENT_IDLE;
+    portEXIT_CRITICAL(&touch_lock);
+
+    uint8_t output;
+    uint8_t config;
+    ESP_RETURN_ON_ERROR(i2c_read_registers(BOARD_XL9555_ADDR,
+                                           BOARD_XL9555_OUTPUT1, &output, 1),
+                        TAG, "touch reset output read failed");
+    output &= ~(1U << BOARD_XL9555_TOUCH_RESET_BIT);
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_XL9555_ADDR,
+                                            BOARD_XL9555_OUTPUT1, &output, 1),
+                        TAG, "touch reset low failed");
+    ESP_RETURN_ON_ERROR(i2c_read_registers(BOARD_XL9555_ADDR,
+                                           BOARD_XL9555_CONFIG1, &config, 1),
+                        TAG, "touch reset config read failed");
+    config &= ~(1U << BOARD_XL9555_TOUCH_RESET_BIT);
+    return i2c_write_registers(BOARD_XL9555_ADDR,
+                               BOARD_XL9555_CONFIG1, &config, 1);
 }
 
 static esp_err_t cst9217_read_point(bool *pressed, uint16_t *x, uint16_t *y)
@@ -1294,6 +1448,49 @@ static int haptic_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+static int sensor_control_gatt_access(
+    uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *context, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+
+    if (context->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t payload[SENSOR_CONTROL_PAYLOAD_LENGTH];
+        sensor_control_get_payload(payload);
+        return os_mbuf_append(context->om, payload, sizeof(payload)) == 0
+                   ? 0
+                   : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (context->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t mask;
+        uint16_t length = 0;
+        int result = ble_hs_mbuf_to_flat(context->om, &mask, 1, &length);
+        if (result != 0 || length != 1) {
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        }
+        if ((mask & ~SENSOR_ALL_MASK) != 0) {
+            return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+        }
+        if (sensor_control_store(mask) != ESP_OK) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+        requested_sensor_mask = mask;
+        if ((mask & SENSOR_GPS_BIT) == 0) {
+            gps_cancel_initialize();
+        }
+        sensor_control_wake_tasks();
+        sensor_control_notify();
+        ESP_LOGI(TAG, "sensor state stored: IMU %s, GPS %s, touch %s",
+                 mask & SENSOR_IMU_BIT ? "on" : "off",
+                 mask & SENSOR_GPS_BIT ? "on" : "off",
+                 mask & SENSOR_TOUCH_BIT ? "on" : "off");
+        return 0;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 static const struct ble_gatt_svc_def rtc_gatt_services[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -1345,6 +1542,13 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
                 .access_cb = haptic_gatt_access,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
             },
+            {
+                .uuid = &sensor_control_characteristic_uuid.u,
+                .access_cb = sensor_control_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE |
+                         BLE_GATT_CHR_F_NOTIFY,
+                .val_handle = &sensor_control_value_handle,
+            },
             {0},
         },
     },
@@ -1372,6 +1576,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         imu_notifications_enabled = false;
         touch_notifications_enabled = false;
         gps_notifications_enabled = false;
+        sensor_control_notifications_enabled = false;
         ESP_LOGI(TAG, "BLE client disconnected");
         start_advertising();
         return 0;
@@ -1386,6 +1591,10 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             touch_notifications_enabled = event->subscribe.cur_notify;
         } else if (event->subscribe.attr_handle == gps_value_handle) {
             gps_notifications_enabled = event->subscribe.cur_notify;
+        } else if (event->subscribe.attr_handle ==
+                   sensor_control_value_handle) {
+            sensor_control_notifications_enabled =
+                event->subscribe.cur_notify;
         }
         return 0;
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -1515,6 +1724,10 @@ static void touch_task(void *parameter)
     (void)parameter;
     unsigned read_failures = 0;
     for (;;) {
+        if (!touch_ready) {
+            vTaskDelay(pdMS_TO_TICKS(TOUCH_POLL_INTERVAL_MS));
+            continue;
+        }
         bool pressed;
         uint16_t x = 0;
         uint16_t y = 0;
@@ -1562,6 +1775,114 @@ static void touch_task(void *parameter)
     }
 }
 
+static void imu_control_task(void *parameter)
+{
+    (void)parameter;
+    for (;;) {
+        bool enabled = (requested_sensor_mask & SENSOR_IMU_BIT) != 0;
+        if (enabled && !imu_ready) {
+            esp_err_t result = sensor_rail_set(
+                BOARD_AXP2101_ALDO4_VOLTAGE, 13,
+                BOARD_AXP2101_ALDO4_BIT, true);
+            if (result == ESP_OK) {
+                vTaskDelay(pdMS_TO_TICKS(50));
+                imu_sample_available = false;
+                imu_first_sample_logged = false;
+                result = bhi260_initialize();
+            }
+            if (result != ESP_OK) {
+                imu_ready = false;
+                sensor_rail_set(BOARD_AXP2101_ALDO4_VOLTAGE, 13,
+                                BOARD_AXP2101_ALDO4_BIT, false);
+                ESP_LOGW(TAG, "IMU enable failed: %s",
+                         esp_err_to_name(result));
+            }
+        } else if (!enabled) {
+            imu_ready = false;
+            imu_sample_available = false;
+            esp_err_t result = sensor_rail_set(
+                BOARD_AXP2101_ALDO4_VOLTAGE, 13,
+                BOARD_AXP2101_ALDO4_BIT, false);
+            if (result != ESP_OK) {
+                ESP_LOGW(TAG, "IMU power-down failed: %s",
+                         esp_err_to_name(result));
+            } else {
+                ESP_LOGI(TAG, "IMU powered down");
+            }
+        }
+        sensor_control_notify();
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
+}
+
+static void gps_control_task(void *parameter)
+{
+    (void)parameter;
+    for (;;) {
+        bool enabled = (requested_sensor_mask & SENSOR_GPS_BIT) != 0;
+        gps_status_t status;
+        bool ready = gps_get_status(&status) && status.ready;
+        if (enabled && !ready) {
+            esp_err_t result = sensor_rail_set(
+                BOARD_AXP2101_BLDO1_VOLTAGE, 28,
+                BOARD_AXP2101_BLDO1_BIT, true);
+            if (result == ESP_OK) {
+                vTaskDelay(pdMS_TO_TICKS(100));
+                result = gps_initialize();
+            }
+            if (result != ESP_OK) {
+                gps_deinitialize();
+                sensor_rail_set(BOARD_AXP2101_BLDO1_VOLTAGE, 28,
+                                BOARD_AXP2101_BLDO1_BIT, false);
+                if ((requested_sensor_mask & SENSOR_GPS_BIT) != 0) {
+                    ESP_LOGW(TAG, "GPS enable failed: %s",
+                             esp_err_to_name(result));
+                }
+            }
+        } else if (!enabled) {
+            gps_cancel_initialize();
+            gps_deinitialize();
+            esp_err_t result = sensor_rail_set(
+                BOARD_AXP2101_BLDO1_VOLTAGE, 28,
+                BOARD_AXP2101_BLDO1_BIT, false);
+            if (result != ESP_OK) {
+                ESP_LOGW(TAG, "GPS power-down failed: %s",
+                         esp_err_to_name(result));
+            } else {
+                ESP_LOGI(TAG, "GPS powered down");
+            }
+        }
+        sensor_control_notify();
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
+}
+
+static void touch_control_task(void *parameter)
+{
+    (void)parameter;
+    for (;;) {
+        bool enabled = (requested_sensor_mask & SENSOR_TOUCH_BIT) != 0;
+        if (enabled && !touch_ready) {
+            esp_err_t result = cst9217_initialize();
+            if (result != ESP_OK) {
+                cst9217_disable();
+                ESP_LOGW(TAG, "touch enable failed: %s",
+                         esp_err_to_name(result));
+            }
+        } else if (!enabled) {
+            esp_err_t result = cst9217_disable();
+            if (result != ESP_OK) {
+                ESP_LOGW(TAG, "touch disable failed: %s",
+                         esp_err_to_name(result));
+            } else {
+                ESP_LOGI(TAG, "touch held in reset");
+            }
+        }
+        sensor_control_notify();
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    }
+}
+
 esp_err_t ble_rtc_initialize(void)
 {
     i2c_mutex = xSemaphoreCreateMutex();
@@ -1577,6 +1898,22 @@ esp_err_t ble_rtc_initialize(void)
     ESP_RETURN_ON_ERROR(rtc_write_registers(RTC_CONTROL1_REGISTER,
                                             &control1, 1),
                         TAG, "RTC control write failed");
+    return ESP_OK;
+}
+
+esp_err_t ble_rtc_start(void)
+{
+    esp_err_t result = nvs_flash_init();
+    if (result == ESP_ERR_NVS_NO_FREE_PAGES ||
+        result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_RETURN_ON_ERROR(nvs_flash_erase(), TAG, "NVS erase failed");
+        result = nvs_flash_init();
+    }
+    ESP_RETURN_ON_ERROR(result, TAG, "NVS init failed");
+    ESP_RETURN_ON_ERROR(sensor_control_load(), TAG,
+                        "sensor preference load failed");
+    ESP_LOGI(TAG, "restoring sensor mask 0x%02x", requested_sensor_mask);
+
     ESP_RETURN_ON_ERROR(axp_initialize_measurement(),
                         TAG, "PMIC measurement initialization failed");
     power_config_t config;
@@ -1590,39 +1927,11 @@ esp_err_t ble_rtc_initialize(void)
         ESP_LOGW(TAG, "power configuration unavailable: %s",
                  esp_err_to_name(config_result));
     }
-    esp_err_t imu_result = bhi260_initialize();
-    if (imu_result != ESP_OK) {
-        ESP_LOGW(TAG, "IMU unavailable; RTC and power remain active: %s",
-                 esp_err_to_name(imu_result));
-    }
-    esp_err_t gps_result = gps_initialize();
-    if (gps_result != ESP_OK) {
-        ESP_LOGW(TAG, "GPS unavailable; other sensors remain active: %s",
-                 esp_err_to_name(gps_result));
-    }
-    return ESP_OK;
-}
-
-esp_err_t ble_rtc_start(void)
-{
-    esp_err_t touch_result = cst9217_initialize();
-    if (touch_result != ESP_OK) {
-        ESP_LOGW(TAG, "touch unavailable; other sensors remain active: %s",
-                 esp_err_to_name(touch_result));
-    }
     esp_err_t haptic_result = drv2605_initialize();
     if (haptic_result != ESP_OK) {
         ESP_LOGW(TAG, "haptic unavailable; other features remain active: %s",
                  esp_err_to_name(haptic_result));
     }
-
-    esp_err_t result = nvs_flash_init();
-    if (result == ESP_ERR_NVS_NO_FREE_PAGES ||
-        result == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_RETURN_ON_ERROR(nvs_flash_erase(), TAG, "NVS erase failed");
-        result = nvs_flash_init();
-    }
-    ESP_RETURN_ON_ERROR(result, TAG, "NVS init failed");
 
     ESP_RETURN_ON_ERROR(nimble_port_init(), TAG, "NimBLE init failed");
     ble_svc_gap_init();
@@ -1645,8 +1954,19 @@ esp_err_t ble_rtc_start(void)
     if (xTaskCreate(imu_task, "imu", 4096, NULL, 6, NULL) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
-    if (touch_ready &&
-        xTaskCreate(touch_task, "touch", 3072, NULL, 5, NULL) != pdPASS) {
+    if (xTaskCreate(touch_task, "touch", 3072, NULL, 5, NULL) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xTaskCreate(imu_control_task, "imu_control", 4096, NULL, 5,
+                    &imu_control_task_handle) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xTaskCreate(gps_control_task, "gps_control", 4096, NULL, 5,
+                    &gps_control_task_handle) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xTaskCreate(touch_control_task, "touch_control", 3072, NULL, 5,
+                    &touch_control_task_handle) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;

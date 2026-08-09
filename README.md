@@ -43,6 +43,11 @@ the BHI260AP orientation, and MIA-M10Q GPS data over Bluetooth Low Energy.
   stop immediately. The 6-byte status payload is `ready,device_id,playing,`
   `last_effect,last_repeats,faults`; fault bits report over-current,
   over-temperature, feedback timeout, and diagnostic failure.
+- Sensor power: `7a1e000a-7a1e-4b6c-8d9e-001122334455`, read/write/notify.
+  Reads return two bytes, `requested,ready`; writes accept the one-byte
+  `requested` mask. Bit 0 controls IMU, bit 1 GPS, and bit 2 touch. The
+  requested mask is stored in NVS and restored after restart. A watch without
+  a stored preference starts with all three sensors enabled.
 
 Power direction values are `0` standby, `1` charging, `2` discharging, and `3`
 reserved/unknown. `vbus` and `present` are `0` or `1`.
@@ -57,6 +62,16 @@ The RTC stores local calendar time only; the payload has no timezone or UTC
 offset. Its hardware year range is represented here as 2000 through 2099. This
 minimal iteration does not require BLE pairing or an encrypted connection.
 
+The clock/display path runs first at startup: after RTC and panel setup, the
+display task renders the time before it reads battery data. NVS, PMIC
+measurement, haptics, BLE, and enabled sensor initialization follow. This keeps
+IMU firmware loading and GPS probing outside the first-time-display path.
+
+Disabling IMU switches off AXP2101 ALDO4 after stopping its data path;
+disabling GPS stops its UART/parser and switches off BLDO1; disabling touch
+holds the CST9217 in reset. Re-enabling a sensor initializes it again. The web
+page distinguishes the persisted requested state from the live ready state.
+
 The BHI260AP is initialized with Bosch's BHI2xy SensorAPI v1.6.0 and its stock
 RAM firmware. The vendored driver, firmware image, and BSD-3-Clause license are
 under `firmware/main/vendor/bhy2/`. Firmware loading failures are logged without
@@ -64,7 +79,7 @@ restarting the watch, so RTC and power remain usable instead of causing a boot
 loop.
 
 The GPS module is powered from AXP2101 BLDO1 at 3.3 V and connected to UART1
-with ESP32-S3 TX on GPIO 43 and RX on GPIO 44. At boot the firmware probes
+with ESP32-S3 TX on GPIO 43 and RX on GPIO 44. When enabled, the firmware probes
 38400, 115200, and 9600 baud for a u-blox `MIA-` identity, switches to 115200,
 enables the documented constellations, and requests UBX-NAV-PVT output at 1 Hz.
 The receiver configuration uses the RAM layer, so it is applied again after

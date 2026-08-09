@@ -94,6 +94,7 @@
         <span class="tag">BLE dashboard</span>
       </div>
       <nav aria-label="Sensors">
+        <a href="#sensorControl">Sensor power</a>
         <a href="#rtc">RTC</a>
         <a href="#power">Battery &amp; power</a>
         <a href="#imu">IMU</a>
@@ -115,6 +116,26 @@
         <button id="connect">Connect</button>
         <button id="disconnect" disabled>Disconnect</button>
       </div>
+    </section>
+
+    <section id="sensorControl" class="sensor">
+      <header><h2>Sensor power</h2><span class="tag">persisted · live status</span></header>
+      <p>Choose which sensors should start after boot. The watch restores this setting from non-volatile storage.</p>
+      <div class="settings">
+        <div class="setting">
+          <label class="toggle"><input id="sensorImu" type="checkbox" data-connected disabled> IMU</label>
+          <output id="sensorImuState">Waiting</output>
+        </div>
+        <div class="setting">
+          <label class="toggle"><input id="sensorGps" type="checkbox" data-connected disabled> GPS</label>
+          <output id="sensorGpsState">Waiting</output>
+        </div>
+        <div class="setting">
+          <label class="toggle"><input id="sensorTouch" type="checkbox" data-connected disabled> Touch</label>
+          <output id="sensorTouchState">Waiting</output>
+        </div>
+      </div>
+      <button id="readSensorControl" data-connected disabled>Read sensor status</button>
     </section>
 
     <section id="rtc" class="sensor">
@@ -306,7 +327,8 @@
       screen: '7a1e0006-7a1e-4b6c-8d9e-001122334455',
       touch: '7a1e0007-7a1e-4b6c-8d9e-001122334455',
       gps: '7a1e0008-7a1e-4b6c-8d9e-001122334455',
-      haptic: '7a1e0009-7a1e-4b6c-8d9e-001122334455'
+      haptic: '7a1e0009-7a1e-4b6c-8d9e-001122334455',
+      sensorControl: '7a1e000a-7a1e-4b6c-8d9e-001122334455'
     };
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -321,12 +343,17 @@
       'gpsFix', 'gpsSatellites', 'gpsLatitude', 'gpsLongitude', 'gpsAltitude',
       'gpsAccuracy', 'gpsSpeed', 'gpsHeading', 'gpsAgc', 'readGps',
       'hapticEffect', 'hapticRepeats', 'hapticDriver', 'hapticState',
-      'hapticLast', 'hapticFaults', 'playHaptic', 'stopHaptic', 'readHaptic'];
+      'hapticLast', 'hapticFaults', 'playHaptic', 'stopHaptic', 'readHaptic',
+      'sensorImu', 'sensorGps', 'sensorTouch', 'sensorImuState',
+      'sensorGpsState', 'sensorTouchState', 'readSensorControl'];
     const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
     let device = null;
     let characteristics = {};
     let touchCounter = 0;
+    let sensorEnabledMask = 0x07;
+    let sensorReadyMask = 0;
+    let sensorWriteInProgress = false;
 
     function setConnected(connected) {
       ui.dot.classList.toggle('connected', connected);
@@ -389,6 +416,26 @@
       ui.inputCurrent.value = String(inputCurrent);
       ui.chargeVoltage.textContent = `${(chargeVoltage / 1000).toFixed(2)} V`;
       ui.chargerEnabled.checked = Boolean(chargerEnabled);
+    }
+
+    function showSensorControl(dataView) {
+      if (dataView.byteLength !== 2) throw new Error('Unexpected sensor-control payload');
+      const enabled = dataView.getUint8(0);
+      const ready = dataView.getUint8(1);
+      if ((enabled & ~0x07) || (ready & ~0x07)) {
+        throw new Error('Sensor-control value outside valid range');
+      }
+      sensorEnabledMask = enabled;
+      sensorReadyMask = ready;
+      const sensors = [
+        [ui.sensorImu, ui.sensorImuState, 0x01],
+        [ui.sensorGps, ui.sensorGpsState, 0x02],
+        [ui.sensorTouch, ui.sensorTouchState, 0x04]
+      ];
+      sensors.forEach(([toggle, state, bit]) => {
+        toggle.checked = Boolean(enabled & bit);
+        state.value = !(enabled & bit) ? 'Off' : (ready & bit) ? 'Ready' : 'Starting';
+      });
     }
 
     function showImu(dataView) {
@@ -533,14 +580,16 @@
         characteristics.touch = await service.getCharacteristic(CHAR_UUID.touch);
         characteristics.gps = await service.getCharacteristic(CHAR_UUID.gps);
         characteristics.haptic = await service.getCharacteristic(CHAR_UUID.haptic);
+        characteristics.sensorControl = await service.getCharacteristic(CHAR_UUID.sensorControl);
         characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
         characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
         characteristics.imu.addEventListener('characteristicvaluechanged', notificationHandler(showImu));
         characteristics.touch.addEventListener('characteristicvaluechanged', notificationHandler(showTouch));
         characteristics.gps.addEventListener('characteristicvaluechanged', notificationHandler(showGps));
+        characteristics.sensorControl.addEventListener('characteristicvaluechanged', notificationHandler(showSensorControl));
         const notificationCharacteristics = [
           characteristics.rtc, characteristics.power, characteristics.imu,
-          characteristics.touch, characteristics.gps
+          characteristics.touch, characteristics.gps, characteristics.sensorControl
         ];
         // Android Web Bluetooth rejects overlapping GATT procedures.
         for (const characteristic of notificationCharacteristics) {
@@ -550,12 +599,16 @@
         const rtcReady = await readTime(false);
         const powerReady = await readPower(false);
         const configReady = await readPowerConfig(false);
-        const imuReady = await readImu(false);
+        const sensorControlReady = await readSensorControl(false);
+        const imuReady = !(sensorEnabledMask & 0x01) || !(sensorReadyMask & 0x01) || await readImu(false);
         const screenReady = await readScreen(false);
-        const touchReady = await readTouch(false);
-        const gpsReady = await readGps(false);
+        const touchReady = !(sensorEnabledMask & 0x04) || !(sensorReadyMask & 0x04) || await readTouch(false);
+        const gpsReady = !(sensorEnabledMask & 0x02) || !(sensorReadyMask & 0x02) || await readGps(false);
         const hapticReady = await readHaptic(false);
-        if (rtcReady && powerReady && configReady && imuReady && screenReady && touchReady && gpsReady && hapticReady) {
+        const sensorsStarting = Boolean(sensorEnabledMask & ~sensorReadyMask);
+        if (rtcReady && powerReady && configReady && sensorControlReady && imuReady && screenReady && touchReady && gpsReady && hapticReady && sensorsStarting) {
+          ui.message.textContent = 'Core controls ready. Enabled sensors are starting.';
+        } else if (rtcReady && powerReady && configReady && sensorControlReady && imuReady && screenReady && touchReady && gpsReady && hapticReady) {
           ui.message.textContent = 'Live sensor updates enabled.';
         } else if (!rtcReady) {
           ui.message.textContent = 'RTC unavailable. Set the browser time first.';
@@ -563,6 +616,8 @@
           ui.message.textContent = 'Power data is currently unavailable.';
         } else if (!configReady) {
           ui.message.textContent = 'Charge settings are currently unavailable.';
+        } else if (!sensorControlReady) {
+          ui.message.textContent = 'Sensor power settings are currently unavailable.';
         } else if (!imuReady) {
           ui.message.textContent = 'IMU data is currently unavailable.';
         } else if (!screenReady) {
@@ -608,6 +663,42 @@
       } catch (error) {
         if (reportError) ui.message.textContent = `Charge settings read failed: ${error.message}`;
         return false;
+      }
+    }
+
+    async function readSensorControl(reportError = true) {
+      try {
+        showSensorControl(await characteristics.sensorControl.readValue());
+        return true;
+      } catch (error) {
+        if (reportError) ui.message.textContent = `Sensor status read failed: ${error.message}`;
+        return false;
+      }
+    }
+
+    async function writeSensorControl() {
+      if (sensorWriteInProgress) return;
+      const toggles = [ui.sensorImu, ui.sensorGps, ui.sensorTouch];
+      const mask = (ui.sensorImu.checked ? 0x01 : 0) |
+                   (ui.sensorGps.checked ? 0x02 : 0) |
+                   (ui.sensorTouch.checked ? 0x04 : 0);
+      sensorWriteInProgress = true;
+      toggles.forEach(toggle => { toggle.disabled = true; });
+      try {
+        const payload = Uint8Array.of(mask);
+        if (characteristics.sensorControl.writeValueWithResponse) {
+          await characteristics.sensorControl.writeValueWithResponse(payload);
+        } else {
+          await characteristics.sensorControl.writeValue(payload);
+        }
+        await readSensorControl(false);
+        ui.message.textContent = 'Sensor power preference saved.';
+      } catch (error) {
+        ui.message.textContent = `Sensor power write failed: ${error.message}`;
+        await readSensorControl(false);
+      } finally {
+        if (device?.gatt?.connected) toggles.forEach(toggle => { toggle.disabled = false; });
+        sensorWriteInProgress = false;
       }
     }
 
@@ -746,6 +837,10 @@
     ui.readTime.addEventListener('click', readTime);
     ui.readPower.addEventListener('click', readPower);
     ui.readPowerConfig.addEventListener('click', readPowerConfig);
+    ui.readSensorControl.addEventListener('click', readSensorControl);
+    [ui.sensorImu, ui.sensorGps, ui.sensorTouch].forEach(toggle => {
+      toggle.addEventListener('change', writeSensorControl);
+    });
     ui.writePowerConfig.addEventListener('click', writePowerConfig);
     ui.readImu.addEventListener('click', readImu);
     ui.readScreen.addEventListener('click', readScreen);

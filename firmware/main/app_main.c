@@ -132,46 +132,6 @@ static void enable_display_power(void)
     vTaskDelay(pdMS_TO_TICKS(20));
 }
 
-static void enable_sensor_power(void)
-{
-    uint8_t voltage;
-    uint8_t ldo_enable;
-
-    ESP_ERROR_CHECK(i2c_read_register(BOARD_AXP2101_ADDR,
-                                      BOARD_AXP2101_ALDO4_VOLTAGE, &voltage));
-    /* ALDO4 powers the BHI260AP: 0.5 V + 13 * 0.1 V = 1.8 V. */
-    voltage = (voltage & 0xe0) | 13;
-    ESP_ERROR_CHECK(i2c_write_register(BOARD_AXP2101_ADDR,
-                                       BOARD_AXP2101_ALDO4_VOLTAGE, voltage));
-
-    ESP_ERROR_CHECK(i2c_read_register(BOARD_AXP2101_ADDR,
-                                      BOARD_AXP2101_LDO_ENABLE, &ldo_enable));
-    ldo_enable |= 1U << BOARD_AXP2101_ALDO4_BIT;
-    ESP_ERROR_CHECK(i2c_write_register(BOARD_AXP2101_ADDR,
-                                       BOARD_AXP2101_LDO_ENABLE, ldo_enable));
-    vTaskDelay(pdMS_TO_TICKS(50));
-}
-
-static void enable_gps_power(void)
-{
-    uint8_t voltage;
-    uint8_t ldo_enable;
-
-    ESP_ERROR_CHECK(i2c_read_register(BOARD_AXP2101_ADDR,
-                                      BOARD_AXP2101_BLDO1_VOLTAGE, &voltage));
-    /* BLDO1 powers the MIA-M10Q: 0.5 V + 28 * 0.1 V = 3.3 V. */
-    voltage = (voltage & 0xe0) | 28;
-    ESP_ERROR_CHECK(i2c_write_register(BOARD_AXP2101_ADDR,
-                                       BOARD_AXP2101_BLDO1_VOLTAGE, voltage));
-
-    ESP_ERROR_CHECK(i2c_read_register(BOARD_AXP2101_ADDR,
-                                      BOARD_AXP2101_LDO_ENABLE, &ldo_enable));
-    ldo_enable |= 1U << BOARD_AXP2101_BLDO1_BIT;
-    ESP_ERROR_CHECK(i2c_write_register(BOARD_AXP2101_ADDR,
-                                       BOARD_AXP2101_LDO_ENABLE, ldo_enable));
-    vTaskDelay(pdMS_TO_TICKS(100));
-}
-
 static esp_err_t display_command(uint8_t command, const uint8_t *parameters,
                                  size_t length)
 {
@@ -522,6 +482,8 @@ static void display_time_task(void *parameter)
             memcpy(time_text, payload + 11, TIME_TEXT_LENGTH);
         }
 
+        display_text_band(pixels, time_text, TIME_TEXT_LENGTH, time_start_y);
+
         char battery_text[5] = "--%";
         unsigned percentage;
         if (ble_power_get_payload(payload, sizeof(payload)) == ESP_OK &&
@@ -530,7 +492,6 @@ static void display_time_task(void *parameter)
             snprintf(battery_text, sizeof(battery_text), "%u%%", percentage);
         }
 
-        display_text_band(pixels, time_text, TIME_TEXT_LENGTH, time_start_y);
         display_text_band(pixels, battery_text, strlen(battery_text),
                           battery_start_y);
         vTaskDelayUntil(&last_update, pdMS_TO_TICKS(1000));
@@ -540,14 +501,12 @@ static void display_time_task(void *parameter)
 void app_main(void)
 {
     initialize_i2c();
-    enable_sensor_power();
-    enable_gps_power();
     ESP_ERROR_CHECK(ble_rtc_initialize());
     enable_display_power();
     initialize_display();
     draw_validation_pattern();
-    ESP_ERROR_CHECK(ble_rtc_start());
     BaseType_t task_result = xTaskCreate(display_time_task, "display_time",
                                          4096, NULL, 4, NULL);
     ESP_ERROR_CHECK(task_result == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
+    ESP_ERROR_CHECK(ble_rtc_start());
 }
