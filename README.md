@@ -1,8 +1,8 @@
 # T-Watch Ultra sensors over BLE
 
-Displays the PCF85063A clock and AXP2101 charge level in Cascadia Code inside
-the validated blue safe-area contour, and exposes the clock, power management,
-the BHI260AP orientation, and MIA-M10Q GPS data over Bluetooth Low Energy.
+Runs a small Watch/Launcher/Settings window manager in Cascadia Code inside the
+validated blue safe-area contour, and exposes the clock, power management, the
+BHI260AP orientation, and MIA-M10Q GPS data over Bluetooth Low Energy.
 
 - Device name: `UltraWatch`
 - Service: `7a1e0001-7a1e-4b6c-8d9e-001122334455`
@@ -69,12 +69,22 @@ The RTC stores local calendar time only; the payload has no timezone or UTC
 offset. Its hardware year range is represented here as 2000 through 2099. This
 minimal iteration does not require BLE pairing or an encrypted connection.
 
-The clock/display path runs first at startup: after RTC and panel setup, the
-display task renders `HH:MM`, battery charge, and a small `BLE ON` status above
-the bottom-left contour before it reads the remaining sensor state. It sleeps
-until the next minute boundary instead of repainting seconds. NVS, PMIC
-measurement, haptics, BLE, and enabled sensor initialization follow. This keeps
-IMU firmware loading and GPS probing outside the first-time-display path.
+The display path runs first at startup: after RTC and panel setup, the UI task
+renders the Watch face with `HH:MM`, the PCF85063A weekday/date, battery charge,
+BLE state, and launcher control before it reads SD media or starts the remaining
+sensor state. It sleeps until the next minute boundary instead of repainting
+seconds. NVS, PMIC measurement, haptics, BLE, and enabled sensor initialization
+follow. This keeps SD, IMU firmware loading, and GPS probing outside the
+first-Watch-frame path.
+
+The window manager has four internal states: Watch, Launcher, Settings, and
+Black. Watch is the boot/default app. The launcher clock and settings bubbles
+open their corresponding screens; the other app bubbles are visual placeholders
+and deliberately inert. Settings changes AMOLED brightness continuously while
+dragging and uses the same public advertising setter as the physical side
+button. After the 10-second inactivity interval, the active app resets to Watch
+and the display becomes completely black. The waking finger is consumed through
+its release, so it cannot also activate a Watch control.
 
 After 10 seconds without a CST9217 touch interrupt, the firmware writes black
 pixels across the complete 410 x 502 framebuffer and stops display refreshes.
@@ -88,7 +98,7 @@ sensor controls for touch-to-wake to be available.
 The physical side button is the AXP2101 PWRON key, not a direct ESP32 GPIO.
 Its events arrive through the PMIC interrupt line on GPIO 7. A completed button
 click toggles BLE advertising on the AXP2101 PWRON release event and redraws the
-display as `BLE ON` or `BLE OFF`; the separate long-press event suppresses that
+display as `BLE AN` or `BLE AUS`; the separate long-press event suppresses that
 toggle so the AXP2101's hardware power-key behavior is retained. An established
 connection is not forcibly disconnected. With advertising disabled, disconnect
 and advertising-complete events do not restart advertising.
@@ -126,8 +136,8 @@ and DRV2605L device IDs, selects internal-trigger mode and ERM Library A, and
 limits BLE commands to finite ROM effects. The browser provides several named
 presets plus explicit read and stop controls.
 
-The firmware embeds only the Cascadia Code glyphs required by the clock,
-percentage, and BLE-state display. They are generated from
+The firmware embeds only the Cascadia Code glyphs derived from the static
+Watch, German date, and Settings strings. They are generated from
 `CascadiaCode-Regular.otf` with
 `firmware/tools/generate_cascadia_font.py`; the font license is included beside
 the generated header in `firmware/main/CASCADIA_CODE_LICENSE.txt`.
@@ -140,6 +150,34 @@ python3 firmware/tools/generate_cascadia_font.py \
   "$HOME/Library/Fonts/CascadiaCode-Regular.otf" \
   firmware/main/cascadia_code_72.h
 ```
+
+## SD-card UI assets
+
+Copy the contents of `firmware/sdcard/` to the root of a FAT32 card. The watch
+expects `/ultrawatch/ui/icons.rgb565`, an exact 50,688-byte, row-major atlas of
+eleven 48 x 48 RGB565 tiles in display byte order. The tile order is launcher,
+clock, settings, activity, heart, sleep, wellness, weather, music, messages,
+and rings. The ready-to-copy atlas, original generated/chroma-key PNGs,
+alpha-normalized source PNGs, 48 x 48 tiles, and QA contact sheet are retained
+under `firmware/`.
+
+To reproduce the atlas after generating new flat-background source art, first
+remove each chroma key with the ImageGen helper, then run:
+
+```sh
+python3 firmware/tools/build_ui_assets.py \
+  firmware/assets/ui/sources \
+  firmware/sdcard/ultrawatch/ui/icons.rgb565 \
+  firmware/assets/ui/contact-sheet.png \
+  --tile-dir firmware/assets/ui/tiles
+```
+
+The build tool rejects non-transparent source corners, normalizes and preblends
+each icon on black, writes big-endian RGB565 bytes, checks the required atlas
+size, and produces the labeled contact sheet. Firmware renders the first Watch
+frame before SD initialization, never formats media, caches a valid atlas in
+internal RAM, unmounts the card, and disables AXP2101 ALDO1. Missing or invalid
+media uses procedural launcher, clock, and settings symbols without rebooting.
 
 Build with ESP-IDF 5.3:
 

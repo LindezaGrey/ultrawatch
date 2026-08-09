@@ -169,15 +169,6 @@ static const ble_uuid128_t system_power_characteristic_uuid =
         0x6c, 0x4b, 0x1e, 0x7a, 0x0b, 0x00, 0x1e, 0x7a);
 
 typedef struct {
-    int year;
-    int month;
-    int day;
-    int hour;
-    int minute;
-    int second;
-} rtc_time_t;
-
-typedef struct {
     unsigned charge_current_ma;
     unsigned input_current_ma;
     unsigned charge_voltage_mv;
@@ -368,6 +359,12 @@ static esp_err_t drv2605_play(uint8_t effect, uint8_t repeats)
     haptic_last_effect = effect;
     haptic_last_repeats = repeats;
     return ESP_OK;
+}
+
+esp_err_t ble_haptic_click(void)
+{
+    /* ERM library A effect 1 is the driver's short strong-click waveform. */
+    return drv2605_play(1, 1);
 }
 
 static bool haptic_get_payload(uint8_t output[HAPTIC_STATUS_PAYLOAD_LENGTH])
@@ -1157,7 +1154,7 @@ static bool is_leap_year(int year)
     return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
 }
 
-static bool rtc_time_is_valid(const rtc_time_t *time)
+static bool rtc_time_is_valid(const rtc_datetime_t *time)
 {
     static const uint8_t days_in_month[] = {
         31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
@@ -1189,7 +1186,7 @@ static bool parse_two_digits(const char *text, int *value)
 }
 
 static bool parse_rtc_payload(const char *text, size_t length,
-                              rtc_time_t *time)
+                              rtc_datetime_t *time)
 {
     if (length != RTC_PAYLOAD_LENGTH ||
         text[4] != '-' || text[7] != '-' ||
@@ -1214,7 +1211,7 @@ static bool parse_rtc_payload(const char *text, size_t length,
 }
 
 /* PCF85063A weekday encoding is Sunday=0 through Saturday=6. */
-static int rtc_weekday(const rtc_time_t *time)
+static int rtc_weekday(const rtc_datetime_t *time)
 {
     static const int month_offsets[] = {
         0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4,
@@ -1227,7 +1224,7 @@ static int rtc_weekday(const rtc_time_t *time)
             month_offsets[time->month - 1] + time->day) % 7;
 }
 
-static esp_err_t rtc_read_time(rtc_time_t *time)
+static esp_err_t rtc_read_time(rtc_datetime_t *time)
 {
     uint8_t registers[7];
     ESP_RETURN_ON_ERROR(rtc_read_registers(RTC_SECONDS_REGISTER, registers,
@@ -1242,13 +1239,16 @@ static esp_err_t rtc_read_time(rtc_time_t *time)
     time->minute = bcd_to_decimal(registers[1] & 0x7f);
     time->hour = bcd_to_decimal(registers[2] & 0x3f);
     time->day = bcd_to_decimal(registers[3] & 0x3f);
+    time->weekday = registers[4] & 0x07;
     time->month = bcd_to_decimal(registers[5] & 0x1f);
     time->year = 2000 + bcd_to_decimal(registers[6]);
 
-    return rtc_time_is_valid(time) ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
+    return rtc_time_is_valid(time) && time->weekday <= 6
+               ? ESP_OK
+               : ESP_ERR_INVALID_RESPONSE;
 }
 
-static esp_err_t rtc_write_time(const rtc_time_t *time)
+static esp_err_t rtc_write_time(const rtc_datetime_t *time)
 {
     const uint8_t registers[] = {
         decimal_to_bcd(time->second),
@@ -1268,13 +1268,21 @@ esp_err_t ble_rtc_get_time_payload(char *output, size_t output_size)
     if (output == NULL || output_size < RTC_PAYLOAD_LENGTH + 1) {
         return ESP_ERR_INVALID_SIZE;
     }
-    rtc_time_t time;
+    rtc_datetime_t time;
     ESP_RETURN_ON_ERROR(rtc_read_time(&time), TAG, "RTC unavailable");
     int length = snprintf(output, output_size,
                           "%04d-%02d-%02dT%02d:%02d:%02d",
                           time.year, time.month, time.day,
                           time.hour, time.minute, time.second);
     return length == RTC_PAYLOAD_LENGTH ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t ble_rtc_get_datetime(rtc_datetime_t *datetime)
+{
+    if (datetime == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return rtc_read_time(datetime);
 }
 
 esp_err_t ble_power_get_payload(char *output, size_t output_size)
@@ -1367,7 +1375,7 @@ static int rtc_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
         }
         payload[length] = '\0';
 
-        rtc_time_t time;
+        rtc_datetime_t time;
         if (!parse_rtc_payload(payload, length, &time)) {
             return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
         }
@@ -1833,19 +1841,25 @@ static void start_advertising(void)
     }
 }
 
-static void set_advertising_enabled(bool enabled)
+esp_err_t ble_rtc_set_advertising_enabled(bool enabled)
 {
     advertising_enabled = enabled;
     if (enabled) {
         start_advertising();
+        if (connection_handle == BLE_HS_CONN_HANDLE_NONE &&
+            !ble_gap_adv_active()) {
+            return ESP_FAIL;
+        }
     } else if (ble_gap_adv_active()) {
         int result = ble_gap_adv_stop();
         if (result != 0) {
             ESP_LOGW(TAG, "advertising stop failed: %d", result);
+            return ESP_FAIL;
         }
     }
     ESP_LOGI(TAG, "BLE advertising %s", enabled ? "enabled" : "disabled");
     screen_request_refresh();
+    return ESP_OK;
 }
 
 static void IRAM_ATTR power_button_interrupt_handler(void *argument)
@@ -1889,7 +1903,12 @@ static void power_button_task(void *parameter)
         }
         if ((status[1] & (1U << AXP_POWERON_POSITIVE_EDGE_BIT)) != 0) {
             if (!long_press_seen) {
-                set_advertising_enabled(!advertising_enabled);
+                esp_err_t toggle_result =
+                    ble_rtc_set_advertising_enabled(!advertising_enabled);
+                if (toggle_result != ESP_OK) {
+                    ESP_LOGW(TAG, "BLE advertising toggle failed: %s",
+                             esp_err_to_name(toggle_result));
+                }
             }
             long_press_seen = false;
         }
@@ -2050,6 +2069,9 @@ static void touch_task(void *parameter)
         read_failures = 0;
 
         bool notify = false;
+        uint16_t ui_x = 0;
+        uint16_t ui_y = 0;
+        uint8_t ui_event = TOUCH_EVENT_IDLE;
         portENTER_CRITICAL(&touch_lock);
         if (pressed && !touch_pressed) {
             touch_event = TOUCH_EVENT_DOWN;
@@ -2066,8 +2088,17 @@ static void touch_task(void *parameter)
             touch_event = TOUCH_EVENT_UP;
             notify = true;
         }
+        if (notify) {
+            ui_x = touch_x;
+            ui_y = touch_y;
+            ui_event = touch_event;
+        }
         touch_pressed = pressed;
         portEXIT_CRITICAL(&touch_lock);
+
+        if (notify) {
+            screen_handle_touch((screen_touch_event_t)ui_event, ui_x, ui_y);
+        }
 
         uint16_t handle = connection_handle;
         if (notify && handle != BLE_HS_CONN_HANDLE_NONE &&

@@ -12,6 +12,8 @@
 
 #define BOARD_AXP2101_ADDR          0x34
 #define BOARD_AXP2101_LDO_ENABLE    0x90
+#define BOARD_AXP2101_ALDO1_VOLTAGE 0x92
+#define BOARD_AXP2101_ALDO1_BIT     0
 #define BOARD_AXP2101_ALDO2_VOLTAGE 0x93
 #define BOARD_AXP2101_ALDO2_BIT     1
 #define BOARD_AXP2101_ALDO4_VOLTAGE 0x95
@@ -20,6 +22,7 @@
 #define BOARD_AXP2101_BLDO1_BIT     4
 #define BOARD_PMU_INTERRUPT         GPIO_NUM_7
 #define BOARD_XL9555_ADDR           0x20
+#define BOARD_XL9555_INPUT1         0x01
 #define BOARD_XL9555_OUTPUT0        0x02
 #define BOARD_XL9555_OUTPUT1        0x03
 #define BOARD_XL9555_CONFIG0        0x06
@@ -27,6 +30,7 @@
 #define BOARD_XL9555_DRIVER_BIT     6
 #define BOARD_XL9555_DISPLAY_BIT    7
 #define BOARD_XL9555_TOUCH_RESET_BIT 0
+#define BOARD_XL9555_SD_DETECT_BIT   2
 
 #define BOARD_PCF85063_ADDR         0x51
 #define BOARD_BHI260_ADDR           0x28
@@ -40,7 +44,7 @@
 #define BOARD_GPS_RX                GPIO_NUM_44
 #define BOARD_GPS_PPS               GPIO_NUM_13
 
-#define BOARD_DISPLAY_SPI_HOST      SPI2_HOST
+#define BOARD_DISPLAY_SPI_HOST      SPI3_HOST
 #define BOARD_DISPLAY_SCK           GPIO_NUM_40
 #define BOARD_DISPLAY_D0            GPIO_NUM_38
 #define BOARD_DISPLAY_D1            GPIO_NUM_39
@@ -53,6 +57,16 @@
 #define BOARD_DISPLAY_HEIGHT        502
 #define BOARD_DISPLAY_COLUMN_OFFSET 22
 #define BOARD_DISPLAY_QSPI_HZ       80000000
+
+#define BOARD_SD_SPI_HOST           SPI2_HOST
+#define BOARD_SD_SCK                GPIO_NUM_35
+#define BOARD_SD_MOSI               GPIO_NUM_34
+#define BOARD_SD_MISO               GPIO_NUM_33
+#define BOARD_SD_CS                 GPIO_NUM_21
+#define BOARD_NFC_CS                GPIO_NUM_4
+#define BOARD_LORA_CS               GPIO_NUM_36
+#define BOARD_LORA_RESET            GPIO_NUM_47
+#define BOARD_SD_SPI_HZ             4000000
 
 #define BOARD_ACTIVE_WIDTH_UM       33090
 #define BOARD_ACTIVE_HEIGHT_UM      40510
