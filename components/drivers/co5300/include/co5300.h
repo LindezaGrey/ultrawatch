@@ -46,6 +46,10 @@ extern "C" {
 esp_err_t co5300_init(void);
 esp_err_t co5300_deinit(void);
 
+/* Panel sleep (SLPIN) / wake (SLPOUT + DISPON + brightness). */
+esp_err_t co5300_sleep(void);
+esp_err_t co5300_wake(void);
+
 /* Access to the underlying esp_lcd SH8601 panel / panel IO handles (for
  * integration with LVGL via esp_lvgl_adapter). */
 #include "esp_lcd_panel_io.h"

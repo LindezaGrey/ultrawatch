@@ -22,6 +22,7 @@
 #include "cst9217.h"
 #include "twatch_board.h"
 #include "axp2101.h"
+#include "power_mgmt.h"
 
 static const char *TAG = "lvgl_app";
 
@@ -198,7 +199,14 @@ esp_err_t lvgl_app_start(void)
     mount_assets();
 
     const esp_lv_adapter_config_t adapter_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG();
-    ESP_RETURN_ON_ERROR(esp_lv_adapter_init(&adapter_cfg), TAG, "adapter init");
+    esp_lv_adapter_config_t adapter_cfg_mut = adapter_cfg;
+    /* Auto light sleep: pause LVGL after idle, then tickless light sleep. */
+    adapter_cfg_mut.auto_sleep.enable = true;
+    adapter_cfg_mut.auto_sleep.mode = ESP_LV_ADAPTER_AUTO_SLEEP_MODE_PAUSE;
+    adapter_cfg_mut.auto_sleep.idle_timeout_ms = 5000;
+    adapter_cfg_mut.auto_sleep.callbacks.on_enter_sleep = power_mgmt_enter_sleep;
+    adapter_cfg_mut.auto_sleep.callbacks.on_exit_sleep = power_mgmt_exit_sleep;
+    ESP_RETURN_ON_ERROR(esp_lv_adapter_init(&adapter_cfg_mut), TAG, "adapter init");
 
     esp_lv_adapter_display_config_t display_cfg = ESP_LV_ADAPTER_DISPLAY_SPI_WITH_PSRAM_DEFAULT_CONFIG(
         co5300_get_panel(),
@@ -218,6 +226,9 @@ esp_err_t lvgl_app_start(void)
     lv_display_add_event_cb(disp, area_rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
 
     ESP_RETURN_ON_ERROR(esp_lv_adapter_start(), TAG, "adapter start");
+
+    /* Power management: DFS + light sleep + wake sources. */
+    power_mgmt_init();
 
     if (esp_lv_adapter_lock(-1) == ESP_OK) {
         s_font_time  = load_font(96);

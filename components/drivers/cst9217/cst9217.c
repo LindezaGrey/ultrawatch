@@ -51,7 +51,7 @@ esp_err_t cst9217_init(i2c_master_bus_handle_t bus)
         .x_max = 410,   /* display width; adapter scales native coords */
         .y_max = 502,
         .rst_gpio_num = -1,   /* reset is on XL9555 P8 (board layer) */
-        .int_gpio_num = -1,   /* polling via the LVGL adapter */
+        .int_gpio_num = 12,   /* touch INT (wake source for light sleep) */
         .levels = { .reset = 0, .interrupt = 0 },
         .flags = { .swap_xy = 0, .mirror_x = 0, .mirror_y = 0 },
     };

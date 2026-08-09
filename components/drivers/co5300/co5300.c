@@ -143,3 +143,32 @@ esp_lcd_panel_io_handle_t co5300_get_panel_io(void)
 {
     return s_panel_io;
 }
+
+/* Send a MIPI command in the CO5300 QSPI encoding (same as the SH8601 driver). */
+static esp_err_t co5300_send_cmd(uint8_t cmd)
+{
+    int lcd_cmd = (int)((0x02UL << 24) | ((uint32_t)cmd << 8));
+    return esp_lcd_panel_io_tx_param(s_panel_io, lcd_cmd, NULL, 0);
+}
+
+esp_err_t co5300_sleep(void)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return co5300_send_cmd(0x10);   /* SLPIN */
+}
+
+esp_err_t co5300_wake(void)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    ESP_RETURN_ON_ERROR(co5300_send_cmd(0x11), TAG, "slpout");      /* SLPOUT */
+    vTaskDelay(pdMS_TO_TICKS(120));
+    ESP_RETURN_ON_ERROR(co5300_send_cmd(0x29), TAG, "dison");       /* DISPON */
+    vTaskDelay(pdMS_TO_TICKS(120));
+    uint8_t bri = 0x80;
+    int lcd_cmd = (int)((0x02UL << 24) | (0x51UL << 8));            /* brightness */
+    return esp_lcd_panel_io_tx_param(s_panel_io, lcd_cmd, &bri, 1);
+}

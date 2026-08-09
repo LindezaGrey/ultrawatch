@@ -15,7 +15,12 @@ static const char *TAG = "axp2101";
 #define AXP_REG_ADC_DATA1       0x35 /* batt volt lo */
 #define AXP_REG_BAT_PERCENT     0xA4
 #define AXP_REG_STATUS1         0x00
-#define AXP_REG_INTSTS1         0x48
+#define AXP_REG_INTEN2     0x41
+#define AXP_REG_INTSTS1    0x48
+#define AXP_REG_INTSTS2    0x49
+#define AXP_REG_INTSTS3    0x4A
+
+#define AXP_INTEN2_PEK    0x0F   /* bits 0-3: press/release edge, long, short */
 
 #define AXP_BATT_VOLT_MSB_BITS  5
 
@@ -192,4 +197,42 @@ esp_err_t axp2101_get_battery_pct(i2c_master_dev_handle_t dev, uint8_t *pct)
         return ESP_OK;
     }
     return axp2101_read_reg(dev, AXP_REG_BAT_PERCENT, pct);
+}
+
+esp_err_t axp2101_enable_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, bool enable)
+{
+    if (rail >= AXP2101_RAIL_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return axp2101_set_bit(dev, AXP_REG_LDO_ONOFF0, s_rail_map[rail].en_mask, enable);
+}
+
+esp_err_t axp2101_enable_pek_irq(i2c_master_dev_handle_t dev)
+{
+    /* Enable PEK interrupts (press/release edge, long/short press) in INTEN2. */
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTEN2, &val), TAG, "read inten2");
+    return axp2101_write_reg(dev, AXP_REG_INTEN2, (uint8_t)(val | AXP_INTEN2_PEK));
+}
+
+esp_err_t axp2101_clear_irq(i2c_master_dev_handle_t dev)
+{
+    /* Write 0xFF to the status registers to clear all pending interrupts. */
+    for (int i = 0; i < 3; i++) {
+        esp_err_t ret = axp2101_write_reg(dev, AXP_REG_INTSTS1 + i, 0xFF);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+    return ESP_OK;
+}
+
+esp_err_t axp2101_get_irq_status(i2c_master_dev_handle_t dev, uint32_t *status)
+{
+    uint8_t s[3] = { 0, 0, 0 };
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTSTS1, &s[0]), TAG, "intsts1");
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTSTS2, &s[1]), TAG, "intsts2");
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTSTS3, &s[2]), TAG, "intsts3");
+    *status = ((uint32_t)s[2] << 16) | ((uint32_t)s[1] << 8) | s[0];
+    return ESP_OK;
 }

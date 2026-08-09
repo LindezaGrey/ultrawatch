@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "uwatch_main.c" "lvgl_app.c"
+    SRCS "uwatch_main.c" "lvgl_app.c" "power_mgmt.c"
     INCLUDE_DIRS "."
     REQUIRES
         twatch_board
@@ -11,6 +11,8 @@ idf_component_register(
         lvgl
         spiffs
         esp_app_format
+        esp_pm
+        esp_driver_gpio
         esp_driver_i2c
         esp_common
         esp_timer
