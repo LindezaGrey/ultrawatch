@@ -9,11 +9,28 @@ idf_component_register(
         esp_lvgl_adapter
         lvgl
         spiffs
+        esp_app_format
         esp_driver_i2c
         esp_common
         esp_timer
         log
 )
+
+# Bake the git commit hash into the firmware for boot-screen identification.
+# `-c safe.directory=*` keeps this working when the build container runs as
+# root against a host-owned repo. Version is read at runtime from the app
+# descriptor (esp_app_get_description), which ESP-IDF resolves correctly.
+execute_process(
+    COMMAND git -c safe.directory=* rev-parse --short=8 HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+    OUTPUT_VARIABLE UPROJECT_GIT_HASH
+    ERROR_QUIET
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(NOT UPROJECT_GIT_HASH)
+    set(UPROJECT_GIT_HASH "unknown")
+endif()
+target_compile_definitions(${COMPONENT_LIB} PUBLIC "UWATCH_GIT_HASH=\"${UPROJECT_GIT_HASH}\"")
 
 # Pack the assets/ folder (Roboto TTF, UI overlay) into the SPIFFS partition.
 spiffs_create_partition_image(assets ../assets FLASH_IN_PROJECT)

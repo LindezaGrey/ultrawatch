@@ -12,9 +12,11 @@
  *     at /assets; LVGL's FreeType renders it at large sizes (~315 PPI panel).
  */
 #include "lvgl_app.h"
+#include <stdio.h>
 #include <string.h>
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_app_desc.h"
 #include "esp_spiffs.h"
 #include "esp_lv_adapter.h"
 #include "lvgl.h"
@@ -34,22 +36,39 @@ static void area_rounder_cb(lv_event_t *e)
     area->y2 = ((area->y2 >> 1) << 1) + 1;
 }
 
-static void lvgl_build_ui(const lv_font_t *font)
+static void lvgl_build_boot_screen(const lv_font_t *title_font, const lv_font_t *small_font)
 {
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x000000), 0);
 
-    /* High-DPI title. */
+    /* App name (high-DPI title). */
     lv_obj_t *title = lv_label_create(lv_screen_active());
     lv_label_set_text(title, "UWatch");
-    lv_obj_set_style_text_font(title, font, 0);
+    lv_obj_set_style_text_font(title, title_font, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, -60);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -80);
 
-    /* Smaller subtitle. */
+    /* Board subtitle. */
     lv_obj_t *sub = lv_label_create(lv_screen_active());
     lv_label_set_text(sub, "LILYGO T-Watch Ultra");
+    lv_obj_set_style_text_font(sub, small_font, 0);
     lv_obj_set_style_text_color(sub, lv_color_hex(0x888888), 0);
-    lv_obj_align(sub, LV_ALIGN_CENTER, 0, 40);
+    lv_obj_align(sub, LV_ALIGN_CENTER, 0, -20);
+
+    /* Version + git commit hash for build recognition. */
+    char text[64];
+    lv_obj_t *ver = lv_label_create(lv_screen_active());
+    snprintf(text, sizeof(text), "v%s", esp_app_get_description()->version);
+    lv_label_set_text(ver, text);
+    lv_obj_set_style_text_font(ver, small_font, 0);
+    lv_obj_set_style_text_color(ver, lv_color_hex(0x666666), 0);
+    lv_obj_align(ver, LV_ALIGN_CENTER, 0, 40);
+
+    lv_obj_t *hash = lv_label_create(lv_screen_active());
+    snprintf(text, sizeof(text), "git %s", UWATCH_GIT_HASH);
+    lv_label_set_text(hash, text);
+    lv_obj_set_style_text_font(hash, small_font, 0);
+    lv_obj_set_style_text_color(hash, lv_color_hex(0x555555), 0);
+    lv_obj_align(hash, LV_ALIGN_CENTER, 0, 80);
 }
 
 static void mount_assets(void)
@@ -102,15 +121,18 @@ esp_err_t lvgl_app_start(void)
     ESP_RETURN_ON_ERROR(esp_lv_adapter_start(), TAG, "adapter start");
 
     if (esp_lv_adapter_lock(-1) == ESP_OK) {
-        /* High-DPI vector font from SPIFFS (Roboto, 64 px for ~315 PPI). */
-        lv_font_t *font = lv_freetype_font_create("/assets/fonts/Roboto-Regular.ttf",
-                                                  LV_FREETYPE_FONT_RENDER_MODE_BITMAP, 64,
-                                                  LV_FREETYPE_FONT_STYLE_NORMAL);
-        if (font) {
-            lvgl_build_ui(font);
+        /* High-DPI vector fonts from SPIFFS (Roboto; ~315 PPI panel). */
+        lv_font_t *title_font = lv_freetype_font_create("/assets/fonts/Roboto-Regular.ttf",
+                                                        LV_FREETYPE_FONT_RENDER_MODE_BITMAP, 64,
+                                                        LV_FREETYPE_FONT_STYLE_NORMAL);
+        lv_font_t *small_font = lv_freetype_font_create("/assets/fonts/Roboto-Regular.ttf",
+                                                        LV_FREETYPE_FONT_RENDER_MODE_BITMAP, 28,
+                                                        LV_FREETYPE_FONT_STYLE_NORMAL);
+        if (title_font && small_font) {
+            lvgl_build_boot_screen(title_font, small_font);
         } else {
-            ESP_LOGE(TAG, "lv_freetype_font_create failed");
-            lvgl_build_ui(NULL);   /* fall back to default font */
+            ESP_LOGE(TAG, "freetype font create failed");
+            lvgl_build_boot_screen(NULL, NULL);   /* fall back to default font */
         }
         esp_lv_adapter_unlock();
     }
