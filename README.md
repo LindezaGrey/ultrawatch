@@ -2,7 +2,7 @@
 
 Displays the PCF85063A clock and AXP2101 charge level in Cascadia Code inside
 the validated blue safe-area contour, and exposes the clock, power management,
-and BHI260AP orientation over Bluetooth Low Energy.
+the BHI260AP orientation, and MIA-M10Q GPS data over Bluetooth Low Energy.
 
 - Device name: `UltraWatch`
 - Service: `7a1e0001-7a1e-4b6c-8d9e-001122334455`
@@ -32,6 +32,11 @@ and BHI260AP orientation over Bluetooth Low Energy.
   `2` move, and `3` up. Coordinates use the physical 410 x 502 display space.
   The browser renders contacts on a Three.js watch face and pulses a ring for
   every down event.
+- MIA-M10Q GPS: `7a1e0008-7a1e-4b6c-8d9e-001122334455`, read/notify once per
+  second. Its 30-byte little-endian payload is `ready` (u8), `fix_valid` (u8),
+  `fix_type` (u8), `satellites` (u8), `latitude_e7` (i32), `longitude_e7`
+  (i32), `altitude_msl_mm` (i32), `horizontal_accuracy_mm` (u32),
+  `ground_speed_mm_s` (u32), `heading_e5` (i32), and `rf_agc` (u16).
 
 Power direction values are `0` standby, `1` charging, `2` discharging, and `3`
 reserved/unknown. `vbus` and `present` are `0` or `1`.
@@ -51,6 +56,14 @@ RAM firmware. The vendored driver, firmware image, and BSD-3-Clause license are
 under `firmware/main/vendor/bhy2/`. Firmware loading failures are logged without
 restarting the watch, so RTC and power remain usable instead of causing a boot
 loop.
+
+The GPS module is powered from AXP2101 BLDO1 at 3.3 V and connected to UART1
+with ESP32-S3 TX on GPIO 43 and RX on GPIO 44. At boot the firmware probes
+38400, 115200, and 9600 baud for a u-blox `MIA-` identity, switches to 115200,
+enables the documented constellations, and requests UBX-NAV-PVT output at 1 Hz.
+The receiver configuration uses the RAM layer, so it is applied again after
+each watch restart. RTC synchronization, MGA aiding, GNSS software backup, and
+TTFF history are intentionally outside this first live-position iteration.
 
 The firmware embeds only the Cascadia Code glyphs required by the clock and
 percentage display. They are generated from `CascadiaCode-Regular.otf` with
@@ -83,8 +96,10 @@ python3 -m venv .venv && .venv/bin/pip install esptool==4.12.0
 ```
 
 Serve the minimal Web Bluetooth client from localhost, then open it in a
-Chromium-based browser. The IMU demo imports Three.js 0.185.1 as an ES module
-from jsDelivr, so the browser also needs internet access:
+Chromium-based browser. The IMU demo imports Three.js 0.185.1 from jsDelivr,
+and the GPS preview uses Leaflet 1.9.4 from unpkg with OpenStreetMap tiles, so
+the visual previews also need internet access. BLE values remain available if
+the map tiles cannot be loaded:
 
 ```sh
 python3 -m http.server 8000 --directory web

@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>UltraWatch Sensors</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; scroll-behavior: smooth; }
     * { box-sizing: border-box; }
@@ -65,11 +67,20 @@
     .touch-scene { position: relative; min-height: 22rem; overflow: hidden; border: 1px solid #2d2d2d; border-radius: .65rem; background: radial-gradient(circle at 50% 35%, #202625, #111 70%); }
     .touch-scene canvas { display: block; width: 100%; height: 100%; }
     .touch-state.active { color: #4ade80; }
+    .gps-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(18rem, 1fr); gap: 1rem; margin-top: 1rem; }
+    .gps-map { min-height: 24rem; overflow: hidden; border: 1px solid #2d2d2d; border-radius: .65rem; background: #141414; }
+    .gps-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+    .gps-table th, .gps-table td { padding: .58rem .65rem; border-bottom: 1px solid #2d2d2d; text-align: left; }
+    .gps-table th { color: #777; font-weight: 400; }
+    .gps-table td { font: .84rem ui-monospace, monospace; text-align: right; }
+    .gps-note { margin: .75rem 0 0; font-size: .8rem; }
+    .leaflet-container { font-family: system-ui, sans-serif; }
     #message { min-height: 1.3em; margin: .8rem 0 0; font-size: .85rem; }
     @media (max-width: 34rem) {
       .heading, .connection { align-items: flex-start; flex-direction: column; }
-      .metrics, .settings, .imu-layout, .touch-layout { grid-template-columns: 1fr; }
+      .metrics, .settings, .imu-layout, .touch-layout, .gps-layout { grid-template-columns: 1fr; }
       .imu-scene, .touch-scene { min-height: 18rem; }
+      .gps-map { min-height: 20rem; }
     }
   </style>
 </head>
@@ -86,7 +97,7 @@
         <a href="#imu">IMU</a>
         <a href="#screen">Screen</a>
         <a href="#touch">Touch</a>
-        <span class="upcoming">GPS · soon</span>
+        <a href="#gps">GPS</a>
       </nav>
     </div>
   </header>
@@ -215,8 +226,34 @@
         </div>
       </div>
     </section>
+
+    <section id="gps" class="sensor">
+      <header><h2>MIA-M10Q GPS</h2><span class="tag">read · 1 Hz notify</span></header>
+      <div class="gps-layout">
+        <div id="gpsMap" class="gps-map" aria-label="GPS position map"></div>
+        <div>
+          <table class="gps-table">
+            <tbody>
+              <tr><th scope="row">Fix</th><td id="gpsFix">Waiting</td></tr>
+              <tr><th scope="row">Satellites</th><td id="gpsSatellites">--</td></tr>
+              <tr><th scope="row">Latitude</th><td id="gpsLatitude">--</td></tr>
+              <tr><th scope="row">Longitude</th><td id="gpsLongitude">--</td></tr>
+              <tr><th scope="row">Altitude MSL</th><td id="gpsAltitude">--</td></tr>
+              <tr><th scope="row">Horizontal accuracy</th><td id="gpsAccuracy">--</td></tr>
+              <tr><th scope="row">Ground speed</th><td id="gpsSpeed">--</td></tr>
+              <tr><th scope="row">Heading</th><td id="gpsHeading">--</td></tr>
+              <tr><th scope="row">RF AGC</th><td id="gpsAgc">--</td></tr>
+            </tbody>
+          </table>
+          <div class="buttons"><button id="readGps" data-connected disabled>Read GPS</button></div>
+          <p class="gps-note">Position data arrives over BLE. The OpenStreetMap preview additionally needs internet access.</p>
+        </div>
+      </div>
+    </section>
   </main>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
     const SERVICE_UUID = '7a1e0001-7a1e-4b6c-8d9e-001122334455';
     const CHAR_UUID = {
@@ -225,7 +262,8 @@
       powerConfig: '7a1e0004-7a1e-4b6c-8d9e-001122334455',
       imu: '7a1e0005-7a1e-4b6c-8d9e-001122334455',
       screen: '7a1e0006-7a1e-4b6c-8d9e-001122334455',
-      touch: '7a1e0007-7a1e-4b6c-8d9e-001122334455'
+      touch: '7a1e0007-7a1e-4b6c-8d9e-001122334455',
+      gps: '7a1e0008-7a1e-4b6c-8d9e-001122334455'
     };
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -236,7 +274,9 @@
       'chargeVoltage', 'chargerEnabled', 'readPowerConfig', 'writePowerConfig',
       'imuX', 'imuY', 'imuZ', 'imuW', 'imuAccuracy', 'readImu',
       'brightness', 'brightnessValue', 'readScreen', 'writeScreen',
-      'touchState', 'touchEvent', 'touchX', 'touchY', 'touchCount', 'readTouch'];
+      'touchState', 'touchEvent', 'touchX', 'touchY', 'touchCount', 'readTouch',
+      'gpsFix', 'gpsSatellites', 'gpsLatitude', 'gpsLongitude', 'gpsAltitude',
+      'gpsAccuracy', 'gpsSpeed', 'gpsHeading', 'gpsAgc', 'readGps'];
     const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
     let device = null;
@@ -352,6 +392,45 @@
       window.applyTouchEvent?.({ pressed: Boolean(pressed), event, x, y });
     }
 
+    function showGps(dataView) {
+      if (dataView.byteLength !== 30) throw new Error('Unexpected GPS payload length');
+      const ready = dataView.getUint8(0);
+      const fixValid = dataView.getUint8(1);
+      const fixType = dataView.getUint8(2);
+      const satellites = dataView.getUint8(3);
+      if (ready > 1 || fixValid > 1 || fixType > 5 || satellites > 64) {
+        throw new Error('GPS data outside valid range');
+      }
+      const latitude = dataView.getInt32(4, true) / 1e7;
+      const longitude = dataView.getInt32(8, true) / 1e7;
+      const altitude = dataView.getInt32(12, true) / 1000;
+      const accuracy = dataView.getUint32(16, true) / 1000;
+      const speed = dataView.getUint32(20, true) / 1000;
+      const heading = ((dataView.getInt32(24, true) / 1e5) % 360 + 360) % 360;
+      const agc = dataView.getUint16(28, true);
+      const fixNames = ['No fix', 'Dead reckoning', '2D fix', '3D fix', 'GNSS + DR', 'Time only'];
+      ui.gpsFix.textContent = !ready ? 'Receiver unavailable' : fixValid ? fixNames[fixType] : 'Searching';
+      ui.gpsSatellites.textContent = ready ? String(satellites) : '--';
+      ui.gpsAgc.textContent = ready ? String(agc) : '--';
+      if (!fixValid) {
+        [ui.gpsLatitude, ui.gpsLongitude, ui.gpsAltitude, ui.gpsAccuracy,
+          ui.gpsSpeed, ui.gpsHeading].forEach(element => { element.textContent = '--'; });
+        window.updateGpsMap?.(0, 0, 0, false);
+        return;
+      }
+      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 ||
+          accuracy > 100000 || speed > 1000) {
+        throw new Error('GPS position outside valid range');
+      }
+      ui.gpsLatitude.textContent = `${latitude.toFixed(7)}°`;
+      ui.gpsLongitude.textContent = `${longitude.toFixed(7)}°`;
+      ui.gpsAltitude.textContent = `${altitude.toFixed(1)} m`;
+      ui.gpsAccuracy.textContent = `±${accuracy.toFixed(1)} m`;
+      ui.gpsSpeed.textContent = `${speed.toFixed(2)} m/s`;
+      ui.gpsHeading.textContent = `${heading.toFixed(1)}°`;
+      window.updateGpsMap?.(latitude, longitude, accuracy, true);
+    }
+
     function notificationHandler(parser) {
       return event => {
         try { parser(event.target.value); }
@@ -382,17 +461,21 @@
         characteristics.imu = await service.getCharacteristic(CHAR_UUID.imu);
         characteristics.screen = await service.getCharacteristic(CHAR_UUID.screen);
         characteristics.touch = await service.getCharacteristic(CHAR_UUID.touch);
+        characteristics.gps = await service.getCharacteristic(CHAR_UUID.gps);
         characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
         characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
         characteristics.imu.addEventListener('characteristicvaluechanged', notificationHandler(showImu));
         characteristics.touch.addEventListener('characteristicvaluechanged', notificationHandler(showTouch));
+        characteristics.gps.addEventListener('characteristicvaluechanged', notificationHandler(showGps));
         await Promise.all([characteristics.rtc.startNotifications(), characteristics.power.startNotifications(),
-          characteristics.imu.startNotifications(), characteristics.touch.startNotifications()]);
+          characteristics.imu.startNotifications(), characteristics.touch.startNotifications(),
+          characteristics.gps.startNotifications()]);
         setConnected(true);
-        const [rtcReady, powerReady, configReady, imuReady, screenReady, touchReady] = await Promise.all([
-          readTime(false), readPower(false), readPowerConfig(false), readImu(false), readScreen(false), readTouch(false)
+        const [rtcReady, powerReady, configReady, imuReady, screenReady, touchReady, gpsReady] = await Promise.all([
+          readTime(false), readPower(false), readPowerConfig(false), readImu(false), readScreen(false), readTouch(false),
+          readGps(false)
         ]);
-        if (rtcReady && powerReady && configReady && imuReady && screenReady && touchReady) {
+        if (rtcReady && powerReady && configReady && imuReady && screenReady && touchReady && gpsReady) {
           ui.message.textContent = 'Live sensor updates enabled.';
         } else if (!rtcReady) {
           ui.message.textContent = 'RTC unavailable. Set the browser time first.';
@@ -404,8 +487,10 @@
           ui.message.textContent = 'IMU data is currently unavailable.';
         } else if (!screenReady) {
           ui.message.textContent = 'Screen controls are currently unavailable.';
-        } else {
+        } else if (!touchReady) {
           ui.message.textContent = 'Touch data is currently unavailable.';
+        } else {
+          ui.message.textContent = 'GPS data is currently unavailable.';
         }
       } catch (error) {
         ui.message.textContent = `Connection failed: ${error.message}`;
@@ -470,6 +555,16 @@
         return true;
       } catch (error) {
         if (reportError) ui.message.textContent = `Touch read failed: ${error.message}`;
+        return false;
+      }
+    }
+
+    async function readGps(reportError = true) {
+      try {
+        showGps(await characteristics.gps.readValue());
+        return true;
+      } catch (error) {
+        if (reportError) ui.message.textContent = `GPS read failed: ${error.message}`;
         return false;
       }
     }
@@ -547,12 +642,39 @@
     ui.readScreen.addEventListener('click', readScreen);
     ui.writeScreen.addEventListener('click', writeScreen);
     ui.readTouch.addEventListener('click', readTouch);
+    ui.readGps.addEventListener('click', readGps);
     ui.brightness.addEventListener('input', () => {
       ui.brightnessValue.value = `${ui.brightness.value}%`;
     });
     ui.browserTime.addEventListener('click', () => setTime(localDateTime(new Date())));
     ui.writeTime.addEventListener('click', () => setTime(ui.dateTime.value));
     setConnected(false);
+  </script>
+  <script>
+    const gpsMap = L.map('gpsMap', { zoomControl: true }).setView([20, 0], 2);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(gpsMap);
+    const gpsMarker = L.circleMarker([0, 0], {
+      radius: 7, color: '#101010', weight: 2, fillColor: '#4ade80', fillOpacity: 1
+    });
+    const gpsAccuracyCircle = L.circle([0, 0], {
+      radius: 0, color: '#4ade80', weight: 1, fillColor: '#4ade80', fillOpacity: .12
+    });
+    let hasGpsFix = false;
+    window.updateGpsMap = (latitude, longitude, accuracy, valid) => {
+      if (!valid) return;
+      const position = [latitude, longitude];
+      gpsMarker.setLatLng(position).addTo(gpsMap);
+      gpsAccuracyCircle.setLatLng(position).setRadius(accuracy).addTo(gpsMap);
+      if (!hasGpsFix) gpsMap.setView(position, 16);
+      else gpsMap.panTo(position, { animate: true });
+      hasGpsFix = true;
+    };
+    document.querySelector('a[href="#gps"]').addEventListener('click', () => {
+      setTimeout(() => gpsMap.invalidateSize(), 0);
+    });
   </script>
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.module.js';

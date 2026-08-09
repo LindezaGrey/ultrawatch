@@ -45,6 +45,7 @@ static const display_init_command_t display_init_commands[] = {
     {0x3A, {0x55}, 0x01},
     {0x35, {0x00}, 0x01},
     {0x53, {0x20}, 0x01},
+    {0x55, {0x03}, 0x01},
     {0x63, {0xFF}, 0x01},
     {0x2A, {0x00, 0x16, 0x01, 0xAF}, 0x04},
     {0x2B, {0x00, 0x00, 0x01, 0xF5}, 0x04},
@@ -149,6 +150,26 @@ static void enable_sensor_power(void)
     ESP_ERROR_CHECK(i2c_write_register(BOARD_AXP2101_ADDR,
                                        BOARD_AXP2101_LDO_ENABLE, ldo_enable));
     vTaskDelay(pdMS_TO_TICKS(50));
+}
+
+static void enable_gps_power(void)
+{
+    uint8_t voltage;
+    uint8_t ldo_enable;
+
+    ESP_ERROR_CHECK(i2c_read_register(BOARD_AXP2101_ADDR,
+                                      BOARD_AXP2101_BLDO1_VOLTAGE, &voltage));
+    /* BLDO1 powers the MIA-M10Q: 0.5 V + 28 * 0.1 V = 3.3 V. */
+    voltage = (voltage & 0xe0) | 28;
+    ESP_ERROR_CHECK(i2c_write_register(BOARD_AXP2101_ADDR,
+                                       BOARD_AXP2101_BLDO1_VOLTAGE, voltage));
+
+    ESP_ERROR_CHECK(i2c_read_register(BOARD_AXP2101_ADDR,
+                                      BOARD_AXP2101_LDO_ENABLE, &ldo_enable));
+    ldo_enable |= 1U << BOARD_AXP2101_BLDO1_BIT;
+    ESP_ERROR_CHECK(i2c_write_register(BOARD_AXP2101_ADDR,
+                                       BOARD_AXP2101_LDO_ENABLE, ldo_enable));
+    vTaskDelay(pdMS_TO_TICKS(100));
 }
 
 static esp_err_t display_command(uint8_t command, const uint8_t *parameters,
@@ -520,6 +541,7 @@ void app_main(void)
 {
     initialize_i2c();
     enable_sensor_power();
+    enable_gps_power();
     ESP_ERROR_CHECK(ble_rtc_initialize());
     enable_display_power();
     initialize_display();

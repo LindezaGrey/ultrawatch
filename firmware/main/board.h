@@ -3,6 +3,7 @@
 #include "driver/gpio.h"
 #include "driver/i2c.h"
 #include "driver/spi_master.h"
+#include "driver/uart.h"
 
 #define BOARD_I2C_PORT              I2C_NUM_0
 #define BOARD_I2C_SDA               GPIO_NUM_3
@@ -15,6 +16,8 @@
 #define BOARD_AXP2101_ALDO2_BIT     1
 #define BOARD_AXP2101_ALDO4_VOLTAGE 0x95
 #define BOARD_AXP2101_ALDO4_BIT     3
+#define BOARD_AXP2101_BLDO1_VOLTAGE 0x96
+#define BOARD_AXP2101_BLDO1_BIT     4
 #define BOARD_XL9555_ADDR           0x20
 #define BOARD_XL9555_OUTPUT0        0x02
 #define BOARD_XL9555_OUTPUT1        0x03
@@ -30,6 +33,11 @@
 #define BOARD_TOUCH_INTERRUPT       GPIO_NUM_12
 #define BOARD_CST9217_ADDR_PRIMARY  0x1a
 #define BOARD_CST9217_ADDR_FALLBACK 0x5a
+
+#define BOARD_GPS_UART              UART_NUM_1
+#define BOARD_GPS_TX                GPIO_NUM_43
+#define BOARD_GPS_RX                GPIO_NUM_44
+#define BOARD_GPS_PPS               GPIO_NUM_13
 
 #define BOARD_DISPLAY_SPI_HOST      SPI2_HOST
 #define BOARD_DISPLAY_SCK           GPIO_NUM_40

@@ -16,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "gps.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
 #include "host/ble_uuid.h"
@@ -40,6 +41,7 @@
 #define IMU_SAMPLE_RATE_HZ 25.0f
 #define TOUCH_PAYLOAD_LENGTH 6
 #define TOUCH_POLL_INTERVAL_MS 20
+#define GPS_PAYLOAD_LENGTH 30
 
 #define CST9217_REGISTER_TOUCH_DATA 0xd000
 #define CST9217_ACK 0xab
@@ -107,6 +109,11 @@ static const ble_uuid128_t touch_characteristic_uuid = BLE_UUID128_INIT(
     0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
     0x6c, 0x4b, 0x1e, 0x7a, 0x07, 0x00, 0x1e, 0x7a);
 
+/* 7a1e0008-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t gps_characteristic_uuid = BLE_UUID128_INIT(
+    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+    0x6c, 0x4b, 0x1e, 0x7a, 0x08, 0x00, 0x1e, 0x7a);
+
 typedef struct {
     int year;
     int month;
@@ -129,11 +136,13 @@ static uint16_t rtc_value_handle;
 static uint16_t power_value_handle;
 static uint16_t imu_value_handle;
 static uint16_t touch_value_handle;
+static uint16_t gps_value_handle;
 static volatile uint16_t connection_handle = BLE_HS_CONN_HANDLE_NONE;
 static volatile bool rtc_notifications_enabled;
 static volatile bool power_notifications_enabled;
 static volatile bool imu_notifications_enabled;
 static volatile bool touch_notifications_enabled;
+static volatile bool gps_notifications_enabled;
 static volatile bool imu_ready;
 static volatile bool imu_sample_available;
 static bool imu_first_sample_logged;
@@ -367,6 +376,19 @@ static void encode_uint16_le(uint8_t *output, uint16_t value)
     output[1] = (uint8_t)(value >> 8);
 }
 
+static void encode_uint32_le(uint8_t *output, uint32_t value)
+{
+    output[0] = (uint8_t)value;
+    output[1] = (uint8_t)(value >> 8);
+    output[2] = (uint8_t)(value >> 16);
+    output[3] = (uint8_t)(value >> 24);
+}
+
+static void encode_int32_le(uint8_t *output, int32_t value)
+{
+    encode_uint32_le(output, (uint32_t)value);
+}
+
 static bool imu_get_payload(uint8_t output[IMU_PAYLOAD_LENGTH])
 {
     struct bhy2_data_quaternion sample;
@@ -502,6 +524,26 @@ static bool touch_get_payload(uint8_t output[TOUCH_PAYLOAD_LENGTH])
     encode_uint16_le(output + 2, touch_x);
     encode_uint16_le(output + 4, touch_y);
     portEXIT_CRITICAL(&touch_lock);
+    return true;
+}
+
+static bool gps_get_payload(uint8_t output[GPS_PAYLOAD_LENGTH])
+{
+    gps_status_t status;
+    if (!gps_get_status(&status)) {
+        return false;
+    }
+    output[0] = status.ready ? 1 : 0;
+    output[1] = status.fix_valid ? 1 : 0;
+    output[2] = status.fix_type;
+    output[3] = status.satellites;
+    encode_int32_le(output + 4, status.latitude_e7);
+    encode_int32_le(output + 8, status.longitude_e7);
+    encode_int32_le(output + 12, status.altitude_mm);
+    encode_uint32_le(output + 16, status.horizontal_accuracy_mm);
+    encode_uint32_le(output + 20, status.ground_speed_mm_s);
+    encode_int32_le(output + 24, status.heading_e5);
+    encode_uint16_le(output + 28, status.agc);
     return true;
 }
 
@@ -1056,6 +1098,25 @@ static int touch_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
                : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+static int gps_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
+                           struct ble_gatt_access_ctxt *context, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (context->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+        return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+    }
+
+    uint8_t payload[GPS_PAYLOAD_LENGTH];
+    if (!gps_get_payload(payload)) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    return os_mbuf_append(context->om, payload, sizeof(payload)) == 0
+               ? 0
+               : BLE_ATT_ERR_INSUFFICIENT_RES;
+}
+
 static const struct ble_gatt_svc_def rtc_gatt_services[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -1096,6 +1157,12 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &touch_value_handle,
             },
+            {
+                .uuid = &gps_characteristic_uuid.u,
+                .access_cb = gps_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+                .val_handle = &gps_value_handle,
+            },
             {0},
         },
     },
@@ -1122,6 +1189,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         power_notifications_enabled = false;
         imu_notifications_enabled = false;
         touch_notifications_enabled = false;
+        gps_notifications_enabled = false;
         ESP_LOGI(TAG, "BLE client disconnected");
         start_advertising();
         return 0;
@@ -1134,6 +1202,8 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             imu_notifications_enabled = event->subscribe.cur_notify;
         } else if (event->subscribe.attr_handle == touch_value_handle) {
             touch_notifications_enabled = event->subscribe.cur_notify;
+        } else if (event->subscribe.attr_handle == gps_value_handle) {
+            gps_notifications_enabled = event->subscribe.cur_notify;
         }
         return 0;
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -1211,6 +1281,12 @@ static void notify_task(void *parameter)
             int result = ble_gatts_notify(handle, rtc_value_handle);
             if (result != 0 && result != BLE_HS_ENOTCONN) {
                 ESP_LOGD(TAG, "RTC notification skipped: %d", result);
+            }
+        }
+        if (handle != BLE_HS_CONN_HANDLE_NONE && gps_notifications_enabled) {
+            int result = ble_gatts_notify(handle, gps_value_handle);
+            if (result != 0 && result != BLE_HS_ENOTCONN) {
+                ESP_LOGD(TAG, "GPS notification skipped: %d", result);
             }
         }
         if (handle != BLE_HS_CONN_HANDLE_NONE &&
@@ -1336,6 +1412,11 @@ esp_err_t ble_rtc_initialize(void)
     if (imu_result != ESP_OK) {
         ESP_LOGW(TAG, "IMU unavailable; RTC and power remain active: %s",
                  esp_err_to_name(imu_result));
+    }
+    esp_err_t gps_result = gps_initialize();
+    if (gps_result != ESP_OK) {
+        ESP_LOGW(TAG, "GPS unavailable; other sensors remain active: %s",
+                 esp_err_to_name(gps_result));
     }
     return ESP_OK;
 }
