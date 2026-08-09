@@ -32,7 +32,7 @@
 #define BOARD_BHI260_INTERRUPT      GPIO_NUM_8
 #define BOARD_TOUCH_INTERRUPT       GPIO_NUM_12
 #define BOARD_CST9217_ADDR_PRIMARY  0x1a
-#define BOARD_CST9217_ADDR_FALLBACK 0x5a
+#define BOARD_DRV2605_ADDR          0x5a
 
 #define BOARD_GPS_UART              UART_NUM_1
 #define BOARD_GPS_TX                GPIO_NUM_43

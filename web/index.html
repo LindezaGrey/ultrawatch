@@ -63,6 +63,8 @@
     .brightness-control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 1rem; margin: 1.4rem 0 1rem; }
     .brightness-control input { padding: 0; accent-color: #4ade80; }
     .brightness-value { min-width: 4ch; font: 600 2rem ui-monospace, monospace; text-align: right; }
+    .haptic-controls { display: grid; grid-template-columns: 2fr 1fr; gap: .8rem; margin-top: 1rem; }
+    .haptic-state.playing { color: #4ade80; }
     .touch-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(12rem, .8fr); gap: 1rem; margin-top: 1rem; }
     .touch-scene { position: relative; min-height: 22rem; overflow: hidden; border: 1px solid #2d2d2d; border-radius: .65rem; background: radial-gradient(circle at 50% 35%, #202625, #111 70%); }
     .touch-scene canvas { display: block; width: 100%; height: 100%; }
@@ -78,7 +80,7 @@
     #message { min-height: 1.3em; margin: .8rem 0 0; font-size: .85rem; }
     @media (max-width: 34rem) {
       .heading, .connection { align-items: flex-start; flex-direction: column; }
-      .metrics, .settings, .imu-layout, .touch-layout, .gps-layout { grid-template-columns: 1fr; }
+      .metrics, .settings, .haptic-controls, .imu-layout, .touch-layout, .gps-layout { grid-template-columns: 1fr; }
       .imu-scene, .touch-scene { min-height: 18rem; }
       .gps-map { min-height: 20rem; }
     }
@@ -96,6 +98,7 @@
         <a href="#power">Battery &amp; power</a>
         <a href="#imu">IMU</a>
         <a href="#screen">Screen</a>
+        <a href="#haptic">Haptics</a>
         <a href="#touch">Touch</a>
         <a href="#gps">GPS</a>
       </nav>
@@ -208,6 +211,45 @@
       </div>
     </section>
 
+    <section id="haptic" class="sensor">
+      <header><h2>DRV2605 haptics</h2><span class="tag">read · command</span></header>
+      <div class="haptic-controls">
+        <div>
+          <label for="hapticEffect">Effect</label>
+          <select id="hapticEffect" data-connected disabled>
+            <option value="1">1 · Strong click</option>
+            <option value="4">4 · Sharp click</option>
+            <option value="7">7 · Soft bump</option>
+            <option value="10">10 · Double click</option>
+            <option value="12">12 · Triple click</option>
+            <option value="14">14 · Strong buzz</option>
+            <option value="15">15 · 750 ms alert</option>
+            <option value="47">47 · Buzz</option>
+            <option value="52">52 · Strong pulse</option>
+          </select>
+        </div>
+        <div>
+          <label for="hapticRepeats">Repeats</label>
+          <select id="hapticRepeats" data-connected disabled>
+            <option value="1">1</option><option value="2">2</option>
+            <option value="3">3</option><option value="4">4</option>
+          </select>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><span>Driver</span><strong id="hapticDriver">Waiting</strong></div>
+        <div class="metric"><span>Playback</span><strong id="hapticState" class="haptic-state">Idle</strong></div>
+        <div class="metric"><span>Last command</span><strong id="hapticLast">--</strong></div>
+        <div class="metric"><span>Driver faults</span><strong id="hapticFaults">--</strong></div>
+      </div>
+      <div class="buttons">
+        <button id="playHaptic" data-connected disabled>Play effect</button>
+        <button id="stopHaptic" data-connected disabled>Stop</button>
+        <button id="readHaptic" data-connected disabled>Read status</button>
+      </div>
+      <p>Commands use the built-in ERM Library A. Playback is bounded to four repetitions.</p>
+    </section>
+
     <section id="touch" class="sensor">
       <header><h2>CST9217 touch</h2><span class="tag">read · live notify</span></header>
       <div class="touch-layout">
@@ -263,7 +305,8 @@
       imu: '7a1e0005-7a1e-4b6c-8d9e-001122334455',
       screen: '7a1e0006-7a1e-4b6c-8d9e-001122334455',
       touch: '7a1e0007-7a1e-4b6c-8d9e-001122334455',
-      gps: '7a1e0008-7a1e-4b6c-8d9e-001122334455'
+      gps: '7a1e0008-7a1e-4b6c-8d9e-001122334455',
+      haptic: '7a1e0009-7a1e-4b6c-8d9e-001122334455'
     };
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -276,7 +319,9 @@
       'brightness', 'brightnessValue', 'readScreen', 'writeScreen',
       'touchState', 'touchEvent', 'touchX', 'touchY', 'touchCount', 'readTouch',
       'gpsFix', 'gpsSatellites', 'gpsLatitude', 'gpsLongitude', 'gpsAltitude',
-      'gpsAccuracy', 'gpsSpeed', 'gpsHeading', 'gpsAgc', 'readGps'];
+      'gpsAccuracy', 'gpsSpeed', 'gpsHeading', 'gpsAgc', 'readGps',
+      'hapticEffect', 'hapticRepeats', 'hapticDriver', 'hapticState',
+      'hapticLast', 'hapticFaults', 'playHaptic', 'stopHaptic', 'readHaptic'];
     const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
     let device = null;
@@ -431,6 +476,31 @@
       window.updateGpsMap?.(latitude, longitude, accuracy, true);
     }
 
+    function showHaptic(dataView) {
+      if (dataView.byteLength !== 6) throw new Error('Unexpected haptic payload length');
+      const ready = dataView.getUint8(0);
+      const deviceId = dataView.getUint8(1);
+      const playing = dataView.getUint8(2);
+      const effect = dataView.getUint8(3);
+      const repeats = dataView.getUint8(4);
+      const faults = dataView.getUint8(5);
+      if (ready > 1 || playing > 1 || effect > 123 || repeats > 4 || faults > 15 ||
+          (ready && ![3, 7].includes(deviceId))) {
+        throw new Error('Haptic status outside valid range');
+      }
+      ui.hapticDriver.textContent = !ready ? 'Unavailable' : deviceId === 7 ? 'DRV2605L' : 'DRV2605';
+      ui.hapticState.textContent = playing ? 'Playing' : 'Idle';
+      ui.hapticState.classList.toggle('playing', Boolean(playing));
+      const selectedEffect = [...ui.hapticEffect.options].find(option => Number(option.value) === effect);
+      ui.hapticLast.textContent = effect
+        ? `${selectedEffect?.textContent || `Effect ${effect}`} × ${repeats}`
+        : 'Stopped';
+      const faultNames = ['Over-current', 'Over-temperature', 'Feedback timeout', 'Diagnostic failure'];
+      const activeFaults = faultNames.filter((name, bit) => faults & (1 << bit));
+      ui.hapticFaults.textContent = activeFaults.length ? activeFaults.join(', ') : ready ? 'None' : '--';
+      return Boolean(ready);
+    }
+
     function notificationHandler(parser) {
       return event => {
         try { parser(event.target.value); }
@@ -462,6 +532,7 @@
         characteristics.screen = await service.getCharacteristic(CHAR_UUID.screen);
         characteristics.touch = await service.getCharacteristic(CHAR_UUID.touch);
         characteristics.gps = await service.getCharacteristic(CHAR_UUID.gps);
+        characteristics.haptic = await service.getCharacteristic(CHAR_UUID.haptic);
         characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
         characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
         characteristics.imu.addEventListener('characteristicvaluechanged', notificationHandler(showImu));
@@ -471,11 +542,11 @@
           characteristics.imu.startNotifications(), characteristics.touch.startNotifications(),
           characteristics.gps.startNotifications()]);
         setConnected(true);
-        const [rtcReady, powerReady, configReady, imuReady, screenReady, touchReady, gpsReady] = await Promise.all([
+        const [rtcReady, powerReady, configReady, imuReady, screenReady, touchReady, gpsReady, hapticReady] = await Promise.all([
           readTime(false), readPower(false), readPowerConfig(false), readImu(false), readScreen(false), readTouch(false),
-          readGps(false)
+          readGps(false), readHaptic(false)
         ]);
-        if (rtcReady && powerReady && configReady && imuReady && screenReady && touchReady && gpsReady) {
+        if (rtcReady && powerReady && configReady && imuReady && screenReady && touchReady && gpsReady && hapticReady) {
           ui.message.textContent = 'Live sensor updates enabled.';
         } else if (!rtcReady) {
           ui.message.textContent = 'RTC unavailable. Set the browser time first.';
@@ -489,8 +560,10 @@
           ui.message.textContent = 'Screen controls are currently unavailable.';
         } else if (!touchReady) {
           ui.message.textContent = 'Touch data is currently unavailable.';
-        } else {
+        } else if (!gpsReady) {
           ui.message.textContent = 'GPS data is currently unavailable.';
+        } else {
+          ui.message.textContent = 'Haptic driver is currently unavailable.';
         }
       } catch (error) {
         ui.message.textContent = `Connection failed: ${error.message}`;
@@ -569,6 +642,32 @@
       }
     }
 
+    async function readHaptic(reportError = true) {
+      try {
+        return showHaptic(await characteristics.haptic.readValue());
+      } catch (error) {
+        if (reportError) ui.message.textContent = `Haptic status read failed: ${error.message}`;
+        return false;
+      }
+    }
+
+    async function writeHaptic(effect, repeats) {
+      try {
+        const payload = Uint8Array.of(effect, repeats);
+        if (characteristics.haptic.writeValueWithResponse) {
+          await characteristics.haptic.writeValueWithResponse(payload);
+        } else {
+          await characteristics.haptic.writeValue(payload);
+        }
+        await readHaptic(false);
+        ui.message.textContent = effect
+          ? `Haptic effect ${effect} started × ${repeats}.`
+          : 'Haptic playback stopped.';
+      } catch (error) {
+        ui.message.textContent = `Haptic command failed: ${error.message}`;
+      }
+    }
+
     async function writeScreen() {
       const percentage = Number(ui.brightness.value);
       try {
@@ -643,6 +742,10 @@
     ui.writeScreen.addEventListener('click', writeScreen);
     ui.readTouch.addEventListener('click', readTouch);
     ui.readGps.addEventListener('click', readGps);
+    ui.readHaptic.addEventListener('click', readHaptic);
+    ui.playHaptic.addEventListener('click', () => writeHaptic(
+      Number(ui.hapticEffect.value), Number(ui.hapticRepeats.value)));
+    ui.stopHaptic.addEventListener('click', () => writeHaptic(0, 0));
     ui.brightness.addEventListener('input', () => {
       ui.brightnessValue.value = `${ui.brightness.value}%`;
     });

@@ -42,6 +42,19 @@
 #define TOUCH_PAYLOAD_LENGTH 6
 #define TOUCH_POLL_INTERVAL_MS 20
 #define GPS_PAYLOAD_LENGTH 30
+#define HAPTIC_STATUS_PAYLOAD_LENGTH 6
+#define HAPTIC_COMMAND_PAYLOAD_LENGTH 2
+
+#define DRV2605_STATUS_REGISTER       0x00
+#define DRV2605_MODE_REGISTER         0x01
+#define DRV2605_LIBRARY_REGISTER      0x03
+#define DRV2605_SEQUENCE_REGISTER     0x04
+#define DRV2605_GO_REGISTER           0x0c
+#define DRV2605_LIBRARY_ERM_A         0x01
+#define DRV2605_DEVICE_ID             3
+#define DRV2605L_DEVICE_ID            7
+#define DRV2605_MAX_EFFECT            123
+#define DRV2605_MAX_REPEATS           4
 
 #define CST9217_REGISTER_TOUCH_DATA 0xd000
 #define CST9217_ACK 0xab
@@ -114,6 +127,11 @@ static const ble_uuid128_t gps_characteristic_uuid = BLE_UUID128_INIT(
     0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
     0x6c, 0x4b, 0x1e, 0x7a, 0x08, 0x00, 0x1e, 0x7a);
 
+/* 7a1e0009-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t haptic_characteristic_uuid = BLE_UUID128_INIT(
+    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+    0x6c, 0x4b, 0x1e, 0x7a, 0x09, 0x00, 0x1e, 0x7a);
+
 typedef struct {
     int year;
     int month;
@@ -156,6 +174,10 @@ static bool touch_pressed;
 static uint8_t touch_event;
 static uint16_t touch_x;
 static uint16_t touch_y;
+static bool haptic_ready;
+static uint8_t haptic_device_id;
+static uint8_t haptic_last_effect;
+static uint8_t haptic_last_repeats;
 
 extern const uint8_t
     bhi260_firmware_start[] asm("_binary_BHI260AP_fw_start");
@@ -188,7 +210,7 @@ static esp_err_t i2c_read_registers(uint8_t address, uint8_t reg,
 static esp_err_t i2c_write_registers(uint8_t address, uint8_t reg,
                                      const uint8_t *data, size_t length)
 {
-    uint8_t buffer[8];
+    uint8_t buffer[9];
     if (length > sizeof(buffer) - 1) {
         return ESP_ERR_INVALID_SIZE;
     }
@@ -204,6 +226,124 @@ static esp_err_t i2c_write_registers(uint8_t address, uint8_t reg,
                                         portMAX_DELAY);
     xSemaphoreGive(i2c_mutex);
     return result;
+}
+
+static esp_err_t drv2605_initialize(void)
+{
+    uint8_t status;
+    ESP_RETURN_ON_ERROR(i2c_read_registers(BOARD_DRV2605_ADDR,
+                                           DRV2605_STATUS_REGISTER,
+                                           &status, 1),
+                        TAG, "DRV2605 status read failed");
+    uint8_t device_id = status >> 5;
+    if (device_id != DRV2605_DEVICE_ID && device_id != DRV2605L_DEVICE_ID) {
+        ESP_LOGE(TAG, "unexpected haptic driver ID: %u", device_id);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    const uint8_t mode = 0x00;
+    const uint8_t library = DRV2605_LIBRARY_ERM_A;
+    const uint8_t sequence[8] = {0};
+    const uint8_t stop = 0;
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_DRV2605_ADDR,
+                                            DRV2605_MODE_REGISTER,
+                                            &mode, 1),
+                        TAG, "DRV2605 wake failed");
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_DRV2605_ADDR,
+                                            DRV2605_LIBRARY_REGISTER,
+                                            &library, 1),
+                        TAG, "DRV2605 library setup failed");
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_DRV2605_ADDR,
+                                            DRV2605_SEQUENCE_REGISTER,
+                                            sequence, sizeof(sequence)),
+                        TAG, "DRV2605 sequencer reset failed");
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_DRV2605_ADDR,
+                                            DRV2605_GO_REGISTER,
+                                            &stop, 1),
+                        TAG, "DRV2605 stop failed");
+    haptic_device_id = device_id;
+    haptic_ready = true;
+    ESP_LOGI(TAG, "haptic ready: DRV2605%s, ERM library A",
+             device_id == DRV2605L_DEVICE_ID ? "L" : "");
+    return ESP_OK;
+}
+
+static esp_err_t drv2605_stop(void)
+{
+    if (!haptic_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const uint8_t stop = 0;
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_DRV2605_ADDR,
+                                            DRV2605_GO_REGISTER,
+                                            &stop, 1),
+                        TAG, "DRV2605 stop failed");
+    haptic_last_effect = 0;
+    haptic_last_repeats = 0;
+    return ESP_OK;
+}
+
+static esp_err_t drv2605_play(uint8_t effect, uint8_t repeats)
+{
+    if (!haptic_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (effect == 0) {
+        return repeats == 0 ? drv2605_stop() : ESP_ERR_INVALID_ARG;
+    }
+    if (effect > DRV2605_MAX_EFFECT || repeats == 0 ||
+        repeats > DRV2605_MAX_REPEATS) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const uint8_t mode = 0x00;
+    uint8_t sequence[8] = {0};
+    for (uint8_t index = 0; index < repeats; index++) {
+        sequence[index] = effect;
+    }
+    const uint8_t go = 1;
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_DRV2605_ADDR,
+                                            DRV2605_GO_REGISTER,
+                                            &(uint8_t){0}, 1),
+                        TAG, "DRV2605 cancel failed");
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_DRV2605_ADDR,
+                                            DRV2605_MODE_REGISTER,
+                                            &mode, 1),
+                        TAG, "DRV2605 mode setup failed");
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_DRV2605_ADDR,
+                                            DRV2605_SEQUENCE_REGISTER,
+                                            sequence, sizeof(sequence)),
+                        TAG, "DRV2605 sequence setup failed");
+    ESP_RETURN_ON_ERROR(i2c_write_registers(BOARD_DRV2605_ADDR,
+                                            DRV2605_GO_REGISTER,
+                                            &go, 1),
+                        TAG, "DRV2605 trigger failed");
+    haptic_last_effect = effect;
+    haptic_last_repeats = repeats;
+    return ESP_OK;
+}
+
+static bool haptic_get_payload(uint8_t output[HAPTIC_STATUS_PAYLOAD_LENGTH])
+{
+    memset(output, 0, HAPTIC_STATUS_PAYLOAD_LENGTH);
+    if (!haptic_ready) {
+        return true;
+    }
+    uint8_t status;
+    uint8_t go;
+    if (i2c_read_registers(BOARD_DRV2605_ADDR, DRV2605_STATUS_REGISTER,
+                           &status, 1) != ESP_OK ||
+        i2c_read_registers(BOARD_DRV2605_ADDR, DRV2605_GO_REGISTER,
+                           &go, 1) != ESP_OK) {
+        return false;
+    }
+    output[0] = 1;
+    output[1] = haptic_device_id;
+    output[2] = go & 0x01;
+    output[3] = haptic_last_effect;
+    output[4] = haptic_last_repeats;
+    output[5] = status & 0x0f;
+    return true;
 }
 
 static esp_err_t i2c_write_raw(uint8_t address, const uint8_t *data,
@@ -448,21 +588,12 @@ static esp_err_t cst9217_initialize(void)
                         TAG, "touch reset high failed");
     vTaskDelay(pdMS_TO_TICKS(100));
 
-    const uint8_t candidates[] = {BOARD_CST9217_ADDR_PRIMARY,
-                                  BOARD_CST9217_ADDR_FALLBACK};
-    bool found = false;
-    for (size_t index = 0; index < sizeof(candidates); index++) {
-        uint8_t probe;
-        if (i2c_read_registers(candidates[index], 0x00, &probe, 1) ==
-            ESP_OK) {
-            touch_address = candidates[index];
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
+    uint8_t probe;
+    if (i2c_read_registers(BOARD_CST9217_ADDR_PRIMARY, 0x00, &probe, 1) !=
+        ESP_OK) {
         return ESP_ERR_NOT_FOUND;
     }
+    touch_address = BOARD_CST9217_ADDR_PRIMARY;
 
     const uint8_t enable_reporting[] = {
         CST9217_COMMAND_PREFIX, CST9217_COMMAND_ENABLE_REPORTING, 0x01,
@@ -1117,6 +1248,52 @@ static int gps_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
                : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+static int haptic_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
+                              struct ble_gatt_access_ctxt *context, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+
+    if (context->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t payload[HAPTIC_STATUS_PAYLOAD_LENGTH];
+        if (!haptic_get_payload(payload)) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+        return os_mbuf_append(context->om, payload, sizeof(payload)) == 0
+                   ? 0
+                   : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    if (context->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t payload[HAPTIC_COMMAND_PAYLOAD_LENGTH];
+        uint16_t length = 0;
+        int result = ble_hs_mbuf_to_flat(context->om, payload,
+                                         sizeof(payload), &length);
+        if (result != 0 || length != sizeof(payload)) {
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        }
+        if ((payload[0] == 0 && payload[1] != 0) ||
+            payload[0] > DRV2605_MAX_EFFECT ||
+            (payload[0] != 0 &&
+             (payload[1] == 0 || payload[1] > DRV2605_MAX_REPEATS))) {
+            return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+        }
+        if (drv2605_play(payload[0], payload[1]) != ESP_OK) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+        if (payload[0] == 0) {
+            ESP_LOGI(TAG, "haptic stopped via BLE");
+        } else {
+            ESP_LOGI(TAG, "haptic effect %u x%u via BLE",
+                     payload[0], payload[1]);
+        }
+        return 0;
+    }
+
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 static const struct ble_gatt_svc_def rtc_gatt_services[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -1162,6 +1339,11 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
                 .access_cb = gps_gatt_access,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &gps_value_handle,
+            },
+            {
+                .uuid = &haptic_characteristic_uuid.u,
+                .access_cb = haptic_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
             },
             {0},
         },
@@ -1427,6 +1609,11 @@ esp_err_t ble_rtc_start(void)
     if (touch_result != ESP_OK) {
         ESP_LOGW(TAG, "touch unavailable; other sensors remain active: %s",
                  esp_err_to_name(touch_result));
+    }
+    esp_err_t haptic_result = drv2605_initialize();
+    if (haptic_result != ESP_OK) {
+        ESP_LOGW(TAG, "haptic unavailable; other features remain active: %s",
+                 esp_err_to_name(haptic_result));
     }
 
     esp_err_t result = nvs_flash_init();

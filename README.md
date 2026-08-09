@@ -37,6 +37,12 @@ the BHI260AP orientation, and MIA-M10Q GPS data over Bluetooth Low Energy.
   `fix_type` (u8), `satellites` (u8), `latitude_e7` (i32), `longitude_e7`
   (i32), `altitude_msl_mm` (i32), `horizontal_accuracy_mm` (u32),
   `ground_speed_mm_s` (u32), `heading_e5` (i32), and `rf_agc` (u16).
+- DRV2605 haptics: `7a1e0009-7a1e-4b6c-8d9e-001122334455`, read/write. Write
+  two bytes, `effect,repeats`, to play a ROM Library A ERM effect. Effect IDs
+  are 1 through 123 and repeats are limited to 1 through 4. Write `0,0` to
+  stop immediately. The 6-byte status payload is `ready,device_id,playing,`
+  `last_effect,last_repeats,faults`; fault bits report over-current,
+  over-temperature, feedback timeout, and diagnostic failure.
 
 Power direction values are `0` standby, `1` charging, `2` discharging, and `3`
 reserved/unknown. `vbus` and `present` are `0` or `1`.
@@ -64,6 +70,12 @@ enables the documented constellations, and requests UBX-NAV-PVT output at 1 Hz.
 The receiver configuration uses the RAM layer, so it is applied again after
 each watch restart. RTC synchronization, MGA aiding, GNSS software backup, and
 TTFF history are intentionally outside this first live-position iteration.
+
+The haptic driver uses the shared I2C bus at address `0x5A`. XL9555 port 0 bit
+6 asserts its `M_EN` pin during board startup. Firmware accepts both DRV2605
+and DRV2605L device IDs, selects internal-trigger mode and ERM Library A, and
+limits BLE commands to finite ROM effects. The browser provides several named
+presets plus explicit read and stop controls.
 
 The firmware embeds only the Cascadia Code glyphs required by the clock and
 percentage display. They are generated from `CascadiaCode-Regular.otf` with
