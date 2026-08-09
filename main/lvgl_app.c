@@ -2,18 +2,15 @@
  * lvgl_app.c - LVGL UI on the CO5300 AMOLED via esp_lvgl_adapter.
  *
  * The adapter runs LVGL in its own FreeRTOS task (tick + locking included).
- * Panel specifics handled here:
- *   - RGB565_SWAPPED color format: the CO5300 samples big-endian RGB565, so
- *     LVGL renders big-endian buffers that the panel reads correctly.
- *   - Areas are rounded to even coordinates BEFORE rendering (via
- *     LV_EVENT_INVALIDATE_AREA), so the draw buffer always matches the
- *     flushed area and the panel never receives odd boundaries.
- *   - High-DPI fonts: Roboto-Regular.ttf lives in a SPIFFS partition mounted
- *     at /assets; LVGL's FreeType renders it at large sizes (~315 PPI panel).
+ *   - RGB565_SWAPPED: the CO5300 samples big-endian RGB565.
+ *   - Even-coordinate areas rounded BEFORE rendering (SH8601 requirement).
+ *   - High-DPI vector fonts (Roboto) via LVGL FreeType from SPIFFS.
+ *   - Boot screen -> watch face (time from the RTC-synced system clock).
  */
 #include "lvgl_app.h"
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_app_desc.h"
@@ -23,27 +20,22 @@
 #include "libs/freetype/lv_freetype.h"
 #include "co5300.h"
 #include "cst9217.h"
+#include "twatch_board.h"
+#include "axp2101.h"
 
 static const char *TAG = "lvgl_app";
 
-/* Debug label showing the tapped coordinates (touch verification). */
-static lv_obj_t *s_touch_label;
+/* Fonts. */
+static const lv_font_t *s_font_time = NULL;   /* 96 px  HH:MM */
+static const lv_font_t *s_font_sec  = NULL;   /* 40 px  seconds */
+static const lv_font_t *s_font_small = NULL;  /* 28 px  date/battery */
 
-static void touch_event_cb(lv_event_t *e)
-{
-    lv_obj_t *label = lv_event_get_user_data(e);
-    lv_indev_t *indev = lv_indev_active();
-    if (!indev) return;
-    lv_point_t p;
-    lv_indev_get_point(indev, &p);
-    char text[32];
-    if (lv_event_get_code(e) == LV_EVENT_RELEASED) {
-        snprintf(text, sizeof(text), "TOUCH OFF");
-    } else {
-        snprintf(text, sizeof(text), "X=%03d Y=%03d", (int)p.x, (int)p.y);
-    }
-    lv_label_set_text(label, text);
-}
+/* Watch face objects. */
+static lv_obj_t *s_time_label;
+static lv_obj_t *s_sec_label;
+static lv_obj_t *s_date_label;
+static lv_obj_t *s_batt_label;
+static lv_obj_t *s_batt_fill;
 
 /* Round invalidated areas to even coordinates (SH8601 requirement) BEFORE
  * LVGL renders, so the buffer content always matches the flushed area. */
@@ -56,48 +48,124 @@ static void area_rounder_cb(lv_event_t *e)
     area->y2 = ((area->y2 >> 1) << 1) + 1;
 }
 
-static void lvgl_build_boot_screen(const lv_font_t *title_font, const lv_font_t *small_font)
+static void lvgl_build_boot_screen(void)
 {
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x000000), 0);
 
-    /* App name (high-DPI title). */
     lv_obj_t *title = lv_label_create(lv_screen_active());
     lv_label_set_text(title, "UWatch");
-    lv_obj_set_style_text_font(title, title_font, 0);
+    lv_obj_set_style_text_font(title, s_font_time, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_CENTER, 0, -80);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -70);
 
-    /* Board subtitle. */
     lv_obj_t *sub = lv_label_create(lv_screen_active());
     lv_label_set_text(sub, "LILYGO T-Watch Ultra");
-    lv_obj_set_style_text_font(sub, small_font, 0);
+    lv_obj_set_style_text_font(sub, s_font_small, 0);
     lv_obj_set_style_text_color(sub, lv_color_hex(0x888888), 0);
-    lv_obj_align(sub, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_align(sub, LV_ALIGN_CENTER, 0, -10);
 
-    /* Version + git commit hash for build recognition. */
     char text[64];
     lv_obj_t *ver = lv_label_create(lv_screen_active());
     snprintf(text, sizeof(text), "v%s", esp_app_get_description()->version);
     lv_label_set_text(ver, text);
-    lv_obj_set_style_text_font(ver, small_font, 0);
+    lv_obj_set_style_text_font(ver, s_font_small, 0);
     lv_obj_set_style_text_color(ver, lv_color_hex(0x666666), 0);
     lv_obj_align(ver, LV_ALIGN_CENTER, 0, 40);
 
     lv_obj_t *hash = lv_label_create(lv_screen_active());
     snprintf(text, sizeof(text), "git %s", UWATCH_GIT_HASH);
     lv_label_set_text(hash, text);
-    lv_obj_set_style_text_font(hash, small_font, 0);
+    lv_obj_set_style_text_font(hash, s_font_small, 0);
     lv_obj_set_style_text_color(hash, lv_color_hex(0x555555), 0);
     lv_obj_align(hash, LV_ALIGN_CENTER, 0, 80);
+}
 
-    /* Touch debug label (shows tapped coordinates). */
-    s_touch_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_touch_label, "touch: -");
-    lv_obj_set_style_text_font(s_touch_label, small_font, 0);
-    lv_obj_set_style_text_color(s_touch_label, lv_color_hex(0x00FF00), 0);
-    lv_obj_align(s_touch_label, LV_ALIGN_CENTER, 0, 130);
-    lv_obj_add_event_cb(lv_screen_active(), touch_event_cb, LV_EVENT_PRESSED, s_touch_label);
-    lv_obj_add_event_cb(lv_screen_active(), touch_event_cb, LV_EVENT_RELEASED, s_touch_label);
+static void watch_face_update(lv_timer_t *timer)
+{
+    (void)timer;
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%02d:%02d", tm.tm_hour, tm.tm_min);
+    lv_label_set_text(s_time_label, buf);
+
+    snprintf(buf, sizeof(buf), "%02d", tm.tm_sec);
+    lv_label_set_text(s_sec_label, buf);
+
+    static const char *wday[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
+    static const char *mon[] = { "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                                 "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
+    snprintf(buf, sizeof(buf), "%s  %02d %s %d",
+             wday[tm.tm_wday], tm.tm_mday, mon[tm.tm_mon], tm.tm_year + 1900);
+    lv_label_set_text(s_date_label, buf);
+
+    uint8_t pct = 0;
+    if (axp2101_get_battery_pct(twatch_pmu_dev, &pct) == ESP_OK && pct <= 100) {
+        snprintf(buf, sizeof(buf), "%u%%", pct);
+        lv_label_set_text(s_batt_label, buf);
+        lv_obj_set_width(s_batt_fill, (lv_coord_t)(140 * pct / 100));
+    }
+}
+
+static void lvgl_build_watch_face(void)
+{
+    lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x000000), 0);
+
+    s_date_label = lv_label_create(lv_screen_active());
+    lv_label_set_text(s_date_label, "");
+    lv_obj_set_style_text_font(s_date_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_date_label, lv_color_hex(0x9E9E9E), 0);
+    lv_obj_align(s_date_label, LV_ALIGN_CENTER, 0, -110);
+
+    s_time_label = lv_label_create(lv_screen_active());
+    lv_label_set_text(s_time_label, "--:--");
+    lv_obj_set_style_text_font(s_time_label, s_font_time, 0);
+    lv_obj_set_style_text_color(s_time_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(s_time_label, LV_ALIGN_CENTER, 0, -20);
+
+    s_sec_label = lv_label_create(lv_screen_active());
+    lv_label_set_text(s_sec_label, "--");
+    lv_obj_set_style_text_font(s_sec_label, s_font_sec, 0);
+    lv_obj_set_style_text_color(s_sec_label, lv_color_hex(0x80D8FF), 0);
+    lv_obj_align(s_sec_label, LV_ALIGN_CENTER, 0, 70);
+
+    /* Battery bar. */
+    lv_obj_t *bar = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(bar, 140, 12);
+    lv_obj_align(bar, LV_ALIGN_CENTER, 0, 160);
+    lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(0x111111), 0);
+    lv_obj_set_style_border_color(bar, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_border_width(bar, 2, 0);
+    lv_obj_set_style_radius(bar, 6, 0);
+    lv_obj_set_style_pad_all(bar, 0, 0);
+
+    s_batt_fill = lv_obj_create(bar);
+    lv_obj_set_size(s_batt_fill, 0, 8);
+    lv_obj_align(s_batt_fill, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_clear_flag(s_batt_fill, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(s_batt_fill, lv_color_hex(0x00E676), 0);
+    lv_obj_set_style_radius(s_batt_fill, 4, 0);
+    lv_obj_set_style_pad_all(s_batt_fill, 0, 0);
+
+    s_batt_label = lv_label_create(lv_screen_active());
+    lv_label_set_text(s_batt_label, "--");
+    lv_obj_set_style_text_font(s_batt_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_batt_label, lv_color_hex(0x9E9E9E), 0);
+    lv_obj_align(s_batt_label, LV_ALIGN_CENTER, 0, 200);
+
+    watch_face_update(NULL);
+    lv_timer_create(watch_face_update, 1000, NULL);
+}
+
+/* Show the boot screen for a few seconds, then the watch face. */
+static void boot_to_watch_face(lv_timer_t *timer)
+{
+    lv_timer_delete(timer);
+    lv_obj_clean(lv_screen_active());
+    lvgl_build_watch_face();
 }
 
 static void mount_assets(void)
@@ -118,6 +186,13 @@ static void mount_assets(void)
     }
 }
 
+static const lv_font_t *load_font(int size)
+{
+    return lv_freetype_font_create("/assets/fonts/Roboto-Regular.ttf",
+                                   LV_FREETYPE_FONT_RENDER_MODE_BITMAP, size,
+                                   LV_FREETYPE_FONT_STYLE_NORMAL);
+}
+
 esp_err_t lvgl_app_start(void)
 {
     mount_assets();
@@ -131,8 +206,6 @@ esp_err_t lvgl_app_start(void)
         CO5300_RES_X,
         CO5300_RES_Y,
         ESP_LV_ADAPTER_ROTATE_0);   /* rotation not supported for QSPI */
-    /* Partial-render stripe height: keep flushes within the SPI max transfer
-     * (410 x 48 x 2 = ~39 KB < 65 KB) and even for the SH8601 panel. */
     display_cfg.profile.buffer_height = 48;
 
     lv_display_t *disp = esp_lv_adapter_register_display(&display_cfg);
@@ -141,28 +214,17 @@ esp_err_t lvgl_app_start(void)
         return ESP_FAIL;
     }
 
-    /* Big-endian RGB565 for the CO5300 panel. */
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565_SWAPPED);
-
-    /* Even-coordinate areas, rounded before rendering (no buffer mismatch). */
     lv_display_add_event_cb(disp, area_rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
 
     ESP_RETURN_ON_ERROR(esp_lv_adapter_start(), TAG, "adapter start");
 
     if (esp_lv_adapter_lock(-1) == ESP_OK) {
-        /* High-DPI vector fonts from SPIFFS (Roboto; ~315 PPI panel). */
-        lv_font_t *title_font = lv_freetype_font_create("/assets/fonts/Roboto-Regular.ttf",
-                                                        LV_FREETYPE_FONT_RENDER_MODE_BITMAP, 64,
-                                                        LV_FREETYPE_FONT_STYLE_NORMAL);
-        lv_font_t *small_font = lv_freetype_font_create("/assets/fonts/Roboto-Regular.ttf",
-                                                        LV_FREETYPE_FONT_RENDER_MODE_BITMAP, 28,
-                                                        LV_FREETYPE_FONT_STYLE_NORMAL);
-        if (title_font && small_font) {
-            lvgl_build_boot_screen(title_font, small_font);
-        } else {
-            ESP_LOGE(TAG, "freetype font create failed");
-            lvgl_build_boot_screen(NULL, NULL);   /* fall back to default font */
-        }
+        s_font_time  = load_font(96);
+        s_font_sec   = load_font(40);
+        s_font_small = load_font(28);
+        lvgl_build_boot_screen();
+        lv_timer_create(boot_to_watch_face, 3000, NULL);
         esp_lv_adapter_unlock();
     }
 
@@ -174,17 +236,14 @@ esp_err_t lvgl_app_start(void)
         if (cst9217_get_resolution(&nx, &ny) == ESP_OK && nx && ny) {
             touch_cfg.scale.x = (float)CO5300_RES_X / nx;
             touch_cfg.scale.y = (float)CO5300_RES_Y / ny;
-            ESP_LOGI(TAG, "touch scale: %f x %f", touch_cfg.scale.x, touch_cfg.scale.y);
         }
         if (esp_lv_adapter_register_touch(&touch_cfg)) {
             ESP_LOGI(TAG, "touch registered");
         } else {
             ESP_LOGE(TAG, "touch registration failed");
         }
-    } else {
-        ESP_LOGW(TAG, "no CST9217 touch handle");
     }
 
-    ESP_LOGI(TAG, "LVGL started (Roboto FreeType font)");
+    ESP_LOGI(TAG, "LVGL started (watch face)");
     return ESP_OK;
 }
