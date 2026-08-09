@@ -1,4 +1,6 @@
 #include "twatch_board.h"
+#include <time.h>
+#include <sys/time.h>
 #include "esp_check.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
@@ -99,6 +101,31 @@ static esp_err_t twatch_spi_init(void)
     return ESP_OK;
 }
 
+/* Push the RTC wall-clock time into the FreeRTOS/ESP-IDF system clock. */
+static void sync_system_time(void)
+{
+    pcf85063a_time_t t;
+    if (pcf85063a_get_time(twatch_rtc_dev, &t) != ESP_OK) {
+        ESP_LOGW(TAG, "RTC time invalid, system clock not synced");
+        return;
+    }
+    struct tm tm = { 0 };
+    tm.tm_sec  = t.sec;
+    tm.tm_min  = t.min;
+    tm.tm_hour = t.hour;
+    tm.tm_mday = t.day;
+    tm.tm_mon  = t.month - 1;
+    tm.tm_year = t.year - 1900;
+    time_t now = mktime(&tm);
+    if (now == (time_t)-1) {
+        ESP_LOGW(TAG, "RTC time out of range, system clock not synced");
+        return;
+    }
+    struct timeval tv = { .tv_sec = now, .tv_usec = 0 };
+    settimeofday(&tv, NULL);
+    ESP_LOGI(TAG, "system clock synced from RTC");
+}
+
 esp_err_t twatch_board_init(void)
 {
     esp_err_t err = ESP_OK;
@@ -168,6 +195,7 @@ esp_err_t twatch_board_init(void)
 
     /* 4. Peripheral driver init (skeletons). */
     pcf85063a_init(twatch_rtc_dev);
+    sync_system_time();
     bhi260ap_init(twatch_imu_dev);
     drv2605_init(twatch_haptic_dev);
     co5300_init();
