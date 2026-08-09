@@ -6,6 +6,8 @@
   <title>UltraWatch Sensors</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <script type="module"
+          src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; scroll-behavior: smooth; }
     * { box-sizing: border-box; }
@@ -76,6 +78,10 @@
     .gps-table th { color: #777; font-weight: 400; }
     .gps-table td { font: .84rem ui-monospace, monospace; text-align: right; }
     .gps-note { margin: .75rem 0 0; font-size: .8rem; }
+    .firmware-picker { margin: 1rem 0; }
+    .firmware-selection { min-height: 1.3em; margin: .65rem 0 0; color: #777; font: .8rem ui-monospace, monospace; }
+    .flasher-note { margin: .75rem 0 0; font-size: .8rem; }
+    .flasher-compatibility { display: block; margin-top: .75rem; color: #fbbf24; font-size: .85rem; }
     .leaflet-container { font-family: system-ui, sans-serif; }
     #message { min-height: 1.3em; margin: .8rem 0 0; font-size: .85rem; }
     @media (max-width: 34rem) {
@@ -94,6 +100,7 @@
         <span class="tag">BLE dashboard</span>
       </div>
       <nav aria-label="Sensors">
+        <a href="#flasher">Firmware</a>
         <a href="#sensorControl">Sensor power</a>
         <a href="#systemPower">ESP32 power</a>
         <a href="#rtc">RTC</a>
@@ -117,6 +124,24 @@
         <button id="connect">Connect</button>
         <button id="disconnect" disabled>Disconnect</button>
       </div>
+    </section>
+
+    <section id="flasher" class="sensor">
+      <header><h2>Firmware flasher</h2><span class="tag">Web Serial · ESP32-S3</span></header>
+      <p>Select an UltraWatch factory image from the
+        <a href="https://github.com/LindezaGrey/ultrawatch/releases" target="_blank" rel="noreferrer">GitHub Releases</a>,
+        connect the watch by USB, then start the installer.</p>
+      <div class="firmware-picker">
+        <label for="firmwareFile">Complete firmware image</label>
+        <input id="firmwareFile" type="file" accept=".bin,application/octet-stream">
+        <div id="firmwareSelection" class="firmware-selection">No firmware selected</div>
+      </div>
+      <esp-web-install-button id="firmwareInstaller">
+        <button id="flashFirmware" slot="activate" disabled>Flash selected firmware</button>
+        <span slot="unsupported" class="flasher-compatibility">Web Serial is unavailable in this browser.</span>
+        <span slot="not-allowed" class="flasher-compatibility">Firmware flashing requires HTTPS or localhost.</span>
+      </esp-web-install-button>
+      <p id="firmwareMessage" class="flasher-note">Use the merged <code>ultrawatch-factory.bin</code>; it is written at offset <code>0x0</code>.</p>
     </section>
 
     <section id="sensorControl" class="sensor">
@@ -349,6 +374,61 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script type="module">
+    const fileInput = document.getElementById('firmwareFile');
+    const installer = document.getElementById('firmwareInstaller');
+    const flashButton = document.getElementById('flashFirmware');
+    const selection = document.getElementById('firmwareSelection');
+    const message = document.getElementById('firmwareMessage');
+    let firmwareUrl = null;
+    let manifestUrl = null;
+    let selectionGeneration = 0;
+
+    function releaseFirmwareUrls() {
+      if (manifestUrl) URL.revokeObjectURL(manifestUrl);
+      if (firmwareUrl) URL.revokeObjectURL(firmwareUrl);
+      manifestUrl = null;
+      firmwareUrl = null;
+    }
+
+    fileInput.addEventListener('change', async () => {
+      const generation = ++selectionGeneration;
+      releaseFirmwareUrls();
+      flashButton.disabled = true;
+      const firmware = fileInput.files[0];
+      if (!firmware) {
+        installer.manifest = '';
+        selection.textContent = 'No firmware selected';
+        return;
+      }
+      if (!firmware.name.toLowerCase().endsWith('.bin')) {
+        installer.manifest = '';
+        selection.textContent = 'Select a .bin firmware image';
+        return;
+      }
+
+      firmwareUrl = URL.createObjectURL(firmware);
+      const manifest = {
+        name: 'UltraWatch',
+        version: firmware.name,
+        new_install_prompt_erase: true,
+        builds: [{
+          chipFamily: 'ESP32-S3',
+          parts: [{ path: firmwareUrl, offset: 0 }]
+        }]
+      };
+      manifestUrl = URL.createObjectURL(new Blob(
+        [JSON.stringify(manifest)], { type: 'application/json' }));
+      await customElements.whenDefined('esp-web-install-button');
+      if (generation !== selectionGeneration) return;
+      installer.manifest = manifestUrl;
+      selection.textContent = `${firmware.name} · ${(firmware.size / 1024 / 1024).toFixed(2)} MiB`;
+      message.textContent = 'Ready. Disconnect BLE before flashing; the watch will restart.';
+      flashButton.disabled = false;
+    });
+
+    window.addEventListener('beforeunload', releaseFirmwareUrls);
+  </script>
   <script>
     const SERVICE_UUID = '7a1e0001-7a1e-4b6c-8d9e-001122334455';
     const CHAR_UUID = {

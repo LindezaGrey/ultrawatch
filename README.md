@@ -147,6 +147,12 @@ Build with ESP-IDF 5.3:
 docker run --rm -v "$PWD/firmware:/project" -w /project espressif/idf:release-v5.3 idf.py -B build -D SDKCONFIG=build/sdkconfig build
 ```
 
+Pushing any Git tag runs `.github/workflows/release-firmware.yml`. The workflow
+uses the same ESP-IDF 5.3 Docker image, creates a complete
+`ultrawatch-factory.bin`, and publishes it together with an ESP Web Tools
+manifest and SHA-256 checksum on that tag's GitHub Release.
+The tag can point to a commit on any branch.
+
 The committed defaults configure BLE and power management. If an existing
 generated build configuration predates those defaults, configure a fresh build
 directory so the new defaults are applied.
@@ -169,3 +175,10 @@ python3 -m http.server 8000 --directory web
 ```
 
 Open <http://localhost:8000>, select **Connect**, and choose `UltraWatch`.
+
+The **Firmware** page uses ESP Web Tools over Web Serial. Download
+`ultrawatch-factory.bin` from a GitHub Release, select it in the page, connect
+the watch over USB, and choose **Flash selected firmware**. The browser flasher
+expects the complete factory image and writes it at offset `0x0`. Web Serial
+requires a supported Chromium browser and a secure context (HTTPS or
+localhost).

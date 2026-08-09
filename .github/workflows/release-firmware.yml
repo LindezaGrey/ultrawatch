@@ -1,0 +1,67 @@
+name: Build and Release Firmware
+
+on:
+  push:
+    tags:
+      - '**'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+
+      - name: Prepare build directories
+        run: mkdir -p release-build release-assets
+
+      - name: Build firmware with ESP-IDF Docker image
+        run: >-
+          docker run --rm
+          -v "${{ github.workspace }}/firmware:/project"
+          -v "${{ github.workspace }}/release-build:/out"
+          -w /project
+          espressif/idf:release-v5.3
+          idf.py -B /out -D SDKCONFIG=/out/sdkconfig build
+
+      - name: Create complete flash image
+        run: >-
+          docker run --rm
+          -v "${{ github.workspace }}/firmware:/project"
+          -v "${{ github.workspace }}/release-build:/out"
+          -w /project
+          espressif/idf:release-v5.3
+          idf.py -B /out -D SDKCONFIG=/out/sdkconfig
+          merge-bin -o /out/ultrawatch-factory.bin -f raw
+
+      - name: Prepare release assets
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          cp release-build/ultrawatch-factory.bin release-assets/ultrawatch-factory.bin
+          jq -n --arg version "$RELEASE_VERSION" '{
+            name: "UltraWatch",
+            version: $version,
+            new_install_prompt_erase: true,
+            builds: [{
+              chipFamily: "ESP32-S3",
+              parts: [{path: "ultrawatch-factory.bin", offset: 0}]
+            }]
+          }' > release-assets/manifest.json
+          cd release-assets
+          sha256sum ultrawatch-factory.bin > SHA256SUMS
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          gh release create "$RELEASE_TAG"
+          release-assets/ultrawatch-factory.bin
+          release-assets/manifest.json
+          release-assets/SHA256SUMS
+          --verify-tag
+          --generate-notes
