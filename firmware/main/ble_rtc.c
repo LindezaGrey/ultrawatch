@@ -29,14 +29,24 @@
 #define RTC_OSCILLATOR_STOP   7
 #define RTC_PAYLOAD_LENGTH    19
 #define POWER_PAYLOAD_MAX_LENGTH 20
+#define POWER_CONFIG_PAYLOAD_MAX_LENGTH 20
+#define POWER_CONFIG_WRITE_MAX_LENGTH 12
 
 #define AXP_STATUS1_REGISTER       0x00
 #define AXP_STATUS2_REGISTER       0x01
 #define AXP_CHIP_ID_REGISTER       0x03
+#define AXP_INPUT_CURRENT_REGISTER 0x16
+#define AXP_MODULE_ENABLE_REGISTER 0x18
 #define AXP_ADC_CHANNEL_REGISTER   0x30
 #define AXP_BATTERY_VOLTAGE_HIGH  0x34
+#define AXP_CHARGE_CURRENT_REGISTER 0x62
+#define AXP_CHARGE_VOLTAGE_REGISTER 0x64
 #define AXP_BATTERY_DETECT_REGISTER 0x68
 #define AXP_CHIP_ID                0x4a
+#define AXP_INPUT_CURRENT_MASK     0x07
+#define AXP_CELL_CHARGE_ENABLE_BIT 1
+#define AXP_CHARGE_CURRENT_MASK    0x1f
+#define AXP_CHARGE_VOLTAGE_MASK    0x07
 #define AXP_BATTERY_ADC_ENABLE_BIT 0
 #define AXP_BATTERY_DETECT_BIT     0
 #define AXP_BATTERY_EMPTY_MV       3200
@@ -60,6 +70,11 @@ static const ble_uuid128_t power_characteristic_uuid = BLE_UUID128_INIT(
     0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
     0x6c, 0x4b, 0x1e, 0x7a, 0x03, 0x00, 0x1e, 0x7a);
 
+/* 7a1e0004-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t power_config_characteristic_uuid = BLE_UUID128_INIT(
+    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+    0x6c, 0x4b, 0x1e, 0x7a, 0x04, 0x00, 0x1e, 0x7a);
+
 typedef struct {
     int year;
     int month;
@@ -68,6 +83,13 @@ typedef struct {
     int minute;
     int second;
 } rtc_time_t;
+
+typedef struct {
+    unsigned charge_current_ma;
+    unsigned input_current_ma;
+    unsigned charge_voltage_mv;
+    bool charger_enabled;
+} power_config_t;
 
 static SemaphoreHandle_t i2c_mutex;
 static uint8_t own_address_type;
@@ -140,6 +162,141 @@ static esp_err_t axp_read_registers(uint8_t reg, uint8_t *data, size_t length)
 static esp_err_t axp_write_register(uint8_t reg, uint8_t value)
 {
     return i2c_write_registers(BOARD_AXP2101_ADDR, reg, &value, 1);
+}
+
+static int charge_current_from_code(uint8_t code)
+{
+    if (code <= 8) {
+        return code * 25;
+    }
+    if (code <= 16) {
+        return 200 + (code - 8) * 100;
+    }
+    return -1;
+}
+
+static int charge_current_to_code(unsigned milliamps)
+{
+    if (milliamps >= 25 && milliamps <= 200 && milliamps % 25 == 0) {
+        return milliamps / 25;
+    }
+    if (milliamps >= 300 && milliamps <= 500 && milliamps % 100 == 0) {
+        return 8 + (milliamps - 200) / 100;
+    }
+    return -1;
+}
+
+static int input_current_from_code(uint8_t code)
+{
+    static const int values[] = {100, 500, 900, 1000, 1500, 2000};
+    return code < 6 ? values[code] : -1;
+}
+
+static int input_current_to_code(unsigned milliamps)
+{
+    static const unsigned values[] = {100, 500, 900, 1000, 1500, 2000};
+    for (int code = 0; code < 6; code++) {
+        if (values[code] == milliamps) {
+            return code;
+        }
+    }
+    return -1;
+}
+
+static int charge_voltage_from_code(uint8_t code)
+{
+    static const int values[] = {5000, 4000, 4100, 4200, 4350, 4400};
+    return code < 6 ? values[code] : -1;
+}
+
+static esp_err_t axp_read_power_config(power_config_t *config)
+{
+    uint8_t input_current;
+    uint8_t module_enable;
+    uint8_t charge_current;
+    uint8_t charge_voltage;
+    ESP_RETURN_ON_ERROR(axp_read_registers(AXP_INPUT_CURRENT_REGISTER,
+                                           &input_current, 1),
+                        TAG, "input current read failed");
+    ESP_RETURN_ON_ERROR(axp_read_registers(AXP_MODULE_ENABLE_REGISTER,
+                                           &module_enable, 1),
+                        TAG, "charger enable read failed");
+    ESP_RETURN_ON_ERROR(axp_read_registers(AXP_CHARGE_CURRENT_REGISTER,
+                                           &charge_current, 1),
+                        TAG, "charge current read failed");
+    ESP_RETURN_ON_ERROR(axp_read_registers(AXP_CHARGE_VOLTAGE_REGISTER,
+                                           &charge_voltage, 1),
+                        TAG, "charge voltage read failed");
+
+    int decoded_charge =
+        charge_current_from_code(charge_current & AXP_CHARGE_CURRENT_MASK);
+    int decoded_input =
+        input_current_from_code(input_current & AXP_INPUT_CURRENT_MASK);
+    int decoded_voltage =
+        charge_voltage_from_code(charge_voltage & AXP_CHARGE_VOLTAGE_MASK);
+    if (decoded_charge < 0 || decoded_input < 0 || decoded_voltage < 0) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    config->charge_current_ma = decoded_charge;
+    config->input_current_ma = decoded_input;
+    config->charge_voltage_mv = decoded_voltage;
+    config->charger_enabled =
+        (module_enable & (1U << AXP_CELL_CHARGE_ENABLE_BIT)) != 0;
+    return ESP_OK;
+}
+
+static esp_err_t axp_write_masked_register(uint8_t reg, uint8_t mask,
+                                           uint8_t bits)
+{
+    uint8_t value;
+    ESP_RETURN_ON_ERROR(axp_read_registers(reg, &value, 1),
+                        TAG, "PMIC setting read failed");
+    value = (value & ~mask) | (bits & mask);
+    return axp_write_register(reg, value);
+}
+
+static esp_err_t axp_set_power_config(unsigned charge_current_ma,
+                                      unsigned input_current_ma,
+                                      bool charger_enabled)
+{
+    int charge_code = charge_current_to_code(charge_current_ma);
+    int input_code = input_current_to_code(input_current_ma);
+    if (charge_code < 0 || input_code < 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const uint8_t enable_mask = 1U << AXP_CELL_CHARGE_ENABLE_BIT;
+    if (!charger_enabled) {
+        ESP_RETURN_ON_ERROR(
+            axp_write_masked_register(AXP_MODULE_ENABLE_REGISTER, enable_mask,
+                                      0),
+            TAG, "charger disable failed");
+    }
+    ESP_RETURN_ON_ERROR(
+        axp_write_masked_register(AXP_CHARGE_CURRENT_REGISTER,
+                                  AXP_CHARGE_CURRENT_MASK, charge_code),
+        TAG, "charge current write failed");
+    ESP_RETURN_ON_ERROR(
+        axp_write_masked_register(AXP_INPUT_CURRENT_REGISTER,
+                                  AXP_INPUT_CURRENT_MASK, input_code),
+        TAG, "input current write failed");
+    if (charger_enabled) {
+        ESP_RETURN_ON_ERROR(
+            axp_write_masked_register(AXP_MODULE_ENABLE_REGISTER, enable_mask,
+                                      enable_mask),
+            TAG, "charger enable failed");
+    }
+
+    power_config_t actual;
+    ESP_RETURN_ON_ERROR(axp_read_power_config(&actual),
+                        TAG, "power setting verification failed");
+    if (actual.charge_current_ma != charge_current_ma ||
+        actual.input_current_ma != input_current_ma ||
+        actual.charger_enabled != charger_enabled) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
 }
 
 static esp_err_t axp_initialize_measurement(void)
@@ -323,6 +480,37 @@ esp_err_t ble_power_get_payload(char *output, size_t output_size)
     return length > 0 && (size_t)length < output_size ? ESP_OK : ESP_FAIL;
 }
 
+static esp_err_t power_config_get_payload(char *output, size_t output_size)
+{
+    if (output == NULL || output_size < POWER_CONFIG_PAYLOAD_MAX_LENGTH) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    power_config_t config;
+    ESP_RETURN_ON_ERROR(axp_read_power_config(&config),
+                        TAG, "power configuration unavailable");
+    int length = snprintf(output, output_size, "%u,%u,%u,%u",
+                          config.charge_current_ma, config.input_current_ma,
+                          config.charge_voltage_mv,
+                          config.charger_enabled ? 1 : 0);
+    return length > 0 && (size_t)length < output_size ? ESP_OK : ESP_FAIL;
+}
+
+static bool parse_power_config_write(const char *payload,
+                                     unsigned *charge_current_ma,
+                                     unsigned *input_current_ma,
+                                     bool *charger_enabled)
+{
+    unsigned enabled;
+    char trailing;
+    if (sscanf(payload, "%u,%u,%u%c", charge_current_ma, input_current_ma,
+               &enabled, &trailing) != 3 || enabled > 1) {
+        return false;
+    }
+    *charger_enabled = enabled != 0;
+    return charge_current_to_code(*charge_current_ma) >= 0 &&
+           input_current_to_code(*input_current_ma) >= 0;
+}
+
 static int rtc_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
                            struct ble_gatt_access_ctxt *context, void *arg)
 {
@@ -383,6 +571,56 @@ static int power_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
                : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+static int power_config_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
+                                    struct ble_gatt_access_ctxt *context,
+                                    void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+
+    if (context->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        char payload[POWER_CONFIG_PAYLOAD_MAX_LENGTH];
+        if (power_config_get_payload(payload, sizeof(payload)) != ESP_OK) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+        return os_mbuf_append(context->om, payload, strlen(payload)) == 0
+                   ? 0
+                   : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    if (context->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        char payload[POWER_CONFIG_WRITE_MAX_LENGTH + 1];
+        uint16_t length = 0;
+        int result = ble_hs_mbuf_to_flat(context->om, payload,
+                                         POWER_CONFIG_WRITE_MAX_LENGTH,
+                                         &length);
+        if (result != 0 || length == 0 ||
+            length > POWER_CONFIG_WRITE_MAX_LENGTH) {
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        }
+        payload[length] = '\0';
+
+        unsigned charge_current_ma;
+        unsigned input_current_ma;
+        bool charger_enabled;
+        if (!parse_power_config_write(payload, &charge_current_ma,
+                                      &input_current_ma, &charger_enabled)) {
+            return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+        }
+        if (axp_set_power_config(charge_current_ma, input_current_ma,
+                                 charger_enabled) != ESP_OK) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+        ESP_LOGI(TAG, "power config set: %umA charge, %umA input, %s",
+                 charge_current_ma, input_current_ma,
+                 charger_enabled ? "enabled" : "disabled");
+        return 0;
+    }
+
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 static const struct ble_gatt_svc_def rtc_gatt_services[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -400,6 +638,11 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
                 .access_cb = power_gatt_access,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &power_value_handle,
+            },
+            {
+                .uuid = &power_config_characteristic_uuid.u,
+                .access_cb = power_config_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
             },
             {0},
         },
@@ -537,7 +780,20 @@ esp_err_t ble_rtc_initialize(void)
     ESP_RETURN_ON_ERROR(rtc_write_registers(RTC_CONTROL1_REGISTER,
                                             &control1, 1),
                         TAG, "RTC control write failed");
-    return axp_initialize_measurement();
+    ESP_RETURN_ON_ERROR(axp_initialize_measurement(),
+                        TAG, "PMIC measurement initialization failed");
+    power_config_t config;
+    esp_err_t config_result = axp_read_power_config(&config);
+    if (config_result == ESP_OK) {
+        ESP_LOGI(TAG, "power config: %umA charge, %umA input, %umV, %s",
+                 config.charge_current_ma, config.input_current_ma,
+                 config.charge_voltage_mv,
+                 config.charger_enabled ? "enabled" : "disabled");
+    } else {
+        ESP_LOGW(TAG, "power configuration unavailable: %s",
+                 esp_err_to_name(config_result));
+    }
+    return ESP_OK;
 }
 
 esp_err_t ble_rtc_start(void)

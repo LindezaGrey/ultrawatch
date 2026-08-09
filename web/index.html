@@ -30,8 +30,10 @@
     .tag { color: #777; font: .75rem ui-monospace, monospace; }
     .clock { margin: 1.4rem 0; white-space: nowrap; font: 600 clamp(1.35rem, 7vw, 2.8rem) ui-monospace, monospace; letter-spacing: -.07em; }
     label { display: block; margin-bottom: .4rem; color: #bbb; font-size: .88rem; }
-    input, button { border: 1px solid #444; border-radius: .45rem; background: #222; color: inherit; font: inherit; }
+    input, select, button { border: 1px solid #444; border-radius: .45rem; background: #222; color: inherit; font: inherit; }
     input { width: 100%; padding: .7rem; }
+    input[type="checkbox"] { width: auto; accent-color: #4ade80; }
+    select { width: 100%; padding: .7rem; }
     button { padding: .65rem .9rem; cursor: pointer; }
     button:hover:not(:disabled) { border-color: #888; }
     button:disabled { opacity: .4; cursor: not-allowed; }
@@ -44,10 +46,16 @@
     .metric { padding: .75rem; border: 1px solid #2d2d2d; border-radius: .55rem; background: #141414; }
     .metric span { display: block; color: #777; font-size: .75rem; }
     .metric strong { display: block; margin-top: .25rem; font-size: .95rem; font-weight: 550; }
+    .configuration { margin-top: 1.25rem; padding-top: 1.1rem; border-top: 1px solid #303030; }
+    .configuration h3 { margin: 0; font-size: .95rem; }
+    .configuration p { margin: .35rem 0 1rem; font-size: .82rem; }
+    .settings { display: grid; grid-template-columns: repeat(2, 1fr); gap: .8rem; }
+    .setting output { display: block; min-height: 2.7rem; padding: .7rem; border: 1px solid #333; border-radius: .45rem; background: #141414; }
+    .toggle { display: flex; align-items: center; gap: .6rem; min-height: 2.7rem; margin: 0; padding: .7rem; border: 1px solid #333; border-radius: .45rem; background: #141414; }
     #message { min-height: 1.3em; margin: .8rem 0 0; font-size: .85rem; }
     @media (max-width: 34rem) {
       .heading, .connection { align-items: flex-start; flex-direction: column; }
-      .metrics { grid-template-columns: 1fr; }
+      .metrics, .settings { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -101,6 +109,43 @@
         <div class="metric"><span>External power</span><strong id="externalPower">Unknown</strong></div>
       </div>
       <button id="readPower" data-connected disabled>Read power</button>
+      <div class="configuration">
+        <h3>Charge settings</h3>
+        <p>Charge current is limited to the board-recommended maximum of 500 mA. Target voltage is read-only.</p>
+        <div class="settings">
+          <div class="setting">
+            <label for="chargeCurrent">Charge current</label>
+            <select id="chargeCurrent" data-connected disabled>
+              <option value="25">25 mA</option><option value="50">50 mA</option>
+              <option value="75">75 mA</option><option value="100">100 mA</option>
+              <option value="125">125 mA</option><option value="150">150 mA</option>
+              <option value="175">175 mA</option><option value="200">200 mA</option>
+              <option value="300">300 mA</option><option value="400">400 mA</option>
+              <option value="500">500 mA</option>
+            </select>
+          </div>
+          <div class="setting">
+            <label for="inputCurrent">Input-current limit</label>
+            <select id="inputCurrent" data-connected disabled>
+              <option value="100">100 mA</option><option value="500">500 mA</option>
+              <option value="900">900 mA</option><option value="1000">1000 mA</option>
+              <option value="1500">1500 mA</option><option value="2000">2000 mA</option>
+            </select>
+          </div>
+          <div class="setting">
+            <label>Target charge voltage</label>
+            <output id="chargeVoltage">-- V</output>
+          </div>
+          <div class="setting">
+            <label>Cell-battery charger</label>
+            <label class="toggle"><input id="chargerEnabled" type="checkbox" data-connected disabled> Enabled</label>
+          </div>
+        </div>
+        <div class="buttons">
+          <button id="readPowerConfig" data-connected disabled>Read settings</button>
+          <button id="writePowerConfig" data-connected disabled>Apply settings</button>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -108,14 +153,16 @@
     const SERVICE_UUID = '7a1e0001-7a1e-4b6c-8d9e-001122334455';
     const CHAR_UUID = {
       rtc: '7a1e0002-7a1e-4b6c-8d9e-001122334455',
-      power: '7a1e0003-7a1e-4b6c-8d9e-001122334455'
+      power: '7a1e0003-7a1e-4b6c-8d9e-001122334455',
+      powerConfig: '7a1e0004-7a1e-4b6c-8d9e-001122334455'
     };
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
     const ids = ['dot', 'status', 'message', 'connect', 'disconnect', 'clock',
       'dateTime', 'readTime', 'browserTime', 'writeTime', 'percentage',
       'batteryPresence', 'batteryFill', 'voltage', 'powerState',
-      'externalPower', 'readPower'];
+      'externalPower', 'readPower', 'chargeCurrent', 'inputCurrent',
+      'chargeVoltage', 'chargerEnabled', 'readPowerConfig', 'writePowerConfig'];
     const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
     let device = null;
@@ -156,6 +203,34 @@
       ui.externalPower.textContent = vbusGood ? 'Connected' : 'Not connected';
     }
 
+    function showPowerConfig(dataView) {
+      const values = decoder.decode(dataView).replace(/\0/g, '').split(',').map(Number);
+      if (values.length !== 4 || values.some(value => !Number.isInteger(value))) {
+        throw new Error('Unexpected power configuration');
+      }
+      const [chargeCurrent, inputCurrent, chargeVoltage, chargerEnabled] = values;
+      if (chargeCurrent < 0 || chargeCurrent > 1000 ||
+          ![100, 500, 900, 1000, 1500, 2000].includes(inputCurrent) ||
+          ![4000, 4100, 4200, 4350, 4400, 5000].includes(chargeVoltage) ||
+          ![0, 1].includes(chargerEnabled)) {
+        throw new Error('Power configuration outside valid range');
+      }
+
+      ui.chargeCurrent.querySelector('option[data-current]')?.remove();
+      const existing = ui.chargeCurrent.querySelector(`option[value="${chargeCurrent}"]`);
+      if (existing) {
+        ui.chargeCurrent.value = String(chargeCurrent);
+      } else {
+        const option = new Option(`${chargeCurrent} mA (read-only current value)`, String(chargeCurrent), true, true);
+        option.dataset.current = 'true';
+        option.disabled = true;
+        ui.chargeCurrent.add(option);
+      }
+      ui.inputCurrent.value = String(inputCurrent);
+      ui.chargeVoltage.textContent = `${(chargeVoltage / 1000).toFixed(2)} V`;
+      ui.chargerEnabled.checked = Boolean(chargerEnabled);
+    }
+
     function notificationHandler(parser) {
       return event => {
         try { parser(event.target.value); }
@@ -182,17 +257,22 @@
         const service = await server.getPrimaryService(SERVICE_UUID);
         characteristics.rtc = await service.getCharacteristic(CHAR_UUID.rtc);
         characteristics.power = await service.getCharacteristic(CHAR_UUID.power);
+        characteristics.powerConfig = await service.getCharacteristic(CHAR_UUID.powerConfig);
         characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
         characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
         await Promise.all([characteristics.rtc.startNotifications(), characteristics.power.startNotifications()]);
         setConnected(true);
-        const [rtcReady, powerReady] = await Promise.all([readTime(false), readPower(false)]);
-        if (rtcReady && powerReady) {
+        const [rtcReady, powerReady, configReady] = await Promise.all([
+          readTime(false), readPower(false), readPowerConfig(false)
+        ]);
+        if (rtcReady && powerReady && configReady) {
           ui.message.textContent = 'Live sensor updates enabled.';
         } else if (!rtcReady) {
           ui.message.textContent = 'RTC unavailable. Set the browser time first.';
-        } else {
+        } else if (!powerReady) {
           ui.message.textContent = 'Power data is currently unavailable.';
+        } else {
+          ui.message.textContent = 'Charge settings are currently unavailable.';
         }
       } catch (error) {
         ui.message.textContent = `Connection failed: ${error.message}`;
@@ -218,6 +298,38 @@
       } catch (error) {
         if (reportError) ui.message.textContent = `Power read failed: ${error.message}`;
         return false;
+      }
+    }
+
+    async function readPowerConfig(reportError = true) {
+      try {
+        showPowerConfig(await characteristics.powerConfig.readValue());
+        return true;
+      } catch (error) {
+        if (reportError) ui.message.textContent = `Charge settings read failed: ${error.message}`;
+        return false;
+      }
+    }
+
+    async function writePowerConfig() {
+      const chargeCurrent = Number(ui.chargeCurrent.value);
+      const inputCurrent = Number(ui.inputCurrent.value);
+      if (!Number.isInteger(chargeCurrent) || chargeCurrent < 25 || chargeCurrent > 500) {
+        ui.message.textContent = 'Choose a charge current from 25 through 500 mA.';
+        return;
+      }
+      try {
+        const value = `${chargeCurrent},${inputCurrent},${ui.chargerEnabled.checked ? 1 : 0}`;
+        const payload = encoder.encode(value);
+        if (characteristics.powerConfig.writeValueWithResponse) {
+          await characteristics.powerConfig.writeValueWithResponse(payload);
+        } else {
+          await characteristics.powerConfig.writeValue(payload);
+        }
+        await Promise.all([readPowerConfig(false), readPower(false)]);
+        ui.message.textContent = `Charge settings applied and verified: ${value}.`;
+      } catch (error) {
+        ui.message.textContent = `Charge settings write failed: ${error.message}`;
       }
     }
 
@@ -250,6 +362,8 @@
     ui.disconnect.addEventListener('click', () => device?.gatt?.disconnect());
     ui.readTime.addEventListener('click', readTime);
     ui.readPower.addEventListener('click', readPower);
+    ui.readPowerConfig.addEventListener('click', readPowerConfig);
+    ui.writePowerConfig.addEventListener('click', writePowerConfig);
     ui.browserTime.addEventListener('click', () => setTime(localDateTime(new Date())));
     ui.writeTime.addEventListener('click', () => setTime(ui.dateTime.value));
     setConnected(false);

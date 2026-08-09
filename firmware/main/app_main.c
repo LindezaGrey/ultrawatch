@@ -1,5 +1,6 @@
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -13,6 +14,7 @@
 
 #include "board.h"
 #include "ble_rtc.h"
+#include "cascadia_code_72.h"
 
 #define DISPLAY_BAND_ROWS 32
 #define CONTOUR_OUTER_INSET_PIXELS 13
@@ -21,12 +23,10 @@
     (CONTOUR_OUTER_INSET_PIXELS + CONTOUR_WIDTH_PIXELS)
 #define CONTOUR_Y_OFFSET_PIXELS 1
 #define TOP_CORNER_RADIUS_EXTRA_PIXELS 3
-#define TIME_GLYPH_SCALE 7
-#define TIME_GLYPH_WIDTH 5
-#define TIME_GLYPH_HEIGHT 7
-#define TIME_GLYPH_SPACING 1
 #define TIME_TEXT_LENGTH 8
-#define TIME_DISPLAY_ROWS (TIME_GLYPH_HEIGHT * TIME_GLYPH_SCALE)
+#define DISPLAY_TEXT_GAP_ROWS 28
+#define DISPLAY_TEXT_ROWS \
+    (2 * CASCADIA_CODE_GLYPH_HEIGHT + DISPLAY_TEXT_GAP_ROWS)
 
 typedef struct {
     uint8_t command;
@@ -353,70 +353,68 @@ static void draw_validation_pattern(void)
     heap_caps_free(pixels);
 }
 
-static uint8_t time_glyph_row(char character, int row)
+static int cascadia_glyph_index(char character)
 {
-    static const uint8_t digits[10][TIME_GLYPH_HEIGHT] = {
-        {0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e},
-        {0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e},
-        {0x0e, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1f},
-        {0x1e, 0x01, 0x01, 0x0e, 0x01, 0x01, 0x1e},
-        {0x02, 0x06, 0x0a, 0x12, 0x1f, 0x02, 0x02},
-        {0x1f, 0x10, 0x10, 0x1e, 0x01, 0x01, 0x1e},
-        {0x0e, 0x10, 0x10, 0x1e, 0x11, 0x11, 0x0e},
-        {0x1f, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08},
-        {0x0e, 0x11, 0x11, 0x0e, 0x11, 0x11, 0x0e},
-        {0x0e, 0x11, 0x11, 0x0f, 0x01, 0x01, 0x0e},
-    };
-    static const uint8_t colon[TIME_GLYPH_HEIGHT] = {
-        0x00, 0x04, 0x04, 0x00, 0x04, 0x04, 0x00,
-    };
-    static const uint8_t dash[TIME_GLYPH_HEIGHT] = {
-        0x00, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00,
-    };
-
-    if (character >= '0' && character <= '9') {
-        return digits[character - '0'][row];
+    for (int index = 0; index < CASCADIA_CODE_GLYPH_COUNT; index++) {
+        if (cascadia_code_characters[index] == character) {
+            return index;
+        }
     }
-    if (character == ':') {
-        return colon[row];
-    }
-    return dash[row];
+    return CASCADIA_CODE_GLYPH_COUNT - 1;
 }
 
-static bool pixel_is_time_text(const char text[TIME_TEXT_LENGTH], int x, int y)
+static bool pixel_is_cascadia_text(const char *text, size_t length,
+                                   int start_y, int x, int y)
 {
-    const int cell_width = (TIME_GLYPH_WIDTH + TIME_GLYPH_SPACING) *
-                           TIME_GLYPH_SCALE;
-    const int text_width = TIME_TEXT_LENGTH * cell_width -
-                           TIME_GLYPH_SPACING * TIME_GLYPH_SCALE;
+    const int text_width = length * CASCADIA_CODE_CELL_WIDTH;
     const int start_x = (BOARD_DISPLAY_WIDTH - text_width) / 2;
-    const int start_y = (BOARD_DISPLAY_HEIGHT - TIME_DISPLAY_ROWS) / 2;
     const int relative_x = x - start_x;
     const int relative_y = y - start_y;
 
     if (relative_x < 0 || relative_y < 0 ||
-        relative_x >= text_width || relative_y >= TIME_DISPLAY_ROWS) {
+        relative_x >= text_width ||
+        relative_y >= CASCADIA_CODE_GLYPH_HEIGHT) {
         return false;
     }
 
-    const int character_index = relative_x / cell_width;
-    const int character_x = relative_x % cell_width;
-    if (character_index >= TIME_TEXT_LENGTH ||
-        character_x >= TIME_GLYPH_WIDTH * TIME_GLYPH_SCALE) {
-        return false;
-    }
+    const int character_index = relative_x / CASCADIA_CODE_CELL_WIDTH;
+    const int glyph_column = relative_x % CASCADIA_CODE_CELL_WIDTH;
+    const int glyph_index = cascadia_glyph_index(text[character_index]);
+    const uint8_t row_bits =
+        cascadia_code_glyphs[glyph_index][relative_y][glyph_column / 8];
+    return (row_bits & (1U << (7 - glyph_column % 8))) != 0;
+}
 
-    const int glyph_row = relative_y / TIME_GLYPH_SCALE;
-    const int glyph_column = character_x / TIME_GLYPH_SCALE;
-    const uint8_t row_bits = time_glyph_row(text[character_index], glyph_row);
-    return (row_bits & (1U << (TIME_GLYPH_WIDTH - 1 - glyph_column))) != 0;
+static void display_text_band(uint16_t *pixels, const char *text,
+                              size_t length, int start_y)
+{
+    const size_t pixel_count =
+        BOARD_DISPLAY_WIDTH * CASCADIA_CODE_GLYPH_HEIGHT;
+    for (size_t i = 0; i < pixel_count; i++) {
+        const int x = i % BOARD_DISPLAY_WIDTH;
+        const int y = start_y + i / BOARD_DISPLAY_WIDTH;
+        const int shape_y = y - CONTOUR_Y_OFFSET_PIXELS;
+        const bool contour =
+            shape_y >= 0 &&
+            pixel_is_safe_at_inset(x, shape_y,
+                                   CONTOUR_OUTER_INSET_PIXELS) &&
+            !pixel_is_safe_content(x, y);
+        const bool text_pixel =
+            pixel_is_safe_content(x, y) &&
+            pixel_is_cascadia_text(text, length, start_y, x, y);
+        pixels[i] = text_pixel ? 0xffff : (contour ? 0x1f00 : 0x0000);
+    }
+    display_pixel_rows(pixels, start_y, CASCADIA_CODE_GLYPH_HEIGHT);
 }
 
 static void display_time_task(void *parameter)
 {
     (void)parameter;
-    const int start_y = (BOARD_DISPLAY_HEIGHT - TIME_DISPLAY_ROWS) / 2;
-    const size_t pixel_count = BOARD_DISPLAY_WIDTH * TIME_DISPLAY_ROWS;
+    const int time_start_y = (BOARD_DISPLAY_HEIGHT - DISPLAY_TEXT_ROWS) / 2;
+    const int battery_start_y = time_start_y + CASCADIA_CODE_GLYPH_HEIGHT +
+                                DISPLAY_TEXT_GAP_ROWS;
+    const size_t pixel_count =
+        BOARD_DISPLAY_WIDTH * CASCADIA_CODE_GLYPH_HEIGHT;
     uint16_t *pixels = heap_caps_malloc(pixel_count * sizeof(*pixels),
                                         MALLOC_CAP_DMA);
     ESP_ERROR_CHECK(pixels == NULL ? ESP_ERR_NO_MEM : ESP_OK);
@@ -429,21 +427,16 @@ static void display_time_task(void *parameter)
             memcpy(time_text, payload + 11, TIME_TEXT_LENGTH);
         }
 
-        for (size_t i = 0; i < pixel_count; i++) {
-            const int x = i % BOARD_DISPLAY_WIDTH;
-            const int y = start_y + i / BOARD_DISPLAY_WIDTH;
-            const int shape_y = y - CONTOUR_Y_OFFSET_PIXELS;
-            const bool contour =
-                shape_y >= 0 &&
-                pixel_is_safe_at_inset(x, shape_y,
-                                       CONTOUR_OUTER_INSET_PIXELS) &&
-                !pixel_is_safe_content(x, y);
-            const bool text = pixel_is_safe_content(x, y) &&
-                              pixel_is_time_text(time_text, x, y);
-            pixels[i] = text ? 0xffff : (contour ? 0x1f00 : 0x0000);
+        char battery_text[5] = "--%";
+        unsigned percentage;
+        if (ble_power_get_payload(payload, sizeof(payload)) == ESP_OK &&
+            sscanf(payload, "%u,", &percentage) == 1 && percentage <= 100) {
+            snprintf(battery_text, sizeof(battery_text), "%u%%", percentage);
         }
 
-        display_pixel_rows(pixels, start_y, TIME_DISPLAY_ROWS);
+        display_text_band(pixels, time_text, TIME_TEXT_LENGTH, time_start_y);
+        display_text_band(pixels, battery_text, strlen(battery_text),
+                          battery_start_y);
         vTaskDelayUntil(&last_update, pdMS_TO_TICKS(1000));
     }
 }
