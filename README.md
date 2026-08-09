@@ -21,6 +21,10 @@ and BHI260AP orientation over Bluetooth Low Energy.
   The browser converts the BHI coordinate system (`Z` out of the display) to
   the Three.js scene coordinate system (`Y` up), then applies a fixed 90°
   clockwise preview offset before rotating the model.
+- Screen brightness: `7a1e0006-7a1e-4b6c-8d9e-001122334455`, read/write. The
+  payload is one unsigned byte from 0 through 100 percent. The firmware maps
+  it to the AMOLED controller's 8-bit DCS brightness command; 0% leaves the
+  display and BLE active but renders the AMOLED pixels black.
 
 Power direction values are `0` standby, `1` charging, `2` discharging, and `3`
 reserved/unknown. `vbus` and `present` are `0` or `1`.

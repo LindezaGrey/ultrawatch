@@ -15,6 +15,7 @@
 #include "board.h"
 #include "ble_rtc.h"
 #include "cascadia_code_72.h"
+#include "screen_control.h"
 
 #define DISPLAY_BAND_ROWS 32
 #define CONTOUR_OUTER_INSET_PIXELS 13
@@ -35,6 +36,7 @@ typedef struct {
 } display_init_command_t;
 
 static spi_device_handle_t display_spi;
+static volatile uint8_t display_brightness_percentage = 100;
 
 static const display_init_command_t display_init_commands[] = {
     {0xFE, {0x00}, 0x01},
@@ -148,8 +150,8 @@ static void enable_sensor_power(void)
     vTaskDelay(pdMS_TO_TICKS(50));
 }
 
-static void display_command(uint8_t command, const uint8_t *parameters,
-                            size_t length)
+static esp_err_t display_command(uint8_t command, const uint8_t *parameters,
+                                 size_t length)
 {
     const uint8_t wrapper[] = {0x02, 0x00, command, 0x00};
     spi_transaction_t command_transaction = {
@@ -162,14 +164,40 @@ static void display_command(uint8_t command, const uint8_t *parameters,
         .tx_buffer = parameters,
     };
 
-    ESP_ERROR_CHECK(spi_device_acquire_bus(display_spi, portMAX_DELAY));
-    ESP_ERROR_CHECK(spi_device_polling_transmit(display_spi,
-                                                &command_transaction));
-    if (length != 0) {
-        ESP_ERROR_CHECK(spi_device_polling_transmit(display_spi,
-                                                    &parameter_transaction));
+    esp_err_t result = spi_device_acquire_bus(display_spi, portMAX_DELAY);
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = spi_device_polling_transmit(display_spi, &command_transaction);
+    if (result == ESP_OK && length != 0) {
+        result = spi_device_polling_transmit(display_spi,
+                                             &parameter_transaction);
     }
     spi_device_release_bus(display_spi);
+    return result;
+}
+
+esp_err_t screen_set_brightness(uint8_t percentage)
+{
+    if (percentage > 100) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (display_spi == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const uint8_t panel_level =
+        (uint8_t)(((unsigned)percentage * 255U + 50U) / 100U);
+    esp_err_t result = display_command(0x51, &panel_level, 1);
+    if (result == ESP_OK) {
+        display_brightness_percentage = percentage;
+    }
+    return result;
+}
+
+uint8_t screen_get_brightness(void)
+{
+    return display_brightness_percentage;
 }
 
 static void initialize_display(void)
@@ -213,8 +241,8 @@ static void initialize_display(void)
              i < sizeof(display_init_commands) / sizeof(display_init_commands[0]);
              i++) {
             const display_init_command_t *entry = &display_init_commands[i];
-            display_command(entry->command, entry->parameters,
-                            entry->length & 0x1F);
+            ESP_ERROR_CHECK(display_command(entry->command, entry->parameters,
+                                            entry->length & 0x1F));
             if (entry->length & 0x80) {
                 vTaskDelay(pdMS_TO_TICKS(120));
             }
@@ -222,9 +250,8 @@ static void initialize_display(void)
     }
 
     const uint8_t portrait = 0x00;
-    const uint8_t maximum_brightness = 0xFF;
-    display_command(0x36, &portrait, 1);
-    display_command(0x51, &maximum_brightness, 1);
+    ESP_ERROR_CHECK(display_command(0x36, &portrait, 1));
+    ESP_ERROR_CHECK(screen_set_brightness(100));
 }
 
 static bool pixel_is_safe_at_inset(int x, int y, int inset)
@@ -297,8 +324,8 @@ static void set_address_window(int y, int rows)
         (uint8_t)(y >> 8), (uint8_t)y,
         (uint8_t)(end_y >> 8), (uint8_t)end_y,
     };
-    display_command(0x2A, columns, sizeof(columns));
-    display_command(0x2B, row_address, sizeof(row_address));
+    ESP_ERROR_CHECK(display_command(0x2A, columns, sizeof(columns)));
+    ESP_ERROR_CHECK(display_command(0x2B, row_address, sizeof(row_address)));
 }
 
 static void display_color_band(const uint16_t *pixels, size_t pixel_count)

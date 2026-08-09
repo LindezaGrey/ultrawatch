@@ -25,6 +25,7 @@
 #include "os/os_mbuf.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+#include "screen_control.h"
 
 #define RTC_CONTROL1_REGISTER 0x00
 #define RTC_SECONDS_REGISTER  0x04
@@ -85,6 +86,11 @@ static const ble_uuid128_t power_config_characteristic_uuid = BLE_UUID128_INIT(
 static const ble_uuid128_t imu_characteristic_uuid = BLE_UUID128_INIT(
     0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
     0x6c, 0x4b, 0x1e, 0x7a, 0x05, 0x00, 0x1e, 0x7a);
+
+/* 7a1e0006-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t screen_characteristic_uuid = BLE_UUID128_INIT(
+    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+    0x6c, 0x4b, 0x1e, 0x7a, 0x06, 0x00, 0x1e, 0x7a);
 
 typedef struct {
     int year;
@@ -826,6 +832,41 @@ static int imu_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
                : BLE_ATT_ERR_INSUFFICIENT_RES;
 }
 
+static int screen_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
+                              struct ble_gatt_access_ctxt *context, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+
+    if (context->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        const uint8_t percentage = screen_get_brightness();
+        return os_mbuf_append(context->om, &percentage, 1) == 0
+                   ? 0
+                   : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    if (context->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t percentage;
+        uint16_t length = 0;
+        int result = ble_hs_mbuf_to_flat(context->om, &percentage, 1,
+                                         &length);
+        if (result != 0 || length != 1) {
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        }
+        if (percentage > 100) {
+            return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+        }
+        if (screen_set_brightness(percentage) != ESP_OK) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+        ESP_LOGI(TAG, "screen brightness set to %u%%", percentage);
+        return 0;
+    }
+
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 static const struct ble_gatt_svc_def rtc_gatt_services[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -854,6 +895,11 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
                 .access_cb = imu_gatt_access,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &imu_value_handle,
+            },
+            {
+                .uuid = &screen_characteristic_uuid.u,
+                .access_cb = screen_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
             },
             {0},
         },

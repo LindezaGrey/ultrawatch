@@ -58,6 +58,9 @@
     .scene-label { position: absolute; left: .8rem; bottom: .7rem; color: #777; font: .72rem ui-monospace, monospace; pointer-events: none; }
     .quaternion { display: grid; grid-template-columns: repeat(2, 1fr); gap: .65rem; align-content: start; }
     .quaternion .metric:last-child { grid-column: 1 / -1; }
+    .brightness-control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 1rem; margin: 1.4rem 0 1rem; }
+    .brightness-control input { padding: 0; accent-color: #4ade80; }
+    .brightness-value { min-width: 4ch; font: 600 2rem ui-monospace, monospace; text-align: right; }
     #message { min-height: 1.3em; margin: .8rem 0 0; font-size: .85rem; }
     @media (max-width: 34rem) {
       .heading, .connection { align-items: flex-start; flex-direction: column; }
@@ -77,6 +80,7 @@
         <a href="#rtc">RTC</a>
         <a href="#power">Battery &amp; power</a>
         <a href="#imu">IMU</a>
+        <a href="#screen">Screen</a>
         <span class="upcoming">GPS · soon</span>
       </nav>
     </div>
@@ -173,6 +177,20 @@
         </div>
       </div>
     </section>
+
+    <section id="screen" class="sensor">
+      <header><h2>Screen</h2><span class="tag">read · write</span></header>
+      <div class="brightness-control">
+        <input id="brightness" type="range" min="0" max="100" value="100"
+               aria-label="Screen brightness" data-connected disabled>
+        <output id="brightnessValue" class="brightness-value" for="brightness">100%</output>
+      </div>
+      <p>0% turns the AMOLED pixels black while BLE remains connected.</p>
+      <div class="buttons">
+        <button id="readScreen" data-connected disabled>Read brightness</button>
+        <button id="writeScreen" data-connected disabled>Apply brightness</button>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -181,7 +199,8 @@
       rtc: '7a1e0002-7a1e-4b6c-8d9e-001122334455',
       power: '7a1e0003-7a1e-4b6c-8d9e-001122334455',
       powerConfig: '7a1e0004-7a1e-4b6c-8d9e-001122334455',
-      imu: '7a1e0005-7a1e-4b6c-8d9e-001122334455'
+      imu: '7a1e0005-7a1e-4b6c-8d9e-001122334455',
+      screen: '7a1e0006-7a1e-4b6c-8d9e-001122334455'
     };
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -190,7 +209,8 @@
       'batteryPresence', 'batteryFill', 'voltage', 'powerState',
       'externalPower', 'readPower', 'chargeCurrent', 'inputCurrent',
       'chargeVoltage', 'chargerEnabled', 'readPowerConfig', 'writePowerConfig',
-      'imuX', 'imuY', 'imuZ', 'imuW', 'imuAccuracy', 'readImu'];
+      'imuX', 'imuY', 'imuZ', 'imuW', 'imuAccuracy', 'readImu',
+      'brightness', 'brightnessValue', 'readScreen', 'writeScreen'];
     const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
     let device = null;
@@ -277,6 +297,14 @@
       window.applyWatchQuaternion?.(window.latestWatchQuaternion);
     }
 
+    function showScreen(dataView) {
+      if (dataView.byteLength !== 1) throw new Error('Unexpected screen payload');
+      const percentage = dataView.getUint8(0);
+      if (percentage > 100) throw new Error('Screen brightness outside valid range');
+      ui.brightness.value = String(percentage);
+      ui.brightnessValue.value = `${percentage}%`;
+    }
+
     function notificationHandler(parser) {
       return event => {
         try { parser(event.target.value); }
@@ -305,16 +333,17 @@
         characteristics.power = await service.getCharacteristic(CHAR_UUID.power);
         characteristics.powerConfig = await service.getCharacteristic(CHAR_UUID.powerConfig);
         characteristics.imu = await service.getCharacteristic(CHAR_UUID.imu);
+        characteristics.screen = await service.getCharacteristic(CHAR_UUID.screen);
         characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
         characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
         characteristics.imu.addEventListener('characteristicvaluechanged', notificationHandler(showImu));
         await Promise.all([characteristics.rtc.startNotifications(), characteristics.power.startNotifications(),
           characteristics.imu.startNotifications()]);
         setConnected(true);
-        const [rtcReady, powerReady, configReady, imuReady] = await Promise.all([
-          readTime(false), readPower(false), readPowerConfig(false), readImu(false)
+        const [rtcReady, powerReady, configReady, imuReady, screenReady] = await Promise.all([
+          readTime(false), readPower(false), readPowerConfig(false), readImu(false), readScreen(false)
         ]);
-        if (rtcReady && powerReady && configReady && imuReady) {
+        if (rtcReady && powerReady && configReady && imuReady && screenReady) {
           ui.message.textContent = 'Live sensor updates enabled.';
         } else if (!rtcReady) {
           ui.message.textContent = 'RTC unavailable. Set the browser time first.';
@@ -322,8 +351,10 @@
           ui.message.textContent = 'Power data is currently unavailable.';
         } else if (!configReady) {
           ui.message.textContent = 'Charge settings are currently unavailable.';
-        } else {
+        } else if (!imuReady) {
           ui.message.textContent = 'IMU data is currently unavailable.';
+        } else {
+          ui.message.textContent = 'Screen controls are currently unavailable.';
         }
       } catch (error) {
         ui.message.textContent = `Connection failed: ${error.message}`;
@@ -369,6 +400,32 @@
       } catch (error) {
         if (reportError) ui.message.textContent = `IMU read failed: ${error.message}`;
         return false;
+      }
+    }
+
+    async function readScreen(reportError = true) {
+      try {
+        showScreen(await characteristics.screen.readValue());
+        return true;
+      } catch (error) {
+        if (reportError) ui.message.textContent = `Brightness read failed: ${error.message}`;
+        return false;
+      }
+    }
+
+    async function writeScreen() {
+      const percentage = Number(ui.brightness.value);
+      try {
+        const payload = Uint8Array.of(percentage);
+        if (characteristics.screen.writeValueWithResponse) {
+          await characteristics.screen.writeValueWithResponse(payload);
+        } else {
+          await characteristics.screen.writeValue(payload);
+        }
+        await readScreen(false);
+        ui.message.textContent = `Screen brightness set to ${percentage}%.`;
+      } catch (error) {
+        ui.message.textContent = `Brightness write failed: ${error.message}`;
       }
     }
 
@@ -426,6 +483,11 @@
     ui.readPowerConfig.addEventListener('click', readPowerConfig);
     ui.writePowerConfig.addEventListener('click', writePowerConfig);
     ui.readImu.addEventListener('click', readImu);
+    ui.readScreen.addEventListener('click', readScreen);
+    ui.writeScreen.addEventListener('click', writeScreen);
+    ui.brightness.addEventListener('input', () => {
+      ui.brightnessValue.value = `${ui.brightness.value}%`;
+    });
     ui.browserTime.addEventListener('click', () => setTime(localDateTime(new Date())));
     ui.writeTime.addEventListener('click', () => setTime(ui.dateTime.value));
     setConnected(false);
