@@ -2,6 +2,8 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "axp2101.h"
 #include "xl9555.h"
@@ -156,9 +158,16 @@ esp_err_t twatch_board_init(void)
         }
     }
 
-    /* 3. Peripheral driver init (skeletons). */
+    /* 3. Touch: pulse TP_RST (XL9555 P8) low->high so the CST9217 boots
+     *    into a known state, then init its driver on the I2C bus. */
+    xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, false);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, true);
+    vTaskDelay(pdMS_TO_TICKS(60));
+    cst9217_init(twatch_i2c_bus);
+
+    /* 4. Peripheral driver init (skeletons). */
     pcf85063a_init(twatch_rtc_dev);
-    cst9217_init(twatch_touch_dev);
     bhi260ap_init(twatch_imu_dev);
     drv2605_init(twatch_haptic_dev);
     co5300_init();

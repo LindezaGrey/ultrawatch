@@ -1,0 +1,3 @@
+dependencies:
+  idf: ">=6.0.0"
+  waveshare/esp_lcd_touch_cst9217: "^2.0.0"

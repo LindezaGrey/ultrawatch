@@ -22,8 +22,28 @@
 #include "lvgl.h"
 #include "libs/freetype/lv_freetype.h"
 #include "co5300.h"
+#include "cst9217.h"
 
 static const char *TAG = "lvgl_app";
+
+/* Debug label showing the tapped coordinates (touch verification). */
+static lv_obj_t *s_touch_label;
+
+static void touch_event_cb(lv_event_t *e)
+{
+    lv_obj_t *label = lv_event_get_user_data(e);
+    lv_indev_t *indev = lv_indev_active();
+    if (!indev) return;
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    char text[32];
+    if (lv_event_get_code(e) == LV_EVENT_RELEASED) {
+        snprintf(text, sizeof(text), "TOUCH OFF");
+    } else {
+        snprintf(text, sizeof(text), "X=%03d Y=%03d", (int)p.x, (int)p.y);
+    }
+    lv_label_set_text(label, text);
+}
 
 /* Round invalidated areas to even coordinates (SH8601 requirement) BEFORE
  * LVGL renders, so the buffer content always matches the flushed area. */
@@ -69,6 +89,15 @@ static void lvgl_build_boot_screen(const lv_font_t *title_font, const lv_font_t 
     lv_obj_set_style_text_font(hash, small_font, 0);
     lv_obj_set_style_text_color(hash, lv_color_hex(0x555555), 0);
     lv_obj_align(hash, LV_ALIGN_CENTER, 0, 80);
+
+    /* Touch debug label (shows tapped coordinates). */
+    s_touch_label = lv_label_create(lv_screen_active());
+    lv_label_set_text(s_touch_label, "touch: -");
+    lv_obj_set_style_text_font(s_touch_label, small_font, 0);
+    lv_obj_set_style_text_color(s_touch_label, lv_color_hex(0x00FF00), 0);
+    lv_obj_align(s_touch_label, LV_ALIGN_CENTER, 0, 130);
+    lv_obj_add_event_cb(lv_screen_active(), touch_event_cb, LV_EVENT_PRESSED, s_touch_label);
+    lv_obj_add_event_cb(lv_screen_active(), touch_event_cb, LV_EVENT_RELEASED, s_touch_label);
 }
 
 static void mount_assets(void)
@@ -135,6 +164,25 @@ esp_err_t lvgl_app_start(void)
             lvgl_build_boot_screen(NULL, NULL);   /* fall back to default font */
         }
         esp_lv_adapter_unlock();
+    }
+
+    /* Touch input (CST9217). */
+    esp_lcd_touch_handle_t tp = cst9217_get_handle();
+    if (tp) {
+        esp_lv_adapter_touch_config_t touch_cfg = ESP_LV_ADAPTER_TOUCH_DEFAULT_CONFIG(disp, tp);
+        uint16_t nx = 0, ny = 0;
+        if (cst9217_get_resolution(&nx, &ny) == ESP_OK && nx && ny) {
+            touch_cfg.scale.x = (float)CO5300_RES_X / nx;
+            touch_cfg.scale.y = (float)CO5300_RES_Y / ny;
+            ESP_LOGI(TAG, "touch scale: %f x %f", touch_cfg.scale.x, touch_cfg.scale.y);
+        }
+        if (esp_lv_adapter_register_touch(&touch_cfg)) {
+            ESP_LOGI(TAG, "touch registered");
+        } else {
+            ESP_LOGE(TAG, "touch registration failed");
+        }
+    } else {
+        ESP_LOGW(TAG, "no CST9217 touch handle");
     }
 
     ESP_LOGI(TAG, "LVGL started (Roboto FreeType font)");

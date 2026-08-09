@@ -5,6 +5,7 @@ idf_component_register(
         twatch_board
         axp2101
         xl9555
+        cst9217
         co5300
         esp_lvgl_adapter
         lvgl
