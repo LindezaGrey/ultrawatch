@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "driver/gpio.h"
 #include "driver/i2c.h"
@@ -11,6 +12,7 @@
 #include "freertos/task.h"
 
 #include "board.h"
+#include "ble_rtc.h"
 
 #define DISPLAY_BAND_ROWS 32
 #define CONTOUR_OUTER_INSET_PIXELS 13
@@ -19,6 +21,12 @@
     (CONTOUR_OUTER_INSET_PIXELS + CONTOUR_WIDTH_PIXELS)
 #define CONTOUR_Y_OFFSET_PIXELS 1
 #define TOP_CORNER_RADIUS_EXTRA_PIXELS 3
+#define TIME_GLYPH_SCALE 7
+#define TIME_GLYPH_WIDTH 5
+#define TIME_GLYPH_HEIGHT 7
+#define TIME_GLYPH_SPACING 1
+#define TIME_TEXT_LENGTH 8
+#define TIME_DISPLAY_ROWS (TIME_GLYPH_HEIGHT * TIME_GLYPH_SCALE)
 
 typedef struct {
     uint8_t command;
@@ -295,6 +303,21 @@ static void display_color_band(const uint16_t *pixels, size_t pixel_count)
     spi_device_release_bus(display_spi);
 }
 
+static void display_pixel_rows(const uint16_t *pixels, int start_y, int rows)
+{
+    for (int row_offset = 0; row_offset < rows;
+         row_offset += DISPLAY_BAND_ROWS) {
+        int rows_in_band = rows - row_offset;
+        if (rows_in_band > DISPLAY_BAND_ROWS) {
+            rows_in_band = DISPLAY_BAND_ROWS;
+        }
+
+        set_address_window(start_y + row_offset, rows_in_band);
+        display_color_band(pixels + row_offset * BOARD_DISPLAY_WIDTH,
+                           BOARD_DISPLAY_WIDTH * rows_in_band);
+    }
+}
+
 static void draw_validation_pattern(void)
 {
     const size_t band_pixels = BOARD_DISPLAY_WIDTH * DISPLAY_BAND_ROWS;
@@ -330,10 +353,110 @@ static void draw_validation_pattern(void)
     heap_caps_free(pixels);
 }
 
+static uint8_t time_glyph_row(char character, int row)
+{
+    static const uint8_t digits[10][TIME_GLYPH_HEIGHT] = {
+        {0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e},
+        {0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e},
+        {0x0e, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1f},
+        {0x1e, 0x01, 0x01, 0x0e, 0x01, 0x01, 0x1e},
+        {0x02, 0x06, 0x0a, 0x12, 0x1f, 0x02, 0x02},
+        {0x1f, 0x10, 0x10, 0x1e, 0x01, 0x01, 0x1e},
+        {0x0e, 0x10, 0x10, 0x1e, 0x11, 0x11, 0x0e},
+        {0x1f, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08},
+        {0x0e, 0x11, 0x11, 0x0e, 0x11, 0x11, 0x0e},
+        {0x0e, 0x11, 0x11, 0x0f, 0x01, 0x01, 0x0e},
+    };
+    static const uint8_t colon[TIME_GLYPH_HEIGHT] = {
+        0x00, 0x04, 0x04, 0x00, 0x04, 0x04, 0x00,
+    };
+    static const uint8_t dash[TIME_GLYPH_HEIGHT] = {
+        0x00, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x00,
+    };
+
+    if (character >= '0' && character <= '9') {
+        return digits[character - '0'][row];
+    }
+    if (character == ':') {
+        return colon[row];
+    }
+    return dash[row];
+}
+
+static bool pixel_is_time_text(const char text[TIME_TEXT_LENGTH], int x, int y)
+{
+    const int cell_width = (TIME_GLYPH_WIDTH + TIME_GLYPH_SPACING) *
+                           TIME_GLYPH_SCALE;
+    const int text_width = TIME_TEXT_LENGTH * cell_width -
+                           TIME_GLYPH_SPACING * TIME_GLYPH_SCALE;
+    const int start_x = (BOARD_DISPLAY_WIDTH - text_width) / 2;
+    const int start_y = (BOARD_DISPLAY_HEIGHT - TIME_DISPLAY_ROWS) / 2;
+    const int relative_x = x - start_x;
+    const int relative_y = y - start_y;
+
+    if (relative_x < 0 || relative_y < 0 ||
+        relative_x >= text_width || relative_y >= TIME_DISPLAY_ROWS) {
+        return false;
+    }
+
+    const int character_index = relative_x / cell_width;
+    const int character_x = relative_x % cell_width;
+    if (character_index >= TIME_TEXT_LENGTH ||
+        character_x >= TIME_GLYPH_WIDTH * TIME_GLYPH_SCALE) {
+        return false;
+    }
+
+    const int glyph_row = relative_y / TIME_GLYPH_SCALE;
+    const int glyph_column = character_x / TIME_GLYPH_SCALE;
+    const uint8_t row_bits = time_glyph_row(text[character_index], glyph_row);
+    return (row_bits & (1U << (TIME_GLYPH_WIDTH - 1 - glyph_column))) != 0;
+}
+
+static void display_time_task(void *parameter)
+{
+    (void)parameter;
+    const int start_y = (BOARD_DISPLAY_HEIGHT - TIME_DISPLAY_ROWS) / 2;
+    const size_t pixel_count = BOARD_DISPLAY_WIDTH * TIME_DISPLAY_ROWS;
+    uint16_t *pixels = heap_caps_malloc(pixel_count * sizeof(*pixels),
+                                        MALLOC_CAP_DMA);
+    ESP_ERROR_CHECK(pixels == NULL ? ESP_ERR_NO_MEM : ESP_OK);
+    TickType_t last_update = xTaskGetTickCount();
+
+    for (;;) {
+        char payload[20];
+        char time_text[TIME_TEXT_LENGTH + 1] = "--:--:--";
+        if (ble_rtc_get_time_payload(payload, sizeof(payload)) == ESP_OK) {
+            memcpy(time_text, payload + 11, TIME_TEXT_LENGTH);
+        }
+
+        for (size_t i = 0; i < pixel_count; i++) {
+            const int x = i % BOARD_DISPLAY_WIDTH;
+            const int y = start_y + i / BOARD_DISPLAY_WIDTH;
+            const int shape_y = y - CONTOUR_Y_OFFSET_PIXELS;
+            const bool contour =
+                shape_y >= 0 &&
+                pixel_is_safe_at_inset(x, shape_y,
+                                       CONTOUR_OUTER_INSET_PIXELS) &&
+                !pixel_is_safe_content(x, y);
+            const bool text = pixel_is_safe_content(x, y) &&
+                              pixel_is_time_text(time_text, x, y);
+            pixels[i] = text ? 0xffff : (contour ? 0x1f00 : 0x0000);
+        }
+
+        display_pixel_rows(pixels, start_y, TIME_DISPLAY_ROWS);
+        vTaskDelayUntil(&last_update, pdMS_TO_TICKS(1000));
+    }
+}
+
 void app_main(void)
 {
     initialize_i2c();
+    ESP_ERROR_CHECK(ble_rtc_initialize());
     enable_display_power();
     initialize_display();
     draw_validation_pattern();
+    ESP_ERROR_CHECK(ble_rtc_start());
+    BaseType_t task_result = xTaskCreate(display_time_task, "display_time",
+                                         4096, NULL, 4, NULL);
+    ESP_ERROR_CHECK(task_result == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
 }

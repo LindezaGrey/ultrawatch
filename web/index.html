@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UltraWatch Sensors</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; scroll-behavior: smooth; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #101010; color: #eee; }
+    header { position: sticky; top: 0; z-index: 2; border-bottom: 1px solid #292929; background: rgba(16,16,16,.95); backdrop-filter: blur(12px); }
+    .top { width: min(52rem, calc(100% - 2rem)); margin: auto; padding: 1rem 0 .75rem; }
+    .heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    h1 { margin: 0; font-size: 1.25rem; font-weight: 650; }
+    nav { display: flex; gap: .45rem; margin-top: .8rem; overflow-x: auto; scrollbar-width: none; }
+    nav a, nav span { flex: none; padding: .4rem .7rem; border: 1px solid #3b3b3b; border-radius: 999px; color: #ddd; font-size: .82rem; text-decoration: none; }
+    nav a:hover { border-color: #888; }
+    nav .upcoming { color: #6f6f6f; border-style: dashed; }
+    main { width: min(52rem, calc(100% - 2rem)); margin: 1.25rem auto 4rem; }
+    p { color: #aaa; }
+    .connection, .sensor { padding: 1.2rem; border: 1px solid #303030; border-radius: .8rem; background: #181818; }
+    .connection { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    .status { display: flex; align-items: center; gap: .55rem; }
+    .dot { width: .65rem; height: .65rem; border-radius: 50%; background: #777; }
+    .dot.connected { background: #4ade80; }
+    .connection-buttons, .buttons { display: flex; flex-wrap: wrap; gap: .6rem; }
+    .sensor { margin-top: 1rem; scroll-margin-top: 8.5rem; }
+    .sensor header { position: static; display: flex; justify-content: space-between; align-items: baseline; border: 0; background: none; backdrop-filter: none; }
+    h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+    .tag { color: #777; font: .75rem ui-monospace, monospace; }
+    .clock { margin: 1.4rem 0; white-space: nowrap; font: 600 clamp(1.35rem, 7vw, 2.8rem) ui-monospace, monospace; letter-spacing: -.07em; }
+    label { display: block; margin-bottom: .4rem; color: #bbb; font-size: .88rem; }
+    input, button { border: 1px solid #444; border-radius: .45rem; background: #222; color: inherit; font: inherit; }
+    input { width: 100%; padding: .7rem; }
+    button { padding: .65rem .9rem; cursor: pointer; }
+    button:hover:not(:disabled) { border-color: #888; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    .buttons { margin-top: .75rem; }
+    .battery-line { display: flex; align-items: end; gap: 1rem; margin: 1.4rem 0 .75rem; }
+    .percentage { font: 600 2.8rem ui-monospace, monospace; line-height: 1; }
+    .battery-track { height: .55rem; overflow: hidden; border-radius: 999px; background: #333; }
+    .battery-fill { width: 0; height: 100%; background: #4ade80; transition: width .25s; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: .65rem; margin: 1rem 0; }
+    .metric { padding: .75rem; border: 1px solid #2d2d2d; border-radius: .55rem; background: #141414; }
+    .metric span { display: block; color: #777; font-size: .75rem; }
+    .metric strong { display: block; margin-top: .25rem; font-size: .95rem; font-weight: 550; }
+    #message { min-height: 1.3em; margin: .8rem 0 0; font-size: .85rem; }
+    @media (max-width: 34rem) {
+      .heading, .connection { align-items: flex-start; flex-direction: column; }
+      .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="top">
+      <div class="heading">
+        <h1>UltraWatch Sensors</h1>
+        <span class="tag">BLE dashboard</span>
+      </div>
+      <nav aria-label="Sensors">
+        <a href="#rtc">RTC</a>
+        <a href="#power">Battery &amp; power</a>
+        <span class="upcoming">Motion · soon</span>
+        <span class="upcoming">GPS · soon</span>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="connection" aria-label="Watch connection">
+      <div>
+        <div class="status"><span id="dot" class="dot"></span><strong id="status">Disconnected</strong></div>
+        <p id="message">Use a Chromium browser on localhost or HTTPS.</p>
+      </div>
+      <div class="connection-buttons">
+        <button id="connect">Connect</button>
+        <button id="disconnect" disabled>Disconnect</button>
+      </div>
+    </section>
+
+    <section id="rtc" class="sensor">
+      <header><h2>Real-time clock</h2><span class="tag">read · write · 1 s notify</span></header>
+      <div id="clock" class="clock">---- -- -- --:--:--</div>
+      <label for="dateTime">Watch local time</label>
+      <input id="dateTime" type="datetime-local" step="1">
+      <div class="buttons">
+        <button id="readTime" data-connected disabled>Read time</button>
+        <button id="browserTime" data-connected disabled>Set browser time</button>
+        <button id="writeTime" data-connected disabled>Set entered time</button>
+      </div>
+    </section>
+
+    <section id="power" class="sensor">
+      <header><h2>Battery &amp; power</h2><span class="tag">read · 5 s notify</span></header>
+      <div class="battery-line"><span id="percentage" class="percentage">--%</span><span id="batteryPresence">Waiting for data</span></div>
+      <div class="battery-track" aria-label="Battery charge"><div id="batteryFill" class="battery-fill"></div></div>
+      <div class="metrics">
+        <div class="metric"><span>Battery voltage</span><strong id="voltage">-- V</strong></div>
+        <div class="metric"><span>Battery state</span><strong id="powerState">Unknown</strong></div>
+        <div class="metric"><span>External power</span><strong id="externalPower">Unknown</strong></div>
+      </div>
+      <button id="readPower" data-connected disabled>Read power</button>
+    </section>
+  </main>
+
+  <script>
+    const SERVICE_UUID = '7a1e0001-7a1e-4b6c-8d9e-001122334455';
+    const CHAR_UUID = {
+      rtc: '7a1e0002-7a1e-4b6c-8d9e-001122334455',
+      power: '7a1e0003-7a1e-4b6c-8d9e-001122334455'
+    };
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+    const ids = ['dot', 'status', 'message', 'connect', 'disconnect', 'clock',
+      'dateTime', 'readTime', 'browserTime', 'writeTime', 'percentage',
+      'batteryPresence', 'batteryFill', 'voltage', 'powerState',
+      'externalPower', 'readPower'];
+    const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
+
+    let device = null;
+    let characteristics = {};
+
+    function setConnected(connected) {
+      ui.dot.classList.toggle('connected', connected);
+      ui.status.textContent = connected ? `Connected to ${device.name || 'UltraWatch'}` : 'Disconnected';
+      ui.connect.disabled = connected;
+      ui.disconnect.disabled = !connected;
+      document.querySelectorAll('[data-connected]').forEach(button => { button.disabled = !connected; });
+    }
+
+    function showTime(dataView) {
+      const value = decoder.decode(dataView).replace(/\0/g, '');
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(value)) {
+        throw new Error(`Unexpected RTC value: ${value}`);
+      }
+      ui.clock.textContent = value.replace('T', ' ');
+      ui.dateTime.value = value;
+    }
+
+    function showPower(dataView) {
+      const values = decoder.decode(dataView).replace(/\0/g, '').split(',').map(Number);
+      if (values.length !== 5 || values.some(value => !Number.isFinite(value))) {
+        throw new Error('Unexpected power value');
+      }
+      const [percentage, millivolts, direction, vbusGood, batteryPresent] = values;
+      if (percentage < 0 || percentage > 100 || millivolts < 0 || millivolts > 8191) {
+        throw new Error('Power value outside valid range');
+      }
+      const states = ['Standby', 'Charging', 'Discharging', 'Unknown'];
+      ui.percentage.textContent = `${percentage}%`;
+      ui.batteryFill.style.width = `${percentage}%`;
+      ui.batteryPresence.textContent = batteryPresent ? 'Battery present' : 'No battery detected';
+      ui.voltage.textContent = `${(millivolts / 1000).toFixed(3)} V`;
+      ui.powerState.textContent = states[direction] || 'Unknown';
+      ui.externalPower.textContent = vbusGood ? 'Connected' : 'Not connected';
+    }
+
+    function notificationHandler(parser) {
+      return event => {
+        try { parser(event.target.value); }
+        catch (error) { ui.message.textContent = error.message; }
+      };
+    }
+
+    function onDisconnected() {
+      characteristics = {};
+      setConnected(false);
+      ui.message.textContent = 'Watch disconnected.';
+    }
+
+    async function connect() {
+      if (!navigator.bluetooth) {
+        ui.message.textContent = 'Web Bluetooth is not available in this browser.';
+        return;
+      }
+      try {
+        ui.message.textContent = 'Choose UltraWatch…';
+        device = await navigator.bluetooth.requestDevice({ filters: [{ services: [SERVICE_UUID] }] });
+        device.addEventListener('gattserverdisconnected', onDisconnected);
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        characteristics.rtc = await service.getCharacteristic(CHAR_UUID.rtc);
+        characteristics.power = await service.getCharacteristic(CHAR_UUID.power);
+        characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
+        characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
+        await Promise.all([characteristics.rtc.startNotifications(), characteristics.power.startNotifications()]);
+        setConnected(true);
+        const [rtcReady, powerReady] = await Promise.all([readTime(false), readPower(false)]);
+        if (rtcReady && powerReady) {
+          ui.message.textContent = 'Live sensor updates enabled.';
+        } else if (!rtcReady) {
+          ui.message.textContent = 'RTC unavailable. Set the browser time first.';
+        } else {
+          ui.message.textContent = 'Power data is currently unavailable.';
+        }
+      } catch (error) {
+        ui.message.textContent = `Connection failed: ${error.message}`;
+        if (device?.gatt?.connected) device.gatt.disconnect();
+        setConnected(false);
+      }
+    }
+
+    async function readTime(reportError = true) {
+      try {
+        showTime(await characteristics.rtc.readValue());
+        return true;
+      } catch (error) {
+        if (reportError) ui.message.textContent = `RTC read failed: ${error.message}. Set the browser time first.`;
+        return false;
+      }
+    }
+
+    async function readPower(reportError = true) {
+      try {
+        showPower(await characteristics.power.readValue());
+        return true;
+      } catch (error) {
+        if (reportError) ui.message.textContent = `Power read failed: ${error.message}`;
+        return false;
+      }
+    }
+
+    async function setTime(value) {
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(value)) {
+        ui.message.textContent = 'Enter a complete date and time, including seconds.';
+        return;
+      }
+      try {
+        const payload = encoder.encode(value);
+        if (characteristics.rtc.writeValueWithResponse) {
+          await characteristics.rtc.writeValueWithResponse(payload);
+        } else {
+          await characteristics.rtc.writeValue(payload);
+        }
+        await readTime();
+        ui.message.textContent = `Watch set to ${value.replace('T', ' ')}.`;
+      } catch (error) {
+        ui.message.textContent = `RTC write failed: ${error.message}`;
+      }
+    }
+
+    function localDateTime(date) {
+      const pad = number => String(number).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+             `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+
+    ui.connect.addEventListener('click', connect);
+    ui.disconnect.addEventListener('click', () => device?.gatt?.disconnect());
+    ui.readTime.addEventListener('click', readTime);
+    ui.readPower.addEventListener('click', readPower);
+    ui.browserTime.addEventListener('click', () => setTime(localDateTime(new Date())));
+    ui.writeTime.addEventListener('click', () => setTime(ui.dateTime.value));
+    setConnected(false);
+  </script>
+</body>
+</html>

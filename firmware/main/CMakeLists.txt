@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "app_main.c"
+    SRCS "app_main.c" "ble_rtc.c"
     INCLUDE_DIRS "."
-    PRIV_REQUIRES driver
+    PRIV_REQUIRES bt driver nvs_flash
 )
