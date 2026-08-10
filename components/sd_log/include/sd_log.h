@@ -18,8 +18,15 @@ extern "C" {
 #endif
 
 /* Mount the SD card (FATFS over SPI2, CS=21). Logs and continues on failure.
- * Safe to call once at startup. */
+ * Safe to call once at startup. If a version string was set via
+ * sd_log_set_version() and it differs from the one recorded on the card, the
+ * log file is truncated (fresh log per firmware build). */
 esp_err_t sd_log_mount(void);
+
+/* Record the running firmware version/hash (e.g. UWATCH_GIT_HASH). Call before
+ * sd_log_mount(). On the first mount with a different version, the log is
+ * cleared so each build starts clean. */
+void sd_log_set_version(const char *version);
 
 /* True if the SD card is mounted and writable. */
 bool sd_log_available(void);

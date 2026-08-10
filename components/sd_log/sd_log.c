@@ -33,20 +33,25 @@ static const char *TAG = "sd_log";
 #define SD_LOG_BASE      "/sdcard"
 #define SD_LOG_DIR       "/sdcard/log"
 #define SD_LOG_FILE      "/sdcard/log/uwatch.log"
+#define SD_VERSION_FILE  "/sdcard/log/.lastver"
 #define SD_SHOT_DIR      "/sdcard/shot"
 #define SD_CS_GPIO       21
 
 #define LOG_RING_SIZE    8192
 #define LOG_FLUSH_INTERVAL_MS  2000
+#define SHOT_KEEP_MAX    10   /* retain only the newest screenshots */
 
-/* ---- RAM log ring buffer ---- */
-static char s_ring[LOG_RING_SIZE];
+/* ---- RAM log ring buffer ----
+ * CPU-only buffer (never DMA), so it lives in PSRAM to spare the small
+ * internal DMA heap the display driver needs. */
+static char *s_ring;
 static size_t s_ring_len;
 static SemaphoreHandle_t s_ring_mux;
 static bool s_sd_ready;
 
 static sdmmc_card_t *s_card;
 static vprintf_like_t s_prev_vprintf;
+static char s_version[64];   /* running firmware version/hash, if set */
 
 /* Append one formatted line to the ring (keeps the tail). */
 static void ring_append(const char *fmt, va_list args)
@@ -205,6 +210,47 @@ static void flush_task(void *arg)
 
 /* ---- Public API ---- */
 
+void sd_log_set_version(const char *version)
+{
+    if (version) {
+        strncpy(s_version, version, sizeof(s_version) - 1);
+        s_version[sizeof(s_version) - 1] = '\0';
+    }
+}
+
+/* Reset the log when the firmware build (git hash) changed since the last
+ * boot. The recorded version is stored in /sdcard/log/.lastver. */
+static void check_version_reset(void)
+{
+    if (s_version[0] == '\0') {
+        return;   /* no version known; keep whatever is on the card */
+    }
+    char old[sizeof(s_version)] = { 0 };
+    FILE *f = fopen(SD_VERSION_FILE, "r");
+    if (f) {
+        size_t n = fread(old, 1, sizeof(old) - 1, f);
+        old[n] = '\0';
+        fclose(f);
+        /* strip trailing newline/CR */
+        while (n > 0 && (old[n - 1] == '\n' || old[n - 1] == '\r')) {
+            old[--n] = '\0';
+        }
+    }
+    if (strcmp(old, s_version) != 0) {
+        /* New build: start a fresh log. */
+        f = fopen(SD_LOG_FILE, "w");
+        if (f) {
+            fclose(f);
+        }
+        f = fopen(SD_VERSION_FILE, "w");
+        if (f) {
+            fprintf(f, "%s\n", s_version);
+            fclose(f);
+        }
+        ESP_LOGI(TAG, "firmware version %s (was '%s'); log reset", s_version, old);
+    }
+}
+
 esp_err_t sd_log_mount(void)
 {
     if (s_card) {
@@ -230,6 +276,7 @@ esp_err_t sd_log_mount(void)
 
     mkdir(SD_LOG_DIR, 0755);
     mkdir(SD_SHOT_DIR, 0755);
+    check_version_reset();
     s_sd_ready = true;
     ESP_LOGI(TAG, "SD mounted: %u MB", (unsigned)(s_card->csd.capacity / 1024 / 1024));
     return ESP_OK;
@@ -247,6 +294,12 @@ esp_err_t sd_log_start(void)
     }
     if (!s_ring_mux) {
         return ESP_ERR_NO_MEM;
+    }
+    if (!s_ring) {
+        s_ring = heap_caps_malloc(LOG_RING_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!s_ring) {
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     /* Install the vprintf hook (keep the previous one so console still works). */
@@ -311,14 +364,101 @@ esp_err_t sd_log_clear(void)
     return ESP_OK;
 }
 
+/* Find the highest existing shot_NNNN.png number in the shot dir (0 if none). */
+static uint32_t shot_next_counter(void)
+{
+    uint32_t max = 0;
+    DIR *d = opendir(SD_SHOT_DIR);
+    if (!d) {
+        return 0;
+    }
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        unsigned n = 0;
+        if (sscanf(e->d_name, "shot_%u.png", &n) == 1 && n > max) {
+            max = n;
+        }
+    }
+    closedir(d);
+    return max;
+}
+
+/* Delete all but the SHOT_KEEP_MAX newest screenshots (by shot number). */
+static void trim_shots(void)
+{
+    uint32_t nums[SHOT_KEEP_MAX] = { 0 };
+    int cnt = 0;
+    DIR *d = opendir(SD_SHOT_DIR);
+    if (!d) {
+        return;
+    }
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        unsigned n = 0;
+        if (sscanf(e->d_name, "shot_%u.png", &n) != 1) {
+            continue;
+        }
+        /* Keep a sorted list of the highest numbers seen so far. */
+        if (cnt < SHOT_KEEP_MAX) {
+            nums[cnt++] = n;
+        } else {
+            uint32_t *minp = &nums[0];
+            for (int i = 1; i < cnt; i++) {
+                if (nums[i] < *minp) {
+                    minp = &nums[i];
+                }
+            }
+            if (n > *minp) {
+                *minp = n;
+            }
+        }
+    }
+    closedir(d);
+    if (cnt < SHOT_KEEP_MAX) {
+        return;   /* not enough to trim */
+    }
+
+    /* Delete any screenshot not in the kept set. */
+    d = opendir(SD_SHOT_DIR);
+    if (!d) {
+        return;
+    }
+    while ((e = readdir(d)) != NULL) {
+        unsigned n = 0;
+        if (sscanf(e->d_name, "shot_%u.png", &n) != 1) {
+            continue;
+        }
+        bool keep = false;
+        for (int i = 0; i < cnt; i++) {
+            if (nums[i] == n) {
+                keep = true;
+                break;
+            }
+        }
+        if (!keep) {
+            char path[128];
+            char name[24];
+            strncpy(name, e->d_name, sizeof(name) - 1);
+            name[sizeof(name) - 1] = '\0';
+            snprintf(path, sizeof(path), "%s/%s", SD_SHOT_DIR, name);
+            remove(path);
+        }
+    }
+    closedir(d);
+}
+
 esp_err_t sd_log_save_screenshot(const uint16_t *rgb565, int w, int h)
 {
     if (!s_sd_ready) {
         return ESP_ERR_NOT_FOUND;
     }
-    static uint32_t counter;
-    counter++;
+    /* Persistent counter from the card contents (survives reboot). */
+    uint32_t counter = shot_next_counter() + 1;
     char path[64];
     snprintf(path, sizeof(path), "%s/shot_%04lu.png", SD_SHOT_DIR, (unsigned long)counter);
-    return write_png(path, rgb565, w, h);
+    esp_err_t err = write_png(path, rgb565, w, h);
+    if (err == ESP_OK) {
+        trim_shots();
+    }
+    return err;
 }
