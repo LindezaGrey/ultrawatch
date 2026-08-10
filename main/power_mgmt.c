@@ -20,12 +20,15 @@
 #include "axp2101.h"
 #include "co5300.h"
 #include "pcf85063a.h"
+#include "bhi260ap.h"
+#include "lvgl_app.h"
 
 static const char *TAG = "power_mgmt";
 
 #define PM_GPIO_TOUCH  12
 #define PM_GPIO_PWRKEY 7    /* AXP2101 IRQ */
 #define PM_GPIO_BOOT   0
+#define PM_GPIO_IMU    8    /* BHI260AP INT (wake on wrist-raise/gesture) */
 
 /* Night-mode clock check period while the watch is idle. */
 #define PM_NIGHT_CHECK_MS  60000
@@ -34,6 +37,7 @@ static const char *TAG = "power_mgmt";
 static volatile uint32_t s_wake_gpio;
 static TaskHandle_t s_wake_task;
 static volatile bool s_night_mode;
+static volatile bool s_imu_wake_armed;   /* GPIO8 ISR only notifies while asleep */
 static power_mgmt_night_mode_cb_t s_night_mode_cb;
 
 /* Night mode is active between PM_NIGHT_START_HOUR (inclusive) and
@@ -118,9 +122,17 @@ static void pm_apply_night_mode(bool night)
  * edge triggering and only then re-arms them. */
 static void IRAM_ATTR button_isr(void *arg)
 {
-    s_wake_gpio = (uint32_t)arg;
+    uint32_t gpio = (uint32_t)arg;
+    s_wake_gpio = gpio;
     gpio_intr_disable(PM_GPIO_PWRKEY);
     gpio_intr_disable(PM_GPIO_BOOT);
+    /* The IMU INT pulses on every gesture/step while awake; only act on it
+     * when the host is actually asleep (light-sleep wake). Otherwise ignore. */
+    if (gpio == PM_GPIO_IMU && !s_imu_wake_armed) {
+        gpio_intr_enable(PM_GPIO_IMU);
+        return;
+    }
+    gpio_intr_disable(PM_GPIO_IMU);
     if (s_wake_task) {
         BaseType_t woken = pdFALSE;
         vTaskNotifyGiveFromISR(s_wake_task, &woken);
@@ -166,11 +178,13 @@ static void pm_wake_task(void *arg)
         }
 
         /* Restore edge triggering (gpio_wakeup_enable() left these level) and
-         * re-arm both button pins. */
+         * re-arm the button + IMU pins. */
         gpio_set_intr_type(PM_GPIO_PWRKEY, GPIO_INTR_NEGEDGE);
         gpio_set_intr_type(PM_GPIO_BOOT, GPIO_INTR_NEGEDGE);
+        gpio_set_intr_type(PM_GPIO_IMU, GPIO_INTR_NEGEDGE);
         gpio_intr_enable(PM_GPIO_PWRKEY);
         gpio_intr_enable(PM_GPIO_BOOT);
+        gpio_intr_enable(PM_GPIO_IMU);
 
         esp_lv_adapter_request_wake();
     }
@@ -179,10 +193,15 @@ static void pm_wake_task(void *arg)
 static void pm_arm_gpio_wakeup(void)
 {
     s_wake_gpio = 0;
-    /* Touch is not a wake source in night mode (avoid accidental screen
-     * activation); PWR/BOOT buttons always wake. */
+    /* Touch and IMU-gesture are not wake sources in night mode (avoid
+     * accidental screen activation); PWR/BOOT buttons always wake. The
+     * BHI260AP INT line (GPIO8) is active-LOW (idles high, pulses low on a
+     * wake-up gesture). During light sleep the FIFO is not drained, so the
+     * line holds low -> LOW_LEVEL wakes the watch. */
     if (!s_night_mode) {
         gpio_wakeup_enable(PM_GPIO_TOUCH, GPIO_INTR_LOW_LEVEL);
+        gpio_wakeup_enable(PM_GPIO_IMU, GPIO_INTR_LOW_LEVEL);
+        s_imu_wake_armed = true;
     }
     gpio_wakeup_enable(PM_GPIO_PWRKEY, GPIO_INTR_LOW_LEVEL);
     gpio_wakeup_enable(PM_GPIO_BOOT, GPIO_INTR_LOW_LEVEL);
@@ -200,13 +219,17 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    ESP_LOGI(TAG, "entering sleep: panel SLPIN, rails off");
+    ESP_LOGI(TAG, "entering sleep: panel blank+SLPIN, IMU AP-suspend, rails off");
+    co5300_blank();
     co5300_sleep();
+    bhi260ap_ap_suspend();
 
-    /* Disable unused peripheral rails; keep ALDO2 (display/touch) for touch wake. */
+    /* Disable unused peripheral rails. ALDO4 (sensor) is kept ON: the
+     * BHI260AP runs its wake-up sensors in AP-suspend mode (wrist-raise wake)
+     * at ~0.1-0.3 mA, avoiding the firmware re-upload + data freeze after a
+     * rail power-cycle. Keep ALDO2 (display/touch) for touch wake. */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, false);  /* SD */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);  /* LoRa */
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO4, false);  /* sensor */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO1, false);  /* GNSS */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);  /* speaker */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, false);  /* NFC */
@@ -218,19 +241,26 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
 esp_err_t power_mgmt_exit_sleep(void *ctx)
 {
     (void)ctx;
+    s_imu_wake_armed = false;
     esp_sleep_wakeup_cause_t cause = (esp_sleep_wakeup_cause_t)esp_sleep_get_wakeup_causes();
     ESP_LOGI(TAG, "waking: gpio=%u cause=0x%x", (unsigned)s_wake_gpio, (unsigned)cause);
 
     /* Restore rails. */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, true);
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, true);
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO4, true);
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO1, true);
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, true);
 
+    /* Resume the IMU wake-up streams before waking the panel. */
+    bhi260ap_ap_resume();
+
     co5300_wake();
     co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : 0x80);
+
+    /* GRAM was blanked before sleep; force a full repaint so the screen shows
+     * the current UI instead of staying black (SPI path doesn't auto-refresh). */
+    lvgl_force_redraw();
 
     /* Safety net: clear any pending AXP IRQ (de-asserts the GPIO7 line).
      * Detailed power-key reporting happens in pm_wake_task. */
@@ -277,6 +307,20 @@ void power_mgmt_init(void)
     gpio_config(&io);
     gpio_isr_handler_add(PM_GPIO_PWRKEY, button_isr, (void *)(uintptr_t)PM_GPIO_PWRKEY);
     gpio_isr_handler_add(PM_GPIO_BOOT, button_isr, (void *)(uintptr_t)PM_GPIO_BOOT);
+
+    /* BHI260AP INT (GPIO8) as input. The INT is active-low (idles high, pulses
+     * low on a wake-up gesture). Its falling edge is used as an awake-time
+     * wake request (mirrors the button path); during light sleep it is armed
+     * as a LOW_LEVEL wake source in pm_arm_gpio_wakeup(). */
+    gpio_config_t imu_io = {
+        .pin_bit_mask = (1ULL << PM_GPIO_IMU),
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .intr_type = GPIO_INTR_NEGEDGE,
+    };
+    gpio_config(&imu_io);
+    gpio_isr_handler_add(PM_GPIO_IMU, button_isr, (void *)(uintptr_t)PM_GPIO_IMU);
 
     /* Apply the initial night-mode state (and touch-ISR state). */
     pm_apply_night_mode(pm_is_night_time());
