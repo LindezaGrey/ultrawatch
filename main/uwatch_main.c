@@ -4,22 +4,72 @@
  * FreeRTOS (IDF) app_main: initializes the T-Watch Ultra board package,
  * then hands the display over to LVGL (esp_lvgl_adapter), which runs its
  * own FreeRTOS task. Debug via JTAG/OpenOCD/GDB.
+ *
+ * A tiny USB-Serial-JTAG command loop handles debug commands such as "shot"
+ * (dump the current screen as base64 RGB565). The USB-JTAG port is the same
+ * /dev/ttyACM* used for flashing.
  */
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "driver/usb_serial_jtag.h"
 #include "twatch_board.h"
 #include "lvgl_app.h"
 
 static const char *TAG = "uwatch";
 
-static void uwatch_main_task(void *arg)
+#define DBG_RX_BUF   256
+#define DBG_TASK_STACK 4096
+
+static void debug_task(void *arg)
 {
     (void)arg;
-    ESP_LOGI(TAG, "UWatch main task started");
+    usb_serial_jtag_driver_config_t cfg = {
+        .rx_buffer_size = 1024,
+        .tx_buffer_size = 1024,
+    };
+    esp_err_t err = usb_serial_jtag_driver_install(&cfg);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "USB-JTAG driver install failed: %s; debug console disabled", esp_err_to_name(err));
+        vTaskDelete(NULL);
+        return;
+    }
+
+    static char line[DBG_RX_BUF];
+    size_t len = 0;
+
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        int n = usb_serial_jtag_read_bytes(line + len, sizeof(line) - len - 1, pdMS_TO_TICKS(50));
+        if (n < 0) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+        if (n == 0) {
+            continue;
+        }
+        len += (size_t)n;
+        /* Process complete lines. */
+        char *nl;
+        while ((nl = memchr(line, '\n', len)) != NULL) {
+            size_t cmd_len = (size_t)(nl - line);
+            /* Strip trailing CR. */
+            while (cmd_len > 0 && (line[cmd_len - 1] == '\r' || line[cmd_len - 1] == ' ')) {
+                cmd_len--;
+            }
+            line[cmd_len] = '\0';
+
+            if (strcmp(line, "shot") == 0) {
+                lvgl_app_dump_screenshot();
+            } else if (cmd_len > 0) {
+                printf("unknown command: %s\n", line);
+            }
+
+            /* Shift remaining bytes. */
+            size_t rest = len - (size_t)(nl - line) - 1;
+            memmove(line, nl + 1, rest);
+            len = rest;
+        }
     }
 }
 
@@ -36,5 +86,6 @@ void app_main(void)
         ESP_LOGE(TAG, "lvgl start failed: %s", esp_err_to_name(err));
     }
 
-    xTaskCreatePinnedToCore(uwatch_main_task, "uwatch", 4096, NULL, 5, NULL, tskNO_AFFINITY);
+    /* Debug command loop over USB-Serial-JTAG. */
+    xTaskCreate(debug_task, "dbg", DBG_TASK_STACK, NULL, 5, NULL);
 }

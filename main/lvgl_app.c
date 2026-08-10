@@ -13,8 +13,10 @@
 #include <time.h>
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_app_desc.h"
 #include "esp_spiffs.h"
+#include "driver/usb_serial_jtag.h"
 #include "esp_lv_adapter.h"
 #include "lvgl.h"
 #include "libs/freetype/lv_freetype.h"
@@ -38,6 +40,25 @@ static lv_obj_t *s_sec_label;
 static lv_obj_t *s_date_label;
 static lv_obj_t *s_batt_label;
 static lv_obj_t *s_batt_fill;
+
+/* Power management screen. */
+static lv_obj_t *s_power_screen;
+static lv_obj_t *s_pw_batt_label;
+static lv_obj_t *s_pw_chg_label;
+static lv_obj_t *s_pw_temp_label;
+static lv_obj_t *s_pw_chg_switch;
+static lv_obj_t *s_pw_cur_slider;
+static lv_obj_t *s_pw_cur_label;
+
+/* Swipe detection (LVGL gesture recognition is disabled). */
+#define SWIPE_DIST         60
+static lv_point_t s_swipe_start;
+static bool s_swipe_active;
+static lv_obj_t *s_watch_screen;
+
+static void swipe_event_cb(lv_event_t *e);
+static void lvgl_build_power_screen(void);
+static void lvgl_build_watch_face(void);
 
 /* Round invalidated areas to even coordinates (SH8601 requirement) BEFORE
  * LVGL renders, so the buffer content always matches the flushed area. */
@@ -146,7 +167,10 @@ static void watch_face_update(lv_timer_t *timer)
 
 static void lvgl_build_watch_face(void)
 {
-    lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x000000), 0);
+    s_watch_screen = lv_screen_active();
+    lv_obj_set_style_bg_color(s_watch_screen, lv_color_hex(0x000000), 0);
+    lv_obj_add_event_cb(s_watch_screen, swipe_event_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(s_watch_screen, swipe_event_cb, LV_EVENT_RELEASED, NULL);
 
     s_date_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_date_label, "");
@@ -201,6 +225,187 @@ static void boot_to_watch_face(lv_timer_t *timer)
     lv_timer_delete(timer);
     lv_obj_clean(lv_screen_active());
     lvgl_build_watch_face();
+}
+
+/* ---- Power management screen ---- */
+
+static void power_screen_update(lv_timer_t *timer)
+{
+    (void)timer;
+    if (!s_pw_batt_label) {
+        return;
+    }
+
+    char buf[64];
+    uint8_t pct = 0;
+    uint16_t mv = 0;
+    axp2101_get_battery_pct(twatch_pmu_dev, &pct);
+    axp2101_get_battery_mv(twatch_pmu_dev, &mv);
+    snprintf(buf, sizeof(buf), "Battery  %u%%  %.3f V", pct, mv / 1000.0f);
+    lv_label_set_text(s_pw_batt_label, buf);
+
+    axp2101_charge_state_t chg;
+    if (axp2101_get_charge_status(twatch_pmu_dev, &chg) == ESP_OK) {
+        bool en = false;
+        axp2101_is_charge_enabled(twatch_pmu_dev, &en);
+        const char *s;
+        switch (chg) {
+        case AXP2101_CHG_TRI: s = "Trickle"; break;
+        case AXP2101_CHG_PRE: s = "Pre-charge"; break;
+        case AXP2101_CHG_CC:  s = "Charging CC"; break;
+        case AXP2101_CHG_CV:  s = "Charging CV"; break;
+        case AXP2101_CHG_DONE: s = "Charged"; break;
+        default:              s = "Not charging"; break;
+        }
+        uint16_t ma = 0;
+        axp2101_get_charge_current_ma(twatch_pmu_dev, &ma);
+        snprintf(buf, sizeof(buf), "%s%s  %umA", s, en ? "" : " (disabled)", ma);
+        lv_label_set_text(s_pw_chg_label, buf);
+    }
+
+    int16_t tc = 0;
+    if (axp2101_get_battery_temp(twatch_pmu_dev, &tc) == ESP_OK) {
+        snprintf(buf, sizeof(buf), "Battery temp  %d.%d C", tc / 10, abs(tc % 10));
+    } else {
+        snprintf(buf, sizeof(buf), "Battery temp  -- C");
+    }
+    lv_label_set_text(s_pw_temp_label, buf);
+
+    /* Keep switch/slider reflecting hardware state. */
+    bool en = false;
+    axp2101_is_charge_enabled(twatch_pmu_dev, &en);
+    if (lv_obj_has_state(s_pw_chg_switch, LV_STATE_CHECKED) != en) {
+        if (en) {
+            lv_obj_add_state(s_pw_chg_switch, LV_STATE_CHECKED);
+        } else {
+            lv_obj_remove_state(s_pw_chg_switch, LV_STATE_CHECKED);
+        }
+    }
+}
+
+static void power_chg_switch_cb(lv_event_t *e)
+{
+    (void)e;
+    bool en = lv_obj_has_state(s_pw_chg_switch, LV_STATE_CHECKED);
+    axp2101_set_charge_enabled(twatch_pmu_dev, en);
+}
+
+static void power_cur_slider_cb(lv_event_t *e)
+{
+    (void)e;
+    int32_t ma = lv_slider_get_value(s_pw_cur_slider);
+    axp2101_set_charge_current_ma(twatch_pmu_dev, (uint16_t)ma);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "Charge current  %lumA", (unsigned long)ma);
+    lv_label_set_text(s_pw_cur_label, buf);
+}
+
+static void lvgl_build_power_screen(void)
+{
+    s_power_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(s_power_screen, lv_color_hex(0x0A1030), 0);
+    lv_obj_add_event_cb(s_power_screen, swipe_event_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(s_power_screen, swipe_event_cb, LV_EVENT_RELEASED, NULL);
+
+    lv_obj_t *title = lv_label_create(s_power_screen);
+    lv_label_set_text(title, "Power Management");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+
+    s_pw_batt_label = lv_label_create(s_power_screen);
+    lv_label_set_text(s_pw_batt_label, "");
+    lv_obj_set_style_text_font(s_pw_batt_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_pw_batt_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_pw_batt_label, LV_ALIGN_TOP_MID, 0, 60);
+
+    s_pw_chg_label = lv_label_create(s_power_screen);
+    lv_label_set_text(s_pw_chg_label, "");
+    lv_obj_set_style_text_font(s_pw_chg_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_pw_chg_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_pw_chg_label, LV_ALIGN_TOP_MID, 0, 100);
+
+    s_pw_temp_label = lv_label_create(s_power_screen);
+    lv_label_set_text(s_pw_temp_label, "");
+    lv_obj_set_style_text_font(s_pw_temp_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_pw_temp_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_pw_temp_label, LV_ALIGN_TOP_MID, 0, 140);
+
+    /* Charging enable switch. */
+    lv_obj_t *sw_lbl = lv_label_create(s_power_screen);
+    lv_label_set_text(sw_lbl, "Charging");
+    lv_obj_set_style_text_font(sw_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(sw_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(sw_lbl, LV_ALIGN_TOP_LEFT, 40, 200);
+
+    s_pw_chg_switch = lv_switch_create(s_power_screen);
+    lv_obj_align(s_pw_chg_switch, LV_ALIGN_TOP_RIGHT, -40, 200);
+    lv_obj_add_event_cb(s_pw_chg_switch, power_chg_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    /* Charging current slider (0..500 mA). */
+    lv_obj_t *cur_lbl = lv_label_create(s_power_screen);
+    lv_label_set_text(cur_lbl, "Charge current");
+    lv_obj_set_style_text_font(cur_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(cur_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(cur_lbl, LV_ALIGN_TOP_LEFT, 40, 260);
+
+    s_pw_cur_slider = lv_slider_create(s_power_screen);
+    lv_obj_set_size(s_pw_cur_slider, 330, 24);
+    lv_slider_set_range(s_pw_cur_slider, 0, 500);
+    lv_slider_set_value(s_pw_cur_slider, 0, LV_ANIM_OFF);
+    lv_obj_align(s_pw_cur_slider, LV_ALIGN_TOP_MID, 0, 310);
+    lv_obj_add_event_cb(s_pw_cur_slider, power_cur_slider_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    s_pw_cur_label = lv_label_create(s_power_screen);
+    lv_label_set_text(s_pw_cur_label, "Charge current  0mA");
+    lv_obj_set_style_text_font(s_pw_cur_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_pw_cur_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_pw_cur_label, LV_ALIGN_TOP_MID, 0, 360);
+
+    /* Hint. */
+    lv_obj_t *hint = lv_label_create(s_power_screen);
+    lv_label_set_text(hint, "swipe down to go back");
+    lv_obj_set_style_text_font(hint, s_font_small, 0);
+    lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
+
+    lv_timer_create(power_screen_update, 1000, NULL);
+}
+
+/* ---- Swipe navigation ---- */
+
+static void swipe_event_cb(lv_event_t *e)
+{
+    lv_indev_t *indev = lv_indev_active();
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+
+    if (lv_event_get_code(e) == LV_EVENT_PRESSED) {
+        s_swipe_start = p;
+        s_swipe_active = true;
+        return;
+    }
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED || !s_swipe_active) {
+        return;
+    }
+    s_swipe_active = false;
+
+    int dy = p.y - s_swipe_start.y;
+    int dx = p.x - s_swipe_start.x;
+    if (abs(dy) < SWIPE_DIST || abs(dy) < abs(dx)) {
+        return;
+    }
+
+    if (dy < 0) {
+        /* Swipe up -> power screen. */
+        if (!s_power_screen) {
+            lvgl_build_power_screen();
+        }
+        lv_scr_load(s_power_screen);
+    } else {
+        /* Swipe down -> watch face. */
+        lv_scr_load(s_watch_screen);
+    }
 }
 
 /* Sensor task: bring up the BHI260AP (RAM firmware upload + boot) once the
@@ -324,5 +529,77 @@ esp_err_t lvgl_app_start(void)
     /* BHI260AP sensor task (needs SPIFFS assets, already mounted above). */
     xTaskCreate(bhi260_task, "bhi260", 4096, NULL, 5, NULL);
 
+    return ESP_OK;
+}
+
+/* ---- Screenshot dump (debug) ----
+ * Captures the active LVGL screen and prints it to the console as base64 of
+ * RGB565 (little-endian) pixels, framed for the host decode script:
+ *   ==SHOT:<w>x<h>==  <base64>  ==ENDSHOT==
+ * Byte order matches the native RGB565 snapshot; the host script byte-swaps
+ * for the big-endian panel if needed. Call in LVGL task context (with the
+ * adapter lock held). */
+
+/* ---- Screenshot dump (debug) ----
+ * Captures the active LVGL screen and streams it over the USB-JTAG console
+ * as raw RGB565 (little-endian) pixels, framed for the host decode script:
+ *   ==SHOT:<w>x<h>==  <raw pixels>  ==ENDSHOT==
+ * Byte order is the native little-endian RGB565 snapshot. Call from any task;
+ * the LVGL lock is held only during the snapshot, not during the transfer. */
+
+esp_err_t lvgl_app_dump_screenshot(void)
+{
+    int w = CO5300_RES_X;
+    int h = CO5300_RES_Y;
+    size_t px_size = (size_t)w * h * 2;
+
+    /* Snapshot buffer must come from PSRAM: internal RAM (~365 KB) cannot hold
+     * a 410x502 RGB565 frame. */
+    void *px = heap_caps_aligned_alloc(16, px_size, MALLOC_CAP_SPIRAM);
+    if (!px) {
+        ESP_LOGE(TAG, "screenshot: px alloc failed (%u B)", (unsigned)px_size);
+        return ESP_ERR_NO_MEM;
+    }
+
+    /* Capture under the LVGL lock (fast), then release before streaming so the
+     * UI keeps running during the serial transfer. */
+    if (esp_lv_adapter_lock(-1) != ESP_OK) {
+        free(px);
+        return ESP_FAIL;
+    }
+    lv_image_dsc_t dsc;
+    lv_result_t res = lv_snapshot_take_to_buf(lv_screen_active(), LV_COLOR_FORMAT_RGB565,
+                                              &dsc, px, px_size);
+    esp_lv_adapter_unlock();
+    if (res != LV_RESULT_OK) {
+        ESP_LOGE(TAG, "screenshot: snapshot failed");
+        free(px);
+        return ESP_FAIL;
+    }
+
+    /* Suppress ESP logging while streaming so no other task interleaves text. */
+    esp_log_level_t lvl = esp_log_level_get("*");
+    esp_log_level_set("*", ESP_LOG_NONE);
+    fflush(stdout);
+
+    char header[64];
+    snprintf(header, sizeof(header), "==SHOT:%dx%d==\n", w, h);
+    fputs(header, stdout);
+
+    /* Raw RGB565 little-endian via stdout (mirrors to USB-JTAG). */
+    size_t chunk = 4096;
+    const uint8_t *src = px;
+    size_t left = px_size;
+    while (left > 0) {
+        size_t c = (left < chunk) ? left : chunk;
+        size_t wr = fwrite(src, 1, c, stdout);
+        src += wr;
+        left -= wr;
+    }
+    printf("==ENDSHOT==\n");
+
+    free(px);
+    fflush(stdout);
+    esp_log_level_set("*", lvl);
     return ESP_OK;
 }

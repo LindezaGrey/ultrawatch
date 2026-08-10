@@ -13,6 +13,10 @@ static const char *TAG = "axp2101";
 #define AXP_REG_ADC_CHANNEL     0x30
 #define AXP_REG_ADC_DATA0       0x34 /* batt volt hi */
 #define AXP_REG_ADC_DATA1       0x35 /* batt volt lo */
+#define AXP_REG_ADC_DATA_TEMP0  0x3C /* die/battery temp hi (H6L8) */
+#define AXP_REG_ADC_DATA_TEMP1  0x3D
+#define AXP_REG_CHG_GAUGE_WDT   0x18 /* charging + gauge + watchdog ctrl */
+#define AXP_REG_ICC_CHG_SET     0x62 /* constant charge current */
 #define AXP_REG_BAT_PERCENT     0xA4
 #define AXP_REG_STATUS1         0x00
 #define AXP_REG_STATUS2         0x01
@@ -22,6 +26,13 @@ static const char *TAG = "axp2101";
 #define AXP_REG_INTSTS3    0x4A
 
 #define AXP_INTEN2_PEK    0x0F   /* bits 0-3: press/release edge, long, short */
+
+/* 0x18 bit 1 = charging enabled (CHARGE_GAUGE_WDT_CTRL). */
+#define AXP_CHG_CTRL_CHARGE  (1u << 1)
+
+/* 0x62 charge current code (XPowers AXP2101 CHG_CUR encoding):
+ * 0=0mA 4=100mA 5=125 6=150 7=175 8=200 9=300 10=400 11=500 ... 16=1000. */
+#define AXP_ICC_CHG_MASK     0x1F
 
 #define AXP_BATT_VOLT_MSB_BITS  5
 
@@ -244,5 +255,103 @@ esp_err_t axp2101_get_irq_status(i2c_master_dev_handle_t dev, uint32_t *status)
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTSTS2, &s[1]), TAG, "intsts2");
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTSTS3, &s[2]), TAG, "intsts3");
     *status = ((uint32_t)s[2] << 16) | ((uint32_t)s[1] << 8) | s[0];
+    return ESP_OK;
+}
+
+/* Charging state: STATUS2 bits 0-2. Values per XPowers AXP2101:
+ * 0=tri 1=pre 2=CC 3=CV 4=done 5=stop. */
+esp_err_t axp2101_get_charge_status(i2c_master_dev_handle_t dev, axp2101_charge_state_t *state)
+{
+    uint8_t st = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_STATUS2, &st), TAG, "read status2");
+    *state = (axp2101_charge_state_t)(st & 0x07);
+    return ESP_OK;
+}
+
+esp_err_t axp2101_set_charge_enabled(i2c_master_dev_handle_t dev, bool enable)
+{
+    return axp2101_set_bit(dev, AXP_REG_CHG_GAUGE_WDT, AXP_CHG_CTRL_CHARGE, enable);
+}
+
+esp_err_t axp2101_is_charge_enabled(i2c_master_dev_handle_t dev, bool *enabled)
+{
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_CHG_GAUGE_WDT, &val), TAG, "read chg ctrl");
+    *enabled = (val & AXP_CHG_CTRL_CHARGE) != 0;
+    return ESP_OK;
+}
+
+/* Map a charge-current code (0x62 low 5 bits) to mA. */
+static uint16_t charge_code_to_ma(uint8_t code)
+{
+    switch (code) {
+    case 0:  return 0;
+    case 4:  return 100;
+    case 5:  return 125;
+    case 6:  return 150;
+    case 7:  return 175;
+    case 8:  return 200;
+    case 9:  return 300;
+    case 10: return 400;
+    case 11: return 500;
+    case 12: return 600;
+    case 13: return 700;
+    case 14: return 800;
+    case 15: return 900;
+    case 16: return 1000;
+    default: return 0;
+    }
+}
+
+/* Map mA to the nearest charge-current code. */
+static uint8_t charge_ma_to_code(uint16_t ma)
+{
+    if (ma < 100) return 0;
+    if (ma < 125) return 4;
+    if (ma < 150) return 5;
+    if (ma < 175) return 6;
+    if (ma < 200) return 7;
+    if (ma < 300) return 8;
+    if (ma < 400) return 9;
+    if (ma < 500) return 10;
+    if (ma < 600) return 11;
+    if (ma < 700) return 12;
+    if (ma < 800) return 13;
+    if (ma < 900) return 14;
+    if (ma < 1000) return 15;
+    return 16;
+}
+
+esp_err_t axp2101_get_charge_current_ma(i2c_master_dev_handle_t dev, uint16_t *ma)
+{
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ICC_CHG_SET, &val), TAG, "read chg current");
+    *ma = charge_code_to_ma(val & AXP_ICC_CHG_MASK);
+    return ESP_OK;
+}
+
+esp_err_t axp2101_set_charge_current_ma(i2c_master_dev_handle_t dev, uint16_t ma)
+{
+    uint8_t code = charge_ma_to_code(ma);
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ICC_CHG_SET, &val), TAG, "read chg current");
+    val = (uint8_t)((val & ~AXP_ICC_CHG_MASK) | (code & AXP_ICC_CHG_MASK));
+    return axp2101_write_reg(dev, AXP_REG_ICC_CHG_SET, val);
+}
+
+/* Battery/die temperature in 0.1 deg C from the TS ADC (H6L8 @ 0x3C/0x3D).
+ * XPowers conversion: T(C) = 22.0 + (7274 - raw) / 20.0. */
+esp_err_t axp2101_get_battery_temp(i2c_master_dev_handle_t dev, int16_t *tenths_c)
+{
+    uint8_t hi = 0, lo = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ADC_DATA_TEMP0, &hi), TAG, "read temp hi");
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ADC_DATA_TEMP1, &lo), TAG, "read temp lo");
+    uint16_t raw = (uint16_t)(((hi & 0x3F) << 8) | lo);
+    if (raw > 16383) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    /* 22.0 + (7274 - raw)/20.0  ->  fixed point 0.1 deg C */
+    int32_t v = 220 + ((int32_t)7274 - (int32_t)raw) / 2;
+    *tenths_c = (int16_t)v;
     return ESP_OK;
 }
