@@ -226,6 +226,17 @@ esp_err_t bhi260ap_get_step_count(uint32_t *steps)
     return ESP_OK;
 }
 
+esp_err_t bhi260ap_get_status(bool *ready, uint32_t *steps)
+{
+    if (ready) {
+        *ready = s_initialized;
+    }
+    if (steps) {
+        *steps = s_initialized ? s_step_count : 0;
+    }
+    return ESP_OK;
+}
+
 esp_err_t bhi260ap_read_accel(i2c_master_dev_handle_t dev, bhi260ap_accel_t *accel)
 {
     (void)dev;

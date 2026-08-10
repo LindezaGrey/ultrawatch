@@ -19,6 +19,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <dirent.h>
 #include "freertos/semphr.h"
 #include <stdio.h>
 #include <stdarg.h>
@@ -277,6 +278,37 @@ void sd_log_flush(void)
     }
     fwrite(s_ring, 1, n, f);
     fclose(f);
+}
+
+esp_err_t sd_log_clear(void)
+{
+    if (!s_sd_ready) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    /* Truncate the log. */
+    FILE *f = fopen(SD_LOG_FILE, "w");
+    if (!f) {
+        return ESP_FAIL;
+    }
+    fclose(f);
+
+    /* Delete screenshots. */
+    DIR *d = opendir(SD_SHOT_DIR);
+    if (d) {
+        struct dirent *e;
+        while ((e = readdir(d)) != NULL) {
+            if (strncmp(e->d_name, "shot_", 5) == 0) {
+                char name[32];
+                strncpy(name, e->d_name, sizeof(name) - 1);
+                name[sizeof(name) - 1] = '\0';
+                char path[128];
+                snprintf(path, sizeof(path), "%s/%s", SD_SHOT_DIR, name);
+                remove(path);
+            }
+        }
+        closedir(d);
+    }
+    return ESP_OK;
 }
 
 esp_err_t sd_log_save_screenshot(const uint16_t *rgb565, int w, int h)

@@ -28,6 +28,10 @@ esp_err_t bhi260ap_process_fifo(void);
 /* Latest step count reported by the on-chip step counter. */
 esp_err_t bhi260ap_get_step_count(uint32_t *steps);
 
+/* Sensor status: ready flag and latest step count. Either out-param may be
+ * NULL. Returns ESP_OK (never fails; reports the last known state). */
+esp_err_t bhi260ap_get_status(bool *ready, uint32_t *steps);
+
 esp_err_t bhi260ap_read_accel(i2c_master_dev_handle_t dev, bhi260ap_accel_t *accel);
 esp_err_t bhi260ap_read_gyro(i2c_master_dev_handle_t dev, int16_t out[3]);
 

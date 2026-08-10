@@ -35,6 +35,9 @@ esp_err_t sd_log_save_screenshot(const uint16_t *rgb565, int w, int h);
  * shutdown). */
 void sd_log_flush(void);
 
+/* Truncate the log file and delete all screenshots on the SD card. */
+esp_err_t sd_log_clear(void);
+
 #ifdef __cplusplus
 }
 #endif

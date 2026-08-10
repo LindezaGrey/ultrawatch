@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "driver/usb_serial_jtag.h"
 #include "twatch_board.h"
 #include "lvgl_app.h"
@@ -41,6 +42,7 @@ static void debug_task(void *arg)
 
     static char line[DBG_RX_BUF];
     size_t len = 0;
+    uint32_t last_heap_log = 0;
 
     for (;;) {
         int n = usb_serial_jtag_read_bytes(line + len, sizeof(line) - len - 1, pdMS_TO_TICKS(50));
@@ -49,6 +51,15 @@ static void debug_task(void *arg)
             continue;
         }
         if (n == 0) {
+            /* Periodic heap watchdog to track the DMA-heap leak. */
+            uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+            if (now - last_heap_log >= 30000) {
+                last_heap_log = now;
+                printf("heap: free=%lu min=%lu dma=%lu\n",
+                       (unsigned long)esp_get_free_heap_size(),
+                       (unsigned long)esp_get_minimum_free_heap_size(),
+                       (unsigned long)heap_caps_get_free_size(MALLOC_CAP_DMA));
+            }
             continue;
         }
         len += (size_t)n;
@@ -88,6 +99,15 @@ static void debug_task(void *arg)
                     }
                     closedir(d);
                 }
+            } else if (strcmp(line, "sdclear") == 0) {
+                /* Truncate the log and delete screenshots. */
+                esp_err_t err = sd_log_clear();
+                printf("sdclear: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+            } else if (strcmp(line, "heap") == 0) {
+                printf("heap: free=%lu min=%lu dma=%lu\n",
+                       (unsigned long)esp_get_free_heap_size(),
+                       (unsigned long)esp_get_minimum_free_heap_size(),
+                       (unsigned long)heap_caps_get_free_size(MALLOC_CAP_DMA));
             } else if (cmd_len > 0) {
                 printf("unknown command: %s\n", line);
             }

@@ -52,15 +52,30 @@ static lv_obj_t *s_pw_chg_switch;
 static lv_obj_t *s_pw_cur_slider;
 static lv_obj_t *s_pw_cur_label;
 
-/* Swipe detection (LVGL gesture recognition is disabled). */
+/* BHI260AP status screen. */
+static lv_obj_t *s_bhi_screen;
+static lv_obj_t *s_bhi_status_label;
+static lv_obj_t *s_bhi_steps_label;
+
+/* GPS screen (dummy). */
+static lv_obj_t *s_gps_screen;
+
+/* Swipe detection at the input-device level (works regardless of widget). */
 #define SWIPE_DIST         60
+#define MENU_TIMEOUT_MS    5000   /* return to watch face after this idle */
+static lv_indev_t *s_touch_indev;
 static lv_point_t s_swipe_start;
 static bool s_swipe_active;
 static lv_obj_t *s_watch_screen;
+static uint32_t s_last_touch_tick;   /* lv_tick_get() at last touch */
 
 static void swipe_event_cb(lv_event_t *e);
 static void lvgl_build_power_screen(void);
+static void lvgl_build_bhi_screen(void);
+static void lvgl_build_gps_screen(void);
 static void lvgl_build_watch_face(void);
+static void menu_timeout_cb(lv_timer_t *timer);
+static void lvgl_show_watch_face(void);
 
 /* Round invalidated areas to even coordinates (SH8601 requirement) BEFORE
  * LVGL renders, so the buffer content always matches the flushed area. */
@@ -176,8 +191,6 @@ static void lvgl_build_watch_face(void)
 {
     s_watch_screen = lv_screen_active();
     lv_obj_set_style_bg_color(s_watch_screen, lv_color_hex(0x000000), 0);
-    lv_obj_add_event_cb(s_watch_screen, swipe_event_cb, LV_EVENT_PRESSED, NULL);
-    lv_obj_add_event_cb(s_watch_screen, swipe_event_cb, LV_EVENT_RELEASED, NULL);
 
     s_date_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_date_label, "");
@@ -224,6 +237,9 @@ static void lvgl_build_watch_face(void)
 
     watch_face_update(NULL);
     lv_timer_create(watch_face_update, 1000, NULL);
+
+    /* Menu inactivity timeout (runs forever; no-op on the watch face). */
+    lv_timer_create(menu_timeout_cb, 500, NULL);
 }
 
 /* Show the boot screen for a few seconds, then the watch face. */
@@ -311,8 +327,6 @@ static void lvgl_build_power_screen(void)
 {
     s_power_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(s_power_screen, lv_color_hex(0x0A1030), 0);
-    lv_obj_add_event_cb(s_power_screen, swipe_event_cb, LV_EVENT_PRESSED, NULL);
-    lv_obj_add_event_cb(s_power_screen, swipe_event_cb, LV_EVENT_RELEASED, NULL);
 
     lv_obj_t *title = lv_label_create(s_power_screen);
     lv_label_set_text(title, "Power Management");
@@ -379,7 +393,82 @@ static void lvgl_build_power_screen(void)
     lv_timer_create(power_screen_update, 1000, NULL);
 }
 
-/* ---- Swipe navigation ---- */
+/* ---- BHI260AP status screen ---- */
+
+static void bhi_screen_update(lv_timer_t *timer)
+{
+    (void)timer;
+    if (!s_bhi_status_label) {
+        return;
+    }
+    bool ready = false;
+    uint32_t steps = 0;
+    bhi260ap_get_status(&ready, &steps);
+    lv_label_set_text(s_bhi_status_label, ready ? "BHI260AP: ready" : "BHI260AP: not ready");
+    char buf[32];
+    snprintf(buf, sizeof(buf), "Steps: %lu", (unsigned long)steps);
+    lv_label_set_text(s_bhi_steps_label, buf);
+}
+
+static void lvgl_build_bhi_screen(void)
+{
+    s_bhi_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(s_bhi_screen, lv_color_hex(0x002030), 0);
+
+    lv_obj_t *title = lv_label_create(s_bhi_screen);
+    lv_label_set_text(title, "BHI260AP");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+
+    s_bhi_status_label = lv_label_create(s_bhi_screen);
+    lv_label_set_text(s_bhi_status_label, "");
+    lv_obj_set_style_text_font(s_bhi_status_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_bhi_status_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_bhi_status_label, LV_ALIGN_CENTER, 0, -20);
+
+    s_bhi_steps_label = lv_label_create(s_bhi_screen);
+    lv_label_set_text(s_bhi_steps_label, "");
+    lv_obj_set_style_text_font(s_bhi_steps_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_bhi_steps_label, lv_color_hex(0x80D8FF), 0);
+    lv_obj_align(s_bhi_steps_label, LV_ALIGN_CENTER, 0, 40);
+
+    lv_obj_t *hint = lv_label_create(s_bhi_screen);
+    lv_label_set_text(hint, "swipe right to go back");
+    lv_obj_set_style_text_font(hint, s_font_small, 0);
+    lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
+
+    lv_timer_create(bhi_screen_update, 1000, NULL);
+}
+
+/* ---- GPS screen (dummy) ---- */
+
+static void lvgl_build_gps_screen(void)
+{
+    s_gps_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(s_gps_screen, lv_color_hex(0x102010), 0);
+
+    lv_obj_t *title = lv_label_create(s_gps_screen);
+    lv_label_set_text(title, "GPS");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+
+    lv_obj_t *msg = lv_label_create(s_gps_screen);
+    lv_label_set_text(msg, "Not integrated yet");
+    lv_obj_set_style_text_font(msg, s_font_small, 0);
+    lv_obj_set_style_text_color(msg, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(msg, LV_ALIGN_CENTER, 0, -20);
+
+    lv_obj_t *hint = lv_label_create(s_gps_screen);
+    lv_label_set_text(hint, "swipe left to go back");
+    lv_obj_set_style_text_font(hint, s_font_small, 0);
+    lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
+}
+
+/* ---- Swipe navigation (indev-level: fires for every touch) ---- */
 
 static void swipe_event_cb(lv_event_t *e)
 {
@@ -390,28 +479,83 @@ static void swipe_event_cb(lv_event_t *e)
     if (lv_event_get_code(e) == LV_EVENT_PRESSED) {
         s_swipe_start = p;
         s_swipe_active = true;
+        s_last_touch_tick = lv_tick_get();
         return;
     }
     if (lv_event_get_code(e) != LV_EVENT_RELEASED || !s_swipe_active) {
         return;
     }
     s_swipe_active = false;
+    s_last_touch_tick = lv_tick_get();
 
     int dy = p.y - s_swipe_start.y;
     int dx = p.x - s_swipe_start.x;
-    if (abs(dy) < SWIPE_DIST || abs(dy) < abs(dx)) {
+    if (abs(dx) < SWIPE_DIST && abs(dy) < SWIPE_DIST) {
         return;
     }
+    bool horiz = abs(dx) > abs(dy);
+    lv_obj_t *cur = lv_screen_active();
 
-    if (dy < 0) {
-        /* Swipe up -> power screen. */
-        if (!s_power_screen) {
-            lvgl_build_power_screen();
+    if (cur == s_watch_screen) {
+        /* Away from the clock. */
+        if (horiz) {
+            if (dx < 0) {        /* left  -> BHI status */
+                if (!s_bhi_screen) {
+                    lvgl_build_bhi_screen();
+                }
+                lv_scr_load(s_bhi_screen);
+            } else {             /* right -> GPS */
+                if (!s_gps_screen) {
+                    lvgl_build_gps_screen();
+                }
+                lv_scr_load(s_gps_screen);
+            }
+        } else if (dy > 0) {     /* down  -> Power Management */
+            if (!s_power_screen) {
+                lvgl_build_power_screen();
+            }
+            lv_scr_load(s_power_screen);
         }
-        lv_scr_load(s_power_screen);
-    } else {
-        /* Swipe down -> watch face. */
-        lv_scr_load(s_watch_screen);
+    } else if (cur == s_power_screen) {
+        if (!horiz && dy < 0) {  /* up -> clock */
+            lvgl_show_watch_face();
+        }
+    } else if (cur == s_bhi_screen) {
+        if (horiz && dx > 0) {   /* right -> clock */
+            lvgl_show_watch_face();
+        }
+    } else if (cur == s_gps_screen) {
+        if (horiz && dx < 0) {   /* left -> clock */
+            lvgl_show_watch_face();
+        }
+    }
+}
+
+/* ---- Menu inactivity timeout ----
+ * Any non-watch-face screen returns to the watch face after MENU_TIMEOUT_MS
+ * without a touch. */
+static void menu_timeout_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if (lv_screen_active() == s_watch_screen) {
+        return;
+    }
+    if (lv_tick_get() - s_last_touch_tick >= MENU_TIMEOUT_MS) {
+        lvgl_show_watch_face();
+    }
+}
+
+/* Load the watch face and refresh the clock labels. Full-screen invalidation
+ * here is avoided: a 502-row full redraw queues ~11 band flushes in one cycle,
+ * which transiently spikes internal DMA heap usage and can fail the SPI flush
+ * (ESP_ERR_NO_MEM / screen corruption). Refreshing the labels re-reads the RTC
+ * (time may have changed while a menu was open) at low cost. */
+static void lvgl_show_watch_face(void)
+{
+    lv_scr_load(s_watch_screen);
+    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+        watch_face_update(NULL);
+        esp_lv_adapter_unlock();
     }
 }
 
@@ -471,7 +615,11 @@ esp_err_t lvgl_app_start(void)
     adapter_cfg_mut.auto_sleep.callbacks.on_exit_sleep = power_mgmt_exit_sleep;
     ESP_RETURN_ON_ERROR(esp_lv_adapter_init(&adapter_cfg_mut), TAG, "adapter init");
 
-    esp_lv_adapter_display_config_t display_cfg = ESP_LV_ADAPTER_DISPLAY_SPI_WITH_PSRAM_DEFAULT_CONFIG(
+    /* Draw buffers in internal DMA-capable RAM: PSRAM buffers would need a
+     * temp internal-DMA copy per band flush, and rapid redraws exhaust the
+     * ~113 KB internal DMA pool (ESP_ERR_NO_MEM -> corrupted screen). A single
+     * 48-row band (38 KB) fits internal RAM and DMA reads it directly. */
+    esp_lv_adapter_display_config_t display_cfg = ESP_LV_ADAPTER_DISPLAY_SPI_WITHOUT_PSRAM_DEFAULT_CONFIG(
         co5300_get_panel(),
         co5300_get_panel_io(),
         CO5300_RES_X,
@@ -521,8 +669,13 @@ esp_err_t lvgl_app_start(void)
             touch_cfg.scale.x = (float)CO5300_RES_X / nx;
             touch_cfg.scale.y = (float)CO5300_RES_Y / ny;
         }
-        if (esp_lv_adapter_register_touch(&touch_cfg)) {
+        s_touch_indev = esp_lv_adapter_register_touch(&touch_cfg);
+        if (s_touch_indev) {
             ESP_LOGI(TAG, "touch registered");
+            /* Indev-level swipe detection: fires for every touch regardless of
+             * which widget/screen is active. */
+            lv_indev_add_event_cb(s_touch_indev, swipe_event_cb, LV_EVENT_PRESSED, NULL);
+            lv_indev_add_event_cb(s_touch_indev, swipe_event_cb, LV_EVENT_RELEASED, NULL);
         } else {
             ESP_LOGE(TAG, "touch registration failed");
         }
