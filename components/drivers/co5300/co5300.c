@@ -13,16 +13,10 @@ static const char *TAG = "co5300";
 
 #define CO5300_SPI_HOST   SPI3_HOST
 #define CO5300_X_GAP      22
-#define CO5300_BAND_H     48   /* even fill-band height */
 
 static esp_lcd_panel_handle_t s_panel = NULL;
 static esp_lcd_panel_io_handle_t s_panel_io = NULL;
 static bool s_initialized = false;
-
-/* The CO5300 panel samples RGB565 big-endian (high byte first); our color
- * words are little-endian, so pixels are byte-swapped before transmission.
- * Sized for the largest draw used (a fill band). */
-static uint16_t s_swap_buf[CO5300_RES_X * CO5300_BAND_H];
 
 /* CO5300 init sequence (from LilyGO factory firmware). Sent after the
  * SH8601 driver's own MADCTL/COLMOD, via the QSPI panel IO. */
@@ -88,52 +82,6 @@ esp_err_t co5300_deinit(void)
     return ESP_OK;
 }
 
-/* SH8601 requires even x/y draw boundaries, so callers must pass even
- * x0/y0 and odd x1/y1 (with buffers sized accordingly). Pass-through. */
-esp_err_t co5300_draw_bitmap(int x0, int y0, int x1, int y1, const void *pixdata)
-{
-    if (!s_initialized || !pixdata) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    int w = x1 - x0 + 1;
-    int h = y1 - y0 + 1;
-    if (w <= 0 || h <= 0 || x0 < 0 || y0 < 0 || x1 >= CO5300_RES_X || y1 >= CO5300_RES_Y) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if ((size_t)w * h > sizeof(s_swap_buf) / sizeof(s_swap_buf[0])) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    /* byte-swap each pixel: little-endian host -> big-endian panel */
-    const uint8_t *src = pixdata;
-    uint8_t *dst = (uint8_t *)s_swap_buf;
-    for (size_t i = 0; i < (size_t)w * h; i++) {
-        dst[i * 2] = src[i * 2 + 1];
-        dst[i * 2 + 1] = src[i * 2];
-    }
-    return esp_lcd_panel_draw_bitmap(s_panel, x0, y0, x1 + 1, y1 + 1, s_swap_buf);
-}
-
-/* Fill in even-sized bands (CO5300_BAND_H rows each) to satisfy the SH8601
- * even-coordinate requirement. */
-esp_err_t co5300_fill(uint16_t color)
-{
-    if (!s_initialized) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    static uint16_t band[CO5300_RES_X * CO5300_BAND_H];
-    for (int i = 0; i < CO5300_RES_X * CO5300_BAND_H; i++) {
-        band[i] = color;
-    }
-    for (int y = 0; y < CO5300_RES_Y; y += CO5300_BAND_H) {
-        int h = (y + CO5300_BAND_H <= CO5300_RES_Y) ? CO5300_BAND_H : (CO5300_RES_Y - y);
-        esp_err_t err = co5300_draw_bitmap(0, y, CO5300_RES_X - 1, y + h - 1, band);
-        if (err != ESP_OK) {
-            return err;
-        }
-    }
-    return ESP_OK;
-}
-
 esp_lcd_panel_handle_t co5300_get_panel(void)
 {
     return s_panel;
@@ -166,6 +114,33 @@ esp_err_t co5300_sleep(void)
         return ESP_ERR_INVALID_STATE;
     }
     return co5300_send_cmd(0x10);   /* SLPIN */
+}
+
+/* Clear the visible panel to black (0x0000) by looping a small static band.
+ * Black is byte-symmetric, so no byte-swap is needed. Called before SLPIN so
+ * the panel GRAM holds black instead of the last frame, avoiding a flash of
+ * stale content on wake. */
+#define CO5300_BLANK_BAND_H 8
+
+esp_err_t co5300_blank(void)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    static uint16_t s_black_band[CO5300_RES_X * CO5300_BLANK_BAND_H];
+    for (int y = 0; y < CO5300_RES_Y; y += CO5300_BLANK_BAND_H) {
+        int h = CO5300_BLANK_BAND_H;
+        if (y + h > CO5300_RES_Y) {
+            h = CO5300_RES_Y - y;
+        }
+        esp_err_t err = esp_lcd_panel_draw_bitmap(s_panel, 0, y,
+                                                  CO5300_RES_X, y + h,
+                                                  s_black_band);
+        if (err != ESP_OK) {
+            return err;
+        }
+    }
+    return ESP_OK;
 }
 
 esp_err_t co5300_wake(void)

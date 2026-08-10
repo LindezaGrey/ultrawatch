@@ -5,11 +5,10 @@
  * CO5300-register-compatible) on SPI3_HOST with esp_lcd's QSPI panel IO.
  *
  * Notes (verified on hardware):
- *   - The panel samples RGB565 BIG-endian; pixels are byte-swapped in
- *     co5300_draw_bitmap() before transmission.
- *   - The panel requires EVEN x/y draw boundaries. All shapes must be
- *     rounded to even coordinates and drawn in even-sized bands
- *     (see co5300_fill and the watch-face renderer).
+ *   - The panel samples RGB565 BIG-endian; LVGL renders RGB565_SWAPPED so no
+ *     swap is needed on the flush path.
+ *   - The panel requires EVEN x/y draw boundaries; the LVGL area rounder
+ *     ensures this.
  *   - The 22-column GRAM offset is handled internally via set_gap.
  */
 #pragma once
@@ -50,6 +49,10 @@ esp_err_t co5300_deinit(void);
 esp_err_t co5300_sleep(void);
 esp_err_t co5300_wake(void);
 
+/* Clear the visible panel GRAM to black (before SLPIN) so no stale frame
+ * flashes on wake. */
+esp_err_t co5300_blank(void);
+
 /* Set display brightness (DCS 0x51, 8-bit; 0x00..0xFF). */
 esp_err_t co5300_set_brightness(uint8_t bri);
 
@@ -59,12 +62,6 @@ esp_err_t co5300_set_brightness(uint8_t bri);
 #include "esp_lcd_panel_ops.h"
 esp_lcd_panel_handle_t co5300_get_panel(void);
 esp_lcd_panel_io_handle_t co5300_get_panel_io(void);
-
-/* Draw an inclusive rectangle (x0,y0)-(x1,y1) from RGB565 pixels. */
-esp_err_t co5300_draw_bitmap(int x0, int y0, int x1, int y1, const void *pixdata);
-
-/* Fill the whole visible area with one RGB565 color. */
-esp_err_t co5300_fill(uint16_t color);
 
 #ifdef __cplusplus
 }
