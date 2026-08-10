@@ -62,11 +62,25 @@ firmware re-upload and the sensor-freeze problem after a power-cycle.
 | STC (step counter) | 1 Hz | Steps (persistent) |
 | ACC | 12.5 Hz | Acceleration (mg) |
 | GYRO | 12.5 Hz | Angular rate (dps) |
-| RV | 5 Hz | Rotation vector (quaternion) |
-| ORI | 5 Hz | Orientation (heading/pitch/roll) |
+| GAMERV | 5 Hz | Game rotation vector (6-DoF quaternion) |
 | AR | 5 Hz | Activity recognition |
 | WRIST_TILT / WAKE / GLANCE / PICKUP | 1 Hz | Gestures |
 | TILT_DETECTOR | 1 Hz | Tilt detector |
+
+## Orientation & rotation (no magnetometer)
+
+The BHI260AP is a **6-DoF IMU** (accel+gyro); the full 9-DoF Rotation Vector /
+Orientation fusion sensors require an **external magnetometer**, which the
+T-Watch Ultra does not have. Without it they report all-zero with accuracy 0
+(see [arduino/nicla-sense-me-fw#102](https://github.com/arduino/nicla-sense-me-fw/issues/102)
+for the same family behavior on a different sensor).
+
+So the driver uses:
+
+- **GAMERV (game rotation vector)** — 6-DoF accel+gyro fusion, works without a
+  magnetometer; drives the `RV` row (quaternion x/y/z/w).
+- **Pitch/roll computed from the accelerometer** (`atan2` on the gravity
+  vector); heading is reported as `0` (magnetometer-only).
 
 Gestures are natively wake-type; the `*_WU` sensor variants (ACC_WU, STC_WU,
 …) also exist and could replace the non-wake streams during AP-suspend.
@@ -147,7 +161,7 @@ reported total is `base + (chip - chip_at_last_fold)`.
 
 ## Limitations / future
 
-- RV / ORI output was all-zero at rest on the current firmware (fusion may need
-  longer convergence or the magnetometer). Accel/gyro/activity/gestures work.
+- Heading is not available (no magnetometer on the board). Adding a BMM/QMC
+  magnetometer to the BHI260AP's secondary I2C would enable 9-DoF RV/ORI.
 - True sleep-wake from IMU relies on ALDO4 staying powered; battery-life impact
   is the ~0.1–0.3 mA gesture sensor.

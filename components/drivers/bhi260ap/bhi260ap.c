@@ -23,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
+#include <math.h>
 
 static const char *TAG = "bhi260ap";
 
@@ -45,7 +46,6 @@ static uint32_t s_last_data_tick;   /* tick at last sensor event (freshness) */
 static struct bhy2_data_xyz s_accel;
 static struct bhy2_data_xyz s_gyro;
 static struct bhy2_data_quaternion s_rv;
-static struct bhy2_data_orientation s_orientation;
 static bhi260ap_activity_t s_activity = BHI260AP_ACTIVITY_UNKNOWN;
 static volatile bool s_wrist_tilt;
 static volatile bool s_wake_gesture;
@@ -210,14 +210,6 @@ static void parse_rotation_vector(const struct bhy2_fifo_parse_data_info *callba
     (void)callback_ref;
     if (callback_info->data_size >= 10) {
         bhy2_parse_quaternion(callback_info->data_ptr, &s_rv);
-    }
-}
-
-static void parse_orientation(const struct bhy2_fifo_parse_data_info *callback_info, void *callback_ref)
-{
-    (void)callback_ref;
-    if (callback_info->data_size >= 6) {
-        bhy2_parse_orientation(callback_info->data_ptr, &s_orientation);
     }
 }
 
@@ -405,10 +397,8 @@ esp_err_t bhi260ap_init(i2c_master_dev_handle_t dev)
     bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_ACC_WU, parse_accel, NULL, &s_bhy2);
     bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_GYRO, parse_gyro, NULL, &s_bhy2);
     bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_GYRO_WU, parse_gyro, NULL, &s_bhy2);
-    bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_RV, parse_rotation_vector, NULL, &s_bhy2);
-    bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_RV_WU, parse_rotation_vector, NULL, &s_bhy2);
-    bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_ORI, parse_orientation, NULL, &s_bhy2);
-    bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_ORI_WU, parse_orientation, NULL, &s_bhy2);
+    bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_GAMERV, parse_rotation_vector, NULL, &s_bhy2);
+    bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_GAMERV_WU, parse_rotation_vector, NULL, &s_bhy2);
     bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_AR, parse_activity, NULL, &s_bhy2);
     bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_WRIST_TILT_GESTURE, parse_wrist_tilt, NULL, &s_bhy2);
     bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_WAKE_GESTURE, parse_wake_gesture, NULL, &s_bhy2);
@@ -430,8 +420,7 @@ esp_err_t bhi260ap_init(i2c_master_dev_handle_t dev)
         { BHY2_SENSOR_ID_STC, 1.0f },
         { BHY2_SENSOR_ID_ACC, 12.5f },
         { BHY2_SENSOR_ID_GYRO, 12.5f },
-        { BHY2_SENSOR_ID_RV, 5.0f },
-        { BHY2_SENSOR_ID_ORI, 5.0f },
+        { BHY2_SENSOR_ID_GAMERV, 5.0f },
         { BHY2_SENSOR_ID_AR, 5.0f },
         { BHY2_SENSOR_ID_WRIST_TILT_GESTURE, 1.0f },
         { BHY2_SENSOR_ID_WAKE_GESTURE, 1.0f },
@@ -531,7 +520,6 @@ void bhi260ap_deinit(void)
     memset(&s_accel, 0, sizeof(s_accel));
     memset(&s_gyro, 0, sizeof(s_gyro));
     memset(&s_rv, 0, sizeof(s_rv));
-    memset(&s_orientation, 0, sizeof(s_orientation));
     s_activity = BHI260AP_ACTIVITY_UNKNOWN;
     s_wrist_tilt = false;
     s_wake_gesture = false;
@@ -594,19 +582,32 @@ esp_err_t bhi260ap_get_gyro(int16_t *x_dps, int16_t *y_dps, int16_t *z_dps)
     return ESP_OK;
 }
 
+/* Orientation (heading/pitch/roll) computed from the accelerometer.
+ *
+ * The BHI260AP is a 6-DoF IMU (accel+gyro); the ORI/RV fusion sensors need an
+ * external magnetometer to produce heading (absent on this board), so heading
+ * is reported as 0. Pitch/roll come from the gravity vector and are reliable:
+ *   pitch = atan2(-ax, sqrt(ay^2 + az^2))
+ *   roll  = atan2(ay, az)
+ * Accel is in mg (1 mg resolution); the ratios cancel the scale. */
 esp_err_t bhi260ap_get_orientation(int16_t *heading, int16_t *pitch, int16_t *roll)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
     if (heading) {
-        *heading = s_orientation.heading;
+        *heading = 0;   /* no magnetometer on this board */
     }
-    if (pitch) {
-        *pitch = s_orientation.pitch;
-    }
-    if (roll) {
-        *roll = s_orientation.roll;
+    if (pitch || roll) {
+        float ax = (float)s_accel.x;
+        float ay = (float)s_accel.y;
+        float az = (float)s_accel.z;
+        if (pitch) {
+            *pitch = (int16_t)(atan2f(-ax, sqrtf(ay * ay + az * az)) * 180.0f / M_PI);
+        }
+        if (roll) {
+            *roll = (int16_t)(atan2f(ay, az) * 180.0f / M_PI);
+        }
     }
     return ESP_OK;
 }

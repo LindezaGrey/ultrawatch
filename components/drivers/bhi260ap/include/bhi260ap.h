@@ -64,12 +64,14 @@ esp_err_t bhi260ap_get_accel(int16_t *x_mg, int16_t *y_mg, int16_t *z_mg);
 /* Latest gyroscope values in degrees per second. Any out-param may be NULL. */
 esp_err_t bhi260ap_get_gyro(int16_t *x_dps, int16_t *y_dps, int16_t *z_dps);
 
-/* Latest orientation (heading/pitch/roll) in degrees. Any out-param may be
- * NULL. */
+/* Orientation in degrees: pitch/roll computed from the accelerometer (always
+ * available on this 6-DoF board); heading is always 0 (needs a magnetometer,
+ * which the T-Watch Ultra does not have). Any out-param may be NULL. */
 esp_err_t bhi260ap_get_orientation(int16_t *heading, int16_t *pitch, int16_t *roll);
 
-/* Latest rotation-vector quaternion (x/y/z/w, Q14 scaling) and its accuracy
- * (0..3). Either out-param may be NULL. */
+/* Latest game-rotation-vector quaternion (x/y/z/w, Q14 scaling) and its
+ * accuracy (0..3). From the 6-DoF GAMERV fusion (accel+gyro, no magnetometer
+ * needed). Either out-param may be NULL. */
 esp_err_t bhi260ap_get_rotation(int16_t *x, int16_t *y, int16_t *z, int16_t *w,
                                 uint16_t *accuracy);
 
