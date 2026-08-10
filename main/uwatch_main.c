@@ -14,10 +14,13 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "nvs_flash.h"
 #include "driver/usb_serial_jtag.h"
+#include "driver/gpio.h"
 #include "twatch_board.h"
 #include "lvgl_app.h"
 #include "sd_log.h"
+#include "bhi260ap.h"
 #include <stdio.h>
 #include <dirent.h>
 
@@ -108,6 +111,52 @@ static void debug_task(void *arg)
                        (unsigned long)esp_get_free_heap_size(),
                        (unsigned long)esp_get_minimum_free_heap_size(),
                        (unsigned long)heap_caps_get_free_size(MALLOC_CAP_DMA));
+            } else if (strcmp(line, "bhi") == 0) {
+                /* Dump all BHI260AP sensor values. */
+                bool ready = false;
+                uint32_t steps = 0;
+                bhi260ap_get_status(&ready, &steps);
+                printf("bhi: ready=%d steps=%lu\n", (int)ready, (unsigned long)steps);
+                int16_t v0, v1, v2;
+                if (bhi260ap_get_accel(&v0, &v1, &v2) == ESP_OK) {
+                    printf("bhi: accel mg: %d %d %d\n", v0, v1, v2);
+                }
+                if (bhi260ap_get_gyro(&v0, &v1, &v2) == ESP_OK) {
+                    printf("bhi: gyro dps: %d %d %d\n", v0, v1, v2);
+                }
+                if (bhi260ap_get_orientation(&v0, &v1, &v2) == ESP_OK) {
+                    printf("bhi: ori d: %d %d %d\n", v0, v1, v2);
+                }
+                int16_t qx, qy, qz, qw;
+                uint16_t qa;
+                if (bhi260ap_get_rotation(&qx, &qy, &qz, &qw, &qa) == ESP_OK) {
+                    printf("bhi: rv: %d %d %d %d acc=%u\n", qx, qy, qz, qw, (unsigned)qa);
+                }
+                uint8_t act = BHI260AP_ACTIVITY_UNKNOWN;
+                if (bhi260ap_get_activity(&act) == ESP_OK) {
+                    printf("bhi: activity: %u\n", (unsigned)act);
+                }
+            } else if (strcmp(line, "suspend") == 0) {
+                bhi260ap_ap_suspend();
+                printf("suspend: done\n");
+            } else if (strcmp(line, "resume") == 0) {
+                bhi260ap_ap_resume();
+                printf("resume: done\n");
+            } else if (strcmp(line, "imon") == 0) {
+                /* Watch the BHI INT line (GPIO8) for ~30 s, print each change. */
+                int last = gpio_get_level(GPIO_NUM_8);
+                printf("imon: gpio8 initial=%d\n", last);
+                uint32_t start = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+                while ((uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) - start < 30000) {
+                    int cur = gpio_get_level(GPIO_NUM_8);
+                    if (cur != last) {
+                        printf("imon: gpio8 -> %d @ %lu\n", cur,
+                               (unsigned long)(xTaskGetTickCount() * portTICK_PERIOD_MS));
+                        last = cur;
+                    }
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                }
+                printf("imon: done\n");
             } else if (cmd_len > 0) {
                 printf("unknown command: %s\n", line);
             }
@@ -122,13 +171,24 @@ static void debug_task(void *arg)
 
 void app_main(void)
 {
-    esp_err_t err = twatch_board_init();
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "nvs_flash_init: %s", esp_err_to_name(err));
+    }
+
+    err = twatch_board_init();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "board init reported error 0x%x (%s), continuing", err, esp_err_to_name(err));
     }
     ESP_LOGI(TAG, "UWatch boot complete");
 
-    /* SD card logging (best effort; serial-only if no card). */
+    /* SD card logging (best effort; serial-only if no card). Log is reset on
+     * each new firmware build (version change). */
+    sd_log_set_version(UWATCH_GIT_HASH);
     sd_log_mount();
     sd_log_start();
 

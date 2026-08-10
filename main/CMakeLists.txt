@@ -21,6 +21,7 @@ idf_component_register(
         esp_common
         esp_timer
         log
+        nvs_flash
 )
 
 # Bake the git commit hash into the firmware for boot-screen identification.

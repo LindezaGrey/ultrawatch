@@ -49,13 +49,19 @@ static lv_obj_t *s_pw_batt_label;
 static lv_obj_t *s_pw_chg_label;
 static lv_obj_t *s_pw_temp_label;
 static lv_obj_t *s_pw_chg_switch;
-static lv_obj_t *s_pw_cur_slider;
-static lv_obj_t *s_pw_cur_label;
+static lv_obj_t *s_pw_cur_100;
+static lv_obj_t *s_pw_cur_400;
 
 /* BHI260AP status screen. */
 static lv_obj_t *s_bhi_screen;
 static lv_obj_t *s_bhi_status_label;
 static lv_obj_t *s_bhi_steps_label;
+static lv_obj_t *s_bhi_accel_label;
+static lv_obj_t *s_bhi_gyro_label;
+static lv_obj_t *s_bhi_ori_label;
+static lv_obj_t *s_bhi_rv_label;
+static lv_obj_t *s_bhi_activity_label;
+static lv_obj_t *s_bhi_gesture_label;
 
 /* GPS screen (dummy). */
 static lv_obj_t *s_gps_screen;
@@ -115,6 +121,16 @@ static esp_err_t night_mode_draw_bitmap(lv_display_t *disp, esp_lcd_panel_handle
 static void night_mode_changed(bool night)
 {
     (void)night;
+    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+        lv_obj_invalidate(lv_screen_active());
+        esp_lv_adapter_unlock();
+    }
+}
+
+/* Full-screen redraw (e.g. after waking from sleep, when co5300_blank() left
+ * the GRAM black and the adapter's SPI path does not auto-refresh on resume). */
+void lvgl_force_redraw(void)
+{
     if (esp_lv_adapter_lock(-1) == ESP_OK) {
         lv_obj_invalidate(lv_screen_active());
         esp_lv_adapter_unlock();
@@ -294,7 +310,7 @@ static void power_screen_update(lv_timer_t *timer)
     }
     lv_label_set_text(s_pw_temp_label, buf);
 
-    /* Keep switch/slider reflecting hardware state. */
+    /* Keep switch/current buttons reflecting hardware state. */
     bool en = false;
     axp2101_is_charge_enabled(twatch_pmu_dev, &en);
     if (lv_obj_has_state(s_pw_chg_switch, LV_STATE_CHECKED) != en) {
@@ -303,6 +319,13 @@ static void power_screen_update(lv_timer_t *timer)
         } else {
             lv_obj_remove_state(s_pw_chg_switch, LV_STATE_CHECKED);
         }
+    }
+    uint16_t ma = 0;
+    if (axp2101_get_charge_current_ma(twatch_pmu_dev, &ma) == ESP_OK) {
+        bool cur100 = (ma <= 150);
+        lv_obj_add_state(s_pw_cur_100, LV_STATE_CHECKED);
+        lv_obj_add_state(s_pw_cur_400, LV_STATE_CHECKED);
+        lv_obj_clear_state(cur100 ? s_pw_cur_100 : s_pw_cur_400, LV_STATE_CHECKED);
     }
 }
 
@@ -313,14 +336,14 @@ static void power_chg_switch_cb(lv_event_t *e)
     axp2101_set_charge_enabled(twatch_pmu_dev, en);
 }
 
-static void power_cur_slider_cb(lv_event_t *e)
+static void power_cur_btn_cb(lv_event_t *e)
 {
     (void)e;
-    int32_t ma = lv_slider_get_value(s_pw_cur_slider);
-    axp2101_set_charge_current_ma(twatch_pmu_dev, (uint16_t)ma);
-    char buf[32];
-    snprintf(buf, sizeof(buf), "Charge current  %lumA", (unsigned long)ma);
-    lv_label_set_text(s_pw_cur_label, buf);
+    uint16_t ma = (uint16_t)(uintptr_t)lv_event_get_user_data(e);
+    axp2101_set_charge_current_ma(twatch_pmu_dev, ma);
+    lv_obj_add_state(s_pw_cur_100, LV_STATE_CHECKED);
+    lv_obj_add_state(s_pw_cur_400, LV_STATE_CHECKED);
+    lv_obj_clear_state(ma == 100 ? s_pw_cur_100 : s_pw_cur_400, LV_STATE_CHECKED);
 }
 
 static void lvgl_build_power_screen(void)
@@ -363,25 +386,32 @@ static void lvgl_build_power_screen(void)
     lv_obj_align(s_pw_chg_switch, LV_ALIGN_TOP_RIGHT, -40, 200);
     lv_obj_add_event_cb(s_pw_chg_switch, power_chg_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    /* Charging current slider (0..500 mA). */
+    /* Charging current: two fixed settings (100 mA default / 400 mA max). */
     lv_obj_t *cur_lbl = lv_label_create(s_power_screen);
     lv_label_set_text(cur_lbl, "Charge current");
     lv_obj_set_style_text_font(cur_lbl, s_font_small, 0);
     lv_obj_set_style_text_color(cur_lbl, lv_color_hex(0xE0E0E0), 0);
     lv_obj_align(cur_lbl, LV_ALIGN_TOP_LEFT, 40, 260);
 
-    s_pw_cur_slider = lv_slider_create(s_power_screen);
-    lv_obj_set_size(s_pw_cur_slider, 330, 24);
-    lv_slider_set_range(s_pw_cur_slider, 0, 500);
-    lv_slider_set_value(s_pw_cur_slider, 0, LV_ANIM_OFF);
-    lv_obj_align(s_pw_cur_slider, LV_ALIGN_TOP_MID, 0, 310);
-    lv_obj_add_event_cb(s_pw_cur_slider, power_cur_slider_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    s_pw_cur_100 = lv_button_create(s_power_screen);
+    lv_obj_set_size(s_pw_cur_100, 160, 44);
+    lv_obj_align(s_pw_cur_100, LV_ALIGN_TOP_LEFT, 40, 310);
+    lv_obj_t *l100 = lv_label_create(s_pw_cur_100);
+    lv_label_set_text(l100, "100mA");
+    lv_obj_set_style_text_font(l100, s_font_small, 0);
+    lv_obj_center(l100);
+    lv_obj_add_flag(s_pw_cur_100, LV_OBJ_FLAG_CHECKABLE);
+    lv_obj_add_event_cb(s_pw_cur_100, power_cur_btn_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)100);
 
-    s_pw_cur_label = lv_label_create(s_power_screen);
-    lv_label_set_text(s_pw_cur_label, "Charge current  0mA");
-    lv_obj_set_style_text_font(s_pw_cur_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_pw_cur_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_pw_cur_label, LV_ALIGN_TOP_MID, 0, 360);
+    s_pw_cur_400 = lv_button_create(s_power_screen);
+    lv_obj_set_size(s_pw_cur_400, 160, 44);
+    lv_obj_align(s_pw_cur_400, LV_ALIGN_TOP_RIGHT, -40, 310);
+    lv_obj_t *l400 = lv_label_create(s_pw_cur_400);
+    lv_label_set_text(l400, "400mA");
+    lv_obj_set_style_text_font(l400, s_font_small, 0);
+    lv_obj_center(l400);
+    lv_obj_add_flag(s_pw_cur_400, LV_OBJ_FLAG_CHECKABLE);
+    lv_obj_add_event_cb(s_pw_cur_400, power_cur_btn_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)400);
 
     /* Hint. */
     lv_obj_t *hint = lv_label_create(s_power_screen);
@@ -395,19 +425,81 @@ static void lvgl_build_power_screen(void)
 
 /* ---- BHI260AP status screen ---- */
 
+static const char *activity_name(uint8_t activity)
+{
+    switch (activity) {
+    case BHI260AP_ACTIVITY_STILL: return "still";
+    case BHI260AP_ACTIVITY_WALKING: return "walking";
+    case BHI260AP_ACTIVITY_RUNNING: return "running";
+    case BHI260AP_ACTIVITY_ON_BICYCLE: return "cycling";
+    case BHI260AP_ACTIVITY_IN_VEHICLE: return "in vehicle";
+    case BHI260AP_ACTIVITY_TILTING: return "tilting";
+    default: return "unknown";
+    }
+}
+
 static void bhi_screen_update(lv_timer_t *timer)
 {
     (void)timer;
     if (!s_bhi_status_label) {
         return;
     }
+    char buf[64];
+
     bool ready = false;
     uint32_t steps = 0;
     bhi260ap_get_status(&ready, &steps);
     lv_label_set_text(s_bhi_status_label, ready ? "BHI260AP: ready" : "BHI260AP: not ready");
-    char buf[32];
     snprintf(buf, sizeof(buf), "Steps: %lu", (unsigned long)steps);
     lv_label_set_text(s_bhi_steps_label, buf);
+
+    int16_t ax = 0, ay = 0, az = 0;
+    bhi260ap_get_accel(&ax, &ay, &az);
+    snprintf(buf, sizeof(buf), "Acc (mg): %d %d %d", ax, ay, az);
+    lv_label_set_text(s_bhi_accel_label, buf);
+
+    int16_t gx = 0, gy = 0, gz = 0;
+    bhi260ap_get_gyro(&gx, &gy, &gz);
+    snprintf(buf, sizeof(buf), "Gyro (dps): %d %d %d", gx, gy, gz);
+    lv_label_set_text(s_bhi_gyro_label, buf);
+
+    int16_t hd = 0, pt = 0, rl = 0;
+    bhi260ap_get_orientation(&hd, &pt, &rl);
+    snprintf(buf, sizeof(buf), "Ori (deg): %d %d %d", hd, pt, rl);
+    lv_label_set_text(s_bhi_ori_label, buf);
+
+    int16_t rx = 0, ry = 0, rz = 0, rw = 0;
+    uint16_t racc = 0;
+    bhi260ap_get_rotation(&rx, &ry, &rz, &rw, &racc);
+    snprintf(buf, sizeof(buf), "RV: %d %d %d %d acc%d", rx, ry, rz, rw, (int)racc);
+    lv_label_set_text(s_bhi_rv_label, buf);
+
+    uint8_t activity = BHI260AP_ACTIVITY_UNKNOWN;
+    bhi260ap_get_activity(&activity);
+    snprintf(buf, sizeof(buf), "Activity: %s", activity_name(activity));
+    lv_label_set_text(s_bhi_activity_label, buf);
+
+    /* Keep the last gesture shown until a new one fires (otherwise the text
+     * would clear on the next 1 s refresh). */
+    bool tilt = false, wake = false, glance = false, pickup = false, tdet = false;
+    if (bhi260ap_consume_gestures(&tilt, &wake, &glance, &pickup, &tdet) == ESP_OK) {
+        snprintf(buf, sizeof(buf), "Gesture: %s%s%s%s%s",
+                 tilt ? "wristtilt " : "", wake ? "wake " : "", glance ? "glance " : "",
+                 pickup ? "pickup " : "", tdet ? "tiltdet " : "");
+        if (strcmp(buf, "Gesture: ") != 0) {
+            lv_label_set_text(s_bhi_gesture_label, buf);
+        }
+    }
+}
+
+static lv_obj_t *bhi_text_row(lv_obj_t *parent, const char *text, lv_obj_t **label)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_label_set_text(l, text);
+    lv_obj_set_style_text_font(l, s_font_small, 0);
+    lv_obj_set_style_text_color(l, lv_color_hex(0xE0E0E0), 0);
+    *label = l;
+    return l;
 }
 
 static void lvgl_build_bhi_screen(void)
@@ -419,26 +511,42 @@ static void lvgl_build_bhi_screen(void)
     lv_label_set_text(title, "BHI260AP");
     lv_obj_set_style_text_font(title, s_font_small, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
-    s_bhi_status_label = lv_label_create(s_bhi_screen);
-    lv_label_set_text(s_bhi_status_label, "");
-    lv_obj_set_style_text_font(s_bhi_status_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_bhi_status_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_bhi_status_label, LV_ALIGN_CENTER, 0, -20);
+    /* All values as plain text rows. */
+    lv_obj_t *l;
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_status_label);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 36);
 
-    s_bhi_steps_label = lv_label_create(s_bhi_screen);
-    lv_label_set_text(s_bhi_steps_label, "");
-    lv_obj_set_style_text_font(s_bhi_steps_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_bhi_steps_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_bhi_steps_label, LV_ALIGN_CENTER, 0, 40);
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_steps_label);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 66);
+
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_accel_label);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 96);
+
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_gyro_label);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 126);
+
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_ori_label);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 156);
+
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_rv_label);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 186);
+
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_activity_label);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 216);
+
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_gesture_label);
+    lv_obj_set_style_text_color(l, lv_color_hex(0xFFD54D), 0);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 246);
 
     lv_obj_t *hint = lv_label_create(s_bhi_screen);
     lv_label_set_text(hint, "swipe right to go back");
     lv_obj_set_style_text_font(hint, s_font_small, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -8);
 
+    bhi_screen_update(NULL);
     lv_timer_create(bhi_screen_update, 1000, NULL);
 }
 
@@ -533,11 +641,13 @@ static void swipe_event_cb(lv_event_t *e)
 
 /* ---- Menu inactivity timeout ----
  * Any non-watch-face screen returns to the watch face after MENU_TIMEOUT_MS
- * without a touch. */
+ * without a touch. The BHI sensor screen is exempt: it is meant for longer
+ * observation. */
 static void menu_timeout_cb(lv_timer_t *timer)
 {
     (void)timer;
-    if (lv_screen_active() == s_watch_screen) {
+    lv_obj_t *cur = lv_screen_active();
+    if (cur == s_watch_screen || cur == s_bhi_screen) {
         return;
     }
     if (lv_tick_get() - s_last_touch_tick >= MENU_TIMEOUT_MS) {
@@ -560,18 +670,44 @@ static void lvgl_show_watch_face(void)
 }
 
 /* Sensor task: bring up the BHI260AP (RAM firmware upload + boot) once the
- * assets partition is mounted, then poll the FIFO to stream sensor events. */
+ * assets partition is mounted, then poll the FIFO to stream sensor events.
+ *
+ * The sensor rail (ALDO4) is power-cycled by auto-sleep, which erases the
+ * chip's RAM firmware. After wake the chip answers FIFO reads with empty data
+ * (bootloader mode), so FIFO errors don't reliably appear. Instead, detect a
+ * dead stream by data staleness: accel samples at 12.5 Hz when alive, so a
+ * stale age (> 5 s) means the chip needs re-initialization. */
+#define BHI_STALE_MS 5000
+
 static void bhi260_task(void *arg)
 {
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(50));
-    if (bhi260ap_init(twatch_imu_dev) != ESP_OK) {
-        ESP_LOGW(TAG, "BHI260AP init failed; sensor disabled");
-        vTaskDelete(NULL);
-        return;
+    bool initialized = (bhi260ap_init(twatch_imu_dev) == ESP_OK);
+    if (!initialized) {
+        ESP_LOGW(TAG, "BHI260AP init failed; retrying");
     }
     for (;;) {
-        bhi260ap_process_fifo();
+        /* While the chip is in AP-suspend (host sleeping), no data flows by
+         * design: skip polling and the stale re-init so the wake-up gesture
+         * stream stays armed (re-init would leave AP-suspend and flood the
+         * wake task with gesture events). */
+        if (bhi260ap_is_suspended()) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
+        if (initialized) {
+            if (bhi260ap_process_fifo() != ESP_OK) {
+                ESP_LOGW(TAG, "BHI260AP FIFO read failed");
+            }
+            if (bhi260ap_get_data_age_ms() > BHI_STALE_MS) {
+                ESP_LOGW(TAG, "BHI260AP data stale, re-initializing");
+                bhi260ap_deinit();
+                initialized = false;
+            }
+        } else if (bhi260ap_init(twatch_imu_dev) == ESP_OK) {
+            initialized = true;
+        }
         vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
@@ -646,6 +782,10 @@ esp_err_t lvgl_app_start(void)
 
     /* Power management: DFS + light sleep + wake sources. */
     power_mgmt_init();
+
+    /* Default charge current: 100 mA (gentle for the 1100 mAh cell; 400 mA is
+     * the user-selectable maximum on the power screen). */
+    axp2101_set_charge_current_ma(twatch_pmu_dev, 100);
 
     /* Force a full redraw when night mode toggles so the red-only transform
      * reaches every pixel. */
