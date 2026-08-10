@@ -49,6 +49,39 @@ static void area_rounder_cb(lv_event_t *e)
     area->y2 = ((area->y2 >> 1) << 1) + 1;
 }
 
+/* Red-only night-mode transform. LVGL renders RGB565_SWAPPED (big-endian on
+ * the panel): each pixel is 2 bytes, byte0 = MSB = RRRRR GGG, byte1 = GGG BBBBB.
+ * Keeping only the red channel zeroes green/blue. Applied in-place; the blit is
+ * synchronous, so the buffer is safe to mutate before esp_lcd_panel_draw_bitmap. */
+static esp_err_t night_mode_draw_bitmap(lv_display_t *disp, esp_lcd_panel_handle_t panel,
+                                        int x_start, int y_start, int x_end, int y_end,
+                                        const void *color_map, void *user_ctx)
+{
+    (void)disp;
+    (void)user_ctx;
+    if (power_mgmt_is_night_mode()) {
+        uint8_t *buf = (uint8_t *)color_map;
+        size_t n = (size_t)(x_end - x_start) * (y_end - y_start);
+        for (size_t i = 0; i < n; i++) {
+            buf[i * 2]     &= 0xF8;   /* keep 5-bit red */
+            buf[i * 2 + 1]  = 0x00;   /* drop green/blue */
+        }
+    }
+    return esp_lcd_panel_draw_bitmap(panel, x_start, y_start, x_end, y_end, color_map);
+}
+
+/* On a night-mode change, invalidate the whole screen so every pixel is
+ * redrawn through the red-only transform (content flushed before the state
+ * flip would otherwise keep its old colors). */
+static void night_mode_changed(bool night)
+{
+    (void)night;
+    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+        lv_obj_invalidate(lv_screen_active());
+        esp_lv_adapter_unlock();
+    }
+}
+
 static void lvgl_build_boot_screen(void)
 {
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x000000), 0);
@@ -225,10 +258,20 @@ esp_err_t lvgl_app_start(void)
     lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565_SWAPPED);
     lv_display_add_event_cb(disp, area_rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
 
+    /* Red-only night-mode pixel transform (no-op outside night mode). */
+    const esp_lv_adapter_draw_bitmap_callbacks_t draw_cbs = {
+        .custom_draw_bitmap = night_mode_draw_bitmap,
+    };
+    esp_lv_adapter_set_draw_bitmap_callbacks(disp, &draw_cbs, NULL);
+
     ESP_RETURN_ON_ERROR(esp_lv_adapter_start(), TAG, "adapter start");
 
     /* Power management: DFS + light sleep + wake sources. */
     power_mgmt_init();
+
+    /* Force a full redraw when night mode toggles so the red-only transform
+     * reaches every pixel. */
+    power_mgmt_register_night_mode_cb(night_mode_changed);
 
     if (esp_lv_adapter_lock(-1) == ESP_OK) {
         s_font_time  = load_font(96);
@@ -253,6 +296,9 @@ esp_err_t lvgl_app_start(void)
         } else {
             ESP_LOGE(TAG, "touch registration failed");
         }
+        /* The touch driver re-enables its GPIO interrupt; re-apply night mode
+         * so touch stays disabled (no accidental wake) during night hours. */
+        power_mgmt_recheck_night_mode();
     }
 
     ESP_LOGI(TAG, "LVGL started (watch face)");

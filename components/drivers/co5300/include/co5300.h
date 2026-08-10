@@ -50,6 +50,9 @@ esp_err_t co5300_deinit(void);
 esp_err_t co5300_sleep(void);
 esp_err_t co5300_wake(void);
 
+/* Set display brightness (DCS 0x51, 8-bit; 0x00..0xFF). */
+esp_err_t co5300_set_brightness(uint8_t bri);
+
 /* Access to the underlying esp_lcd SH8601 panel / panel IO handles (for
  * integration with LVGL via esp_lvgl_adapter). */
 #include "esp_lcd_panel_io.h"

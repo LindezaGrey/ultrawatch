@@ -19,6 +19,7 @@
 #include "twatch_board.h"
 #include "axp2101.h"
 #include "co5300.h"
+#include <time.h>
 
 static const char *TAG = "power_mgmt";
 
@@ -26,9 +27,80 @@ static const char *TAG = "power_mgmt";
 #define PM_GPIO_PWRKEY 7    /* AXP2101 IRQ */
 #define PM_GPIO_BOOT   0
 
+/* Night-mode clock check period while the watch is idle. */
+#define PM_NIGHT_CHECK_MS  60000
+
 /* RTC-capable GPIO wakeup for the touch line is armed here. */
 static volatile uint32_t s_wake_gpio;
 static TaskHandle_t s_wake_task;
+static volatile bool s_night_mode;
+static power_mgmt_night_mode_cb_t s_night_mode_cb;
+
+/* Night mode is active between PM_NIGHT_START_HOUR (inclusive) and
+ * PM_NIGHT_END_HOUR (exclusive), wrapping midnight. */
+static bool pm_is_night_time(void);
+static void pm_apply_night_mode(bool night);
+
+static bool pm_is_night_time(void)
+{
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    int h = tm.tm_hour;
+    if (PM_NIGHT_START_HOUR <= PM_NIGHT_END_HOUR) {
+        return h >= PM_NIGHT_START_HOUR && h < PM_NIGHT_END_HOUR;
+    }
+    return h >= PM_NIGHT_START_HOUR || h < PM_NIGHT_END_HOUR;
+}
+
+bool power_mgmt_is_night_mode(void)
+{
+    return s_night_mode;
+}
+
+void power_mgmt_recheck_night_mode(void)
+{
+    pm_apply_night_mode(pm_is_night_time());
+    /* Force the touch-ISR disable/enable even if the state didn't change
+     * (e.g. a driver like esp_lcd_touch re-enabled the GPIO interrupt after
+     * night mode disabled it). */
+    if (s_night_mode) {
+        gpio_intr_disable(PM_GPIO_TOUCH);
+    } else {
+        gpio_intr_enable(PM_GPIO_TOUCH);
+    }
+}
+
+void power_mgmt_register_night_mode_cb(power_mgmt_night_mode_cb_t cb)
+{
+    s_night_mode_cb = cb;
+}
+
+static void pm_apply_night_mode(bool night)
+{
+    if (night == s_night_mode) {
+        return;
+    }
+    s_night_mode = night;
+    ESP_LOGI(TAG, "night mode %s", night ? "on" : "off");
+
+    /* Dim to ~10% (night) or restore normal brightness. */
+    co5300_set_brightness(night ? PM_NIGHT_BRIGHTNESS : 0x80);
+
+    /* Disable touch as an input/wake source at night (avoid accidental
+     * screen activation); re-enable it in the morning. */
+    if (night) {
+        gpio_intr_disable(PM_GPIO_TOUCH);
+    } else {
+        gpio_intr_enable(PM_GPIO_TOUCH);
+    }
+
+    /* Force the UI to redraw everything so the red-only transform (or its
+     * removal) is applied to every pixel, not just newly invalidated areas. */
+    if (s_night_mode_cb) {
+        s_night_mode_cb(night);
+    }
+}
 
 /* Wakes the LVGL adapter from a task context. Calling the adapter's
  * *_from_isr() wake API from inside the shared GPIO ISR service crashed
@@ -59,7 +131,12 @@ static void pm_wake_task(void *arg)
 {
     (void)arg;
     for (;;) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        /* Wait for a button wake, or the periodic night-mode clock check. */
+        if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(PM_NIGHT_CHECK_MS)) == 0) {
+            pm_apply_night_mode(pm_is_night_time());
+            continue;
+        }
+
         uint32_t gpio = s_wake_gpio;
         ESP_LOGI(TAG, "wake: gpio=%u", (unsigned)gpio);
 
@@ -86,7 +163,11 @@ static void pm_wake_task(void *arg)
 static void pm_arm_gpio_wakeup(void)
 {
     s_wake_gpio = 0;
-    gpio_wakeup_enable(PM_GPIO_TOUCH, GPIO_INTR_LOW_LEVEL);
+    /* Touch is not a wake source in night mode (avoid accidental screen
+     * activation); PWR/BOOT buttons always wake. */
+    if (!s_night_mode) {
+        gpio_wakeup_enable(PM_GPIO_TOUCH, GPIO_INTR_LOW_LEVEL);
+    }
     gpio_wakeup_enable(PM_GPIO_PWRKEY, GPIO_INTR_LOW_LEVEL);
     gpio_wakeup_enable(PM_GPIO_BOOT, GPIO_INTR_LOW_LEVEL);
     esp_sleep_enable_gpio_wakeup();
@@ -121,7 +202,8 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
 esp_err_t power_mgmt_exit_sleep(void *ctx)
 {
     (void)ctx;
-    ESP_LOGI(TAG, "waking: gpio=%u", (unsigned)s_wake_gpio);
+    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+    ESP_LOGI(TAG, "waking: gpio=%u cause=%d", (unsigned)s_wake_gpio, (int)cause);
 
     /* Restore rails. */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, true);
@@ -132,6 +214,7 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, true);
 
     co5300_wake();
+    co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : 0x80);
 
     /* Safety net: clear any pending AXP IRQ (de-asserts the GPIO7 line).
      * Detailed power-key reporting happens in pm_wake_task. */
@@ -178,4 +261,7 @@ void power_mgmt_init(void)
     gpio_config(&io);
     gpio_isr_handler_add(PM_GPIO_PWRKEY, button_isr, (void *)(uintptr_t)PM_GPIO_PWRKEY);
     gpio_isr_handler_add(PM_GPIO_BOOT, button_isr, (void *)(uintptr_t)PM_GPIO_BOOT);
+
+    /* Apply the initial night-mode state (and touch-ISR state). */
+    pm_apply_night_mode(pm_is_night_time());
 }

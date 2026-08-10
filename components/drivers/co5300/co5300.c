@@ -151,6 +151,15 @@ static esp_err_t co5300_send_cmd(uint8_t cmd)
     return esp_lcd_panel_io_tx_param(s_panel_io, lcd_cmd, NULL, 0);
 }
 
+esp_err_t co5300_set_brightness(uint8_t bri)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    int lcd_cmd = (int)((0x02UL << 24) | (0x51UL << 8));            /* Write Display Brightness */
+    return esp_lcd_panel_io_tx_param(s_panel_io, lcd_cmd, &bri, 1);
+}
+
 esp_err_t co5300_sleep(void)
 {
     if (!s_initialized) {
@@ -168,7 +177,5 @@ esp_err_t co5300_wake(void)
     vTaskDelay(pdMS_TO_TICKS(120));
     ESP_RETURN_ON_ERROR(co5300_send_cmd(0x29), TAG, "dison");       /* DISPON */
     vTaskDelay(pdMS_TO_TICKS(120));
-    uint8_t bri = 0x80;
-    int lcd_cmd = (int)((0x02UL << 24) | (0x51UL << 8));            /* brightness */
-    return esp_lcd_panel_io_tx_param(s_panel_io, lcd_cmd, &bri, 1);
+    return co5300_set_brightness(0x80);
 }
