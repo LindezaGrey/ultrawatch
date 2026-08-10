@@ -23,6 +23,7 @@
 #include "co5300.h"
 #include "cst9217.h"
 #include "bhi260ap.h"
+#include "sd_log.h"
 #include "twatch_board.h"
 #include "axp2101.h"
 #include "power_mgmt.h"
@@ -561,8 +562,7 @@ esp_err_t lvgl_app_dump_screenshot(void)
         return ESP_ERR_NO_MEM;
     }
 
-    /* Capture under the LVGL lock (fast), then release before streaming so the
-     * UI keeps running during the serial transfer. */
+    /* Capture under the LVGL lock (fast), then release before any transfer. */
     if (esp_lv_adapter_lock(-1) != ESP_OK) {
         free(px);
         return ESP_FAIL;
@@ -575,6 +575,13 @@ esp_err_t lvgl_app_dump_screenshot(void)
         ESP_LOGE(TAG, "screenshot: snapshot failed");
         free(px);
         return ESP_FAIL;
+    }
+
+    /* Prefer saving to the SD card as PNG; fall back to streaming raw RGB565
+     * over the USB-JTAG console when no card is present. */
+    if (sd_log_save_screenshot((const uint16_t *)px, w, h) == ESP_OK) {
+        free(px);
+        return ESP_OK;
     }
 
     /* Suppress ESP logging while streaming so no other task interleaves text. */

@@ -130,13 +130,26 @@ static void IRAM_ATTR button_isr(void *arg)
 static void pm_wake_task(void *arg)
 {
     (void)arg;
+    uint32_t since_night_check = 0;
     for (;;) {
-        /* Wait for a button wake, or the periodic night-mode clock check. */
-        if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(PM_NIGHT_CHECK_MS)) == 0) {
-            pm_apply_night_mode(pm_is_night_time());
+        /* Wake every 2 s: pump USB activity (so the adapter never hits its idle
+         * timeout while plugged in -> no sleep attempt / no error spam), and
+         * run the night-mode clock check every PM_NIGHT_CHECK_MS. */
+        uint32_t t = pdMS_TO_TICKS(2000);
+        if (ulTaskNotifyTake(pdTRUE, t) == 0) {
+            since_night_check += 2000;
+            bool vbus = false;
+            if (axp2101_is_vbus_present(twatch_pmu_dev, &vbus) == ESP_OK && vbus) {
+                esp_lv_adapter_report_activity();
+            }
+            if (since_night_check >= PM_NIGHT_CHECK_MS) {
+                since_night_check = 0;
+                pm_apply_night_mode(pm_is_night_time());
+            }
             continue;
         }
 
+        since_night_check = 0;
         uint32_t gpio = s_wake_gpio;
         ESP_LOGI(TAG, "wake: gpio=%u", (unsigned)gpio);
 
@@ -180,7 +193,7 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
     /* Skip auto-sleep while on USB power (development / charging). */
     bool vbus = false;
     if (axp2101_is_vbus_present(twatch_pmu_dev, &vbus) == ESP_OK && vbus) {
-        ESP_LOGI(TAG, "on USB power, skipping auto sleep");
+        ESP_LOGD(TAG, "on USB power, skipping auto sleep");
         return ESP_ERR_NOT_SUPPORTED;
     }
 
@@ -264,4 +277,8 @@ void power_mgmt_init(void)
 
     /* Apply the initial night-mode state (and touch-ISR state). */
     pm_apply_night_mode(pm_is_night_time());
+
+    /* Silence the adapter's periodic auto-sleep INFO chatter (it retries every
+     * 5 s while on USB); errors still print. */
+    esp_log_level_set("esp_lvgl:adapter", ESP_LOG_WARN);
 }

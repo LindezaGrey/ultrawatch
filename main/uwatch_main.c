@@ -16,6 +16,9 @@
 #include "driver/usb_serial_jtag.h"
 #include "twatch_board.h"
 #include "lvgl_app.h"
+#include "sd_log.h"
+#include <stdio.h>
+#include <dirent.h>
 
 static const char *TAG = "uwatch";
 
@@ -61,6 +64,30 @@ static void debug_task(void *arg)
 
             if (strcmp(line, "shot") == 0) {
                 lvgl_app_dump_screenshot();
+            } else if (strcmp(line, "sdin") == 0) {
+                /* Read back /sdcard/log/uwatch.log and dump it. */
+                FILE *f = fopen("/sdcard/log/uwatch.log", "r");
+                if (!f) {
+                    printf("sdin: no log file\n");
+                } else {
+                    char c;
+                    while (fread(&c, 1, 1, f) == 1) {
+                        putchar(c);
+                    }
+                    fclose(f);
+                }
+            } else if (strcmp(line, "sdls") == 0) {
+                /* List PNG screenshots on the SD card. */
+                DIR *d = opendir("/sdcard/shot");
+                if (!d) {
+                    printf("sdls: no shot dir\n");
+                } else {
+                    struct dirent *e;
+                    while ((e = readdir(d)) != NULL) {
+                        printf("%s\n", e->d_name);
+                    }
+                    closedir(d);
+                }
             } else if (cmd_len > 0) {
                 printf("unknown command: %s\n", line);
             }
@@ -80,6 +107,10 @@ void app_main(void)
         ESP_LOGW(TAG, "board init reported error 0x%x (%s), continuing", err, esp_err_to_name(err));
     }
     ESP_LOGI(TAG, "UWatch boot complete");
+
+    /* SD card logging (best effort; serial-only if no card). */
+    sd_log_mount();
+    sd_log_start();
 
     err = lvgl_app_start();
     if (err != ESP_OK) {
