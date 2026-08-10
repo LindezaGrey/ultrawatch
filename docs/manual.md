@@ -27,9 +27,26 @@ swipe in a direction to open a menu, and swipe back the opposite way to return.
 
 - **Power Management** — battery level (%), battery voltage (V), charging
   state, battery temperature (°C), a charging enable switch, and a charge
-  current slider (0–500 mA).
-- **BHI260AP status** — IMU status (ready / not ready) and the step counter.
-- **GPS** — placeholder (GNSS receiver not integrated yet).
+  current selector (100 mA / 400 mA presets, 100 mA default).
+- **BHI260AP status** — IMU status (ready / not ready), step counter, accel,
+  gyro, orientation (pitch/roll from the accelerometer), rotation quaternion
+  (6-DoF game rotation vector), activity, and last gesture.
+- **GPS** — satellite **skyplot** (position by azimuth/elevation, color by
+  signal strength; filled dot = used in fix) plus position, altitude, speed
+  (km/h), course, satellite count and estimated accuracy (HDOP-based).
+
+## GPS power management
+
+The GNSS receiver (u-blox MIA-M10Q) is the most power-hungry peripheral
+(~8–14 mA when acquiring, ~5 mA tracking), so it is **powered off by default**
+and only switched on while the **GPS screen is open**. Leaving the screen (or
+the 5 s menu timeout) powers it back off.
+
+Despite being unpowered, the receiver's always-on **VRTC backup rail** keeps its
+RTC and ephemeris alive (~28 µA), so the next power-up is a **warm/hot start**
+(~1–5 s to a fix) instead of a ~25 s cold start.
+
+The skyplot and fix data update once per second while the screen is open.
 
 ## Auto-return
 
@@ -59,6 +76,10 @@ available (type them and press Enter):
 | `shot` | Save the current screen as a PNG to the SD card (`/sdcard/shot/`); falls back to streaming raw RGB565 over USB if no card. |
 | `sdin` | Print the contents of `/sdcard/log/uwatch.log`. |
 | `sdls` | List screenshot files on the SD card. |
+| `bhi` | Dump all BHI260AP sensor values. |
+| `gnss` | Dump GNSS state, fix (position/speed/sats/accuracy) and per-satellite azimuth/elevation/SNR. |
+| `suspend` / `resume` | Manually toggle the BHI260AP AP-suspend mode (debug). |
+| `imon` | Watch the BHI260AP INT line (GPIO8) for 30 s (debug). |
 
 ## Data storage (SD card)
 
@@ -73,3 +94,6 @@ When an SD card is present it is mounted at `/sdcard`:
 - A long press on **PWR** powers the device off (AXP2101 PEK behaviour).
 - The BHI260AP firmware is uploaded to RAM on every boot from the SPIFFS
   assets partition.
+- **Open point (future):** the GNSS receiver's PPS output (GPIO13) could be
+  used to discipline the RTC (PCF85063A) to UTC with ~30 ns accuracy whenever
+  a GNSS fix is available. Not implemented yet.

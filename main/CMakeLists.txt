@@ -8,6 +8,7 @@ idf_component_register(
         cst9217
         co5300
         bhi260ap
+        m10q
         sd_log
         pcf85063a
         esp_lvgl_adapter

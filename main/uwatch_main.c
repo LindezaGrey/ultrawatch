@@ -21,6 +21,7 @@
 #include "lvgl_app.h"
 #include "sd_log.h"
 #include "bhi260ap.h"
+#include "m10q.h"
 #include <stdio.h>
 #include <dirent.h>
 
@@ -157,6 +158,24 @@ static void debug_task(void *arg)
                     vTaskDelay(pdMS_TO_TICKS(10));
                 }
                 printf("imon: done\n");
+            } else if (strcmp(line, "gnss") == 0) {
+                /* Dump GNSS state, fix, and satellites. */
+                m10q_fix_t fix;
+                m10q_get_fix(&fix);
+                printf("gnss: state=%d valid=%d\n", (int)m10q_get_state(), (int)fix.valid);
+                if (fix.valid) {
+                    printf("gnss: pos %.5f %.5f alt %.0fm\n", fix.lat, fix.lon, fix.alt_m);
+                    printf("gnss: speed %u km/h course %u sats %u hAcc %um\n",
+                           (unsigned)fix.speed_kmh, (unsigned)fix.course_deg,
+                           (unsigned)fix.sat_count, (unsigned)fix.hacc_m);
+                }
+                printf("gnss: in view %u\n", (unsigned)fix.sat_in_view);
+                for (int i = 0; i < (int)fix.sat_in_view && i < M10Q_MAX_SATS; i++) {
+                    printf("gnss: sat %2u el %3d az %3d snr %d used %d\n",
+                           (unsigned)fix.sats[i].prn, (int)fix.sats[i].elevation_deg,
+                           (int)fix.sats[i].azimuth_deg, (int)fix.sats[i].snr_db,
+                           (int)fix.sats[i].used);
+                }
             } else if (cmd_len > 0) {
                 printf("unknown command: %s\n", line);
             }

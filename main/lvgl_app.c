@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -27,6 +28,7 @@
 #include "pcf85063a.h"
 #include "twatch_board.h"
 #include "axp2101.h"
+#include "m10q.h"
 #include "power_mgmt.h"
 
 static const char *TAG = "lvgl_app";
@@ -63,8 +65,15 @@ static lv_obj_t *s_bhi_rv_label;
 static lv_obj_t *s_bhi_activity_label;
 static lv_obj_t *s_bhi_gesture_label;
 
-/* GPS screen (dummy). */
+/* GPS screen (skyplot + fix info). */
 static lv_obj_t *s_gps_screen;
+static lv_obj_t *s_gps_status_label;
+static lv_obj_t *s_gps_pos_label;
+static lv_obj_t *s_gps_speed_label;
+static lv_obj_t *s_gps_sats_label;
+static lv_obj_t *s_gps_dots[M10Q_MAX_SATS];   /* satellite dots (in view order) */
+static bool s_gps_powered;
+static uint32_t s_gps_acq_start_ms;            /* power-on timestamp */
 
 /* Swipe detection at the input-device level (works regardless of widget). */
 #define SWIPE_DIST         60
@@ -79,6 +88,7 @@ static void swipe_event_cb(lv_event_t *e);
 static void lvgl_build_power_screen(void);
 static void lvgl_build_bhi_screen(void);
 static void lvgl_build_gps_screen(void);
+static void gps_power(bool on);
 static void lvgl_build_watch_face(void);
 static void menu_timeout_cb(lv_timer_t *timer);
 static void lvgl_show_watch_face(void);
@@ -550,7 +560,112 @@ static void lvgl_build_bhi_screen(void)
     lv_timer_create(bhi_screen_update, 1000, NULL);
 }
 
-/* ---- GPS screen (dummy) ---- */
+/* ---- GPS screen (skyplot + fix info) ----
+ * GNSS is powered on demand: the BLDO1 rail is enabled when this screen is
+ * opened and disabled when it is left. The always-on VRTC backup rail keeps
+ * the receiver's ephemeris/RTC alive, so each power-up is a warm/hot start. */
+
+#define GPS_SKY_RADIUS    140
+#define GPS_SKY_CX        205
+#define GPS_SKY_CY        205
+
+static lv_obj_t *gps_ring(int radius)
+{
+    lv_obj_t *arc = lv_arc_create(s_gps_screen);
+    lv_obj_set_size(arc, radius * 2, radius * 2);
+    lv_obj_set_pos(arc, GPS_SKY_CX - radius, GPS_SKY_CY - radius);
+    lv_arc_set_bg_angles(arc, 0, 360);
+    lv_arc_set_rotation(arc, 0);
+    lv_arc_set_value(arc, 100);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0x2A5A2A), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 2, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0x2A5A2A), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(arc, 2, LV_PART_INDICATOR);
+    lv_obj_remove_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    return arc;
+}
+
+/* Convert satellite azimuth/elevation to skyplot pixel coords. */
+static void gps_sat_xy(int az, int el, int *x, int *y)
+{
+    double r = (double)GPS_SKY_RADIUS * (90.0 - el) / 90.0;
+    double a = (double)az * M_PI / 180.0;
+    *x = GPS_SKY_CX + (int)(r * sin(a) + 0.5);
+    *y = GPS_SKY_CY - (int)(r * cos(a) + 0.5);
+}
+
+static lv_color_t gps_snr_color(int snr)
+{
+    if (snr < 25) return lv_color_hex(0x888888);
+    if (snr < 35) return lv_color_hex(0xFFD54D);
+    return lv_color_hex(0x3DD68A);
+}
+
+static void gps_screen_update(lv_timer_t *timer)
+{
+    (void)timer;
+    if (!s_gps_status_label) {
+        return;
+    }
+    m10q_fix_t fix;
+    m10q_get_fix(&fix);
+    char buf[96];
+
+    m10q_state_t st = m10q_get_state();
+    if (st == M10Q_STATE_FIXED && fix.valid) {
+        snprintf(buf, sizeof(buf), "Fix: %d sats  hAcc +/-%u m",
+                 (int)fix.sat_count, (unsigned)fix.hacc_m);
+        lv_label_set_text(s_gps_status_label, buf);
+
+        snprintf(buf, sizeof(buf), "%.5f, %.5f  %.0f m",
+                 fix.lat, fix.lon, fix.alt_m);
+        lv_label_set_text(s_gps_pos_label, buf);
+
+        snprintf(buf, sizeof(buf), "Speed: %u km/h  course %u deg",
+                 (unsigned)fix.speed_kmh, (unsigned)fix.course_deg);
+        lv_label_set_text(s_gps_speed_label, buf);
+
+        snprintf(buf, sizeof(buf), "%02u:%02u:%02u UTC  (%u in view)",
+                 (unsigned)fix.hour, (unsigned)fix.minute, (unsigned)fix.second,
+                 (unsigned)fix.sat_in_view);
+        lv_label_set_text(s_gps_sats_label, buf);
+    } else if (st == M10Q_STATE_ACQUIRING) {
+        uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        uint32_t elapsed = (now - s_gps_acq_start_ms) / 1000;
+        snprintf(buf, sizeof(buf), "Acquiring... (%lus)", (unsigned long)elapsed);
+        lv_label_set_text(s_gps_status_label, buf);
+        lv_label_set_text(s_gps_pos_label, "");
+        lv_label_set_text(s_gps_speed_label, "");
+        lv_label_set_text(s_gps_sats_label, "");
+    } else {
+        lv_label_set_text(s_gps_status_label, "GNSS off");
+        lv_label_set_text(s_gps_pos_label, "");
+        lv_label_set_text(s_gps_speed_label, "");
+        lv_label_set_text(s_gps_sats_label, "");
+    }
+
+    /* Satellite dots. */
+    for (int i = 0; i < M10Q_MAX_SATS; i++) {
+        if (!s_gps_dots[i]) {
+            break;
+        }
+        if (i < (int)fix.sat_in_view && fix.sats[i].snr_db >= 0) {
+            m10q_sat_t *s = &fix.sats[i];
+            int x, y;
+            gps_sat_xy(s->azimuth_deg, s->elevation_deg, &x, &y);
+            lv_obj_set_pos(s_gps_dots[i], x - 7, y - 7);
+            lv_obj_set_style_bg_color(s_gps_dots[i], gps_snr_color(s->snr_db), 0);
+            lv_obj_set_style_border_width(s_gps_dots[i], s->used ? 0 : 2, 0);
+            lv_obj_set_style_border_color(s_gps_dots[i], lv_color_hex(0xAAAAAA), 0);
+            lv_obj_clear_flag(s_gps_dots[i], LV_OBJ_FLAG_HIDDEN);
+            char prn[8];
+            snprintf(prn, sizeof(prn), "%u", (unsigned)s->prn);
+            lv_label_set_text_fmt(lv_obj_get_child(s_gps_dots[i], 0), "%s", prn);
+        } else {
+            lv_obj_add_flag(s_gps_dots[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
 
 static void lvgl_build_gps_screen(void)
 {
@@ -561,19 +676,104 @@ static void lvgl_build_gps_screen(void)
     lv_label_set_text(title, "GPS");
     lv_obj_set_style_text_font(title, s_font_small, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
 
-    lv_obj_t *msg = lv_label_create(s_gps_screen);
-    lv_label_set_text(msg, "Not integrated yet");
-    lv_obj_set_style_text_font(msg, s_font_small, 0);
-    lv_obj_set_style_text_color(msg, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(msg, LV_ALIGN_CENTER, 0, -20);
+    /* Skyplot: horizon ring + elevation rings. */
+    gps_ring(GPS_SKY_RADIUS);
+    gps_ring(GPS_SKY_RADIUS * 2 / 3);
+    gps_ring(GPS_SKY_RADIUS / 3);
+
+    /* Cardinal labels. */
+    lv_obj_t *n = lv_label_create(s_gps_screen);
+    lv_label_set_text(n, "N");
+    lv_obj_set_style_text_font(n, s_font_small, 0);
+    lv_obj_set_style_text_color(n, lv_color_hex(0x66AA66), 0);
+    lv_obj_set_pos(n, GPS_SKY_CX - 6, GPS_SKY_CY - GPS_SKY_RADIUS - 18);
+    lv_obj_t *e = lv_label_create(s_gps_screen);
+    lv_label_set_text(e, "E");
+    lv_obj_set_style_text_font(e, s_font_small, 0);
+    lv_obj_set_style_text_color(e, lv_color_hex(0x66AA66), 0);
+    lv_obj_set_pos(e, GPS_SKY_CX + GPS_SKY_RADIUS - 4, GPS_SKY_CY - 14);
+    lv_obj_t *s = lv_label_create(s_gps_screen);
+    lv_label_set_text(s, "S");
+    lv_obj_set_style_text_font(s, s_font_small, 0);
+    lv_obj_set_style_text_color(s, lv_color_hex(0x66AA66), 0);
+    lv_obj_set_pos(s, GPS_SKY_CX - 6, GPS_SKY_CY + GPS_SKY_RADIUS + 2);
+    lv_obj_t *w = lv_label_create(s_gps_screen);
+    lv_label_set_text(w, "W");
+    lv_obj_set_style_text_font(w, s_font_small, 0);
+    lv_obj_set_style_text_color(w, lv_color_hex(0x66AA66), 0);
+    lv_obj_set_pos(w, GPS_SKY_CX - GPS_SKY_RADIUS - 12, GPS_SKY_CY - 14);
+
+    /* Satellite dots: 14 px circles with PRN label inside. */
+    for (int i = 0; i < M10Q_MAX_SATS; i++) {
+        lv_obj_t *dot = lv_obj_create(s_gps_screen);
+        lv_obj_set_size(dot, 14, 14);
+        lv_obj_set_style_radius(dot, 7, 0);
+        lv_obj_set_style_bg_color(dot, lv_color_hex(0x888888), 0);
+        lv_obj_set_style_border_width(dot, 2, 0);
+        lv_obj_set_style_border_color(dot, lv_color_hex(0xAAAAAA), 0);
+        lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_t *prn = lv_label_create(dot);
+        lv_label_set_text(prn, "");
+        lv_obj_set_style_text_font(prn, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(prn, lv_color_hex(0x000000), 0);
+        lv_obj_center(prn);
+        lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
+        s_gps_dots[i] = dot;
+    }
+
+    /* Info rows below the skyplot. */
+    s_gps_status_label = lv_label_create(s_gps_screen);
+    lv_label_set_text(s_gps_status_label, "");
+    lv_obj_set_style_text_font(s_gps_status_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_gps_status_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(s_gps_status_label, LV_ALIGN_TOP_MID, 0, 356);
+
+    s_gps_pos_label = lv_label_create(s_gps_screen);
+    lv_label_set_text(s_gps_pos_label, "");
+    lv_obj_set_style_text_font(s_gps_pos_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_gps_pos_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_gps_pos_label, LV_ALIGN_TOP_MID, 0, 384);
+
+    s_gps_speed_label = lv_label_create(s_gps_screen);
+    lv_label_set_text(s_gps_speed_label, "");
+    lv_obj_set_style_text_font(s_gps_speed_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_gps_speed_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_gps_speed_label, LV_ALIGN_TOP_MID, 0, 412);
+
+    s_gps_sats_label = lv_label_create(s_gps_screen);
+    lv_label_set_text(s_gps_sats_label, "");
+    lv_obj_set_style_text_font(s_gps_sats_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_gps_sats_label, lv_color_hex(0x80D8FF), 0);
+    lv_obj_align(s_gps_sats_label, LV_ALIGN_TOP_MID, 0, 440);
 
     lv_obj_t *hint = lv_label_create(s_gps_screen);
     lv_label_set_text(hint, "swipe left to go back");
     lv_obj_set_style_text_font(hint, s_font_small, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -6);
+
+    gps_screen_update(NULL);
+    lv_timer_create(gps_screen_update, 1000, NULL);
+}
+
+/* Power the GNSS receiver on/off with the GPS screen. */
+static void gps_power(bool on)
+{
+    if (on == s_gps_powered) {
+        return;
+    }
+    if (on) {
+        s_gps_acq_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        m10q_power(true);
+        s_gps_powered = true;
+        ESP_LOGI(TAG, "GNSS powered on");
+    } else {
+        m10q_power(false);
+        s_gps_powered = false;
+        ESP_LOGI(TAG, "GNSS powered off");
+    }
 }
 
 /* ---- Swipe navigation (indev-level: fires for every touch) ---- */
@@ -616,6 +816,7 @@ static void swipe_event_cb(lv_event_t *e)
                 if (!s_gps_screen) {
                     lvgl_build_gps_screen();
                 }
+                gps_power(true);
                 lv_scr_load(s_gps_screen);
             }
         } else if (dy > 0) {     /* down  -> Power Management */
@@ -634,6 +835,7 @@ static void swipe_event_cb(lv_event_t *e)
         }
     } else if (cur == s_gps_screen) {
         if (horiz && dx < 0) {   /* left -> clock */
+            gps_power(false);
             lvgl_show_watch_face();
         }
     }
@@ -651,6 +853,9 @@ static void menu_timeout_cb(lv_timer_t *timer)
         return;
     }
     if (lv_tick_get() - s_last_touch_tick >= MENU_TIMEOUT_MS) {
+        if (cur == s_gps_screen) {
+            gps_power(false);
+        }
         lvgl_show_watch_face();
     }
 }

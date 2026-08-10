@@ -5,4 +5,6 @@ idf_component_register(
         esp_driver_uart
         esp_common
         log
+    PRIV_REQUIRES
+        axp2101
 )
