@@ -127,9 +127,11 @@ static void IRAM_ATTR button_isr(void *arg)
     gpio_intr_disable(PM_GPIO_PWRKEY);
     gpio_intr_disable(PM_GPIO_BOOT);
     /* The IMU INT pulses on every gesture/step while awake; only act on it
-     * when the host is actually asleep (light-sleep wake). Otherwise ignore. */
+     * when the host is actually asleep (light-sleep wake). While awake, keep
+     * the interrupt DISABLED so a busy INT line cannot storm the CPU; it is
+     * re-enabled in pm_arm_gpio_wakeup() when sleep is entered. */
     if (gpio == PM_GPIO_IMU && !s_imu_wake_armed) {
-        gpio_intr_enable(PM_GPIO_IMU);
+        gpio_intr_disable(PM_GPIO_IMU);
         return;
     }
     gpio_intr_disable(PM_GPIO_IMU);
@@ -202,6 +204,9 @@ static void pm_arm_gpio_wakeup(void)
         gpio_wakeup_enable(PM_GPIO_TOUCH, GPIO_INTR_LOW_LEVEL);
         gpio_wakeup_enable(PM_GPIO_IMU, GPIO_INTR_LOW_LEVEL);
         s_imu_wake_armed = true;
+        /* The edge ISR is disabled while awake (any pulse disables it); arm it
+         * again now so a gesture during light sleep wakes the adapter. */
+        gpio_intr_enable(PM_GPIO_IMU);
     }
     gpio_wakeup_enable(PM_GPIO_PWRKEY, GPIO_INTR_LOW_LEVEL);
     gpio_wakeup_enable(PM_GPIO_BOOT, GPIO_INTR_LOW_LEVEL);
@@ -321,6 +326,10 @@ void power_mgmt_init(void)
     };
     gpio_config(&imu_io);
     gpio_isr_handler_add(PM_GPIO_IMU, button_isr, (void *)(uintptr_t)PM_GPIO_IMU);
+    /* Start with the IMU edge ISR disabled; it is armed only when sleep is
+     * entered (pm_arm_gpio_wakeup) and self-disables on any pulse while awake,
+     * so a busy INT line can never storm the CPU. */
+    gpio_intr_disable(PM_GPIO_IMU);
 
     /* Apply the initial night-mode state (and touch-ISR state). */
     pm_apply_night_mode(pm_is_night_time());
