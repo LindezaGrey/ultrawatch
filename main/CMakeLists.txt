@@ -9,6 +9,7 @@ idf_component_register(
         co5300
         bhi260ap
         sd_log
+        pcf85063a
         esp_lvgl_adapter
         lvgl
         spiffs

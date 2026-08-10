@@ -19,7 +19,7 @@
 #include "twatch_board.h"
 #include "axp2101.h"
 #include "co5300.h"
-#include <time.h>
+#include "pcf85063a.h"
 
 static const char *TAG = "power_mgmt";
 
@@ -43,10 +43,13 @@ static void pm_apply_night_mode(bool night);
 
 static bool pm_is_night_time(void)
 {
-    time_t now = time(NULL);
-    struct tm tm;
-    localtime_r(&now, &tm);
-    int h = tm.tm_hour;
+    /* Use the RTC wall clock, not the ESP32 system clock, so night mode never
+     * drifts. */
+    pcf85063a_time_t t;
+    if (pcf85063a_get_time(twatch_rtc_dev, &t) != ESP_OK) {
+        return false;
+    }
+    int h = t.hour;
     if (PM_NIGHT_START_HOUR <= PM_NIGHT_END_HOUR) {
         return h >= PM_NIGHT_START_HOUR && h < PM_NIGHT_END_HOUR;
     }

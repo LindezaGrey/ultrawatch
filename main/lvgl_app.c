@@ -24,6 +24,7 @@
 #include "cst9217.h"
 #include "bhi260ap.h"
 #include "sd_log.h"
+#include "pcf85063a.h"
 #include "twatch_board.h"
 #include "axp2101.h"
 #include "power_mgmt.h"
@@ -140,22 +141,27 @@ static void lvgl_build_boot_screen(void)
 static void watch_face_update(lv_timer_t *timer)
 {
     (void)timer;
-    time_t now = time(NULL);
-    struct tm tm;
-    localtime_r(&now, &tm);
+
+    /* Read the wall-clock time from the RTC (PCF85063A), not the ESP32 system
+     * clock, so the display never drifts. */
+    pcf85063a_time_t t;
+    if (pcf85063a_get_time(twatch_rtc_dev, &t) != ESP_OK) {
+        return;
+    }
 
     char buf[32];
-    snprintf(buf, sizeof(buf), "%02d:%02d", tm.tm_hour, tm.tm_min);
+    snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.min);
     lv_label_set_text(s_time_label, buf);
 
-    snprintf(buf, sizeof(buf), "%02d", tm.tm_sec);
+    snprintf(buf, sizeof(buf), "%02d", t.sec);
     lv_label_set_text(s_sec_label, buf);
 
     static const char *wday[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
     static const char *mon[] = { "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
                                  "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
+    int wd = (t.weekday >= 1 && t.weekday <= 7) ? t.weekday - 1 : 0;
     snprintf(buf, sizeof(buf), "%s  %02d %s %d",
-             wday[tm.tm_wday], tm.tm_mday, mon[tm.tm_mon], tm.tm_year + 1900);
+             wday[wd], t.day, mon[t.month - 1], t.year);
     lv_label_set_text(s_date_label, buf);
 
     uint8_t pct = 0;
@@ -471,7 +477,7 @@ esp_err_t lvgl_app_start(void)
         CO5300_RES_X,
         CO5300_RES_Y,
         ESP_LV_ADAPTER_ROTATE_0);   /* rotation not supported for QSPI */
-    display_cfg.profile.buffer_height = 48;
+    display_cfg.profile.buffer_height = 48;   /* partial bands; full frame exceeds SPI DMA max */
 
     lv_display_t *disp = esp_lv_adapter_register_display(&display_cfg);
     if (!disp) {
