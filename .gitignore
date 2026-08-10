@@ -24,3 +24,10 @@ openocd.log
 
 # Stray opencode session note
 session.txt
+
+# Bosch BHI260AP licensed firmware/docs (README.md in external/ is kept)
+external/*.fw
+external/*.zip
+external/*.pdf
+assets/bhi260/
+

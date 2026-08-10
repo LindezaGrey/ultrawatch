@@ -202,8 +202,8 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
 esp_err_t power_mgmt_exit_sleep(void *ctx)
 {
     (void)ctx;
-    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-    ESP_LOGI(TAG, "waking: gpio=%u cause=%d", (unsigned)s_wake_gpio, (int)cause);
+    esp_sleep_wakeup_cause_t cause = (esp_sleep_wakeup_cause_t)esp_sleep_get_wakeup_causes();
+    ESP_LOGI(TAG, "waking: gpio=%u cause=0x%x", (unsigned)s_wake_gpio, (unsigned)cause);
 
     /* Restore rails. */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, true);

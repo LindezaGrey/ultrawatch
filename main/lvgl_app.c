@@ -20,6 +20,7 @@
 #include "libs/freetype/lv_freetype.h"
 #include "co5300.h"
 #include "cst9217.h"
+#include "bhi260ap.h"
 #include "twatch_board.h"
 #include "axp2101.h"
 #include "power_mgmt.h"
@@ -202,6 +203,23 @@ static void boot_to_watch_face(lv_timer_t *timer)
     lvgl_build_watch_face();
 }
 
+/* Sensor task: bring up the BHI260AP (RAM firmware upload + boot) once the
+ * assets partition is mounted, then poll the FIFO to stream sensor events. */
+static void bhi260_task(void *arg)
+{
+    (void)arg;
+    vTaskDelay(pdMS_TO_TICKS(50));
+    if (bhi260ap_init(twatch_imu_dev) != ESP_OK) {
+        ESP_LOGW(TAG, "BHI260AP init failed; sensor disabled");
+        vTaskDelete(NULL);
+        return;
+    }
+    for (;;) {
+        bhi260ap_process_fifo();
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+}
+
 static void mount_assets(void)
 {
     esp_vfs_spiffs_conf_t conf = {
@@ -302,5 +320,9 @@ esp_err_t lvgl_app_start(void)
     }
 
     ESP_LOGI(TAG, "LVGL started (watch face)");
+
+    /* BHI260AP sensor task (needs SPIFFS assets, already mounted above). */
+    xTaskCreate(bhi260_task, "bhi260", 4096, NULL, 5, NULL);
+
     return ESP_OK;
 }

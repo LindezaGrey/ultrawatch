@@ -7,6 +7,7 @@ idf_component_register(
         xl9555
         cst9217
         co5300
+        bhi260ap
         esp_lvgl_adapter
         lvgl
         spiffs

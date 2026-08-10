@@ -11,7 +11,6 @@
 #include "xl9555.h"
 #include "pcf85063a.h"
 #include "cst9217.h"
-#include "bhi260ap.h"
 #include "drv2605.h"
 #include "co5300.h"
 #include "max98357a.h"
@@ -196,7 +195,6 @@ esp_err_t twatch_board_init(void)
     /* 4. Peripheral driver init (skeletons). */
     pcf85063a_init(twatch_rtc_dev);
     sync_system_time();
-    bhi260ap_init(twatch_imu_dev);
     drv2605_init(twatch_haptic_dev);
     co5300_init();
     max98357a_init();
