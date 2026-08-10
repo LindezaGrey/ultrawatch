@@ -68,14 +68,9 @@ bool power_mgmt_is_night_mode(void)
 void power_mgmt_recheck_night_mode(void)
 {
     pm_apply_night_mode(pm_is_night_time());
-    /* Force the touch-ISR disable/enable even if the state didn't change
-     * (e.g. a driver like esp_lcd_touch re-enabled the GPIO interrupt after
-     * night mode disabled it). */
-    if (s_night_mode) {
-        gpio_intr_disable(PM_GPIO_TOUCH);
-    } else {
-        gpio_intr_enable(PM_GPIO_TOUCH);
-    }
+    /* Touch input stays enabled at night (navigation still works while the
+     * watch is awake); only the light-sleep WAKE source is gated, in
+     * pm_arm_gpio_wakeup(). */
 }
 
 void power_mgmt_register_night_mode_cb(power_mgmt_night_mode_cb_t cb)
@@ -94,13 +89,9 @@ static void pm_apply_night_mode(bool night)
     /* Dim to ~10% (night) or restore normal brightness. */
     co5300_set_brightness(night ? PM_NIGHT_BRIGHTNESS : 0x80);
 
-    /* Disable touch as an input/wake source at night (avoid accidental
-     * screen activation); re-enable it in the morning. */
-    if (night) {
-        gpio_intr_disable(PM_GPIO_TOUCH);
-    } else {
-        gpio_intr_enable(PM_GPIO_TOUCH);
-    }
+    /* Touch input remains enabled at night so navigation works while the
+     * watch is awake; only the light-sleep wake source is gated in
+     * pm_arm_gpio_wakeup() (no touch-wake at night). */
 
     /* Force the UI to redraw everything so the red-only transform (or its
      * removal) is applied to every pixel, not just newly invalidated areas. */

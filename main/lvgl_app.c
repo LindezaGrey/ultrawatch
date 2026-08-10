@@ -609,9 +609,16 @@ static void gps_screen_update(lv_timer_t *timer)
     }
     m10q_fix_t fix;
     m10q_get_fix(&fix);
+    m10q_state_t st = m10q_get_state();
     char buf[96];
 
-    m10q_state_t st = m10q_get_state();
+    /* While acquiring, keep the watch awake (no auto-sleep) so the GNSS rail
+     * stays powered. Once a fix is obtained, stop reporting activity: the
+     * adapter's idle timeout then auto-sleeps the watch ~5 s after the fix,
+     * powering BLDO1 off (VRTC backup keeps ephemeris for the next session). */
+    if (st != M10Q_STATE_FIXED || !fix.valid) {
+        esp_lv_adapter_report_activity();
+    }
     if (st == M10Q_STATE_FIXED && fix.valid) {
         snprintf(buf, sizeof(buf), "Fix: %d sats  hAcc +/-%u m",
                  (int)fix.sat_count, (unsigned)fix.hacc_m);
@@ -843,19 +850,16 @@ static void swipe_event_cb(lv_event_t *e)
 
 /* ---- Menu inactivity timeout ----
  * Any non-watch-face screen returns to the watch face after MENU_TIMEOUT_MS
- * without a touch. The BHI sensor screen is exempt: it is meant for longer
- * observation. */
+ * without a touch. The BHI sensor and GPS screens are exempt: they are meant
+ * for longer observation. */
 static void menu_timeout_cb(lv_timer_t *timer)
 {
     (void)timer;
     lv_obj_t *cur = lv_screen_active();
-    if (cur == s_watch_screen || cur == s_bhi_screen) {
+    if (cur == s_watch_screen || cur == s_bhi_screen || cur == s_gps_screen) {
         return;
     }
     if (lv_tick_get() - s_last_touch_tick >= MENU_TIMEOUT_MS) {
-        if (cur == s_gps_screen) {
-            gps_power(false);
-        }
         lvgl_show_watch_face();
     }
 }
