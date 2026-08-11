@@ -176,9 +176,10 @@ static void debug_task(void *arg)
                        (unsigned long)m10q_get_gsv_count());
                 if (fix.valid) {
                     printf("gnss: pos %.5f %.5f alt %.0fm\n", fix.lat, fix.lon, fix.alt_m);
-                    printf("gnss: speed %u km/h course %u sats %u hAcc %um\n",
+                    printf("gnss: speed %u km/h course %u sats %u hdop %.1f hAcc %um\n",
                            (unsigned)fix.speed_kmh, (unsigned)fix.course_deg,
-                           (unsigned)fix.sat_count, (unsigned)fix.hacc_m);
+                           (unsigned)fix.sat_count, fix.hdop / 10.0,
+                           (unsigned)fix.hacc_m);
                 }
                 printf("gnss: in view %u\n", (unsigned)fix.sat_in_view);
                 for (int i = 0; i < (int)fix.sat_in_view && i < M10Q_MAX_SATS; i++) {

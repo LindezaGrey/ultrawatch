@@ -38,10 +38,135 @@ static uint32_t s_rx_bytes;      /* debug: bytes received since power-on */
 static uint32_t s_nmea_lines;   /* debug: NMEA lines parsed since power-on */
 static uint32_t s_gsv_count;    /* debug: GSV sentences seen */
 
+/* ---- UBX RX parser (for NAV-PVT accuracy) ----
+ * Byte-fed state machine for u-blox binary frames. Only UBX-NAV-PVT is
+ * consumed (for the measured horizontal accuracy); everything else is
+ * ignored. */
+#define UBX_MAX_PAYLOAD 128
+
+typedef struct {
+    uint8_t state;      /* 0=idle,1=sync2,2=class,3=id,4=lenL,5=lenH,6=payload,7=ckA,8=ckB */
+    uint8_t cls;
+    uint8_t id;
+    uint16_t len;
+    uint16_t idx;
+    uint8_t payload[UBX_MAX_PAYLOAD];
+    uint8_t ck_a;
+    uint8_t ck_b;
+} ubx_rx_t;
+
+static ubx_rx_t s_ubx_rx;
+
+static void ubx_rx_reset(void)
+{
+    memset(&s_ubx_rx, 0, sizeof(s_ubx_rx));
+}
+
+/* True while the byte stream is inside (or starting) a UBX frame (sync seen,
+ * not yet past the final checksum). Used to keep UBX binary bytes out of the
+ * NMEA line buffer. */
+static bool ubx_rx_in_frame(void)
+{
+    return s_ubx_rx.state >= 1;
+}
+
+/* Feed one byte; returns true when a complete frame has been delivered. */
+static bool ubx_rx_feed(uint8_t b)
+{
+    switch (s_ubx_rx.state) {
+    case 0:
+        if (b == 0xB5) s_ubx_rx.state = 1;
+        break;
+    case 1:
+        if (b == 0x62) {
+            s_ubx_rx.state = 2;
+        } else {
+            s_ubx_rx.state = (b == 0xB5) ? 1 : 0;
+        }
+        break;
+    case 2:
+        s_ubx_rx.cls = b;
+        s_ubx_rx.ck_a = 0;
+        s_ubx_rx.ck_b = 0;
+        s_ubx_rx.ck_a += b;
+        s_ubx_rx.ck_b += s_ubx_rx.ck_a;
+        s_ubx_rx.state = 3;
+        break;
+    case 3:
+        s_ubx_rx.id = b;
+        s_ubx_rx.ck_a += b;
+        s_ubx_rx.ck_b += s_ubx_rx.ck_a;
+        s_ubx_rx.state = 4;
+        break;
+    case 4:
+        s_ubx_rx.len = b;
+        s_ubx_rx.ck_a += b;
+        s_ubx_rx.ck_b += s_ubx_rx.ck_a;
+        s_ubx_rx.state = 5;
+        break;
+    case 5:
+        s_ubx_rx.len |= (uint16_t)b << 8;
+        s_ubx_rx.idx = 0;
+        s_ubx_rx.ck_a += b;
+        s_ubx_rx.ck_b += s_ubx_rx.ck_a;
+        s_ubx_rx.state = (s_ubx_rx.len == 0) ? 7 : 6;
+        break;
+    case 6:
+        if (s_ubx_rx.idx < UBX_MAX_PAYLOAD) {
+            s_ubx_rx.payload[s_ubx_rx.idx] = b;
+        }
+        s_ubx_rx.ck_a += b;
+        s_ubx_rx.ck_b += s_ubx_rx.ck_a;
+        s_ubx_rx.idx++;
+        if (s_ubx_rx.idx >= s_ubx_rx.len) s_ubx_rx.state = 7;
+        break;
+    case 7:
+        if (b == s_ubx_rx.ck_a) {
+            s_ubx_rx.state = 8;
+        } else {
+            s_ubx_rx.state = (b == 0xB5) ? 1 : 0;
+        }
+        break;
+    case 8:
+        if (b == s_ubx_rx.ck_b) {
+            ubx_rx_reset();
+            return true;
+        }
+        s_ubx_rx.state = 0;
+        break;
+    default:
+        s_ubx_rx.state = 0;
+        break;
+    }
+    return false;
+}
+
+/* UBX-NAV-PVT (class 0x01, id 0x07): extract the measured horizontal accuracy
+ * (hAcc, bytes 40..43, in mm) and store it as metres. */
+static void ubx_handle_pvt(void)
+{
+    if (s_ubx_rx.len < 44) {
+        return;
+    }
+    uint32_t hacc_mm = (uint32_t)s_ubx_rx.payload[40] |
+                       ((uint32_t)s_ubx_rx.payload[41] << 8) |
+                       ((uint32_t)s_ubx_rx.payload[42] << 16) |
+                       ((uint32_t)s_ubx_rx.payload[43] << 24);
+    /* hAcc is in mm; report in whole metres (rounded). */
+    s_fix.hacc_m = (uint16_t)((hacc_mm + 500) / 1000);
+}
+
+static void ubx_rx_dispatch(void)
+{
+    if (s_ubx_rx.cls == 0x01 && s_ubx_rx.id == 0x07) {
+        ubx_handle_pvt();
+    }
+}
+
 /* GSV sentence merging: GSV frames arrive as N sentences per constellation;
  * satellites accumulate until the count is reached or a timeout resets. */
 static uint16_t s_gsv_sat_count;
-static uint32_t s_gsv_last_ms;
+static char s_gsv_first_talker;   /* first constellation talker of the scan */
 
 /* ---- UBX helpers (for soft-standby on power-down) ---- */
 
@@ -118,6 +243,21 @@ static void ubx_cfg_pm2(void)
     pm2[6] = 0x00;            /* no flags */
     /* update/search periods, grid offset, on time, min acq time = 0 (default) */
     ubx_send(0x06, 0x3B, pm2, sizeof(pm2));
+}
+
+/* UBX-CFG-VALSET (0x06,0x8A): enable UBX-NAV-PVT output on UART1 (1 Hz) so we
+ * get the receiver's measured horizontal accuracy (hAcc). RAM-only config. */
+static void ubx_cfg_enable_pvt(void)
+{
+    /* CFG_MSGOUT_UBX_NAV_PVT_UART1 = 0x20910007, value 1 (u8). */
+    uint8_t payload[9] = {
+        0x00,                   /* version */
+        0x01,                   /* layer: RAM */
+        0x00, 0x00,             /* position */
+        0x07, 0x00, 0x91, 0x20, /* key (LE) */
+        0x01,                   /* value: enabled */
+    };
+    ubx_send(0x06, 0x8A, payload, sizeof(payload));
 }
 
 /* UBX-RXM-PMREQ (0x06,0x41): request software standby (keeps backup RAM). */
@@ -244,29 +384,46 @@ static void parse_gsv(char *line)
 {
     /* $GxGSV,num_msgs,msg_num,sats_in_view,{prn,el,az,snr}*4
      * The receiver emits a separate multi-sentence GSV frame per constellation
-     * (GP/GL/GA/GB). Accumulate satellites across all of them into sats[] and
-     * refresh the accumulator after a gap (a full sky scan). */
+     * (GP/GL/GA/GB/GQ), each starting with msg_num==1. A full sky scan is a
+     * sequence GP->GA->GB->GQ->GP...; reset the accumulator when a new cycle
+     * starts (talker wraps back to the first seen). */
     char *f[NMEA_MAX_FIELDS];
     int nf = nmea_split(line, f, NMEA_MAX_FIELDS);
     if (nf < 4) return;
-    /* f[1]=num_msgs, f[2]=msg_num, f[3]=sats_in_view. The satellite data
-     * starts at field 4; validate structure by requiring enough fields. */
+    /* f[1]=num_msgs, f[2]=msg_num, f[3]=sats_in_view (may be "00"). */
+    int msg_num = 0;
+    if (nmea_int(f[2], &msg_num) < 0) return;
+    /* Talker is f[0] = "$GPGSV" -> char index 2 (P/A/B/L/Q). Index 1 is the
+     * leading 'G' shared by all GNSS constellations. */
+    char talker = (f[0][0] == '$' && f[0][2] != '\0') ? f[0][2] : '\0';
 
-    uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-    if (now - s_gsv_last_ms > 2000) {
-        /* New sky scan: restart the accumulator. */
-        s_gsv_sat_count = 0;
-        s_fix.sat_in_view = 0;
+    if (msg_num == 1) {
+        if (s_gsv_first_talker == '\0') {
+            s_gsv_first_talker = talker;
+            s_gsv_sat_count = 0;
+            s_fix.sat_in_view = 0;
+        } else if (talker == s_gsv_first_talker) {
+            /* Talker wrapped to the first: new sky-scan cycle. */
+            s_gsv_sat_count = 0;
+            s_fix.sat_in_view = 0;
+        }
     }
-    s_gsv_last_ms = now;
 
     for (int i = 0; i < 4; i++) {
         int base = 4 + i * 4;
         if (base + 3 >= nf) {
             break;
         }
-        int prn = 0, el = 0, az = 0, snr = 0;
-        if (nmea_int(f[base], &prn) < 0) break;
+        /* A satellite block may be empty (e.g. "00" constellation frames or
+         * short blocks with missing az/el): only accept blocks with a valid
+         * PRN, and only count ones that carry elevation/azimuth (used for the
+         * skyplot). Otherwise they would inflate sat_in_view with phantom sats
+         * and plot dots at the skyplot centre. */
+        int prn = 0;
+        if (nmea_int(f[base], &prn) < 0 || prn == 0) {
+            break;
+        }
+        int el = 0, az = 0, snr = 0;
         nmea_int(f[base + 1], &el);
         nmea_int(f[base + 2], &az);
         if (nmea_int(f[base + 3], &snr) < 0) {
@@ -279,9 +436,7 @@ static void parse_gsv(char *line)
             s->azimuth_deg = (int16_t)az;
             s->snr_db = (int16_t)snr;
             s->used = false;
-        }
-        s_gsv_sat_count++;
-        if (s_fix.sat_in_view < M10Q_MAX_SATS) {
+            s_gsv_sat_count++;
             s_fix.sat_in_view = s_gsv_sat_count;
         }
     }
@@ -321,7 +476,20 @@ static void uart_rx_task(void *arg)
             int n = uart_read_bytes(M10Q_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(20));
             s_rx_bytes += (uint32_t)n;
             for (int i = 0; i < n; i++) {
-                char c = (char)buf[i];
+                uint8_t b = buf[i];
+                /* Feed the UBX binary parser (NAV-PVT for hAcc). UBX frames
+                 * start with 0xB5 0x62; NMEA lines start with '$'. While a
+                 * UBX frame is being consumed (sync seen through final
+                 * checksum), its bytes must NOT enter the NMEA line buffer. */
+                bool frame_done = ubx_rx_feed(b);
+                if (frame_done) {
+                    ubx_rx_dispatch();
+                    continue;   /* final checksum byte consumed */
+                }
+                if (ubx_rx_in_frame()) {
+                    continue;
+                }
+                char c = (char)b;
                 if (c == '\n') {
                     if (line_len > 0) {
                         line[line_len] = '\0';
@@ -402,6 +570,7 @@ esp_err_t m10q_power(bool on)
         s_state = M10Q_STATE_ACQUIRING;
         memset(&s_fix, 0, sizeof(s_fix));
         ubx_cfg_pm2();
+        ubx_cfg_enable_pvt();
         ESP_LOGI(TAG, "powered on (BLDO1) at %lu baud", (unsigned long)baud);
     } else {
         ubx_rxm_pmreq();   /* soft standby keeps backup RAM */

@@ -581,6 +581,10 @@ static lv_obj_t *gps_ring(int radius)
     lv_obj_set_style_arc_width(arc, 2, LV_PART_MAIN);
     lv_obj_set_style_arc_color(arc, lv_color_hex(0x2A5A2A), LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(arc, 2, LV_PART_INDICATOR);
+    /* Hide the arc knob: with a full 0-360 range and value 100, LVGL draws the
+     * default (blue) knob at the 360 deg point = 3 o'clock. Without this,
+     * each ring contributes a blue dot in a horizontal line on the east. */
+    lv_obj_set_style_opa(arc, LV_OPA_TRANSP, LV_PART_KNOB);
     lv_obj_remove_flag(arc, LV_OBJ_FLAG_CLICKABLE);
     return arc;
 }
@@ -656,12 +660,15 @@ static void gps_screen_update(lv_timer_t *timer)
         lv_label_set_text(s_gps_sats_label, "");
     }
 
-    /* Satellite dots. */
+    /* Satellite dots. Satellites with no elevation/azimuth (receiver not yet
+     * resolved) or no SNR are hidden; otherwise they'd cluster at the skyplot
+     * centre as a static blob. */
     for (int i = 0; i < M10Q_MAX_SATS; i++) {
         if (!s_gps_dots[i]) {
             break;
         }
-        if (i < (int)fix.sat_in_view && fix.sats[i].snr_db >= 0) {
+        if (i < (int)fix.sat_in_view && fix.sats[i].snr_db >= 0 &&
+                (fix.sats[i].elevation_deg > 0 || fix.sats[i].azimuth_deg > 0)) {
             m10q_sat_t *s = &fix.sats[i];
             int x, y;
             gps_sat_xy(s->azimuth_deg, s->elevation_deg, &x, &y);
