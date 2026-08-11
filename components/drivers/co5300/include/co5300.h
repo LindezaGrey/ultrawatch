@@ -49,6 +49,11 @@ esp_err_t co5300_deinit(void);
 esp_err_t co5300_sleep(void);
 esp_err_t co5300_wake(void);
 
+/* Display output off (0x28) / on (0x29). DISPOFF blanks the panel regardless
+ * of GRAM, so it is sent before SLPIN to guarantee no stale frame on wake. */
+esp_err_t co5300_display_off(void);
+esp_err_t co5300_display_on(void);
+
 /* Clear the visible panel GRAM to black (before SLPIN) so no stale frame
  * flashes on wake. */
 esp_err_t co5300_blank(void);

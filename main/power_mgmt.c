@@ -174,10 +174,15 @@ static void pm_wake_task(void *arg)
          * re-arm the button + IMU pins. */
         gpio_set_intr_type(PM_GPIO_PWRKEY, GPIO_INTR_NEGEDGE);
         gpio_set_intr_type(PM_GPIO_BOOT, GPIO_INTR_NEGEDGE);
-        gpio_set_intr_type(PM_GPIO_IMU, GPIO_INTR_NEGEDGE);
         gpio_intr_enable(PM_GPIO_PWRKEY);
         gpio_intr_enable(PM_GPIO_BOOT);
-        gpio_intr_enable(PM_GPIO_IMU);
+        /* Only re-arm the IMU edge ISR if the wake actually came from it; the
+         * ISR self-disables on every awake pulse, and re-enabling it here on
+         * every wake-task run would leave a live edge on a busy line. */
+        if (gpio == PM_GPIO_IMU && s_imu_wake_armed) {
+            gpio_set_intr_type(PM_GPIO_IMU, GPIO_INTR_NEGEDGE);
+            gpio_intr_enable(PM_GPIO_IMU);
+        }
 
         esp_lv_adapter_request_wake();
     }
@@ -193,11 +198,20 @@ static void pm_arm_gpio_wakeup(void)
      * line holds low -> LOW_LEVEL wakes the watch. */
     if (!s_night_mode) {
         gpio_wakeup_enable(PM_GPIO_TOUCH, GPIO_INTR_LOW_LEVEL);
-        gpio_wakeup_enable(PM_GPIO_IMU, GPIO_INTR_LOW_LEVEL);
-        s_imu_wake_armed = true;
-        /* The edge ISR is disabled while awake (any pulse disables it); arm it
-         * again now so a gesture during light sleep wakes the adapter. */
-        gpio_intr_enable(PM_GPIO_IMU);
+        /* The IMU edge ISR is disabled while awake (any pulse disables it);
+         * arm it again so a gesture during light sleep wakes the adapter.
+         * Give the chip a moment after AP-suspend to settle, and only enable
+         * the level-wake if the line is de-asserted (high): if a spurious
+         * gesture already asserted it low, a LOW_LEVEL wake would fire
+         * instantly and the watch would never sleep. */
+        vTaskDelay(pdMS_TO_TICKS(50));
+        if (gpio_get_level(PM_GPIO_IMU) == 1) {
+            gpio_wakeup_enable(PM_GPIO_IMU, GPIO_INTR_LOW_LEVEL);
+            s_imu_wake_armed = true;
+            gpio_intr_enable(PM_GPIO_IMU);
+        } else {
+            ESP_LOGI(TAG, "IMU INT low at sleep, gesture wake disabled this cycle");
+        }
     }
     gpio_wakeup_enable(PM_GPIO_PWRKEY, GPIO_INTR_LOW_LEVEL);
     gpio_wakeup_enable(PM_GPIO_BOOT, GPIO_INTR_LOW_LEVEL);
@@ -215,7 +229,8 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
-    ESP_LOGI(TAG, "entering sleep: panel blank+SLPIN, IMU AP-suspend, rails off");
+    ESP_LOGI(TAG, "entering sleep: panel DISPOFF+blank+SLPIN, IMU AP-suspend, rails off");
+    co5300_display_off();
     co5300_blank();
     co5300_sleep();
     bhi260ap_ap_suspend();
@@ -255,8 +270,10 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : 0x80);
 
     /* GRAM was blanked before sleep; force a full repaint so the screen shows
-     * the current UI instead of staying black (SPI path doesn't auto-refresh). */
+     * the current UI instead of staying black (SPI path doesn't auto-refresh).
+     * DISPON is sent only after the repaint so no stale frame flashes. */
     lvgl_force_redraw();
+    co5300_display_on();
 
     /* Safety net: clear any pending AXP IRQ (de-asserts the GPIO7 line).
      * Detailed power-key reporting happens in pm_wake_task. */

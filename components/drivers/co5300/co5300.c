@@ -116,6 +116,25 @@ esp_err_t co5300_sleep(void)
     return co5300_send_cmd(0x10);   /* SLPIN */
 }
 
+/* Turn the display output off (DCS 0x28). The panel blanks (black) regardless
+ * of GRAM content. Used before SLPIN so the panel never shows a stale frame. */
+esp_err_t co5300_display_off(void)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return co5300_send_cmd(0x28);   /* DISPOFF */
+}
+
+/* Turn the display output back on (DCS 0x29). */
+esp_err_t co5300_display_on(void)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return co5300_send_cmd(0x29);   /* DISPON */
+}
+
 /* Clear the visible panel to black (0x0000) by looping a small static band.
  * Black is byte-symmetric, so no byte-swap is needed. Called before SLPIN so
  * the panel GRAM holds black instead of the last frame, avoiding a flash of
@@ -143,14 +162,15 @@ esp_err_t co5300_blank(void)
     return ESP_OK;
 }
 
+/* Wake the panel out of sleep (SLPOUT) and set brightness. DISPON is left to
+ * the caller (co5300_display_on) so the panel stays black until the host has
+ * repainted the screen, avoiding a flash of stale GRAM content. */
 esp_err_t co5300_wake(void)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
     ESP_RETURN_ON_ERROR(co5300_send_cmd(0x11), TAG, "slpout");      /* SLPOUT */
-    vTaskDelay(pdMS_TO_TICKS(120));
-    ESP_RETURN_ON_ERROR(co5300_send_cmd(0x29), TAG, "dison");       /* DISPON */
     vTaskDelay(pdMS_TO_TICKS(120));
     return co5300_set_brightness(0x80);
 }

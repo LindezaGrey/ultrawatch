@@ -471,13 +471,20 @@ esp_err_t bhi260ap_process_fifo(void)
  * wake-up sensors (*_WU variants / gesture sensors) at low power and stops the
  * high-rate non-wakeup streams. Per the datasheet, flush the FIFO first so a
  * stale event doesn't immediately re-wake the host. ALDO4 must stay powered;
- * do not power-cycle the sensor rail while suspended. */
+ * do not power-cycle the sensor rail while suspended.
+ *
+ * Glance and pickup gestures are disabled while sleeping: they are very
+ * sensitive and fire spuriously (watch settling, arm brush), which re-asserts
+ * the INT line and wakes the host without any real gesture. Wrist-tilt and
+ * wake gestures are kept. */
 esp_err_t bhi260ap_ap_suspend(void)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
     step_fold();   /* persist steps accumulated since the last fold */
+    bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_GLANCE_GESTURE, 0.0f, 0, &s_bhy2);
+    bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_PICKUP_GESTURE, 0.0f, 0, &s_bhy2);
     s_ap_suspended = true;
     bhy2_flush_fifo(0xFF, &s_bhy2);   /* 0xFF = flush all virtual sensors */
     uint8_t intr_ctrl = 0;
@@ -498,6 +505,9 @@ esp_err_t bhi260ap_ap_resume(void)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
+    /* Re-enable the gestures that were paused during sleep. */
+    bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_GLANCE_GESTURE, 1.0f, 0, &s_bhy2);
+    bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_PICKUP_GESTURE, 1.0f, 0, &s_bhy2);
     int8_t rslt = bhy2_set_host_intf_ctrl(0, &s_bhy2);
     s_ap_suspended = false;
     if (rslt != BHY2_OK) {
