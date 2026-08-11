@@ -612,11 +612,16 @@ static void gps_screen_update(lv_timer_t *timer)
     m10q_state_t st = m10q_get_state();
     char buf[96];
 
+    /* Only keep the watch awake while the GPS screen is actually active. If
+     * the user has left it, normal auto-sleep must resume (the timer still
+     * fires forever). */
+    bool active = (lv_screen_active() == s_gps_screen);
+
     /* While acquiring, keep the watch awake (no auto-sleep) so the GNSS rail
      * stays powered. Once a fix is obtained, stop reporting activity: the
      * adapter's idle timeout then auto-sleeps the watch ~5 s after the fix,
      * powering BLDO1 off (VRTC backup keeps ephemeris for the next session). */
-    if (st != M10Q_STATE_FIXED || !fix.valid) {
+    if (active && (st != M10Q_STATE_FIXED || !fix.valid)) {
         esp_lv_adapter_report_activity();
     }
     if (st == M10Q_STATE_FIXED && fix.valid) {

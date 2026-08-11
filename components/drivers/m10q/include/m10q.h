@@ -73,6 +73,12 @@ esp_err_t m10q_get_fix(m10q_fix_t *fix);
 /* Current receiver power/fix state. */
 m10q_state_t m10q_get_state(void);
 
+/* Debug counters: bytes received and NMEA lines parsed since power-on. */
+void m10q_get_dbg(uint32_t *rx_bytes, uint32_t *nmea_lines);
+
+/* Debug: number of GSV sentences seen since power-on. */
+uint32_t m10q_get_gsv_count(void);
+
 #ifdef __cplusplus
 }
 #endif

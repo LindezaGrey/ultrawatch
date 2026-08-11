@@ -158,11 +158,22 @@ static void debug_task(void *arg)
                     vTaskDelay(pdMS_TO_TICKS(10));
                 }
                 printf("imon: done\n");
+            } else if (strcmp(line, "gnsson") == 0) {
+                m10q_power(true);
+                printf("gnss: powered on\n");
+            } else if (strcmp(line, "gnssoff") == 0) {
+                m10q_power(false);
+                printf("gnss: powered off\n");
             } else if (strcmp(line, "gnss") == 0) {
                 /* Dump GNSS state, fix, and satellites. */
                 m10q_fix_t fix;
                 m10q_get_fix(&fix);
-                printf("gnss: state=%d valid=%d\n", (int)m10q_get_state(), (int)fix.valid);
+                uint32_t rx = 0, lines = 0;
+                m10q_get_dbg(&rx, &lines);
+                printf("gnss: state=%d valid=%d rx=%lu lines=%lu gsv=%lu\n",
+                       (int)m10q_get_state(), (int)fix.valid,
+                       (unsigned long)rx, (unsigned long)lines,
+                       (unsigned long)m10q_get_gsv_count());
                 if (fix.valid) {
                     printf("gnss: pos %.5f %.5f alt %.0fm\n", fix.lat, fix.lon, fix.alt_m);
                     printf("gnss: speed %u km/h course %u sats %u hAcc %um\n",
