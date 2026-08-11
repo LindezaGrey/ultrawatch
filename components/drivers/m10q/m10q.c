@@ -12,11 +12,15 @@
 #include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "axp2101.h"
+#include "pcf85063a.h"
 
 static const char *TAG = "m10q";
 
@@ -29,7 +33,33 @@ static const char *TAG = "m10q";
 #define M10Q_RX_TASK_STACK 3072
 #define M10Q_LINE_MAX     128
 
+/* NVS persistence (stats + last position for aiding). */
+#define M10Q_NVS_NS       "m10q"
+#define NVS_KEY_TOTAL     "gps_total"
+#define NVS_KEY_TFSUM     "gps_tfsum"
+#define NVS_KEY_TFBEST    "gps_tfbest"
+#define NVS_KEY_TODAY     "gps_today"
+#define NVS_KEY_DAY       "gps_day"
+#define NVS_KEY_LAT       "gps_lat"
+#define NVS_KEY_LON       "gps_lon"
+
+/* M10 Generation-9 config keys (UBX-21035062). */
+#define CFG_UART1_BAUDRATE     0x40520001u
+#define CFG_SIGNAL_GPS_ENA     0x1031001Fu
+#define CFG_SIGNAL_GAL_ENA     0x10310021u
+#define CFG_SIGNAL_BDS_ENA     0x10310022u
+#define CFG_SIGNAL_BDS_B1_ENA  0x1031000Du
+#define CFG_SIGNAL_BDS_B1C_ENA 0x1031000Fu
+#define CFG_SIGNAL_QZSS_ENA    0x10310024u
+#define CFG_SIGNAL_SBAS_ENA    0x10310020u
+#define CFG_SIGNAL_GLO_ENA     0x10310025u
+#define CFG_ANA_USE_ANA        0x10230001u
+#define CFG_NAVSPG_FIXMODE     0x20110011u
+#define CFG_NAVSPG_INFIL_MINSVS 0x201100A1u
+#define CFG_MSGOUT_UBX_NAV_PVT_UART1 0x20910007u
+
 static i2c_master_dev_handle_t s_pmu;
+static i2c_master_dev_handle_t s_rtc;
 static bool s_powered;
 static bool s_uart_installed;
 static m10q_state_t s_state = M10Q_STATE_OFF;
@@ -38,6 +68,18 @@ static QueueHandle_t s_uart_queue;
 static uint32_t s_rx_bytes;      /* debug: bytes received since power-on */
 static uint32_t s_nmea_lines;   /* debug: NMEA lines parsed since power-on */
 static uint32_t s_gsv_count;    /* debug: GSV sentences seen */
+
+/* Stats + TTFF tracking. */
+static m10q_stats_t s_stats;
+static uint32_t s_ttf_sum_ms;
+static uint32_t s_ttf_start_ms;
+static bool s_ttf_running;
+static bool s_had_fix;
+static uint16_t s_agc;          /* last MON-RF AGC counter */
+
+static void note_fix(void);     /* defined below (stats/TTFF) */
+static void stats_load(void);
+static void send_utc_time_aid(void);
 
 /* ---- UBX RX parser (for NAV-PVT accuracy) ----
  * Byte-fed state machine for u-blox binary frames. Only UBX-NAV-PVT is
@@ -142,25 +184,98 @@ static bool ubx_rx_feed(uint8_t b)
     return false;
 }
 
-/* UBX-NAV-PVT (class 0x01, id 0x07): extract the measured horizontal accuracy
- * (hAcc, bytes 40..43, in mm) and store it as metres. */
+/* UBX-NAV-PVT (class 0x01, id 0x07): the authoritative fix. Extracts hAcc
+ * (bytes 40..43, mm), fix validity, position, SVs, and UTC time. On the first
+ * valid fix after power-on, syncs the RTC and records TTFF. */
 static void ubx_handle_pvt(void)
 {
-    if (s_ubx_rx.len < 44) {
+    if (s_ubx_rx.len < 92) {
         return;
     }
-    uint32_t hacc_mm = (uint32_t)s_ubx_rx.payload[40] |
-                       ((uint32_t)s_ubx_rx.payload[41] << 8) |
-                       ((uint32_t)s_ubx_rx.payload[42] << 16) |
-                       ((uint32_t)s_ubx_rx.payload[43] << 24);
-    /* hAcc is in mm; report in whole metres (rounded). */
+    uint8_t *p = s_ubx_rx.payload;
+
+    uint32_t hacc_mm = (uint32_t)p[40] | ((uint32_t)p[41] << 8) |
+                       ((uint32_t)p[42] << 16) | ((uint32_t)p[43] << 24);
     s_fix.hacc_m = (uint16_t)((hacc_mm + 500) / 1000);
+
+    uint8_t fix_type = p[20];   /* 0=none, 1=DR, 2=2D, 3=3D */
+    uint8_t flags = p[21];      /* bit0 = gnssFixOK */
+    bool fix_ok = (flags & 0x01) && (fix_type == 2 || fix_type == 3);
+
+    if (fix_ok) {
+        int32_t lon = (int32_t)((uint32_t)p[24] | ((uint32_t)p[25] << 8) |
+                                ((uint32_t)p[26] << 16) | ((uint32_t)p[27] << 24));
+        int32_t lat = (int32_t)((uint32_t)p[28] | ((uint32_t)p[29] << 8) |
+                                ((uint32_t)p[30] << 16) | ((uint32_t)p[31] << 24));
+        int32_t hmsl = (int32_t)((uint32_t)p[36] | ((uint32_t)p[37] << 8) |
+                                 ((uint32_t)p[38] << 16) | ((uint32_t)p[39] << 24));
+        s_fix.lat = (double)lat / 1e7;
+        s_fix.lon = (double)lon / 1e7;
+        s_fix.alt_m = (double)hmsl / 1000.0;
+        s_fix.sat_count = p[23];
+        s_fix.hour = p[8];
+        s_fix.minute = p[9];
+        s_fix.second = p[10];
+        s_fix.valid = true;
+        s_state = M10Q_STATE_FIXED;
+
+        /* First valid fix since power-on: sync RTC + record TTFF. */
+        if (!s_had_fix) {
+            s_had_fix = true;
+            if (p[11] & 0x03) {   /* validDate | validTime */
+                /* PVT time is UTC; the RTC stores local wall time. Convert
+                 * using the configured TZ (set in app_main). */
+                struct tm utc = { 0 };
+                utc.tm_year = (int)((uint16_t)p[4] | ((uint16_t)p[5] << 8)) - 1900;
+                utc.tm_mon = p[6] - 1;
+                utc.tm_mday = p[7];
+                utc.tm_hour = p[8];
+                utc.tm_min = p[9];
+                utc.tm_sec = p[10];
+                utc.tm_isdst = 0;
+                time_t epoch = timegm(&utc);
+                struct tm local;
+                localtime_r(&epoch, &local);
+                pcf85063a_time_t t;
+                memset(&t, 0, sizeof(t));
+                t.year = (uint16_t)(local.tm_year + 1900);
+                t.month = (uint8_t)(local.tm_mon + 1);
+                t.day = (uint8_t)local.tm_mday;
+                t.hour = (uint8_t)local.tm_hour;
+                t.min = (uint8_t)local.tm_min;
+                t.sec = (uint8_t)local.tm_sec;
+                if (s_rtc && pcf85063a_set_time(s_rtc, &t) == ESP_OK) {
+                    ESP_LOGI(TAG, "RTC synced from GPS: %04u-%02u-%02u %02u:%02u:%02u local",
+                             (unsigned)t.year, (unsigned)t.month, (unsigned)t.day,
+                             (unsigned)t.hour, (unsigned)t.min, (unsigned)t.sec);
+                }
+            }
+            note_fix();
+        }
+    } else {
+        /* Losing a fix: allow a new TTFF measurement on the next lock. */
+        if (s_had_fix) {
+            s_had_fix = false;
+            s_ttf_running = true;
+            s_ttf_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        }
+    }
+}
+
+static void ubx_handle_mon_rf(void)
+{
+    if (s_ubx_rx.len >= 20) {
+        /* Block 0: ... noisePerMS(2) agcCnt(2) at payload[18..19]. */
+        s_agc = (uint16_t)(s_ubx_rx.payload[18] | (s_ubx_rx.payload[19] << 8));
+    }
 }
 
 static void ubx_rx_dispatch(void)
 {
     if (s_ubx_rx.cls == 0x01 && s_ubx_rx.id == 0x07) {
         ubx_handle_pvt();
+    } else if (s_ubx_rx.cls == 0x0A && s_ubx_rx.id == 0x38) {
+        ubx_handle_mon_rf();
     }
 }
 
@@ -268,6 +383,173 @@ static void ubx_rxm_pmreq(void)
     memset(payload, 0, sizeof(payload));
     payload[4] = 0x02;        /* flags: backup */
     ubx_send(0x06, 0x41, payload, sizeof(payload));
+}
+
+/* ---- Config (CFG-VALSET/GET) ---- */
+
+static esp_err_t ubx_cfg_set_u8(uint32_t key, uint8_t value)
+{
+    uint8_t payload[9] = { 0x00, 0x01, 0x00, 0x00,
+                           (uint8_t)key, (uint8_t)(key >> 8),
+                           (uint8_t)(key >> 16), (uint8_t)(key >> 24),
+                           value };
+    ubx_send(0x06, 0x8A, payload, sizeof(payload));
+    return ESP_OK;
+}
+
+/* ---- MGA-INI aiding (time + position for fast TTFF) ---- */
+
+/* Send UBX-MGA-INI TIME_UTC (type 0x10, 32 bytes) from the RTC (local time). */
+static void send_utc_time_aid(void)
+{
+    pcf85063a_time_t t;
+    if (s_rtc && pcf85063a_get_time(s_rtc, &t) == ESP_OK) {
+        struct tm local = { 0 };
+        local.tm_year = (int)t.year - 1900;
+        local.tm_mon = (int)t.month - 1;
+        local.tm_mday = (int)t.day;
+        local.tm_hour = (int)t.hour;
+        local.tm_min = (int)t.min;
+        local.tm_sec = (int)t.sec;
+        local.tm_isdst = -1;
+        time_t epoch = mktime(&local);
+        if (epoch == (time_t)-1) {
+            return;
+        }
+        struct tm utc;
+        gmtime_r(&epoch, &utc);
+
+        uint8_t payload[32] = { 0 };
+        payload[0] = 0x10;   /* type: TIME_UTC */
+        payload[1] = 0x00;
+        uint32_t t_s = (uint32_t)epoch;
+        payload[12] = t_s & 0xFF;
+        payload[13] = (t_s >> 8) & 0xFF;
+        payload[14] = (t_s >> 16) & 0xFF;
+        payload[15] = (t_s >> 24) & 0xFF;
+        payload[24] = (uint8_t)(utc.tm_year + 1900);
+        payload[25] = (uint8_t)((utc.tm_year + 1900) >> 8);
+        payload[26] = (uint8_t)(utc.tm_mon + 1);
+        payload[27] = (uint8_t)utc.tm_mday;
+        payload[28] = (uint8_t)utc.tm_hour;
+        payload[29] = (uint8_t)utc.tm_min;
+        payload[30] = (uint8_t)utc.tm_sec;
+        ubx_send(0x13, 0x40, payload, sizeof(payload));
+        ESP_LOGI(TAG, "MGA-INI TIME_UTC sent (%04d-%02u-%02u %02u:%02u:%02u)",
+                 utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
+                 utc.tm_hour, utc.tm_min, utc.tm_sec);
+    }
+}
+
+/* Send UBX-MGA-INI POS_LLH (type 0x01, 20 bytes) from the last known fix. */
+static void send_pos_llh_aid(void)
+{
+    nvs_handle_t h;
+    int32_t lat = 0, lon = 0;
+    if (nvs_open(M10Q_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_i32(h, NVS_KEY_LAT, &lat);
+        nvs_get_i32(h, NVS_KEY_LON, &lon);
+        nvs_close(h);
+    }
+    if (lat == 0 && lon == 0) {
+        return;
+    }
+    uint8_t payload[20] = { 0 };
+    payload[0] = 0x01;   /* type: POS_LLH */
+    payload[1] = 0x00;
+    payload[4] = lat & 0xFF;
+    payload[5] = (lat >> 8) & 0xFF;
+    payload[6] = (lat >> 16) & 0xFF;
+    payload[7] = (lat >> 24) & 0xFF;
+    payload[8] = lon & 0xFF;
+    payload[9] = (lon >> 8) & 0xFF;
+    payload[10] = (lon >> 16) & 0xFF;
+    payload[11] = (lon >> 24) & 0xFF;
+    ubx_send(0x13, 0x40, payload, sizeof(payload));
+    ESP_LOGI(TAG, "MGA-INI POS_LLH sent");
+}
+
+/* ---- NVS stats persistence ---- */
+
+static void stats_load(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(M10Q_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u32(h, NVS_KEY_TOTAL, &s_stats.total_fixes);
+        nvs_get_u32(h, NVS_KEY_TFSUM, &s_ttf_sum_ms);
+        nvs_get_u32(h, NVS_KEY_TFBEST, &s_stats.ttf_best_ms);
+        nvs_get_u32(h, NVS_KEY_TODAY, &s_stats.fixes_today);
+        nvs_close(h);
+    }
+    if (s_stats.total_fixes > 0) {
+        s_stats.ttf_avg_ms = s_ttf_sum_ms / s_stats.total_fixes;
+    }
+}
+
+static void stats_save(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(M10Q_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u32(h, NVS_KEY_TOTAL, s_stats.total_fixes);
+        nvs_set_u32(h, NVS_KEY_TFSUM, s_ttf_sum_ms);
+        nvs_set_u32(h, NVS_KEY_TFBEST, s_stats.ttf_best_ms);
+        nvs_set_u32(h, NVS_KEY_TODAY, s_stats.fixes_today);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+/* Record a fix: TTFF, counters, today's date, last position. */
+static void note_fix(void)
+{
+    uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    uint32_t ttf_ms = 0;
+    if (s_ttf_running && now_ms >= s_ttf_start_ms) {
+        ttf_ms = now_ms - s_ttf_start_ms;
+    }
+    s_ttf_running = false;
+
+    uint32_t today = 0;
+    pcf85063a_time_t t;
+    if (s_rtc && pcf85063a_get_time(s_rtc, &t) == ESP_OK) {
+        today = (uint32_t)(t.year) * 10000 + (uint32_t)(t.month) * 100 + t.day;
+    }
+    uint32_t stored_day = 0;
+    nvs_handle_t h;
+    if (nvs_open(M10Q_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u32(h, NVS_KEY_DAY, &stored_day);
+        nvs_close(h);
+    }
+
+    s_stats.total_fixes++;
+    if (today != 0 && today == stored_day) {
+        s_stats.fixes_today++;
+    } else if (today != 0) {
+        s_stats.fixes_today = 1;
+    }
+    if (ttf_ms > 0) {
+        s_ttf_sum_ms += ttf_ms;
+        s_stats.ttf_avg_ms = s_ttf_sum_ms / s_stats.total_fixes;
+        if (s_stats.ttf_best_ms == 0 || ttf_ms < s_stats.ttf_best_ms) {
+            s_stats.ttf_best_ms = ttf_ms;
+        }
+    }
+    stats_save();
+
+    nvs_handle_t wh;
+    if (nvs_open(M10Q_NVS_NS, NVS_READWRITE, &wh) == ESP_OK) {
+        nvs_set_i32(wh, NVS_KEY_LAT, (int32_t)(s_fix.lat * 1e7));
+        nvs_set_i32(wh, NVS_KEY_LON, (int32_t)(s_fix.lon * 1e7));
+        if (today != 0) {
+            nvs_set_u32(wh, NVS_KEY_DAY, today);
+        }
+        nvs_commit(wh);
+        nvs_close(wh);
+    }
+
+    ESP_LOGI(TAG, "FIX: %d sats, TTFF %u ms (avg %lu, best %lu)",
+             (int)s_fix.sat_count, ttf_ms,
+             (unsigned long)s_stats.ttf_avg_ms, (unsigned long)s_stats.ttf_best_ms);
 }
 
 /* ---- NMEA line parsing ---- */
@@ -508,12 +790,14 @@ static void uart_rx_task(void *arg)
     }
 }
 
-esp_err_t m10q_init(i2c_master_dev_handle_t pmu)
+esp_err_t m10q_init(i2c_master_dev_handle_t pmu, i2c_master_dev_handle_t rtc)
 {
     s_pmu = pmu;
+    s_rtc = rtc;
     s_powered = false;
     s_state = M10Q_STATE_OFF;
     memset(&s_fix, 0, sizeof(s_fix));
+    memset(&s_stats, 0, sizeof(s_stats));
     /* Persistent RX task; it blocks on the UART event queue (created when the
      * UART is installed on power-on) and survives power-off. */
     xTaskCreate(uart_rx_task, "m10q_rx", M10Q_RX_TASK_STACK, NULL, 6, NULL);
@@ -580,6 +864,43 @@ esp_err_t m10q_power(bool on)
         memset(&s_fix, 0, sizeof(s_fix));
         ubx_cfg_pm2();
         ubx_cfg_enable_pvt();
+
+        /* Configure constellations: GPS + GAL + BDS B1I + QZSS + SBAS.
+         * GLONASS and BDS B1C stay off (B1I cannot run with B1C/GLO, and it
+         * keeps AssistNow Autonomous usable). RAM-only. */
+        struct { uint32_t key; uint8_t want; const char *name; } sig[] = {
+            { CFG_SIGNAL_BDS_B1C_ENA, 0, "BDS_B1C" },
+            { CFG_SIGNAL_GLO_ENA,     0, "GLO" },
+            { CFG_SIGNAL_BDS_ENA,     1, "BDS" },
+            { CFG_SIGNAL_BDS_B1_ENA,  1, "BDS_B1I" },
+            { CFG_SIGNAL_GPS_ENA,     1, "GPS" },
+            { CFG_SIGNAL_GAL_ENA,     1, "GAL" },
+            { CFG_SIGNAL_QZSS_ENA,    1, "QZSS" },
+            { CFG_SIGNAL_SBAS_ENA,    1, "SBAS" },
+        };
+        for (size_t i = 0; i < sizeof(sig) / sizeof(sig[0]); i++) {
+            ubx_cfg_set_u8(sig[i].key, sig[i].want);
+            vTaskDelay(pdMS_TO_TICKS(200));   /* GNSS restart settle */
+        }
+        ubx_cfg_set_u8(CFG_ANA_USE_ANA, 1);
+        ubx_cfg_set_u8(CFG_NAVSPG_FIXMODE, 2);       /* auto 2D/3D */
+        ubx_cfg_set_u8(CFG_NAVSPG_INFIL_MINSVS, 3);
+        vTaskDelay(pdMS_TO_TICKS(300));
+
+        /* RF diagnostics: poll AGC once. */
+        uint8_t monrf[] = { 0xB5, 0x62, 0x0A, 0x38, 0x00, 0x00, 0x42, 0x76 };
+        uart_write_bytes(M10Q_UART_NUM, monrf, sizeof(monrf));
+
+        /* Load stats and start a TTFF measurement. */
+        stats_load();
+        s_had_fix = false;
+        s_ttf_running = true;
+        s_ttf_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+
+        /* Time + position aiding for a fast first fix. */
+        send_utc_time_aid();
+        send_pos_llh_aid();
+
         ESP_LOGI(TAG, "powered on (BLDO1) at %lu baud", (unsigned long)baud);
     } else {
         ubx_rxm_pmreq();   /* soft standby keeps backup RAM */
@@ -620,4 +941,25 @@ void m10q_get_dbg(uint32_t *rx_bytes, uint32_t *nmea_lines)
 uint32_t m10q_get_gsv_count(void)
 {
     return s_gsv_count;
+}
+
+esp_err_t m10q_get_stats(m10q_stats_t *stats)
+{
+    if (!stats) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_stats.total_fixes == 0 && s_ttf_sum_ms == 0) {
+        stats_load();
+    }
+    *stats = s_stats;
+    return ESP_OK;
+}
+
+esp_err_t m10q_get_agc(uint16_t *agc)
+{
+    if (!agc) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *agc = s_agc;
+    return ESP_OK;
 }

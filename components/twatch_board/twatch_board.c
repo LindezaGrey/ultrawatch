@@ -199,7 +199,7 @@ esp_err_t twatch_board_init(void)
     co5300_init();
     max98357a_init();
     t3902_init();
-    m10q_init(twatch_pmu_dev);
+    m10q_init(twatch_pmu_dev, twatch_rtc_dev);
     sx1262_init(twatch_lora_spi_dev);
     st25r3916_init(twatch_nfc_spi_dev);
 

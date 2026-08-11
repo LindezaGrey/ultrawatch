@@ -7,4 +7,6 @@ idf_component_register(
         log
     PRIV_REQUIRES
         axp2101
+        pcf85063a
+        nvs_flash
 )

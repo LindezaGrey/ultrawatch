@@ -59,9 +59,18 @@ typedef struct {
     m10q_sat_t sats[M10Q_MAX_SATS];
 } m10q_fix_t;
 
+/* Cumulative fix statistics (persisted in NVS, namespace "m10q"). */
+typedef struct {
+    uint32_t total_fixes;    /* total number of fixes since first use */
+    uint32_t fixes_today;    /* fixes recorded today (local date) */
+    uint32_t ttf_avg_ms;     /* average time-to-first-fix */
+    uint32_t ttf_best_ms;    /* best (shortest) time-to-first-fix */
+} m10q_stats_t;
+
 /* Initialize the receiver state (no UART, rail off). pmu is the AXP2101 I2C
- * device handle used to control the BLDO1 rail. */
-esp_err_t m10q_init(i2c_master_dev_handle_t pmu);
+ * device handle for the BLDO1 rail; rtc is the PCF85063A device handle used
+ * to sync the RTC from GPS time. */
+esp_err_t m10q_init(i2c_master_dev_handle_t pmu, i2c_master_dev_handle_t rtc);
 
 /* Power the receiver on (BLDO1 rail + UART) or off (UBX soft-standby, then
  * rail off). Off keeps the VRTC backup alive for a fast warm/hot start. */
@@ -72,6 +81,12 @@ esp_err_t m10q_get_fix(m10q_fix_t *fix);
 
 /* Current receiver power/fix state. */
 m10q_state_t m10q_get_state(void);
+
+/* Cumulative fix statistics. */
+esp_err_t m10q_get_stats(m10q_stats_t *stats);
+
+/* Last MON-RF AGC counter (0 = weak signal, 8191 = saturated). */
+esp_err_t m10q_get_agc(uint16_t *agc);
 
 /* Debug counters: bytes received and NMEA lines parsed since power-on. */
 void m10q_get_dbg(uint32_t *rx_bytes, uint32_t *nmea_lines);

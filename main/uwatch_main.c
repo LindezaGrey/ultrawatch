@@ -10,6 +10,8 @@
  * /dev/ttyACM* used for flashing.
  */
 #include <string.h>
+#include <stdlib.h>
+#include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -188,6 +190,16 @@ static void debug_task(void *arg)
                            (int)fix.sats[i].azimuth_deg, (int)fix.sats[i].snr_db,
                            (int)fix.sats[i].used);
                 }
+                m10q_stats_t st;
+                if (m10q_get_stats(&st) == ESP_OK) {
+                    printf("gnss: fixes=%lu today=%lu ttf_avg=%lu ms best=%lu ms\n",
+                           (unsigned long)st.total_fixes, (unsigned long)st.fixes_today,
+                           (unsigned long)st.ttf_avg_ms, (unsigned long)st.ttf_best_ms);
+                }
+                uint16_t agc = 0;
+                if (m10q_get_agc(&agc) == ESP_OK) {
+                    printf("gnss: agc=%u\n", (unsigned)agc);
+                }
             } else if (cmd_len > 0) {
                 printf("unknown command: %s\n", line);
             }
@@ -202,6 +214,11 @@ static void debug_task(void *arg)
 
 void app_main(void)
 {
+    /* Set the local timezone so UTC<->local conversions (RTC sync from GNSS,
+     * MGA-INI aiding) are correct. */
+    setenv("TZ", "CET-1CEST-2,M3.5.0/2,M10.5.0/3", 1);
+    tzset();
+
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
