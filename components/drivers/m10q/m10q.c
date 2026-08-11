@@ -31,6 +31,7 @@ static const char *TAG = "m10q";
 
 static i2c_master_dev_handle_t s_pmu;
 static bool s_powered;
+static bool s_uart_installed;
 static m10q_state_t s_state = M10Q_STATE_OFF;
 static m10q_fix_t s_fix;
 static QueueHandle_t s_uart_queue;
@@ -525,20 +526,28 @@ esp_err_t m10q_power(bool on)
         return ESP_OK;
     }
     if (on) {
-        uart_config_t cfg = {
-            .baud_rate = M10Q_BAUD_INIT,
-            .data_bits = UART_DATA_8_BITS,
-            .parity = UART_PARITY_DISABLE,
-            .stop_bits = UART_STOP_BITS_1,
-            .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-            .source_clk = UART_SCLK_DEFAULT,
-        };
-        ESP_RETURN_ON_ERROR(uart_param_config(M10Q_UART_NUM, &cfg), TAG, "uart param");
-        ESP_RETURN_ON_ERROR(uart_set_pin(M10Q_UART_NUM, M10Q_PIN_TX, M10Q_PIN_RX, -1, -1),
-                            TAG, "uart pin");
-        ESP_RETURN_ON_ERROR(uart_driver_install(M10Q_UART_NUM, M10Q_RX_BUF, M10Q_TX_BUF,
-                                                M10Q_EVT_QUEUE, &s_uart_queue, 0),
-                            TAG, "uart install");
+        /* Install the UART driver only once. The persistent RX task blocks on
+         * its event queue for the whole lifetime; deleting the driver on a
+         * later power-off would free that queue under the running task and
+         * crash (use-after-free). So the UART stays installed and only the
+         * BLDO1 rail is toggled. */
+        if (!s_uart_installed) {
+            uart_config_t cfg = {
+                .baud_rate = M10Q_BAUD_INIT,
+                .data_bits = UART_DATA_8_BITS,
+                .parity = UART_PARITY_DISABLE,
+                .stop_bits = UART_STOP_BITS_1,
+                .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+                .source_clk = UART_SCLK_DEFAULT,
+            };
+            ESP_RETURN_ON_ERROR(uart_param_config(M10Q_UART_NUM, &cfg), TAG, "uart param");
+            ESP_RETURN_ON_ERROR(uart_set_pin(M10Q_UART_NUM, M10Q_PIN_TX, M10Q_PIN_RX, -1, -1),
+                                TAG, "uart pin");
+            ESP_RETURN_ON_ERROR(uart_driver_install(M10Q_UART_NUM, M10Q_RX_BUF, M10Q_TX_BUF,
+                                                    M10Q_EVT_QUEUE, &s_uart_queue, 0),
+                                TAG, "uart install");
+            s_uart_installed = true;
+        }
 
         /* Power the receiver rail and let it boot. */
         axp2101_enable_rail(s_pmu, AXP2101_BLDO1, true);
@@ -575,7 +584,7 @@ esp_err_t m10q_power(bool on)
     } else {
         ubx_rxm_pmreq();   /* soft standby keeps backup RAM */
         vTaskDelay(pdMS_TO_TICKS(50));
-        uart_driver_delete(M10Q_UART_NUM);
+        /* UART stays installed (see power-on); only cut the rail. */
         axp2101_enable_rail(s_pmu, AXP2101_BLDO1, false);
         s_powered = false;
         s_state = M10Q_STATE_OFF;
