@@ -24,6 +24,8 @@
 #include "sd_log.h"
 #include "bhi260ap.h"
 #include "m10q.h"
+#include "drv2605.h"
+#include "xl9555.h"
 #include <stdio.h>
 #include <dirent.h>
 
@@ -200,6 +202,22 @@ static void debug_task(void *arg)
                 if (m10q_get_agc(&agc) == ESP_OK) {
                     printf("gnss: agc=%u\n", (unsigned)agc);
                 }
+            } else if (strcmp(line, "motor") == 0) {
+                /* Verify the haptic motor: enable the DRV2605 rail and fire a
+                 * short vibration. Usage: "motor" or "motor 47" (waveform id).
+                 * Default 47 = strong click (library 1). */
+                int wave = 47;
+                char *sp = strchr(line, ' ');
+                if (sp) {
+                    wave = atoi(sp + 1);
+                }
+                xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, true);
+                vTaskDelay(pdMS_TO_TICKS(20));
+                esp_err_t err = drv2605_play(twatch_haptic_dev, (uint8_t)wave);
+                printf("motor: wave=%d %s\n", wave, (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+                vTaskDelay(pdMS_TO_TICKS(400));
+                drv2605_go(twatch_haptic_dev);
+                xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
             } else if (cmd_len > 0) {
                 printf("unknown command: %s\n", line);
             }
