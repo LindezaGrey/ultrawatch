@@ -361,7 +361,7 @@ static void ubx_send(uint8_t cls, uint8_t id, const uint8_t *payload, size_t len
 
 /* Probe the UART baud rate. The MIA-M10Q answers at 38400 (factory), 115200
  * (if a previous RAM config raised it and the module kept power) or 9600.
- * We detect a live receiver by watching for UBX sync bytes (0xB5 0x62) in
+ * We detect a live receiver by watching for the UBX sync pair (0xB5 0x62) in
  * response to a UBX-MON-VER request. Returns the found baud or 0. */
 static uint32_t m10q_probe_baud(void)
 {
@@ -378,13 +378,18 @@ static uint32_t m10q_probe_baud(void)
             uart_write_bytes(M10Q_UART_NUM, req, sizeof(req));
             uint32_t deadline = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) + 1500;
             bool seen_sync = false;
+            /* Require the full UBX sync pair: a single stray 0xB5 in a baud-
+             * garbled stream must not be mistaken for a live receiver (that
+             * locked the UART to the wrong speed and silenced the module). */
+            uint8_t prev = 0;
             while ((uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) < deadline) {
                 uint8_t b = 0;
                 if (uart_read_bytes(M10Q_UART_NUM, &b, 1, pdMS_TO_TICKS(50)) > 0) {
-                    if (b == 0xB5) {
+                    if (prev == 0xB5 && b == 0x62) {
                         seen_sync = true;
                         break;
                     }
+                    prev = b;
                 }
             }
             if (seen_sync) {
@@ -972,12 +977,21 @@ esp_err_t m10q_power(bool on)
             s_uart_installed = true;
         }
 
-        /* Power the receiver rail and let it boot. */
+        /* Power the receiver rail and let it boot. A cold M10 boot can take
+         * up to ~1 s to start outputting; probing too early finds nothing and
+         * leaves the UART silent until the next power cycle. */
         axp2101_enable_rail(s_pmu, AXP2101_BLDO1, true);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(1000));
 
         s_powered = true;
         uint32_t baud = m10q_probe_baud();
+        if (baud == 0) {
+            /* Cold-boot race: the module may still be starting. Wait and probe
+             * again once before falling back to the factory baud. */
+            ESP_LOGW(TAG, "no UBX answer on first probe; retrying after 1 s");
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            baud = m10q_probe_baud();
+        }
         if (baud == 0) {
             ESP_LOGW(TAG, "no UBX answer at 38400/115200/9600; using NMEA at 38400");
             baud = M10Q_BAUD_INIT;
