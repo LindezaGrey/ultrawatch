@@ -47,6 +47,7 @@ static lv_obj_t *s_date_label;
 static lv_obj_t *s_batt_label;
 static lv_obj_t *s_batt_fill;
 static lv_obj_t *s_gps_icon;   /* satellite status icon (grey/red/green) */
+static lv_obj_t *s_track_dot;  /* solid red dot: tracking session active */
 
 /* Power management screen. */
 static lv_obj_t *s_power_screen;
@@ -249,6 +250,15 @@ static void watch_face_update(lv_timer_t *timer)
         }
         lv_obj_set_style_text_color(s_gps_icon, c, 0);
     }
+
+    /* Tracking dot: visible only while a tracking session is active. */
+    if (s_track_dot) {
+        if (tracking_is_active()) {
+            lv_obj_clear_flag(s_track_dot, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_track_dot, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 }
 
 static void lvgl_build_watch_face(void)
@@ -270,6 +280,17 @@ static void lvgl_build_watch_face(void)
     lv_obj_set_style_text_font(s_gps_icon, &lv_font_montserrat_22, 0);
     lv_obj_set_style_text_color(s_gps_icon, lv_color_hex(0x888888), 0);
     lv_obj_align(s_gps_icon, LV_ALIGN_TOP_MID, 0, 6);
+
+    /* Tracking indicator: solid red dot, visible only while a tracking
+     * session is active. */
+    s_track_dot = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(s_track_dot, 12, 12);
+    lv_obj_align(s_track_dot, LV_ALIGN_TOP_RIGHT, -8, 8);
+    lv_obj_clear_flag(s_track_dot, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(s_track_dot, lv_color_hex(0xFF2020), 0);
+    lv_obj_set_style_radius(s_track_dot, 6, 0);
+    lv_obj_set_style_pad_all(s_track_dot, 0, 0);
+    lv_obj_add_flag(s_track_dot, LV_OBJ_FLAG_HIDDEN);
 
     s_time_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_time_label, "--:--");
@@ -1011,19 +1032,16 @@ void lvgl_gps_refresh(void)
     gps_refresh();
 }
 
-/* Start/stop a step-gated tracking session. The display is blanked for the
- * session (battery: the BHI step counter + periodic GNSS pulses are the only
- * activity); it is restored on stop. Called from the GPS screen buttons or the
- * console. */
+/* Start/stop a step-gated tracking session. The display keeps working normally
+ * (no blanking); the watch face shows a red dot while active. Called from the
+ * GPS screen buttons or the console. */
 void lvgl_tracking_start(void)
 {
     if (tracking_start() != ESP_OK) {
         ESP_LOGE(TAG, "tracking start failed");
         return;
     }
-    ESP_LOGI(TAG, "tracking: blanking display (step-gated GNSS)");
-    co5300_display_off();
-    co5300_blank();
+    ESP_LOGI(TAG, "tracking started (step-gated GNSS, display stays on)");
 }
 
 void lvgl_tracking_stop(void)
@@ -1032,10 +1050,7 @@ void lvgl_tracking_stop(void)
         ESP_LOGE(TAG, "tracking stop failed");
         return;
     }
-    /* Restore the display so the user can see the GPS screen again. */
-    co5300_wake();
-    co5300_set_brightness(0x80);
-    lvgl_force_redraw();
+    ESP_LOGI(TAG, "tracking stopped");
 }
 
 /* ---- Swipe navigation (indev-level: fires for every touch) ---- */

@@ -257,7 +257,7 @@ static void debug_process_cmd(const char *cmd)
     }
     } else if (strcmp(cmd, "track") == 0) {
     lvgl_tracking_start();
-    printf("track: started (display blanked, GNSS pulses every 50 steps)\n");
+                printf("track: started (GNSS pulses every 50 steps)\n");
     } else if (strcmp(cmd, "cachedump") == 0) {
     sensor_cache_t c;
     sensor_cache_get(&c);

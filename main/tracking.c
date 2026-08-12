@@ -1,12 +1,13 @@
 /*
  * tracking.c - step-gated distance tracking.
  *
- * A tracking session keeps the watch awake (display off) and uses the always-on
- * BHI260AP step counter as the trigger: every TRACK_STEPS_PER_FIX steps the GNSS
- * receiver is pulsed once for a position fix, the haversine distance since the
- * previous fix is accumulated, and the receiver is powered back off. Lifetime
- * distance + steps are persisted in NVS ("track" namespace) so the average step
- * length can be computed (dist_cm / steps).
+ * A tracking session keeps the watch awake (display stays on; the watch face
+ * shows a red dot) and uses the always-on BHI260AP step counter as the
+ * trigger: every TRACK_STEPS_PER_FIX steps the GNSS receiver is pulsed once
+ * for a position fix, the haversine distance since the previous fix is
+ * accumulated, and the receiver is powered back off. Lifetime distance + steps
+ * are persisted in NVS ("track" namespace) so the average step length can be
+ * computed (dist_cm / steps).
  *
  * The session is driven by a background task that watches the step counter and
  * flags "fix due" to the GNSS control task in lvgl_app, which does the actual
