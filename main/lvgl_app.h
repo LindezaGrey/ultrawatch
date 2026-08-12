@@ -23,6 +23,10 @@ esp_err_t lvgl_app_dump_screenshot(void);
  * persist the last-known position if moved (50 m gate), power off. */
 void lvgl_gps_refresh(void);
 
+/* Start/stop a step-gated tracking session (blanks the display while active). */
+void lvgl_tracking_start(void);
+void lvgl_tracking_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

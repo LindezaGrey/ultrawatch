@@ -988,6 +988,17 @@ void m10q_get_last_position(double *lat, double *lon)
     }
 }
 
+void m10q_update_last_position(double lat, double lon)
+{
+    nvs_handle_t h;
+    if (nvs_open(M10Q_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_i32(h, NVS_KEY_LAT, (int32_t)(lat * 1e7));
+        nvs_set_i32(h, NVS_KEY_LON, (int32_t)(lon * 1e7));
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
 m10q_state_t m10q_get_state(void)
 {
     return s_state;

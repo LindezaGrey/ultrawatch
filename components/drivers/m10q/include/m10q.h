@@ -83,6 +83,10 @@ esp_err_t m10q_get_fix(m10q_fix_t *fix);
 /* Last known position persisted in NVS (from a previous fix), degrees. */
 void m10q_get_last_position(double *lat, double *lon);
 
+/* Persist the given position as the last-known position (degrees). Used by
+ * tracking to update it on every fix (bypasses the 50 m gate). */
+void m10q_update_last_position(double lat, double lon);
+
 /* Current receiver power/fix state. */
 m10q_state_t m10q_get_state(void);
 

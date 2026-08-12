@@ -22,6 +22,7 @@
 #include "pcf85063a.h"
 #include "bhi260ap.h"
 #include "m10q.h"
+#include "tracking.h"
 #include "lvgl_app.h"
 
 static const char *TAG = "power_mgmt";
@@ -190,6 +191,16 @@ static void pm_wake_task(void *arg)
         }
 
         esp_lv_adapter_request_wake();
+
+        /* While tracking, the display is blanked but the watch is awake (the
+         * tracking task keeps it so the step counter runs). A PWR/BOOT press
+         * wakes the display so the user can reach the Stop button. */
+        if (tracking_is_active()) {
+            co5300_wake();
+            co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : 0x80);
+            lvgl_force_redraw();
+            ESP_LOGI(TAG, "tracking: display restored by button");
+        }
     }
 }
 

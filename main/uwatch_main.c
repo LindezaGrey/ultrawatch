@@ -27,6 +27,7 @@
 #include "drv2605.h"
 #include "xl9555.h"
 #include "crash_dump.h"
+#include "tracking.h"
 #include <stdio.h>
 #include <dirent.h>
 
@@ -215,6 +216,20 @@ static void debug_task(void *arg)
                 } else {
                     printf("lpk: %.5f, %.5f\n", lat, lon);
                 }
+            } else if (strcmp(line, "track") == 0) {
+                lvgl_tracking_start();
+                printf("track: started (display blanked, GNSS pulses every 50 steps)\n");
+            } else if (strcmp(line, "track stop") == 0) {
+                lvgl_tracking_stop();
+                printf("track: stopped\n");
+            } else if (strcmp(line, "trackstat") == 0) {
+                tracking_totals_t t;
+                tracking_get_totals(&t);
+                printf("track: active=%d dist=%.2f km steps=%lu avg=%.2f m session_steps=%lu\n",
+                       (int)tracking_is_active(),
+                       t.dist_cm / 100000.0, (unsigned long)t.steps,
+                       tracking_get_avg_step_cm() / 100.0,
+                       (unsigned long)tracking_get_session_steps());
             } else if (strcmp(line, "motor") == 0) {
                 /* Verify the haptic motor: enable the DRV2605 rail and fire a
                  * short vibration. Usage: "motor" or "motor 47" (waveform id).

@@ -50,6 +50,29 @@ It turns red while the boot-time position check runs, green once a 3D fix
 locks (briefly, before the receiver is powered back off), and returns to grey
 when idle.
 
+## Distance tracking
+
+The GPS screen has a **Start**/**Stop** button (bottom centre) plus a stats
+line showing the tracked distance, step count and average step length. Tracking
+can also be controlled from the console (`track`, `track stop`).
+
+While a tracking session is active:
+
+- The display is blanked (battery saving) and the watch stays awake so the
+  BHI260AP step counter keeps running.
+- Every **50 steps** the GNSS receiver is powered on once, a **3D fix** is
+  awaited (VRTC backup makes this a warm/hot start), the position is recorded,
+  and the receiver is powered back off.
+- The haversine distance between consecutive fixes is accumulated; the
+  last-known position is updated on every fix.
+- **Lifetime totals** (distance and steps) are persisted in NVS across reboots;
+  the average step length = distance / steps.
+- Pressing **PWR** or **BOOT** while tracking restores the display so the Stop
+  button can be reached.
+
+No 3D fix indoors means no distance is accumulated for that interval (the step
+threshold simply re-triggers later).
+
 ## GPS power management
 
 The GNSS receiver (u-blox MIA-M10Q) is the most power-hungry peripheral
@@ -106,6 +129,9 @@ available (type them and press Enter):
 | `gnss` | Dump GNSS state, fix (position/speed/sats/accuracy) and per-satellite azimuth/elevation/SNR. |
 | `gpscheck` | Re-run the one-shot GNSS position check (background, like on power-up). |
 | `lpk` | Show the persisted last-known position (degrees). |
+| `track` | Start a step-gated tracking session (blanks the display). |
+| `track stop` | Stop tracking and persist the session totals. |
+| `trackstat` | Show tracking state, distance, steps and average step length. |
 | `suspend` / `resume` | Manually toggle the BHI260AP AP-suspend mode (debug). |
 | `imon` | Watch the BHI260AP INT line (GPIO8) for 30 s (debug). |
 | `motor` | Play a single haptic buzz. |
