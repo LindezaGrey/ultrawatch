@@ -59,6 +59,9 @@ static const char *TAG = "m10q";
 #define CFG_SIGNAL_SBAS_ENA    0x10310020u
 #define CFG_SIGNAL_GLO_ENA     0x10310025u
 #define CFG_ANA_USE_ANA        0x10230001u
+#define CFG_ANA_USE_POSITION   0x10230002u
+#define CFG_ANA_USE_TIME       0x10230003u
+#define CFG_ANA_ASSISTNOW_TIMEOUT 0x10230004u
 #define CFG_NAVSPG_FIXMODE     0x20110011u
 #define CFG_NAVSPG_INFIL_MINSVS 0x201100A1u
 #define CFG_MSGOUT_UBX_NAV_PVT_UART1 0x20910007u
@@ -434,6 +437,17 @@ static esp_err_t ubx_cfg_set_u8(uint32_t key, uint8_t value)
     return ESP_OK;
 }
 
+static esp_err_t ubx_cfg_set_u32(uint32_t key, uint32_t value)
+{
+    uint8_t payload[12] = { 0x00, 0x01, 0x00, 0x00,
+                            (uint8_t)key, (uint8_t)(key >> 8),
+                            (uint8_t)(key >> 16), (uint8_t)(key >> 24),
+                            (uint8_t)value, (uint8_t)(value >> 8),
+                            (uint8_t)(value >> 16), (uint8_t)(value >> 24) };
+    ubx_send(0x06, 0x8A, payload, sizeof(payload));
+    return ESP_OK;
+}
+
 /* ---- MGA-INI aiding (time + position for fast TTFF) ---- */
 
 /* Send UBX-MGA-INI TIME_UTC (type 0x10, 32 bytes) from the RTC (local time). */
@@ -504,6 +518,30 @@ static void send_pos_llh_aid(void)
     payload[11] = (lon >> 24) & 0xFF;
     ubx_send(0x13, 0x40, payload, sizeof(payload));
     ESP_LOGI(TAG, "MGA-INI POS_LLH sent");
+}
+
+/* Seed the receiver with an approximate position (degrees) via MGA-INI
+ * POS_LLH, so it can compute satellite positions and acquire faster even
+ * without stored ephemeris. Only needs to be within a few hundred km. */
+void m10q_seed_position(double lat, double lon)
+{
+    if (!s_powered || !s_uart_installed) {
+        return;
+    }
+    int32_t ilat = (int32_t)(lat * 1e7);
+    int32_t ilon = (int32_t)(lon * 1e7);
+    uint8_t payload[20] = { 0 };
+    payload[0] = 0x01;   /* type: POS_LLH */
+    payload[4] = ilat & 0xFF;
+    payload[5] = (ilat >> 8) & 0xFF;
+    payload[6] = (ilat >> 16) & 0xFF;
+    payload[7] = (ilat >> 24) & 0xFF;
+    payload[8] = ilon & 0xFF;
+    payload[9] = (ilon >> 8) & 0xFF;
+    payload[10] = (ilon >> 16) & 0xFF;
+    payload[11] = (ilon >> 24) & 0xFF;
+    ubx_send(0x13, 0x40, payload, sizeof(payload));
+    ESP_LOGI(TAG, "MGA-INI POS_LLH seeded (%.5f, %.5f)", lat, lon);
 }
 
 /* ---- NVS stats persistence ---- */
@@ -954,6 +992,11 @@ esp_err_t m10q_power(bool on)
             vTaskDelay(pdMS_TO_TICKS(200));   /* GNSS restart settle */
         }
         ubx_cfg_set_u8(CFG_ANA_USE_ANA, 1);
+        /* AssistNow Autonomous uses stored position/time to build its
+         * predicted-ephemeris database. Enable the aiding inputs. */
+        ubx_cfg_set_u8(CFG_ANA_USE_POSITION, 1);
+        ubx_cfg_set_u8(CFG_ANA_USE_TIME, 1);
+        ubx_cfg_set_u32(CFG_ANA_ASSISTNOW_TIMEOUT, 3600);   /* 1 h */
         ubx_cfg_set_u8(CFG_NAVSPG_FIXMODE, 2);       /* auto 2D/3D */
         ubx_cfg_set_u8(CFG_NAVSPG_INFIL_MINSVS, 3);
         vTaskDelay(pdMS_TO_TICKS(300));

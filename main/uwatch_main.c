@@ -249,6 +249,18 @@ static void debug_process_cmd(const char *cmd)
     /* Re-run the boot-time GNSS position check (background). */
     printf("gpscheck: queued (GNSS powers on for a 3D fix, then off)\n");
     lvgl_gps_refresh();
+    } else if (strncmp(cmd, "gnssseed ", 9) == 0) {
+    /* Seed the receiver with an approximate position to speed acquisition.
+     * Usage: "gnssseed <lat> <lon>". */
+    double lat = atof(cmd + 9);
+    char *sp = strchr(cmd + 9, ' ');
+    if (sp && lat != 0) {
+        double lon = atof(sp + 1);
+        m10q_seed_position(lat, lon);
+        printf("gnssseed: seeded %.5f, %.5f\n", lat, lon);
+    } else {
+        printf("gnssseed: usage gnssseed <lat> <lon>\n");
+    }
     } else if (strcmp(cmd, "lpk") == 0) {
     double lat = 0, lon = 0;
     m10q_get_last_position(&lat, &lon);

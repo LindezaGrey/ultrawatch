@@ -104,6 +104,10 @@ esp_err_t m10q_get_agc(uint16_t *agc);
 /* Re-poll MON-RF AGC now (the receiver answers asynchronously). */
 void m10q_poll_agc(void);
 
+/* Seed the receiver with an approximate position (degrees) via MGA-INI
+ * POS_LLH for faster acquisition when no ephemeris is stored. */
+void m10q_seed_position(double lat, double lon);
+
 /* Debug counters: bytes received and NMEA lines parsed since power-on. */
 void m10q_get_dbg(uint32_t *rx_bytes, uint32_t *nmea_lines);
 
