@@ -14,7 +14,6 @@
  */
 #include "tracking.h"
 
-#include <math.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -25,6 +24,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "bhi260ap.h"
+#include "m10q.h"
 
 static const char *TAG = "tracking";
 
@@ -69,18 +69,6 @@ static void totals_save(void)
         nvs_commit(h);
         nvs_close(h);
     }
-}
-
-/* Great-circle distance in metres (haversine). */
-static double haversine_m(double lat1, double lon1, double lat2, double lon2)
-{
-    const double rad = 0.017453292519943295;   /* pi / 180 */
-    double dlat = (lat2 - lat1) * rad;
-    double dlon = (lon2 - lon1) * rad;
-    double a = sin(dlat / 2.0) * sin(dlat / 2.0) +
-               cos(lat1 * rad) * cos(lat2 * rad) *
-               sin(dlon / 2.0) * sin(dlon / 2.0);
-    return 6371000.0 * 2.0 * atan2(sqrt(a), sqrt(1.0 - a));
 }
 
 static void tracking_task(void *arg)
@@ -168,7 +156,7 @@ void tracking_on_fix(double lat, double lon)
         return;
     }
     if (s_session_has_pos) {
-        double d = haversine_m(s_prev_lat, s_prev_lon, lat, lon);
+        double d = m10q_distance_m(s_prev_lat, s_prev_lon, lat, lon);
         if (d >= 1.0) {   /* ignore sub-metre jitter */
             s_session_dist_cm += (uint32_t)(d * 100.0);
         }

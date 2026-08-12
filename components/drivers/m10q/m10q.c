@@ -74,6 +74,7 @@ static QueueHandle_t s_uart_queue;
 static uint32_t s_rx_bytes;      /* debug: bytes received since power-on */
 static uint32_t s_nmea_lines;   /* debug: NMEA lines parsed since power-on */
 static uint32_t s_gsv_count;    /* debug: GSV sentences seen */
+static volatile bool s_dump_raw;   /* debug: print every NMEA line received */
 
 /* Stats + TTFF tracking. */
 static m10q_stats_t s_stats;
@@ -89,8 +90,9 @@ static void send_utc_time_aid(void);
 
 /* ---- Distance / last-known-position ---- */
 
-/* Great-circle distance in metres between two WGS84 points (haversine). */
-static double haversine_m(double lat1, double lon1, double lat2, double lon2)
+/* Great-circle distance in metres between two WGS84 points (haversine). The
+ * same formula used by GPS libraries (e.g. TinyGPSPlus); see docs note. */
+double m10q_distance_m(double lat1, double lon1, double lat2, double lon2)
 {
     const double rad = 0.017453292519943295;   /* pi / 180 */
     double dlat = (lat2 - lat1) * rad;
@@ -578,7 +580,7 @@ static void note_fix(void)
          * rewrite NVS on every fix (wear) while still tracking real movement. */
         int32_t old_lat = 0, old_lon = 0;
         lkp_load(&old_lat, &old_lon);
-        double d = haversine_m(old_lat / 1e7, old_lon / 1e7, s_fix.lat, s_fix.lon);
+        double d = m10q_distance_m(old_lat / 1e7, old_lon / 1e7, s_fix.lat, s_fix.lon);
         if (d >= LKP_UPDATE_MIN_M) {
             nvs_set_i32(wh, NVS_KEY_LAT, (int32_t)(s_fix.lat * 1e7));
             nvs_set_i32(wh, NVS_KEY_LON, (int32_t)(s_fix.lon * 1e7));
@@ -837,6 +839,22 @@ static void uart_rx_task(void *arg)
                     line[line_len++] = c;
                 }
             }
+            if (s_dump_raw && n > 0) {
+                /* Debug: print the raw chunk so we can inspect what the receiver
+                 * actually sends (NMEA + UBX bytes). */
+                printf("[m10q raw] ");
+                for (int i = 0; i < n; i++) {
+                    uint8_t b = buf[i];
+                    if (b == '\n') {
+                        printf("\\n\n[m10q raw] ");
+                    } else if (b == '\r') {
+                        printf("\\r");
+                    } else {
+                        putchar(b);
+                    }
+                }
+                printf("\n");
+            }
         } else if (evt.type == UART_FIFO_OVF || evt.type == UART_BUFFER_FULL) {
             uart_flush_input(M10Q_UART_NUM);
         }
@@ -1017,6 +1035,11 @@ void m10q_get_dbg(uint32_t *rx_bytes, uint32_t *nmea_lines)
 uint32_t m10q_get_gsv_count(void)
 {
     return s_gsv_count;
+}
+
+void m10q_set_raw_dump(bool on)
+{
+    s_dump_raw = on;
 }
 
 esp_err_t m10q_get_stats(m10q_stats_t *stats)

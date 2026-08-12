@@ -87,6 +87,11 @@ void m10q_get_last_position(double *lat, double *lon);
  * tracking to update it on every fix (bypasses the 50 m gate). */
 void m10q_update_last_position(double lat, double lon);
 
+/* Great-circle distance in metres between two WGS84 points (degrees), using
+ * the haversine formula (the same one used by GPS libraries such as
+ * TinyGPSPlus). */
+double m10q_distance_m(double lat1, double lon1, double lat2, double lon2);
+
 /* Current receiver power/fix state. */
 m10q_state_t m10q_get_state(void);
 
@@ -101,6 +106,9 @@ void m10q_get_dbg(uint32_t *rx_bytes, uint32_t *nmea_lines);
 
 /* Debug: number of GSV sentences seen since power-on. */
 uint32_t m10q_get_gsv_count(void);
+
+/* Debug: toggle raw UART dump (prints every received NMEA/UBX byte). */
+void m10q_set_raw_dump(bool on);
 
 #ifdef __cplusplus
 }
