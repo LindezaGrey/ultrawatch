@@ -115,6 +115,18 @@ touch. Touching the screen resets the timer.
 The displayed time is read from the on-board RTC (PCF85063A) every second, so
 it never drifts from the ESP32's internal clock.
 
+## Architecture: background tasks + cached sensors
+
+Sensors and slow I2C peripherals are handled by dedicated background tasks so
+the UI never blocks on the I2C bus:
+
+- **BHI260AP** (accel/gyro/RV/steps/activity) — own `bhi260` task polls the FIFO;
+  the UI reads cached RAM values.
+- **M10Q GNSS** — own UART RX task parses fixes; the UI reads cached RAM values.
+- **AXP2101 PMU + PCF85063A RTC** — a low-priority `sensor_cache` task polls
+  them once per second into a RAM struct; the watch face and power screen read
+  this snapshot instead of doing I2C reads. `cachedump` shows the cache.
+
 ## Debug
 
 While connected over USB-Serial-JTAG, the following console commands are
@@ -132,6 +144,7 @@ available (type them and press Enter):
 | `track` | Start a step-gated tracking session (blanks the display). |
 | `track stop` | Stop tracking and persist the session totals. |
 | `trackstat` | Show tracking state, distance, steps and average step length. |
+| `cachedump` | Dump the cached PMU/RTC telemetry (battery, charge, temperature, time). |
 | `suspend` / `resume` | Manually toggle the BHI260AP AP-suspend mode (debug). |
 | `imon` | Watch the BHI260AP INT line (GPIO8) for 30 s (debug). |
 | `motor` | Play a single haptic buzz. |

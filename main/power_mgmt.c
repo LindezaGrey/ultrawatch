@@ -23,6 +23,7 @@
 #include "bhi260ap.h"
 #include "m10q.h"
 #include "tracking.h"
+#include "sensor_cache.h"
 #include "lvgl_app.h"
 
 static const char *TAG = "power_mgmt";
@@ -50,9 +51,9 @@ static void pm_apply_night_mode(bool night);
 static bool pm_is_night_time(void)
 {
     /* Use the RTC wall clock, not the ESP32 system clock, so night mode never
-     * drifts. */
+     * drifts. The RTC is polled by the background telemetry cache task. */
     pcf85063a_time_t t;
-    if (pcf85063a_get_time(twatch_rtc_dev, &t) != ESP_OK) {
+    if (!sensor_cache_get_rtc(&t)) {
         return false;
     }
     int h = t.hour;

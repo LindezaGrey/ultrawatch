@@ -28,6 +28,7 @@
 #include "xl9555.h"
 #include "crash_dump.h"
 #include "tracking.h"
+#include "sensor_cache.h"
 #include <stdio.h>
 #include <dirent.h>
 
@@ -219,6 +220,17 @@ static void debug_task(void *arg)
             } else if (strcmp(line, "track") == 0) {
                 lvgl_tracking_start();
                 printf("track: started (display blanked, GNSS pulses every 50 steps)\n");
+            } else if (strcmp(line, "cachedump") == 0) {
+                sensor_cache_t c;
+                sensor_cache_get(&c);
+                printf("cache: valid=%d rtc=%04u-%02u-%02u %02u:%02u:%02u wd=%u\n",
+                       (int)c.valid, (unsigned)c.rtc.year, (unsigned)c.rtc.month,
+                       (unsigned)c.rtc.day, (unsigned)c.rtc.hour, (unsigned)c.rtc.min,
+                       (unsigned)c.rtc.sec, (unsigned)c.rtc.weekday);
+                printf("cache: batt=%u%% %umV chg=%d en=%d ma=%u temp=%d.%dC\n",
+                       (unsigned)c.batt_pct, (unsigned)c.batt_mv, (int)c.chg_state,
+                       (int)c.chg_enabled, (unsigned)c.chg_ma,
+                       c.batt_temp_c10 / 10, abs(c.batt_temp_c10 % 10));
             } else if (strcmp(line, "track stop") == 0) {
                 lvgl_tracking_stop();
                 printf("track: stopped\n");
@@ -230,6 +242,12 @@ static void debug_task(void *arg)
                        t.dist_cm / 100000.0, (unsigned long)t.steps,
                        tracking_get_avg_step_cm() / 100.0,
                        (unsigned long)tracking_get_session_steps());
+            } else if (strcmp(line, "gnssraw") == 0) {
+                printf("gnssraw: dumping raw UART for 8 s...\n");
+                m10q_set_raw_dump(true);
+                vTaskDelay(pdMS_TO_TICKS(8000));
+                m10q_set_raw_dump(false);
+                printf("gnssraw: dump stopped\n");
             } else if (strcmp(line, "motor") == 0) {
                 /* Verify the haptic motor: enable the DRV2605 rail and fire a
                  * short vibration. Usage: "motor" or "motor 47" (waveform id).

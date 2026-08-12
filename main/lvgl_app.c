@@ -29,6 +29,7 @@
 #include "twatch_board.h"
 #include "axp2101.h"
 #include "tracking.h"
+#include "sensor_cache.h"
 #include "m10q.h"
 #include "power_mgmt.h"
 
@@ -202,9 +203,10 @@ static void watch_face_update(lv_timer_t *timer)
     (void)timer;
 
     /* Read the wall-clock time from the RTC (PCF85063A), not the ESP32 system
-     * clock, so the display never drifts. */
+     * clock, so the display never drifts. The RTC is polled by the background
+     * telemetry task; reading the cache keeps I2C off the UI task. */
     pcf85063a_time_t t;
-    if (pcf85063a_get_time(twatch_rtc_dev, &t) != ESP_OK) {
+    if (!sensor_cache_get_rtc(&t)) {
         return;
     }
 
@@ -223,8 +225,10 @@ static void watch_face_update(lv_timer_t *timer)
              wday[wd], t.day, mon[t.month - 1], t.year);
     lv_label_set_text(s_date_label, buf);
 
-    uint8_t pct = 0;
-    if (axp2101_get_battery_pct(twatch_pmu_dev, &pct) == ESP_OK && pct <= 100) {
+    sensor_cache_t cache;
+    sensor_cache_get(&cache);
+    uint8_t pct = cache.batt_pct;
+    if (cache.valid && pct <= 100) {
         snprintf(buf, sizeof(buf), "%u%%", pct);
         lv_label_set_text(s_batt_label, buf);
         lv_obj_set_width(s_batt_fill, (lv_coord_t)(140 * pct / 100));
@@ -334,19 +338,17 @@ static void power_screen_update(lv_timer_t *timer)
     }
 
     char buf[64];
-    uint8_t pct = 0;
-    uint16_t mv = 0;
-    axp2101_get_battery_pct(twatch_pmu_dev, &pct);
-    axp2101_get_battery_mv(twatch_pmu_dev, &mv);
+    sensor_cache_t cache;
+    sensor_cache_get(&cache);
+
+    uint8_t pct = cache.batt_pct;
+    uint16_t mv = cache.batt_mv;
     snprintf(buf, sizeof(buf), "Battery  %u%%  %.3f V", pct, mv / 1000.0f);
     lv_label_set_text(s_pw_batt_label, buf);
 
-    axp2101_charge_state_t chg;
-    if (axp2101_get_charge_status(twatch_pmu_dev, &chg) == ESP_OK) {
-        bool en = false;
-        axp2101_is_charge_enabled(twatch_pmu_dev, &en);
+    if (cache.valid) {
         const char *s;
-        switch (chg) {
+        switch (cache.chg_state) {
         case AXP2101_CHG_TRI: s = "Trickle"; break;
         case AXP2101_CHG_PRE: s = "Pre-charge"; break;
         case AXP2101_CHG_CC:  s = "Charging CC"; break;
@@ -354,33 +356,23 @@ static void power_screen_update(lv_timer_t *timer)
         case AXP2101_CHG_DONE: s = "Charged"; break;
         default:              s = "Not charging"; break;
         }
-        uint16_t ma = 0;
-        axp2101_get_charge_current_ma(twatch_pmu_dev, &ma);
-        snprintf(buf, sizeof(buf), "%s%s  %umA", s, en ? "" : " (disabled)", ma);
+        snprintf(buf, sizeof(buf), "%s%s  %umA", s, cache.chg_enabled ? "" : " (disabled)",
+                 cache.chg_ma);
         lv_label_set_text(s_pw_chg_label, buf);
-    }
 
-    int16_t tc = 0;
-    if (axp2101_get_battery_temp(twatch_pmu_dev, &tc) == ESP_OK) {
+        int16_t tc = cache.batt_temp_c10;
         snprintf(buf, sizeof(buf), "Battery temp  %d.%d C", tc / 10, abs(tc % 10));
-    } else {
-        snprintf(buf, sizeof(buf), "Battery temp  -- C");
-    }
-    lv_label_set_text(s_pw_temp_label, buf);
+        lv_label_set_text(s_pw_temp_label, buf);
 
-    /* Keep switch/current buttons reflecting hardware state. */
-    bool en = false;
-    axp2101_is_charge_enabled(twatch_pmu_dev, &en);
-    if (lv_obj_has_state(s_pw_chg_switch, LV_STATE_CHECKED) != en) {
-        if (en) {
-            lv_obj_add_state(s_pw_chg_switch, LV_STATE_CHECKED);
-        } else {
-            lv_obj_remove_state(s_pw_chg_switch, LV_STATE_CHECKED);
+        /* Keep switch/current buttons reflecting hardware state. */
+        if (lv_obj_has_state(s_pw_chg_switch, LV_STATE_CHECKED) != cache.chg_enabled) {
+            if (cache.chg_enabled) {
+                lv_obj_add_state(s_pw_chg_switch, LV_STATE_CHECKED);
+            } else {
+                lv_obj_remove_state(s_pw_chg_switch, LV_STATE_CHECKED);
+            }
         }
-    }
-    uint16_t ma = 0;
-    if (axp2101_get_charge_current_ma(twatch_pmu_dev, &ma) == ESP_OK) {
-        bool cur100 = (ma <= 150);
+        bool cur100 = (cache.chg_ma <= 150);
         lv_obj_add_state(s_pw_cur_100, LV_STATE_CHECKED);
         lv_obj_add_state(s_pw_cur_400, LV_STATE_CHECKED);
         lv_obj_clear_state(cur100 ? s_pw_cur_100 : s_pw_cur_400, LV_STATE_CHECKED);
@@ -479,6 +471,7 @@ static void lvgl_build_power_screen(void)
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
 
     lv_timer_create(power_screen_update, 1000, NULL);
+    power_screen_update(NULL);   /* populate instantly from the cached snapshot */
 }
 
 /* ---- BHI260AP status screen ---- */
@@ -1252,6 +1245,11 @@ esp_err_t lvgl_app_start(void)
     esp_lv_adapter_set_draw_bitmap_callbacks(disp, &draw_cbs, NULL);
 
     ESP_RETURN_ON_ERROR(esp_lv_adapter_start(), TAG, "adapter start");
+
+    /* Background telemetry cache (AXP + RTC) so the UI never blocks on I2C.
+     * Must start before power_mgmt_init(): its wake task reads the cached RTC
+     * for night-mode checks. */
+    sensor_cache_init();
 
     /* Power management: DFS + light sleep + wake sources. */
     power_mgmt_init();

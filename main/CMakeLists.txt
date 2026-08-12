@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "uwatch_main.c" "lvgl_app.c" "power_mgmt.c" "crash_dump.c" "tracking.c"
+    SRCS "uwatch_main.c" "lvgl_app.c" "power_mgmt.c" "crash_dump.c" "tracking.c" "sensor_cache.c"
     INCLUDE_DIRS "."
     REQUIRES
         twatch_board
