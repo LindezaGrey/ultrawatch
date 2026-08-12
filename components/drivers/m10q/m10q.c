@@ -59,9 +59,7 @@ static const char *TAG = "m10q";
 #define CFG_SIGNAL_SBAS_ENA    0x10310020u
 #define CFG_SIGNAL_GLO_ENA     0x10310025u
 #define CFG_ANA_USE_ANA        0x10230001u
-#define CFG_ANA_USE_POSITION   0x10230002u
-#define CFG_ANA_USE_TIME       0x10230003u
-#define CFG_ANA_ASSISTNOW_TIMEOUT 0x10230004u
+#define CFG_ANA_ORBMAXERR      0x30230002u
 #define CFG_NAVSPG_FIXMODE     0x20110011u
 #define CFG_NAVSPG_INFIL_MINSVS 0x201100A1u
 #define CFG_MSGOUT_UBX_NAV_PVT_UART1 0x20910007u
@@ -310,6 +308,12 @@ static void ubx_handle_mon_rf(void)
     }
 }
 
+/* NOTE: the MIA-M10Q does not answer UBX-MON-RF (neither the poll nor the
+ * CFG-MSGOUT periodic output; it returns no frame at all). s_agc therefore
+ * stays 0 and AGC is not a usable RF-health signal on this module. The MON-RF
+ * poll checksum was wrong (0x76 vs 0xD0) and has been fixed, but the module
+ * still does not respond, so RF diagnostics are unavailable. */
+
 static void ubx_rx_dispatch(void)
 {
     if (s_ubx_rx.cls == 0x01 && s_ubx_rx.id == 0x07) {
@@ -320,9 +324,13 @@ static void ubx_rx_dispatch(void)
 }
 
 /* GSV sentence merging: GSV frames arrive as N sentences per constellation;
- * satellites accumulate until the count is reached or a timeout resets. */
+ * a full sky scan is a cycle GP->GA->GB->GQ->GP... The M10 emits the GPS
+ * constellation as TWO consecutive GSV frames per scan (tracked sats with SNR,
+ * then in-view sats without), so a same-talker msg_num==1 is NOT a new scan.
+ * Only reset when the first talker reappears after a different talker. */
 static uint16_t s_gsv_sat_count;
 static char s_gsv_first_talker;   /* first constellation talker of the scan */
+static char s_gsv_last_talker;    /* talker of the previous GSV sentence */
 
 /* ---- UBX helpers (for soft-standby on power-down) ---- */
 
@@ -440,13 +448,12 @@ static esp_err_t ubx_cfg_set_u8(uint32_t key, uint8_t value)
     return ESP_OK;
 }
 
-static esp_err_t ubx_cfg_set_u32(uint32_t key, uint32_t value)
+static esp_err_t ubx_cfg_set_u16(uint32_t key, uint16_t value)
 {
-    uint8_t payload[12] = { 0x00, 0x01, 0x00, 0x00,
+    uint8_t payload[10] = { 0x00, 0x01, 0x00, 0x00,
                             (uint8_t)key, (uint8_t)(key >> 8),
                             (uint8_t)(key >> 16), (uint8_t)(key >> 24),
-                            (uint8_t)value, (uint8_t)(value >> 8),
-                            (uint8_t)(value >> 16), (uint8_t)(value >> 24) };
+                            (uint8_t)value, (uint8_t)(value >> 8) };
     ubx_send(0x06, 0x8A, payload, sizeof(payload));
     return ESP_OK;
 }
@@ -473,21 +480,23 @@ static void send_utc_time_aid(void)
         struct tm utc;
         gmtime_r(&epoch, &utc);
 
-        uint8_t payload[32] = { 0 };
-        payload[0] = 0x10;   /* type: TIME_UTC */
-        payload[1] = 0x00;
-        uint32_t t_s = (uint32_t)epoch;
-        payload[12] = t_s & 0xFF;
-        payload[13] = (t_s >> 8) & 0xFF;
-        payload[14] = (t_s >> 16) & 0xFF;
-        payload[15] = (t_s >> 24) & 0xFF;
-        payload[24] = (uint8_t)(utc.tm_year + 1900);
-        payload[25] = (uint8_t)((utc.tm_year + 1900) >> 8);
-        payload[26] = (uint8_t)(utc.tm_mon + 1);
-        payload[27] = (uint8_t)utc.tm_mday;
-        payload[28] = (uint8_t)utc.tm_hour;
-        payload[29] = (uint8_t)utc.tm_min;
-        payload[30] = (uint8_t)utc.tm_sec;
+        /* UBX-MGA-INI-TIME_UTC (type 0x10), 24-byte payload:
+         * 0 type, 1 version, 2 ref, 3 leapSecs, 4-5 year (U2), 6 month,
+         * 7 day, 8 hour, 9 minute, 10 second, 11 bitfield0,
+         * 12-15 ns (U4), 16-17 tAccS (U2), 18-19 reserved, 20-23 tAccNs (U4). */
+        uint8_t payload[24] = { 0 };
+        payload[0] = 0x10;                 /* type: TIME_UTC */
+        payload[1] = 0x00;                 /* version */
+        payload[2] = 0x00;                 /* ref: apply on receipt */
+        payload[3] = 18;                   /* leap seconds since 1980 (18 since 2017) */
+        payload[4] = (uint8_t)(utc.tm_year + 1900);
+        payload[5] = (uint8_t)((utc.tm_year + 1900) >> 8);
+        payload[6] = (uint8_t)(utc.tm_mon + 1);
+        payload[7] = (uint8_t)utc.tm_mday;
+        payload[8] = (uint8_t)utc.tm_hour;
+        payload[9] = (uint8_t)utc.tm_min;
+        payload[10] = (uint8_t)utc.tm_sec;
+        payload[16] = 1;                   /* tAccS: time accurate to 1 s */
         ubx_send(0x13, 0x40, payload, sizeof(payload));
         ESP_LOGI(TAG, "MGA-INI TIME_UTC sent (%04d-%02u-%02u %02u:%02u:%02u)",
                  utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
@@ -786,12 +795,16 @@ static void parse_gsv(char *line)
             s_gsv_first_talker = talker;
             s_gsv_sat_count = 0;
             s_fix.sat_in_view = 0;
-        } else if (talker == s_gsv_first_talker) {
-            /* Talker wrapped to the first: new sky-scan cycle. */
+        } else if (talker == s_gsv_first_talker && s_gsv_last_talker != talker) {
+            /* Talker wrapped to the first after a different constellation:
+             * a new sky-scan cycle. A same-talker msg_num==1 right after the
+             * previous frame is NOT a new scan (the M10 sends two GPGSV frames
+             * per scan), so it must not reset the accumulator. */
             s_gsv_sat_count = 0;
             s_fix.sat_in_view = 0;
         }
     }
+    s_gsv_last_talker = talker;
 
     for (int i = 0; i < 4; i++) {
         int base = 4 + i * 4;
@@ -988,6 +1001,9 @@ esp_err_t m10q_power(bool on)
         s_nmea_lines = 0;
         s_state = M10Q_STATE_ACQUIRING;
         memset(&s_fix, 0, sizeof(s_fix));
+        s_gsv_sat_count = 0;
+        s_gsv_first_talker = '\0';
+        s_gsv_last_talker = '\0';
         ubx_cfg_pm2();
         ubx_cfg_enable_pvt();
 
@@ -1009,17 +1025,15 @@ esp_err_t m10q_power(bool on)
             vTaskDelay(pdMS_TO_TICKS(200));   /* GNSS restart settle */
         }
         ubx_cfg_set_u8(CFG_ANA_USE_ANA, 1);
-        /* AssistNow Autonomous uses stored position/time to build its
-         * predicted-ephemeris database. Enable the aiding inputs. */
-        ubx_cfg_set_u8(CFG_ANA_USE_POSITION, 1);
-        ubx_cfg_set_u8(CFG_ANA_USE_TIME, 1);
-        ubx_cfg_set_u32(CFG_ANA_ASSISTNOW_TIMEOUT, 3600);   /* 1 h */
+        /* AssistNow Autonomous builds its predicted-ephemeris database from
+         * stored time/position observations (M10 manages these internally). */
+        ubx_cfg_set_u16(CFG_ANA_ORBMAXERR, 50);   /* 50 m max modelled orbit error */
         ubx_cfg_set_u8(CFG_NAVSPG_FIXMODE, 2);       /* auto 2D/3D */
         ubx_cfg_set_u8(CFG_NAVSPG_INFIL_MINSVS, 3);
         vTaskDelay(pdMS_TO_TICKS(300));
 
         /* RF diagnostics: poll AGC once. */
-        uint8_t monrf[] = { 0xB5, 0x62, 0x0A, 0x38, 0x00, 0x00, 0x42, 0x76 };
+        uint8_t monrf[] = { 0xB5, 0x62, 0x0A, 0x38, 0x00, 0x00, 0x42, 0xD0 };
         uart_write_bytes(M10Q_UART_NUM, monrf, sizeof(monrf));
 
         /* Load stats and start a TTFF measurement. */
@@ -1129,6 +1143,6 @@ void m10q_poll_agc(void)
     if (!s_powered || !s_uart_installed) {
         return;
     }
-    uint8_t monrf[] = { 0xB5, 0x62, 0x0A, 0x38, 0x00, 0x00, 0x42, 0x76 };
+    uint8_t monrf[] = { 0xB5, 0x62, 0x0A, 0x38, 0x00, 0x00, 0x42, 0xD0 };
     uart_write_bytes(M10Q_UART_NUM, monrf, sizeof(monrf));
 }

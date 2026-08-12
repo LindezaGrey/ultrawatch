@@ -23,7 +23,7 @@ extern "C" {
 #define M10Q_PIN_RX  44
 #define M10Q_PIN_PPS 13
 
-#define M10Q_MAX_SATS 16
+#define M10Q_MAX_SATS 24
 
 /* L1 user-equivalent range error for HDOP-derived horizontal accuracy. */
 #define M10Q_UERE_M   5
