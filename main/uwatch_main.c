@@ -26,6 +26,7 @@
 #include "m10q.h"
 #include "drv2605.h"
 #include "xl9555.h"
+#include "crash_dump.h"
 #include <stdio.h>
 #include <dirent.h>
 
@@ -230,6 +231,50 @@ static void debug_task(void *arg)
                 esp_err_t err = drv2605_calibrate_restore(twatch_haptic_dev);
                 printf("motor calrestore: %s\n",
                        (err == ESP_OK) ? "ok" : (err == ESP_ERR_NOT_FOUND) ? "none stored" : esp_err_to_name(err));
+            } else if (strcmp(line, "crashinfo") == 0) {
+                crash_dump_print_status();
+            } else if (strcmp(line, "crashsave") == 0) {
+                esp_err_t err = crash_dump_save();
+                printf("crashsave: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+            } else if (strcmp(line, "crashls") == 0) {
+                DIR *d = opendir("/sdcard/log/crash");
+                if (!d) {
+                    printf("crashls: no crash dir\n");
+                } else {
+                    struct dirent *e;
+                    while ((e = readdir(d)) != NULL) {
+                        printf("%s\n", e->d_name);
+                    }
+                    closedir(d);
+                }
+            } else if (strncmp(line, "crashread ", 10) == 0) {
+                size_t name_len = strlen(line + 10);
+                if (name_len == 0 || name_len >= 64) {
+                    printf("crashread: invalid filename\n");
+                } else {
+                    char name[64];
+                    memcpy(name, line + 10, name_len);
+                    name[name_len] = '\0';
+                    char path[128];
+                    snprintf(path, sizeof(path), "/sdcard/log/crash/%s", name);
+                    FILE *f = fopen(path, "r");
+                    if (!f) {
+                        printf("crashread: cannot open %s\n", path);
+                    } else {
+                        char c;
+                        while (fread(&c, 1, 1, f) == 1) {
+                            putchar(c);
+                        }
+                        fclose(f);
+                    }
+                }
+            } else if (strcmp(line, "panictest") == 0) {
+                /* Deliberately crash to exercise the core dump -> SD path. */
+                printf("panictest: triggering a null-pointer dereference...\n");
+                vTaskDelay(pdMS_TO_TICKS(100));
+                volatile uint32_t *p = (volatile uint32_t *)0;
+                *p = 0xDEADBEEF;
+                printf("panictest: should never reach here\n");
             } else if (cmd_len > 0) {
                 printf("unknown command: %s\n", line);
             }
@@ -269,6 +314,10 @@ void app_main(void)
     sd_log_set_version(UWATCH_GIT_HASH);
     sd_log_mount();
     sd_log_start();
+
+    /* If the previous boot crashed, decode the flash core dump to the SD card
+     * (report + raw ELF) before the UI starts. */
+    crash_dump_save();
 
     err = lvgl_app_start();
     if (err != ESP_OK) {

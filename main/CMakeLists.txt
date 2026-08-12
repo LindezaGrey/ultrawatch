@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "uwatch_main.c" "lvgl_app.c" "power_mgmt.c"
+    SRCS "uwatch_main.c" "lvgl_app.c" "power_mgmt.c" "crash_dump.c"
     INCLUDE_DIRS "."
     REQUIRES
         twatch_board
@@ -24,6 +24,8 @@ idf_component_register(
         esp_timer
         log
         nvs_flash
+        espcoredump
+        esp_partition
 )
 
 # Bake the git commit hash into the firmware for boot-screen identification.

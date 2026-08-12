@@ -88,6 +88,11 @@ available (type them and press Enter):
 | `motor` | Play a single haptic buzz. |
 | `motor cal` | Run the DRV2605 on-chip auto-calibration (~1 s buzz) and save it to NVS. |
 | `motor calrestore` | Reload the stored haptic calibration from NVS. |
+| `crashinfo` | Show whether a crash core dump is pending in flash. |
+| `crashsave` | Force the pending core dump to be decoded to the SD card now. |
+| `crashls` | List saved crash reports / core dumps on the SD card. |
+| `crashread <file>` | Print a saved crash report from the SD card. |
+| `panictest` | Deliberately crash (null deref) to exercise the core dump feature. |
 
 ## Data storage (SD card)
 
@@ -96,6 +101,15 @@ When an SD card is present it is mounted at `/sdcard`:
 - **Logs** — all log output is buffered in RAM and flushed to
   `/sdcard/log/uwatch.log` every 2 s.
 - **Screenshots** — `shot` saves PNG files to `/sdcard/shot/`.
+- **Crash dumps** — if the watch crashes, the ESP32 core dump is stored to a
+  flash partition and, on the next boot with an SD card present, decoded to
+  `/sdcard/log/crash/`:
+  - `report_<timestamp>.txt` — human-readable crash report (panic reason,
+    crashed task, exception PC/cause/vaddr, register dump, backtrace).
+  - `core_<timestamp>.elf` — the raw core dump, analyzable offline with
+    `espcoredump.py info_corefile -m build/UWatch.elf -c core_<timestamp>.elf`.
+  - The flash copy is erased only after a successful save, so the dump survives
+    if no card is present on the first boot after the crash.
 
 ## Notes
 

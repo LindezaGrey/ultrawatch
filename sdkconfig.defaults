@@ -23,9 +23,13 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_APP_PROJECT_VER_FROM_CONFIG=y
 CONFIG_APP_PROJECT_VER="1.0.0"
 
-# Partition table: custom (nvs / phy_init / 2 MB factory app / 1 MB assets)
+# Partition table: custom (nvs / phy_init / 2 MB factory app / 512K coredump / 1 MB assets)
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Crash core dump: store to flash on panic, decoded to the SD card on next boot
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=32
 
 # Logging
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
