@@ -32,6 +32,8 @@
 #include "sensor_cache.h"
 #include "max98357a.h"
 #include "t3902.h"
+#include "uwatch_main.h"
+#include "ble_debug.h"
 #include <stdio.h>
 #include <dirent.h>
 
@@ -44,6 +46,8 @@ static const char *TAG = "uwatch";
 static int16_t *s_rec_buf;
 static size_t s_rec_n;
 static SemaphoreHandle_t s_rec_done;   /* signalled when a background rec finishes */
+
+static void debug_process_cmd(const char *cmd);
 
 /* Background recorder: fills s_rec_buf while the speaker plays (the amp and
  * mic are on separate I2S controllers, so TX + RX can run concurrently). */
@@ -104,492 +108,505 @@ static void debug_task(void *arg)
                 cmd_len--;
             }
             line[cmd_len] = '\0';
-
-            if (strcmp(line, "shot") == 0) {
-                lvgl_app_dump_screenshot();
-            } else if (strcmp(line, "sdin") == 0) {
-                /* Read back /sdcard/log/uwatch.log and dump it. */
-                FILE *f = fopen("/sdcard/log/uwatch.log", "r");
-                if (!f) {
-                    printf("sdin: no log file\n");
-                } else {
-                    char c;
-                    while (fread(&c, 1, 1, f) == 1) {
-                        putchar(c);
-                    }
-                    fclose(f);
-                }
-            } else if (strcmp(line, "sdls") == 0) {
-                /* List PNG screenshots on the SD card. */
-                DIR *d = opendir("/sdcard/shot");
-                if (!d) {
-                    printf("sdls: no shot dir\n");
-                } else {
-                    struct dirent *e;
-                    while ((e = readdir(d)) != NULL) {
-                        printf("%s\n", e->d_name);
-                    }
-                    closedir(d);
-                }
-            } else if (strcmp(line, "sdclear") == 0) {
-                /* Truncate the log and delete screenshots. */
-                esp_err_t err = sd_log_clear();
-                printf("sdclear: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
-            } else if (strcmp(line, "heap") == 0) {
-                printf("heap: free=%lu min=%lu dma=%lu\n",
-                       (unsigned long)esp_get_free_heap_size(),
-                       (unsigned long)esp_get_minimum_free_heap_size(),
-                       (unsigned long)heap_caps_get_free_size(MALLOC_CAP_DMA));
-            } else if (strcmp(line, "bhi") == 0) {
-                /* Dump all BHI260AP sensor values. */
-                bool ready = false;
-                uint32_t steps = 0;
-                bhi260ap_get_status(&ready, &steps);
-                printf("bhi: ready=%d steps=%lu\n", (int)ready, (unsigned long)steps);
-                int16_t v0, v1, v2;
-                if (bhi260ap_get_accel(&v0, &v1, &v2) == ESP_OK) {
-                    printf("bhi: accel mg: %d %d %d\n", v0, v1, v2);
-                }
-                if (bhi260ap_get_gyro(&v0, &v1, &v2) == ESP_OK) {
-                    printf("bhi: gyro dps: %d %d %d\n", v0, v1, v2);
-                }
-                if (bhi260ap_get_orientation(&v0, &v1, &v2) == ESP_OK) {
-                    printf("bhi: ori d: %d %d %d\n", v0, v1, v2);
-                }
-                int16_t qx, qy, qz, qw;
-                uint16_t qa;
-                if (bhi260ap_get_rotation(&qx, &qy, &qz, &qw, &qa) == ESP_OK) {
-                    printf("bhi: rv: %d %d %d %d acc=%u\n", qx, qy, qz, qw, (unsigned)qa);
-                }
-                uint8_t act = BHI260AP_ACTIVITY_UNKNOWN;
-                if (bhi260ap_get_activity(&act) == ESP_OK) {
-                    printf("bhi: activity: %u\n", (unsigned)act);
-                }
-            } else if (strcmp(line, "suspend") == 0) {
-                bhi260ap_ap_suspend();
-                printf("suspend: done\n");
-            } else if (strcmp(line, "resume") == 0) {
-                bhi260ap_ap_resume();
-                printf("resume: done\n");
-            } else if (strcmp(line, "imon") == 0) {
-                /* Watch the BHI INT line (GPIO8) for ~30 s, print each change. */
-                int last = gpio_get_level(GPIO_NUM_8);
-                printf("imon: gpio8 initial=%d\n", last);
-                uint32_t start = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-                while ((uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) - start < 30000) {
-                    int cur = gpio_get_level(GPIO_NUM_8);
-                    if (cur != last) {
-                        printf("imon: gpio8 -> %d @ %lu\n", cur,
-                               (unsigned long)(xTaskGetTickCount() * portTICK_PERIOD_MS));
-                        last = cur;
-                    }
-                    vTaskDelay(pdMS_TO_TICKS(10));
-                }
-                printf("imon: done\n");
-            } else if (strcmp(line, "gnsson") == 0) {
-                m10q_power(true);
-                printf("gnss: powered on\n");
-            } else if (strcmp(line, "gnssoff") == 0) {
-                m10q_power(false);
-                printf("gnss: powered off\n");
-            } else if (strcmp(line, "gnss") == 0) {
-                /* Dump GNSS state, fix, and satellites. */
-                m10q_fix_t fix;
-                m10q_get_fix(&fix);
-                uint32_t rx = 0, lines = 0;
-                m10q_get_dbg(&rx, &lines);
-                printf("gnss: state=%d valid=%d rx=%lu lines=%lu gsv=%lu\n",
-                       (int)m10q_get_state(), (int)fix.valid,
-                       (unsigned long)rx, (unsigned long)lines,
-                       (unsigned long)m10q_get_gsv_count());
-                if (fix.valid) {
-                    printf("gnss: pos %.5f %.5f alt %.0fm\n", fix.lat, fix.lon, fix.alt_m);
-                    printf("gnss: speed %u km/h course %u sats %u hdop %.1f hAcc %um\n",
-                           (unsigned)fix.speed_kmh, (unsigned)fix.course_deg,
-                           (unsigned)fix.sat_count, fix.hdop / 10.0,
-                           (unsigned)fix.hacc_m);
-                }
-                printf("gnss: in view %u\n", (unsigned)fix.sat_in_view);
-                for (int i = 0; i < (int)fix.sat_in_view && i < M10Q_MAX_SATS; i++) {
-                    printf("gnss: sat %2u el %3d az %3d snr %d used %d\n",
-                           (unsigned)fix.sats[i].prn, (int)fix.sats[i].elevation_deg,
-                           (int)fix.sats[i].azimuth_deg, (int)fix.sats[i].snr_db,
-                           (int)fix.sats[i].used);
-                }
-                m10q_stats_t st;
-                if (m10q_get_stats(&st) == ESP_OK) {
-                    printf("gnss: fixes=%lu today=%lu ttf_avg=%lu ms best=%lu ms\n",
-                           (unsigned long)st.total_fixes, (unsigned long)st.fixes_today,
-                           (unsigned long)st.ttf_avg_ms, (unsigned long)st.ttf_best_ms);
-                }
-                uint16_t agc = 0;
-                if (m10q_get_agc(&agc) == ESP_OK) {
-                    printf("gnss: agc=%u\n", (unsigned)agc);
-                }
-            } else if (strcmp(line, "gpscheck") == 0) {
-                /* Re-run the boot-time GNSS position check (background). */
-                printf("gpscheck: queued (GNSS powers on for a 3D fix, then off)\n");
-                lvgl_gps_refresh();
-            } else if (strcmp(line, "lpk") == 0) {
-                double lat = 0, lon = 0;
-                m10q_get_last_position(&lat, &lon);
-                if (lat == 0 && lon == 0) {
-                    printf("lpk: none stored yet\n");
-                } else {
-                    printf("lpk: %.5f, %.5f\n", lat, lon);
-                }
-            } else if (strcmp(line, "track") == 0) {
-                lvgl_tracking_start();
-                printf("track: started (display blanked, GNSS pulses every 50 steps)\n");
-            } else if (strcmp(line, "cachedump") == 0) {
-                sensor_cache_t c;
-                sensor_cache_get(&c);
-                printf("cache: valid=%d rtc=%04u-%02u-%02u %02u:%02u:%02u wd=%u\n",
-                       (int)c.valid, (unsigned)c.rtc.year, (unsigned)c.rtc.month,
-                       (unsigned)c.rtc.day, (unsigned)c.rtc.hour, (unsigned)c.rtc.min,
-                       (unsigned)c.rtc.sec, (unsigned)c.rtc.weekday);
-                printf("cache: batt=%u%% %umV chg=%d en=%d ma=%u temp=%d.%dC\n",
-                       (unsigned)c.batt_pct, (unsigned)c.batt_mv, (int)c.chg_state,
-                       (int)c.chg_enabled, (unsigned)c.chg_ma,
-                       c.batt_temp_c10 / 10, abs(c.batt_temp_c10 % 10));
-            } else if (strcmp(line, "track stop") == 0) {
-                lvgl_tracking_stop();
-                printf("track: stopped\n");
-            } else if (strcmp(line, "trackstat") == 0) {
-                tracking_totals_t t;
-                tracking_get_totals(&t);
-                printf("track: active=%d dist=%.2f km steps=%lu avg=%.2f m session_steps=%lu\n",
-                       (int)tracking_is_active(),
-                       t.dist_cm / 100000.0, (unsigned long)t.steps,
-                       tracking_get_avg_step_cm() / 100.0,
-                       (unsigned long)tracking_get_session_steps());
-            } else if (strcmp(line, "gnssraw") == 0) {
-                printf("gnssraw: dumping raw UART for 8 s...\n");
-                m10q_set_raw_dump(true);
-                vTaskDelay(pdMS_TO_TICKS(8000));
-                m10q_set_raw_dump(false);
-                printf("gnssraw: dump stopped\n");
-            } else if (strcmp(line, "motor") == 0) {
-                /* Verify the haptic motor: enable the DRV2605 rail and fire a
-                 * short vibration. Usage: "motor" or "motor 47" (waveform id).
-                 * Default 47 = strong click (library 1). */
-                int wave = 47;
-                char *sp = strchr(line, ' ');
-                if (sp) {
-                    wave = atoi(sp + 1);
-                }
-                xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, true);
-                vTaskDelay(pdMS_TO_TICKS(20));
-                esp_err_t err = drv2605_play(twatch_haptic_dev, (uint8_t)wave);
-                printf("motor: wave=%d %s\n", wave, (err == ESP_OK) ? "ok" : esp_err_to_name(err));
-                vTaskDelay(pdMS_TO_TICKS(400));
-                drv2605_go(twatch_haptic_dev);
-                xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
-            } else if (strcmp(line, "motor cal") == 0) {
-                /* Run the on-chip auto-calibration and save to NVS. The motor
-                 * vibrates for ~1 s during calibration. */
-                xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, true);
-                vTaskDelay(pdMS_TO_TICKS(20));
-                esp_err_t err = drv2605_auto_calibrate(twatch_haptic_dev);
-                printf("motor cal: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
-                xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
-            } else if (strcmp(line, "motor calrestore") == 0) {
-                esp_err_t err = drv2605_calibrate_restore(twatch_haptic_dev);
-                printf("motor calrestore: %s\n",
-                       (err == ESP_OK) ? "ok" : (err == ESP_ERR_NOT_FOUND) ? "none stored" : esp_err_to_name(err));
-            } else if (strcmp(line, "crashinfo") == 0) {
-                crash_dump_print_status();
-            } else if (strcmp(line, "crashsave") == 0) {
-                esp_err_t err = crash_dump_save();
-                printf("crashsave: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
-            } else if (strcmp(line, "crashls") == 0) {
-                DIR *d = opendir("/sdcard/log/crash");
-                if (!d) {
-                    printf("crashls: no crash dir\n");
-                } else {
-                    struct dirent *e;
-                    while ((e = readdir(d)) != NULL) {
-                        printf("%s\n", e->d_name);
-                    }
-                    closedir(d);
-                }
-            } else if (strncmp(line, "crashread ", 10) == 0) {
-                size_t name_len = strlen(line + 10);
-                if (name_len == 0 || name_len >= 64) {
-                    printf("crashread: invalid filename\n");
-                } else {
-                    char name[64];
-                    memcpy(name, line + 10, name_len);
-                    name[name_len] = '\0';
-                    char path[128];
-                    snprintf(path, sizeof(path), "/sdcard/log/crash/%s", name);
-                    FILE *f = fopen(path, "r");
-                    if (!f) {
-                        printf("crashread: cannot open %s\n", path);
-                    } else {
-                        char c;
-                        while (fread(&c, 1, 1, f) == 1) {
-                            putchar(c);
-                        }
-                        fclose(f);
-                    }
-                }
-            } else if (strncmp(line, "tone ", 5) == 0 || strcmp(line, "tone") == 0) {
-                /* Play a sine tone. Usage: "tone" (440 Hz, 500 ms, near-max vol)
-                 * or "tone <hz> <ms>" or "tone <hz> <ms> <amp 0-32767>". */
-                int hz = 440, ms = 500, amp = 30000;
-                char *sp = strchr(line, ' ');
-                if (sp) {
-                    hz = atoi(sp + 1);
-                    sp = strchr(sp + 1, ' ');
-                    if (sp) {
-                        ms = atoi(sp + 1);
-                        sp = strchr(sp + 1, ' ');
-                        if (sp) {
-                            amp = atoi(sp + 1);
-                        }
-                    }
-                }
-                if (hz <= 0) {
-                    hz = 440;
-                }
-                if (ms <= 0) {
-                    ms = 500;
-                }
-                if (amp <= 0 || amp > 32767) {
-                    amp = 30000;
-                }
-                size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
-                int16_t *buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                if (!buf) {
-                    printf("tone: no mem for %u samples\n", (unsigned)n);
-                } else {
-                    for (size_t i = 0; i < n; i++) {
-                        buf[i] = (int16_t)(sinf(2.0f * 3.14159265f * hz * i / AUDIO_SAMPLE_RATE) * amp);
-                    }
-                    printf("tone: %d Hz, %d ms, amp %d (%u samples)\n", hz, ms, amp, (unsigned)n);
-                    esp_err_t err = max98357a_write(buf, n);
-                    printf("tone: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
-                    heap_caps_free(buf);
-                }
-            } else if (strncmp(line, "rec ", 4) == 0 || strcmp(line, "rec") == 0) {
-                /* Record a short mono clip to a PSRAM buffer.
-                 * Usage: "rec" (2 s) or "rec <ms>". */
-                int ms = 2000;
-                char *sp = strchr(line, ' ');
-                if (sp) {
-                    ms = atoi(sp + 1);
-                }
-                if (ms <= 0) {
-                    ms = 2000;
-                }
-                if (ms > 10000) {
-                    ms = 10000;
-                }
-                size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
-                if (!s_rec_buf) {
-                    s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                } else if (s_rec_n != n) {
-                    int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                    if (nb) {
-                        s_rec_buf = nb;
-                    }
-                }
-                if (!s_rec_buf) {
-                    printf("rec: no mem for %u samples\n", (unsigned)n);
-                } else {
-                    s_rec_n = n;
-                    printf("rec: recording %d ms (%u samples)...\n", ms, (unsigned)n);
-                    esp_err_t err = t3902_read(s_rec_buf, n);
-                    if (err == ESP_OK) {
-                        /* Report the peak amplitude so we can tell if the mic
-                         * captured real audio vs silence. */
-                        int32_t peak = 0;
-                        for (size_t i = 0; i < n; i++) {
-                            int32_t v = s_rec_buf[i];
-                            if (v < 0) v = -v;
-                            if (v > peak) peak = v;
-                        }
-                        printf("rec: done, peak amp %ld\n", (long)peak);
-                    } else {
-                        printf("rec: %s\n", esp_err_to_name(err));
-                    }
-                }
-            } else if (strcmp(line, "playrec") == 0) {
-                /* Play back the last recording (loops 3x so it's audible). */
-                if (!s_rec_buf || s_rec_n == 0) {
-                    printf("playrec: nothing recorded yet (use rec first)\n");
-                } else {
-                    printf("playrec: playing %u samples x3\n", (unsigned)s_rec_n);
-                    for (int r = 0; r < 3; r++) {
-                        esp_err_t err = max98357a_write(s_rec_buf, s_rec_n);
-                        if (err != ESP_OK) {
-                            printf("playrec: %s\n", esp_err_to_name(err));
-                            break;
-                        }
-                    }
-                    printf("playrec: done\n");
-                }
-            } else if (strncmp(line, "tonerec ", 8) == 0 || strcmp(line, "tonerec") == 0) {
-                /* Play a single tone and record it with the mic (like sweep,
-                 * but fixed frequency). Usage: "tonerec" (440 Hz, 3 s) or
-                 * "tonerec <hz> <ms> <amp>". */
-                int hz = 440, ms = 3000, amp = 30000;
-                char *sp = strchr(line, ' ');
-                if (sp) {
-                    hz = atoi(sp + 1);
-                    sp = strchr(sp + 1, ' ');
-                    if (sp) {
-                        ms = atoi(sp + 1);
-                        sp = strchr(sp + 1, ' ');
-                        if (sp) {
-                            amp = atoi(sp + 1);
-                        }
-                    }
-                }
-                if (hz < 20) hz = 440;
-                if (ms <= 0) ms = 3000;
-                if (ms > 10000) ms = 10000;
-                if (amp <= 0 || amp > 32767) amp = 30000;
-                size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
-
-                int16_t *tone = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                if (!tone) {
-                    printf("tonerec: no mem for %u samples\n", (unsigned)n);
-                } else {
-                    for (size_t i = 0; i < n; i++) {
-                        tone[i] = (int16_t)(sinf(2.0f * 3.14159265f * hz * i / AUDIO_SAMPLE_RATE) * amp);
-                    }
-                    if (!s_rec_done) {
-                        s_rec_done = xSemaphoreCreateBinary();
-                    }
-                    xSemaphoreTake(s_rec_done, 0);
-                    if (!s_rec_buf) {
-                        s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                    } else if (s_rec_n != n) {
-                        int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                        if (nb) {
-                            s_rec_buf = nb;
-                        }
-                    }
-                    if (!s_rec_buf) {
-                        printf("tonerec: no mem for rec buffer\n");
-                        heap_caps_free(tone);
-                    } else {
-                        s_rec_n = n;
-                        printf("tonerec: %d Hz, %d ms, amp %d (playing + recording)\n", hz, ms, amp);
-                        xTaskCreate(rec_task, "tone_rec", 2048, NULL, 5, NULL);
-                        vTaskDelay(pdMS_TO_TICKS(50));
-                        esp_err_t err = max98357a_write(tone, n);
-                        printf("tonerec: playback %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
-                        if (xSemaphoreTake(s_rec_done, pdMS_TO_TICKS(n * 1000 / AUDIO_SAMPLE_RATE + 5000)) != pdTRUE) {
-                            printf("tonerec: rec timed out\n");
-                        } else {
-                            int32_t peak = 0;
-                            for (size_t i = 0; i < n; i++) {
-                                int32_t v = s_rec_buf[i];
-                                if (v < 0) v = -v;
-                                if (v > peak) peak = v;
-                            }
-                            printf("tonerec: recorded, peak amp %ld (play 'playrec' to hear)\n", (long)peak);
-                        }
-                        heap_caps_free(tone);
-                    }
-                }
-            } else if (strncmp(line, "sweep ", 6) == 0 || strcmp(line, "sweep") == 0) {
-                /* Play a log-frequency sweep and record it with the mic.
-                 * Usage: "sweep" (200..8000 Hz, 3 s) or "sweep <f0> <f1> <ms>". */
-                int f0 = 200, f1 = 8000, ms = 3000, amp = 30000;
-                char *sp = strchr(line, ' ');
-                if (sp) {
-                    f0 = atoi(sp + 1);
-                    sp = strchr(sp + 1, ' ');
-                    if (sp) {
-                        f1 = atoi(sp + 1);
-                        sp = strchr(sp + 1, ' ');
-                        if (sp) {
-                            ms = atoi(sp + 1);
-                        }
-                    }
-                }
-                if (f0 < 20) f0 = 20;
-                if (f1 <= f0) f1 = f0 + 100;
-                if (ms <= 0) ms = 3000;
-                if (ms > 10000) ms = 10000;
-                size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
-                int f0_start = f0, f1_end = f1;
-
-                /* Generate a logarithmic sine sweep f0 -> f1 over the duration.
-                 * The running frequency must be a double: incrementing an int by
-                 * the per-sample factor (~1.00008) truncates and never moves. */
-                int16_t *sweep = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                if (!sweep) {
-                    printf("sweep: no mem for %u samples\n", (unsigned)n);
-                } else {
-                    double k = exp(log((double)f1 / f0) / n);
-                    double f = f0;
-                    double ph = 0.0;
-                    for (size_t i = 0; i < n; i++) {
-                        sweep[i] = (int16_t)(sinf(ph) * amp);
-                        ph += 2.0 * 3.14159265358979 * f / AUDIO_SAMPLE_RATE;
-                        f *= k;
-                    }
-                    if (!s_rec_done) {
-                        s_rec_done = xSemaphoreCreateBinary();
-                    }
-                    xSemaphoreTake(s_rec_done, 0);
-                    /* (Re)size the recording buffer to match. */
-                    if (!s_rec_buf) {
-                        s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                    } else if (s_rec_n != n) {
-                        int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                        if (nb) {
-                            s_rec_buf = nb;
-                        }
-                    }
-                    if (!s_rec_buf) {
-                        printf("sweep: no mem for rec buffer\n");
-                        heap_caps_free(sweep);
-                    } else {
-                        s_rec_n = n;
-                        printf("sweep: %d -> %d Hz, %d ms (playing + recording)\n", f0_start, f1_end, ms);
-                        /* Start the mic first so it captures the whole sweep. */
-                        xTaskCreate(rec_task, "sweep_rec", 2048, NULL, 5, NULL);
-                        vTaskDelay(pdMS_TO_TICKS(50));
-                        esp_err_t err = max98357a_write(sweep, n);
-                        printf("sweep: playback %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
-                        /* Wait for the recording to finish. */
-                        if (xSemaphoreTake(s_rec_done, pdMS_TO_TICKS(n * 1000 / AUDIO_SAMPLE_RATE + 5000)) != pdTRUE) {
-                            printf("sweep: rec timed out\n");
-                        } else {
-                            int32_t peak = 0;
-                            for (size_t i = 0; i < n; i++) {
-                                int32_t v = s_rec_buf[i];
-                                if (v < 0) v = -v;
-                                if (v > peak) peak = v;
-                            }
-                            printf("sweep: recorded, peak amp %ld (play 'playrec' to hear)\n", (long)peak);
-                        }
-                        heap_caps_free(sweep);
-                    }
-                }
-            } else if (strcmp(line, "panictest") == 0) {
-                /* Deliberately crash to exercise the core dump -> SD path. */
-                printf("panictest: triggering a null-pointer dereference...\n");
-                vTaskDelay(pdMS_TO_TICKS(100));
-                volatile uint32_t *p = (volatile uint32_t *)0;
-                *p = 0xDEADBEEF;
-                printf("panictest: should never reach here\n");
-            } else if (cmd_len > 0) {
-                printf("unknown command: %s\n", line);
-            }
-
+            debug_process_cmd(line);
             /* Shift remaining bytes. */
             size_t rest = len - (size_t)(nl - line) - 1;
             memmove(line, nl + 1, rest);
             len = rest;
         }
     }
+}
+
+
+/* Execute one console command. Shared by the USB-Serial-JTAG console and
+ * the BLE debug bridge so both can drive the watch. */
+static void debug_process_cmd(const char *cmd)
+{
+    if (strcmp(cmd, "shot") == 0) {
+    lvgl_app_dump_screenshot();
+    } else if (strcmp(cmd, "sdin") == 0) {
+    /* Read back /sdcard/log/uwatch.log and dump it. */
+    FILE *f = fopen("/sdcard/log/uwatch.log", "r");
+    if (!f) {
+    printf("sdin: no log file\n");
+    } else {
+    char c;
+    while (fread(&c, 1, 1, f) == 1) {
+    putchar(c);
+    }
+    fclose(f);
+    }
+    } else if (strcmp(cmd, "sdls") == 0) {
+    /* List PNG screenshots on the SD card. */
+    DIR *d = opendir("/sdcard/shot");
+    if (!d) {
+    printf("sdls: no shot dir\n");
+    } else {
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+    printf("%s\n", e->d_name);
+    }
+    closedir(d);
+    }
+    } else if (strcmp(cmd, "sdclear") == 0) {
+    /* Truncate the log and delete screenshots. */
+    esp_err_t err = sd_log_clear();
+    printf("sdclear: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+    } else if (strcmp(cmd, "heap") == 0) {
+    printf("heap: free=%lu min=%lu dma=%lu\n",
+    (unsigned long)esp_get_free_heap_size(),
+    (unsigned long)esp_get_minimum_free_heap_size(),
+    (unsigned long)heap_caps_get_free_size(MALLOC_CAP_DMA));
+    } else if (strcmp(cmd, "bhi") == 0) {
+    /* Dump all BHI260AP sensor values. */
+    bool ready = false;
+    uint32_t steps = 0;
+    bhi260ap_get_status(&ready, &steps);
+    printf("bhi: ready=%d steps=%lu\n", (int)ready, (unsigned long)steps);
+    int16_t v0, v1, v2;
+    if (bhi260ap_get_accel(&v0, &v1, &v2) == ESP_OK) {
+    printf("bhi: accel mg: %d %d %d\n", v0, v1, v2);
+    }
+    if (bhi260ap_get_gyro(&v0, &v1, &v2) == ESP_OK) {
+    printf("bhi: gyro dps: %d %d %d\n", v0, v1, v2);
+    }
+    if (bhi260ap_get_orientation(&v0, &v1, &v2) == ESP_OK) {
+    printf("bhi: ori d: %d %d %d\n", v0, v1, v2);
+    }
+    int16_t qx, qy, qz, qw;
+    uint16_t qa;
+    if (bhi260ap_get_rotation(&qx, &qy, &qz, &qw, &qa) == ESP_OK) {
+    printf("bhi: rv: %d %d %d %d acc=%u\n", qx, qy, qz, qw, (unsigned)qa);
+    }
+    uint8_t act = BHI260AP_ACTIVITY_UNKNOWN;
+    if (bhi260ap_get_activity(&act) == ESP_OK) {
+    printf("bhi: activity: %u\n", (unsigned)act);
+    }
+    } else if (strcmp(cmd, "suspend") == 0) {
+    bhi260ap_ap_suspend();
+    printf("suspend: done\n");
+    } else if (strcmp(cmd, "resume") == 0) {
+    bhi260ap_ap_resume();
+    printf("resume: done\n");
+    } else if (strcmp(cmd, "imon") == 0) {
+    /* Watch the BHI INT cmd (GPIO8) for ~30 s, print each change. */
+    int last = gpio_get_level(GPIO_NUM_8);
+    printf("imon: gpio8 initial=%d\n", last);
+    uint32_t start = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    while ((uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) - start < 30000) {
+    int cur = gpio_get_level(GPIO_NUM_8);
+    if (cur != last) {
+    printf("imon: gpio8 -> %d @ %lu\n", cur,
+    (unsigned long)(xTaskGetTickCount() * portTICK_PERIOD_MS));
+    last = cur;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    printf("imon: done\n");
+    } else if (strcmp(cmd, "gnsson") == 0) {
+    m10q_power(true);
+    printf("gnss: powered on\n");
+    } else if (strcmp(cmd, "gnssoff") == 0) {
+    m10q_power(false);
+    printf("gnss: powered off\n");
+    } else if (strcmp(cmd, "gnss") == 0) {
+    /* Dump GNSS state, fix, and satellites. */
+    m10q_fix_t fix;
+    m10q_get_fix(&fix);
+    uint32_t rx = 0, lines = 0;
+    m10q_get_dbg(&rx, &lines);
+    printf("gnss: state=%d valid=%d rx=%lu lines=%lu gsv=%lu\n",
+    (int)m10q_get_state(), (int)fix.valid,
+    (unsigned long)rx, (unsigned long)lines,
+    (unsigned long)m10q_get_gsv_count());
+    if (fix.valid) {
+    printf("gnss: pos %.5f %.5f alt %.0fm\n", fix.lat, fix.lon, fix.alt_m);
+    printf("gnss: speed %u km/h course %u sats %u hdop %.1f hAcc %um\n",
+    (unsigned)fix.speed_kmh, (unsigned)fix.course_deg,
+    (unsigned)fix.sat_count, fix.hdop / 10.0,
+    (unsigned)fix.hacc_m);
+    }
+    printf("gnss: in view %u\n", (unsigned)fix.sat_in_view);
+    for (int i = 0; i < (int)fix.sat_in_view && i < M10Q_MAX_SATS; i++) {
+    printf("gnss: sat %2u el %3d az %3d snr %d used %d\n",
+    (unsigned)fix.sats[i].prn, (int)fix.sats[i].elevation_deg,
+    (int)fix.sats[i].azimuth_deg, (int)fix.sats[i].snr_db,
+    (int)fix.sats[i].used);
+    }
+    m10q_stats_t st;
+    if (m10q_get_stats(&st) == ESP_OK) {
+    printf("gnss: fixes=%lu today=%lu ttf_avg=%lu ms best=%lu ms\n",
+    (unsigned long)st.total_fixes, (unsigned long)st.fixes_today,
+    (unsigned long)st.ttf_avg_ms, (unsigned long)st.ttf_best_ms);
+    }
+    uint16_t agc = 0;
+    if (m10q_get_agc(&agc) == ESP_OK) {
+    printf("gnss: agc=%u\n", (unsigned)agc);
+    }
+    } else if (strcmp(cmd, "gpscheck") == 0) {
+    /* Re-run the boot-time GNSS position check (background). */
+    printf("gpscheck: queued (GNSS powers on for a 3D fix, then off)\n");
+    lvgl_gps_refresh();
+    } else if (strcmp(cmd, "lpk") == 0) {
+    double lat = 0, lon = 0;
+    m10q_get_last_position(&lat, &lon);
+    if (lat == 0 && lon == 0) {
+    printf("lpk: none stored yet\n");
+    } else {
+    printf("lpk: %.5f, %.5f\n", lat, lon);
+    }
+    } else if (strcmp(cmd, "track") == 0) {
+    lvgl_tracking_start();
+    printf("track: started (display blanked, GNSS pulses every 50 steps)\n");
+    } else if (strcmp(cmd, "cachedump") == 0) {
+    sensor_cache_t c;
+    sensor_cache_get(&c);
+    printf("cache: valid=%d rtc=%04u-%02u-%02u %02u:%02u:%02u wd=%u\n",
+    (int)c.valid, (unsigned)c.rtc.year, (unsigned)c.rtc.month,
+    (unsigned)c.rtc.day, (unsigned)c.rtc.hour, (unsigned)c.rtc.min,
+    (unsigned)c.rtc.sec, (unsigned)c.rtc.weekday);
+    printf("cache: batt=%u%% %umV chg=%d en=%d ma=%u temp=%d.%dC\n",
+    (unsigned)c.batt_pct, (unsigned)c.batt_mv, (int)c.chg_state,
+    (int)c.chg_enabled, (unsigned)c.chg_ma,
+    c.batt_temp_c10 / 10, abs(c.batt_temp_c10 % 10));
+    } else if (strcmp(cmd, "track stop") == 0) {
+    lvgl_tracking_stop();
+    printf("track: stopped\n");
+    } else if (strcmp(cmd, "trackstat") == 0) {
+    tracking_totals_t t;
+    tracking_get_totals(&t);
+    printf("track: active=%d dist=%.2f km steps=%lu avg=%.2f m session_steps=%lu\n",
+    (int)tracking_is_active(),
+    t.dist_cm / 100000.0, (unsigned long)t.steps,
+    tracking_get_avg_step_cm() / 100.0,
+    (unsigned long)tracking_get_session_steps());
+    } else if (strcmp(cmd, "gnssraw") == 0) {
+    printf("gnssraw: dumping raw UART for 8 s...\n");
+    m10q_set_raw_dump(true);
+    vTaskDelay(pdMS_TO_TICKS(8000));
+    m10q_set_raw_dump(false);
+    printf("gnssraw: dump stopped\n");
+    } else if (strcmp(cmd, "motor") == 0) {
+    /* Verify the haptic motor: enable the DRV2605 rail and fire a
+    * short vibration. Usage: "motor" or "motor 47" (waveform id).
+    * Default 47 = strong click (library 1). */
+    int wave = 47;
+    char *sp = strchr(cmd, ' ');
+    if (sp) {
+    wave = atoi(sp + 1);
+    }
+    xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, true);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    esp_err_t err = drv2605_play(twatch_haptic_dev, (uint8_t)wave);
+    printf("motor: wave=%d %s\n", wave, (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+    vTaskDelay(pdMS_TO_TICKS(400));
+    drv2605_go(twatch_haptic_dev);
+    xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
+    } else if (strcmp(cmd, "motor cal") == 0) {
+    /* Run the on-chip auto-calibration and save to NVS. The motor
+    * vibrates for ~1 s during calibration. */
+    xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, true);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    esp_err_t err = drv2605_auto_calibrate(twatch_haptic_dev);
+    printf("motor cal: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+    xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
+    } else if (strcmp(cmd, "motor calrestore") == 0) {
+    esp_err_t err = drv2605_calibrate_restore(twatch_haptic_dev);
+    printf("motor calrestore: %s\n",
+    (err == ESP_OK) ? "ok" : (err == ESP_ERR_NOT_FOUND) ? "none stored" : esp_err_to_name(err));
+    } else if (strcmp(cmd, "crashinfo") == 0) {
+    crash_dump_print_status();
+    } else if (strcmp(cmd, "crashsave") == 0) {
+    esp_err_t err = crash_dump_save();
+    printf("crashsave: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+    } else if (strcmp(cmd, "crashls") == 0) {
+    DIR *d = opendir("/sdcard/log/crash");
+    if (!d) {
+    printf("crashls: no crash dir\n");
+    } else {
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+    printf("%s\n", e->d_name);
+    }
+    closedir(d);
+    }
+    } else if (strncmp(cmd, "crashread ", 10) == 0) {
+    size_t name_len = strlen(cmd + 10);
+    if (name_len == 0 || name_len >= 64) {
+    printf("crashread: invalid filename\n");
+    } else {
+    char name[64];
+    memcpy(name, cmd + 10, name_len);
+    name[name_len] = '\0';
+    char path[128];
+    snprintf(path, sizeof(path), "/sdcard/log/crash/%s", name);
+    FILE *f = fopen(path, "r");
+    if (!f) {
+    printf("crashread: cannot open %s\n", path);
+    } else {
+    char c;
+    while (fread(&c, 1, 1, f) == 1) {
+    putchar(c);
+    }
+    fclose(f);
+    }
+    }
+    } else if (strncmp(cmd, "tone ", 5) == 0 || strcmp(cmd, "tone") == 0) {
+    /* Play a sine tone. Usage: "tone" (440 Hz, 500 ms, near-max vol)
+    * or "tone <hz> <ms>" or "tone <hz> <ms> <amp 0-32767>". */
+    int hz = 440, ms = 500, amp = 30000;
+    char *sp = strchr(cmd, ' ');
+    if (sp) {
+    hz = atoi(sp + 1);
+    sp = strchr(sp + 1, ' ');
+    if (sp) {
+    ms = atoi(sp + 1);
+    sp = strchr(sp + 1, ' ');
+    if (sp) {
+    amp = atoi(sp + 1);
+    }
+    }
+    }
+    if (hz <= 0) {
+    hz = 440;
+    }
+    if (ms <= 0) {
+    ms = 500;
+    }
+    if (amp <= 0 || amp > 32767) {
+    amp = 30000;
+    }
+    size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
+    int16_t *buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) {
+    printf("tone: no mem for %u samples\n", (unsigned)n);
+    } else {
+    for (size_t i = 0; i < n; i++) {
+    buf[i] = (int16_t)(sinf(2.0f * 3.14159265f * hz * i / AUDIO_SAMPLE_RATE) * amp);
+    }
+    printf("tone: %d Hz, %d ms, amp %d (%u samples)\n", hz, ms, amp, (unsigned)n);
+    esp_err_t err = max98357a_write(buf, n);
+    printf("tone: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+    heap_caps_free(buf);
+    }
+    } else if (strncmp(cmd, "rec ", 4) == 0 || strcmp(cmd, "rec") == 0) {
+    /* Record a short mono clip to a PSRAM buffer.
+    * Usage: "rec" (2 s) or "rec <ms>". */
+    int ms = 2000;
+    char *sp = strchr(cmd, ' ');
+    if (sp) {
+    ms = atoi(sp + 1);
+    }
+    if (ms <= 0) {
+    ms = 2000;
+    }
+    if (ms > 10000) {
+    ms = 10000;
+    }
+    size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
+    if (!s_rec_buf) {
+    s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    } else if (s_rec_n != n) {
+    int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (nb) {
+    s_rec_buf = nb;
+    }
+    }
+    if (!s_rec_buf) {
+    printf("rec: no mem for %u samples\n", (unsigned)n);
+    } else {
+    s_rec_n = n;
+    printf("rec: recording %d ms (%u samples)...\n", ms, (unsigned)n);
+    esp_err_t err = t3902_read(s_rec_buf, n);
+    if (err == ESP_OK) {
+    /* Report the peak amplitude so we can tell if the mic
+    * captured real audio vs silence. */
+    int32_t peak = 0;
+    for (size_t i = 0; i < n; i++) {
+    int32_t v = s_rec_buf[i];
+    if (v < 0) v = -v;
+    if (v > peak) peak = v;
+    }
+    printf("rec: done, peak amp %ld\n", (long)peak);
+    } else {
+    printf("rec: %s\n", esp_err_to_name(err));
+    }
+    }
+    } else if (strcmp(cmd, "playrec") == 0) {
+    /* Play back the last recording (loops 3x so it's audible). */
+    if (!s_rec_buf || s_rec_n == 0) {
+    printf("playrec: nothing recorded yet (use rec first)\n");
+    } else {
+    printf("playrec: playing %u samples x3\n", (unsigned)s_rec_n);
+    for (int r = 0; r < 3; r++) {
+    esp_err_t err = max98357a_write(s_rec_buf, s_rec_n);
+    if (err != ESP_OK) {
+    printf("playrec: %s\n", esp_err_to_name(err));
+    break;
+    }
+    }
+    printf("playrec: done\n");
+    }
+    } else if (strncmp(cmd, "tonerec ", 8) == 0 || strcmp(cmd, "tonerec") == 0) {
+    /* Play a single tone and record it with the mic (like sweep,
+    * but fixed frequency). Usage: "tonerec" (440 Hz, 3 s) or
+    * "tonerec <hz> <ms> <amp>". */
+    int hz = 440, ms = 3000, amp = 30000;
+    char *sp = strchr(cmd, ' ');
+    if (sp) {
+    hz = atoi(sp + 1);
+    sp = strchr(sp + 1, ' ');
+    if (sp) {
+    ms = atoi(sp + 1);
+    sp = strchr(sp + 1, ' ');
+    if (sp) {
+    amp = atoi(sp + 1);
+    }
+    }
+    }
+    if (hz < 20) hz = 440;
+    if (ms <= 0) ms = 3000;
+    if (ms > 10000) ms = 10000;
+    if (amp <= 0 || amp > 32767) amp = 30000;
+    size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
+
+    int16_t *tone = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!tone) {
+    printf("tonerec: no mem for %u samples\n", (unsigned)n);
+    } else {
+    for (size_t i = 0; i < n; i++) {
+    tone[i] = (int16_t)(sinf(2.0f * 3.14159265f * hz * i / AUDIO_SAMPLE_RATE) * amp);
+    }
+    if (!s_rec_done) {
+    s_rec_done = xSemaphoreCreateBinary();
+    }
+    xSemaphoreTake(s_rec_done, 0);
+    if (!s_rec_buf) {
+    s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    } else if (s_rec_n != n) {
+    int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (nb) {
+    s_rec_buf = nb;
+    }
+    }
+    if (!s_rec_buf) {
+    printf("tonerec: no mem for rec buffer\n");
+    heap_caps_free(tone);
+    } else {
+    s_rec_n = n;
+    printf("tonerec: %d Hz, %d ms, amp %d (playing + recording)\n", hz, ms, amp);
+    xTaskCreate(rec_task, "tone_rec", 2048, NULL, 5, NULL);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    esp_err_t err = max98357a_write(tone, n);
+    printf("tonerec: playback %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+    if (xSemaphoreTake(s_rec_done, pdMS_TO_TICKS(n * 1000 / AUDIO_SAMPLE_RATE + 5000)) != pdTRUE) {
+    printf("tonerec: rec timed out\n");
+    } else {
+    int32_t peak = 0;
+    for (size_t i = 0; i < n; i++) {
+    int32_t v = s_rec_buf[i];
+    if (v < 0) v = -v;
+    if (v > peak) peak = v;
+    }
+    printf("tonerec: recorded, peak amp %ld (play 'playrec' to hear)\n", (long)peak);
+    }
+    heap_caps_free(tone);
+    }
+    }
+    } else if (strncmp(cmd, "sweep ", 6) == 0 || strcmp(cmd, "sweep") == 0) {
+    /* Play a log-frequency sweep and record it with the mic.
+    * Usage: "sweep" (200..8000 Hz, 3 s) or "sweep <f0> <f1> <ms>". */
+    int f0 = 200, f1 = 8000, ms = 3000, amp = 30000;
+    char *sp = strchr(cmd, ' ');
+    if (sp) {
+    f0 = atoi(sp + 1);
+    sp = strchr(sp + 1, ' ');
+    if (sp) {
+    f1 = atoi(sp + 1);
+    sp = strchr(sp + 1, ' ');
+    if (sp) {
+    ms = atoi(sp + 1);
+    }
+    }
+    }
+    if (f0 < 20) f0 = 20;
+    if (f1 <= f0) f1 = f0 + 100;
+    if (ms <= 0) ms = 3000;
+    if (ms > 10000) ms = 10000;
+    size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
+    int f0_start = f0, f1_end = f1;
+
+    /* Generate a logarithmic sine sweep f0 -> f1 over the duration.
+    * The running frequency must be a double: incrementing an int by
+    * the per-sample factor (~1.00008) truncates and never moves. */
+    int16_t *sweep = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!sweep) {
+    printf("sweep: no mem for %u samples\n", (unsigned)n);
+    } else {
+    double k = exp(log((double)f1 / f0) / n);
+    double f = f0;
+    double ph = 0.0;
+    for (size_t i = 0; i < n; i++) {
+    sweep[i] = (int16_t)(sinf(ph) * amp);
+    ph += 2.0 * 3.14159265358979 * f / AUDIO_SAMPLE_RATE;
+    f *= k;
+    }
+    if (!s_rec_done) {
+    s_rec_done = xSemaphoreCreateBinary();
+    }
+    xSemaphoreTake(s_rec_done, 0);
+    /* (Re)size the recording buffer to match. */
+    if (!s_rec_buf) {
+    s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    } else if (s_rec_n != n) {
+    int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (nb) {
+    s_rec_buf = nb;
+    }
+    }
+    if (!s_rec_buf) {
+    printf("sweep: no mem for rec buffer\n");
+    heap_caps_free(sweep);
+    } else {
+    s_rec_n = n;
+    printf("sweep: %d -> %d Hz, %d ms (playing + recording)\n", f0_start, f1_end, ms);
+    /* Start the mic first so it captures the whole sweep. */
+    xTaskCreate(rec_task, "sweep_rec", 2048, NULL, 5, NULL);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    esp_err_t err = max98357a_write(sweep, n);
+    printf("sweep: playback %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+    /* Wait for the recording to finish. */
+    if (xSemaphoreTake(s_rec_done, pdMS_TO_TICKS(n * 1000 / AUDIO_SAMPLE_RATE + 5000)) != pdTRUE) {
+    printf("sweep: rec timed out\n");
+    } else {
+    int32_t peak = 0;
+    for (size_t i = 0; i < n; i++) {
+    int32_t v = s_rec_buf[i];
+    if (v < 0) v = -v;
+    if (v > peak) peak = v;
+    }
+    printf("sweep: recorded, peak amp %ld (play 'playrec' to hear)\n", (long)peak);
+    }
+    heap_caps_free(sweep);
+    }
+    }
+    } else if (strcmp(cmd, "ble") == 0) {
+    ble_debug_print_status();
+    } else if (strcmp(cmd, "panictest") == 0) {
+    /* Deliberately crash to exercise the core dump -> SD path. */
+    printf("panictest: triggering a null-pointer dereference...\n");
+    vTaskDelay(pdMS_TO_TICKS(100));
+    volatile uint32_t *p = (volatile uint32_t *)0;
+    *p = 0xDEADBEEF;
+    printf("panictest: should never reach here\n");
+    } else if (cmd[0] != '\0') {
+    printf("unknown command: %s\n", cmd);
+    }
+}
+
+void uwatch_debug_process_cmd(const char *cmd)
+{
+    debug_process_cmd(cmd);
 }
 
 void app_main(void)
@@ -631,4 +648,7 @@ void app_main(void)
 
     /* Debug command loop over USB-Serial-JTAG. */
     xTaskCreate(debug_task, "dbg", DBG_TASK_STACK, NULL, 5, NULL);
+
+    /* BLE debug bridge (wireless console + telemetry). */
+    ble_debug_init();
 }

@@ -131,6 +131,36 @@ the UI never blocks on the I2C bus:
   the mode register is per-controller (STD and PDM cannot share one). The amp
   rail (BLDO2) is on by default; the MAX98357A has no software volume (fixed
   gain), so sample scaling is done in software.
+- **BLE** — NimBLE peripheral advertising as **UWatch** (service `0xDEAD`)
+  for wireless debugging. Connects with any BLE client (e.g. `bleak` on a PC).
+
+## BLE debug bridge
+
+The watch advertises as **UWatch** with a GATT service `0xDEAD`:
+
+| Characteristic | UUID | Purpose |
+|---|---|---|
+| CMD | `0xDE01` | write-only: accepts any console command |
+| RESP | `0xDE02` | read + notify: command output is echoed here |
+| TELEM | `0xDE03` | read + notify: steps + GNSS + tracking snapshot, ~1/s |
+
+To read telemetry with Python (`pip install bleak`):
+
+```python
+from bleak import BleakClient
+import asyncio
+async def main():
+    c = BleakClient("10:51:DB:40:4F:16")
+    await c.connect()
+    c.start_notify("0000de03-0000-1000-8000-00805f9b34fb",
+                   lambda u, d: print(d.decode()))
+    await asyncio.sleep(5)
+asyncio.run(main())
+```
+
+This lets you watch the **step counter, GNSS state and tracking totals**
+wirelessly while walking. Note: the display draw buffer is smaller than
+default to leave internal DMA memory for the Bluetooth controller.
 
 ## Debug
 

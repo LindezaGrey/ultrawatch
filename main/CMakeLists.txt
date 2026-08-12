@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "uwatch_main.c" "lvgl_app.c" "power_mgmt.c" "crash_dump.c" "tracking.c" "sensor_cache.c"
+    SRCS "uwatch_main.c" "lvgl_app.c" "power_mgmt.c" "crash_dump.c" "tracking.c" "sensor_cache.c" "ble_debug.c"
     INCLUDE_DIRS "."
     REQUIRES
         twatch_board
@@ -26,6 +26,7 @@ idf_component_register(
         esp_timer
         log
         nvs_flash
+        bt
         espcoredump
         esp_partition
 )
