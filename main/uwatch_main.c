@@ -430,6 +430,72 @@ static void debug_task(void *arg)
                     }
                     printf("playrec: done\n");
                 }
+            } else if (strncmp(line, "tonerec ", 8) == 0 || strcmp(line, "tonerec") == 0) {
+                /* Play a single tone and record it with the mic (like sweep,
+                 * but fixed frequency). Usage: "tonerec" (440 Hz, 3 s) or
+                 * "tonerec <hz> <ms> <amp>". */
+                int hz = 440, ms = 3000, amp = 30000;
+                char *sp = strchr(line, ' ');
+                if (sp) {
+                    hz = atoi(sp + 1);
+                    sp = strchr(sp + 1, ' ');
+                    if (sp) {
+                        ms = atoi(sp + 1);
+                        sp = strchr(sp + 1, ' ');
+                        if (sp) {
+                            amp = atoi(sp + 1);
+                        }
+                    }
+                }
+                if (hz < 20) hz = 440;
+                if (ms <= 0) ms = 3000;
+                if (ms > 10000) ms = 10000;
+                if (amp <= 0 || amp > 32767) amp = 30000;
+                size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
+
+                int16_t *tone = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                if (!tone) {
+                    printf("tonerec: no mem for %u samples\n", (unsigned)n);
+                } else {
+                    for (size_t i = 0; i < n; i++) {
+                        tone[i] = (int16_t)(sinf(2.0f * 3.14159265f * hz * i / AUDIO_SAMPLE_RATE) * amp);
+                    }
+                    if (!s_rec_done) {
+                        s_rec_done = xSemaphoreCreateBinary();
+                    }
+                    xSemaphoreTake(s_rec_done, 0);
+                    if (!s_rec_buf) {
+                        s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                    } else if (s_rec_n != n) {
+                        int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                        if (nb) {
+                            s_rec_buf = nb;
+                        }
+                    }
+                    if (!s_rec_buf) {
+                        printf("tonerec: no mem for rec buffer\n");
+                        heap_caps_free(tone);
+                    } else {
+                        s_rec_n = n;
+                        printf("tonerec: %d Hz, %d ms, amp %d (playing + recording)\n", hz, ms, amp);
+                        xTaskCreate(rec_task, "tone_rec", 2048, NULL, 5, NULL);
+                        vTaskDelay(pdMS_TO_TICKS(50));
+                        esp_err_t err = max98357a_write(tone, n);
+                        printf("tonerec: playback %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+                        if (xSemaphoreTake(s_rec_done, pdMS_TO_TICKS(n * 1000 / AUDIO_SAMPLE_RATE + 5000)) != pdTRUE) {
+                            printf("tonerec: rec timed out\n");
+                        } else {
+                            int32_t peak = 0;
+                            for (size_t i = 0; i < n; i++) {
+                                int32_t v = s_rec_buf[i];
+                                if (v < 0) v = -v;
+                                if (v > peak) peak = v;
+                            }
+                            printf("tonerec: recorded, peak amp %ld (play 'playrec' to hear)\n", (long)peak);
+                        }
+                        heap_caps_free(tone);
+                    }
+                }
             } else if (strncmp(line, "sweep ", 6) == 0 || strcmp(line, "sweep") == 0) {
                 /* Play a log-frequency sweep and record it with the mic.
                  * Usage: "sweep" (200..8000 Hz, 3 s) or "sweep <f0> <f1> <ms>". */
@@ -453,17 +519,20 @@ static void debug_task(void *arg)
                 size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
                 int f0_start = f0, f1_end = f1;
 
-                /* Generate a logarithmic sine sweep f0 -> f1 over the duration. */
+                /* Generate a logarithmic sine sweep f0 -> f1 over the duration.
+                 * The running frequency must be a double: incrementing an int by
+                 * the per-sample factor (~1.00008) truncates and never moves. */
                 int16_t *sweep = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
                 if (!sweep) {
                     printf("sweep: no mem for %u samples\n", (unsigned)n);
                 } else {
                     double k = exp(log((double)f1 / f0) / n);
+                    double f = f0;
                     double ph = 0.0;
                     for (size_t i = 0; i < n; i++) {
                         sweep[i] = (int16_t)(sinf(ph) * amp);
-                        ph += 2.0 * 3.14159265358979 * f0 / AUDIO_SAMPLE_RATE;
-                        f0 = (int)(f0 * k);
+                        ph += 2.0 * 3.14159265358979 * f / AUDIO_SAMPLE_RATE;
+                        f *= k;
                     }
                     if (!s_rec_done) {
                         s_rec_done = xSemaphoreCreateBinary();
