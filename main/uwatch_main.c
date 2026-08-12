@@ -240,6 +240,8 @@ static void debug_process_cmd(const char *cmd)
     (unsigned long)st.ttf_avg_ms, (unsigned long)st.ttf_best_ms);
     }
     uint16_t agc = 0;
+    m10q_poll_agc();
+    vTaskDelay(pdMS_TO_TICKS(200));
     if (m10q_get_agc(&agc) == ESP_OK) {
     printf("gnss: agc=%u\n", (unsigned)agc);
     }
@@ -592,6 +594,12 @@ static void debug_process_cmd(const char *cmd)
     }
     } else if (strcmp(cmd, "ble") == 0) {
     ble_debug_print_status();
+    } else if (strcmp(cmd, "bleadv") == 0) {
+    ble_debug_set_advertising(true);
+    printf("bleadv: advertising enabled\n");
+    } else if (strcmp(cmd, "bleadvoff") == 0) {
+    ble_debug_set_advertising(false);
+    printf("bleadvoff: advertising disabled\n");
     } else if (strcmp(cmd, "panictest") == 0) {
     /* Deliberately crash to exercise the core dump -> SD path. */
     printf("panictest: triggering a null-pointer dereference...\n");

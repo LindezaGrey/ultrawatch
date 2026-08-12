@@ -27,6 +27,10 @@ void ble_debug_notify_telemetry(void);
 /* Debug: print BLE state (advertising / connection). */
 void ble_debug_print_status(void);
 
+/* Enable/disable BLE advertising at runtime (debug: BLE RF can desensitise
+ * the GNSS front-end on this board). */
+void ble_debug_set_advertising(bool on);
+
 #ifdef __cplusplus
 }
 #endif

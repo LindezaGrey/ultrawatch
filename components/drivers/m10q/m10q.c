@@ -1062,3 +1062,12 @@ esp_err_t m10q_get_agc(uint16_t *agc)
     *agc = s_agc;
     return ESP_OK;
 }
+
+void m10q_poll_agc(void)
+{
+    if (!s_powered || !s_uart_installed) {
+        return;
+    }
+    uint8_t monrf[] = { 0xB5, 0x62, 0x0A, 0x38, 0x00, 0x00, 0x42, 0x76 };
+    uart_write_bytes(M10Q_UART_NUM, monrf, sizeof(monrf));
+}

@@ -412,6 +412,20 @@ void ble_debug_print_status(void)
            (int)s_adv_active, (int)s_conn_handle);
 }
 
+/* Enable/disable BLE advertising at runtime. */
+void ble_debug_set_advertising(bool on)
+{
+    if (on) {
+        ble_debug_advertise();
+    } else {
+        if (s_adv_active) {
+            ble_gap_adv_stop();
+            s_adv_active = false;
+            ESP_LOGI(TAG, "advertising stopped");
+        }
+    }
+}
+
 /* ---- Init ---- */
 
 static void ble_debug_host_task(void *param)

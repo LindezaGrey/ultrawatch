@@ -101,6 +101,9 @@ esp_err_t m10q_get_stats(m10q_stats_t *stats);
 /* Last MON-RF AGC counter (0 = weak signal, 8191 = saturated). */
 esp_err_t m10q_get_agc(uint16_t *agc);
 
+/* Re-poll MON-RF AGC now (the receiver answers asynchronously). */
+void m10q_poll_agc(void);
+
 /* Debug counters: bytes received and NMEA lines parsed since power-on. */
 void m10q_get_dbg(uint32_t *rx_bytes, uint32_t *nmea_lines);
 
