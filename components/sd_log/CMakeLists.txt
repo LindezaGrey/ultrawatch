@@ -9,4 +9,6 @@ idf_component_register(
         espressif__libpng
         log
         esp_common
+        twatch_board
+        axp2101
 )

@@ -27,6 +27,8 @@
 #include <sys/stat.h>
 
 #include "png.h"
+#include "twatch_board.h"
+#include "axp2101.h"
 
 static const char *TAG = "sd_log";
 
@@ -52,6 +54,7 @@ static bool s_sd_ready;
 static sdmmc_card_t *s_card;
 static vprintf_like_t s_prev_vprintf;
 static char s_version[64];   /* running firmware version/hash, if set */
+static bool s_card_power_cycled;   /* ALDO1 already toggled this boot */
 
 /* Append one formatted line to the ring (keeps the tail). */
 static void ring_append(const char *fmt, va_list args)
@@ -265,11 +268,31 @@ esp_err_t sd_log_mount(void)
         .allocation_unit_size = 0,
     };
 
+    /* After a soft reset (esp_restart / watchdog / USB reflash) the card is
+     * left powered with its SD registers in an undefined state, so the first
+     * init usually fails with CRC/response errors. Power-cycle the SD rail
+     * (ALDO1) to force a clean card power-on, then retry a few times. */
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot.gpio_cs = SD_CS_GPIO;
 
-    esp_err_t err = esp_vfs_fat_sdspi_mount(SD_LOG_BASE, &host, &slot, &mount_cfg, &s_card);
+    esp_err_t err = ESP_FAIL;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0 || !s_card_power_cycled) {
+            /* Toggle the SD rail: off, settle, on, settle. */
+            axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, false);
+            vTaskDelay(pdMS_TO_TICKS(50));
+            axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, true);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            s_card_power_cycled = true;
+        }
+        err = esp_vfs_fat_sdspi_mount(SD_LOG_BASE, &host, &slot, &mount_cfg, &s_card);
+        if (err == ESP_OK) {
+            break;
+        }
+        ESP_LOGW(TAG, "SD mount attempt %d failed: %s", attempt + 1, esp_err_to_name(err));
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "SD mount failed: %s (logging to serial only)", esp_err_to_name(err));
         s_sd_ready = false;
