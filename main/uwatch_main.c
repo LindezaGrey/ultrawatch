@@ -272,17 +272,22 @@ static void debug_process_cmd(const char *cmd)
     } else if (strcmp(cmd, "track") == 0) {
     lvgl_tracking_start();
                 printf("track: started (GNSS pulses every 50 steps)\n");
-    } else if (strcmp(cmd, "cachedump") == 0) {
-    sensor_cache_t c;
-    sensor_cache_get(&c);
-    printf("cache: valid=%d rtc=%04u-%02u-%02u %02u:%02u:%02u wd=%u\n",
-    (int)c.valid, (unsigned)c.rtc.year, (unsigned)c.rtc.month,
-    (unsigned)c.rtc.day, (unsigned)c.rtc.hour, (unsigned)c.rtc.min,
-    (unsigned)c.rtc.sec, (unsigned)c.rtc.weekday);
-    printf("cache: batt=%u%% %umV chg=%d en=%d ma=%u temp=%d.%dC\n",
-    (unsigned)c.batt_pct, (unsigned)c.batt_mv, (int)c.chg_state,
-    (int)c.chg_enabled, (unsigned)c.chg_ma,
-    c.batt_temp_c10 / 10, abs(c.batt_temp_c10 % 10));
+            } else if (strcmp(cmd, "cachedump") == 0) {
+                sensor_cache_t c;
+                sensor_cache_get(&c);
+                printf("cache: valid=%d rtc=%04u-%02u-%02u %02u:%02u:%02u wd=%u\n",
+                       (int)c.valid, (unsigned)c.rtc.year, (unsigned)c.rtc.month,
+                       (unsigned)c.rtc.day, (unsigned)c.rtc.hour, (unsigned)c.rtc.min,
+                       (unsigned)c.rtc.sec, (unsigned)c.rtc.weekday);
+                printf("cache: batt=%u%% %umV chg=%d en=%d ma=%u temp=%d.%dC\n",
+                       (unsigned)c.batt_pct, (unsigned)c.batt_mv, (int)c.chg_state,
+                       (int)c.chg_enabled, (unsigned)c.chg_ma,
+                       c.batt_temp_c10 / 10, abs(c.batt_temp_c10 % 10));
+                battery_estimate_t e;
+                battery_estimate_get(&e);
+                printf("batt est: valid=%d pct_per_hour=%.2f runtime_h=%.1f charge_h=%.1f\n",
+                       (int)e.estimate_valid, (double)e.pct_per_hour,
+                       (double)e.runtime_h, (double)e.charge_h);
     } else if (strcmp(cmd, "track stop") == 0) {
     lvgl_tracking_stop();
     printf("track: stopped\n");
@@ -669,6 +674,8 @@ void app_main(void)
     /* Debug command loop over USB-Serial-JTAG. */
     xTaskCreate(debug_task, "dbg", DBG_TASK_STACK, NULL, 5, NULL);
 
-    /* BLE debug bridge (wireless console + telemetry). */
-    ble_debug_init();
+    /* BLE debug bridge is currently disabled: the BT controller reserves DMA
+     * that the 48-row display buffer needs, causing BLE connections to drop.
+     * Re-enable when BLE can coexist (e.g. by shrinking the draw buffer). */
+    /* ble_debug_init(); */
 }
