@@ -40,11 +40,16 @@ swipe in a direction to open a menu, and swipe back the opposite way to return.
 The GNSS receiver (u-blox MIA-M10Q) is the most power-hungry peripheral
 (~8–14 mA when acquiring, ~5 mA tracking), so it is **powered off by default**
 and only switched on while the **GPS screen is open**. Leaving the screen (or
-the 5 s menu timeout) powers it back off.
+the 5 s menu timeout) powers it back off. GNSS power transitions run on a
+background task, so the UI never stalls during the seconds-long receiver
+probe/config.
 
 Despite being unpowered, the receiver's always-on **VRTC backup rail** keeps its
 RTC and ephemeris alive (~28 µA), so the next power-up is a **warm/hot start**
 (~1–5 s to a fix) instead of a ~25 s cold start.
+
+If the watch auto-sleeps while the GPS screen is open, the GNSS rail is cut
+gracefully and re-powered (with a fresh config) on wake.
 
 The skyplot and fix data update once per second while the screen is open.
 
@@ -80,6 +85,9 @@ available (type them and press Enter):
 | `gnss` | Dump GNSS state, fix (position/speed/sats/accuracy) and per-satellite azimuth/elevation/SNR. |
 | `suspend` / `resume` | Manually toggle the BHI260AP AP-suspend mode (debug). |
 | `imon` | Watch the BHI260AP INT line (GPIO8) for 30 s (debug). |
+| `motor` | Play a single haptic buzz. |
+| `motor cal` | Run the DRV2605 on-chip auto-calibration (~1 s buzz) and save it to NVS. |
+| `motor calrestore` | Reload the stored haptic calibration from NVS. |
 
 ## Data storage (SD card)
 
