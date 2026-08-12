@@ -14,6 +14,7 @@
 #include "esp_err.h"
 #include "driver/i2c_master.h"
 #include "driver/spi_master.h"
+#include "driver/i2s_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -104,6 +105,10 @@ extern i2c_master_dev_handle_t twatch_imu_dev;
 extern i2c_master_dev_handle_t twatch_haptic_dev;
 extern i2c_master_dev_handle_t twatch_touch_dev;
 extern i2c_master_dev_handle_t twatch_xl9555_dev;
+
+/* Shared I2S0 channels: TX = MAX98357A amp, RX = T3902 PDM mic (full-duplex). */
+extern i2s_chan_handle_t twatch_audio_tx;
+extern i2s_chan_handle_t twatch_audio_rx;
 
 /**
  * @brief Bring up the board: GPIO, I2C + SPI buses, expander, power rails.

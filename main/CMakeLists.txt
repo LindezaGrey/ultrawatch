@@ -10,6 +10,8 @@ idf_component_register(
         bhi260ap
         m10q
         drv2605
+        max98357a
+        t3902
         sd_log
         pcf85063a
         esp_lvgl_adapter

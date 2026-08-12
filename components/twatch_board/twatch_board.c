@@ -18,6 +18,8 @@
 #include "m10q.h"
 #include "sx1262.h"
 #include "st25r3916.h"
+#include "driver/i2s_common.h"
+#include "driver/i2s_types.h"
 
 static const char *TAG = "twatch_board";
 
@@ -33,6 +35,29 @@ i2c_master_dev_handle_t twatch_imu_dev;
 i2c_master_dev_handle_t twatch_haptic_dev;
 i2c_master_dev_handle_t twatch_touch_dev;
 i2c_master_dev_handle_t twatch_xl9555_dev;
+
+/* I2S audio: separate controllers so each keeps its own mode.
+ * I2S1 = MAX98357A amp (STD TX), I2S0 = T3902 PDM mic (PDM RX). The two
+ * modes cannot share one controller (the mode register is per-controller). */
+i2s_chan_handle_t twatch_audio_tx;
+i2s_chan_handle_t twatch_audio_rx;
+
+static esp_err_t twatch_i2s_init(void)
+{
+    i2s_chan_config_t chan_cfg = {
+        .id = I2S_NUM_1,
+        .role = I2S_ROLE_MASTER,
+        .dma_desc_num = 6,
+        .dma_frame_num = 240,
+        .auto_clear = true,
+    };
+    ESP_RETURN_ON_ERROR(i2s_new_channel(&chan_cfg, &twatch_audio_tx, NULL),
+                        TAG, "i2s tx channel alloc failed");
+    chan_cfg.id = I2S_NUM_0;
+    ESP_RETURN_ON_ERROR(i2s_new_channel(&chan_cfg, NULL, &twatch_audio_rx),
+                        TAG, "i2s rx channel alloc failed");
+    return ESP_OK;
+}
 
 static esp_err_t twatch_i2c_init(void)
 {
@@ -197,8 +222,9 @@ esp_err_t twatch_board_init(void)
     sync_system_time();
     drv2605_init(twatch_haptic_dev);
     co5300_init();
-    max98357a_init();
-    t3902_init();
+    twatch_i2s_init();
+    max98357a_init(twatch_audio_tx);
+    t3902_init(twatch_audio_rx);
     m10q_init(twatch_pmu_dev, twatch_rtc_dev);
     sx1262_init(twatch_lora_spi_dev);
     st25r3916_init(twatch_nfc_spi_dev);

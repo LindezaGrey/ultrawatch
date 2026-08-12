@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -29,6 +30,8 @@
 #include "crash_dump.h"
 #include "tracking.h"
 #include "sensor_cache.h"
+#include "max98357a.h"
+#include "t3902.h"
 #include <stdio.h>
 #include <dirent.h>
 
@@ -36,6 +39,10 @@ static const char *TAG = "uwatch";
 
 #define DBG_RX_BUF   256
 #define DBG_TASK_STACK 4096
+
+/* Audio test: buffer holding the last recording (PSRAM), shared by rec/playrec. */
+static int16_t *s_rec_buf;
+static size_t s_rec_n;
 
 static void debug_task(void *arg)
 {
@@ -312,6 +319,102 @@ static void debug_task(void *arg)
                         }
                         fclose(f);
                     }
+                }
+            } else if (strncmp(line, "tone ", 5) == 0 || strcmp(line, "tone") == 0) {
+                /* Play a sine tone. Usage: "tone" (440 Hz, 500 ms, near-max vol)
+                 * or "tone <hz> <ms>" or "tone <hz> <ms> <amp 0-32767>". */
+                int hz = 440, ms = 500, amp = 30000;
+                char *sp = strchr(line, ' ');
+                if (sp) {
+                    hz = atoi(sp + 1);
+                    sp = strchr(sp + 1, ' ');
+                    if (sp) {
+                        ms = atoi(sp + 1);
+                        sp = strchr(sp + 1, ' ');
+                        if (sp) {
+                            amp = atoi(sp + 1);
+                        }
+                    }
+                }
+                if (hz <= 0) {
+                    hz = 440;
+                }
+                if (ms <= 0) {
+                    ms = 500;
+                }
+                if (amp <= 0 || amp > 32767) {
+                    amp = 30000;
+                }
+                size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
+                int16_t *buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                if (!buf) {
+                    printf("tone: no mem for %u samples\n", (unsigned)n);
+                } else {
+                    for (size_t i = 0; i < n; i++) {
+                        buf[i] = (int16_t)(sinf(2.0f * 3.14159265f * hz * i / AUDIO_SAMPLE_RATE) * amp);
+                    }
+                    printf("tone: %d Hz, %d ms, amp %d (%u samples)\n", hz, ms, amp, (unsigned)n);
+                    esp_err_t err = max98357a_write(buf, n);
+                    printf("tone: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+                    heap_caps_free(buf);
+                }
+            } else if (strncmp(line, "rec ", 4) == 0 || strcmp(line, "rec") == 0) {
+                /* Record a short mono clip to a PSRAM buffer.
+                 * Usage: "rec" (2 s) or "rec <ms>". */
+                int ms = 2000;
+                char *sp = strchr(line, ' ');
+                if (sp) {
+                    ms = atoi(sp + 1);
+                }
+                if (ms <= 0) {
+                    ms = 2000;
+                }
+                if (ms > 10000) {
+                    ms = 10000;
+                }
+                size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
+                if (!s_rec_buf) {
+                    s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                } else if (s_rec_n != n) {
+                    int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                    if (nb) {
+                        s_rec_buf = nb;
+                    }
+                }
+                if (!s_rec_buf) {
+                    printf("rec: no mem for %u samples\n", (unsigned)n);
+                } else {
+                    s_rec_n = n;
+                    printf("rec: recording %d ms (%u samples)...\n", ms, (unsigned)n);
+                    esp_err_t err = t3902_read(s_rec_buf, n);
+                    if (err == ESP_OK) {
+                        /* Report the peak amplitude so we can tell if the mic
+                         * captured real audio vs silence. */
+                        int32_t peak = 0;
+                        for (size_t i = 0; i < n; i++) {
+                            int32_t v = s_rec_buf[i];
+                            if (v < 0) v = -v;
+                            if (v > peak) peak = v;
+                        }
+                        printf("rec: done, peak amp %ld\n", (long)peak);
+                    } else {
+                        printf("rec: %s\n", esp_err_to_name(err));
+                    }
+                }
+            } else if (strcmp(line, "playrec") == 0) {
+                /* Play back the last recording (loops 3x so it's audible). */
+                if (!s_rec_buf || s_rec_n == 0) {
+                    printf("playrec: nothing recorded yet (use rec first)\n");
+                } else {
+                    printf("playrec: playing %u samples x3\n", (unsigned)s_rec_n);
+                    for (int r = 0; r < 3; r++) {
+                        esp_err_t err = max98357a_write(s_rec_buf, s_rec_n);
+                        if (err != ESP_OK) {
+                            printf("playrec: %s\n", esp_err_to_name(err));
+                            break;
+                        }
+                    }
+                    printf("playrec: done\n");
                 }
             } else if (strcmp(line, "panictest") == 0) {
                 /* Deliberately crash to exercise the core dump -> SD path. */

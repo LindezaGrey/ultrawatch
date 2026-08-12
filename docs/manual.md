@@ -126,6 +126,11 @@ the UI never blocks on the I2C bus:
 - **AXP2101 PMU + PCF85063A RTC** — a low-priority `sensor_cache` task polls
   them once per second into a RAM struct; the watch face and power screen read
   this snapshot instead of doing I2C reads. `cachedump` shows the cache.
+- **Audio** — MAX98357A amp on **I2S1** (STD TX) and T3902 PDM mic on **I2S0**
+  (PDM RX), 16 kHz mono 16-bit. Two separate I2S controllers are used because
+  the mode register is per-controller (STD and PDM cannot share one). The amp
+  rail (BLDO2) is on by default; the MAX98357A has no software volume (fixed
+  gain), so sample scaling is done in software.
 
 ## Debug
 
@@ -155,6 +160,9 @@ available (type them and press Enter):
 | `crashls` | List saved crash reports / core dumps on the SD card. |
 | `crashread <file>` | Print a saved crash report from the SD card. |
 | `panictest` | Deliberately crash (null deref) to exercise the core dump feature. |
+| `tone [hz] [ms] [amp]` | Play a sine tone on the speaker (default 440 Hz / 500 ms / near-max volume). |
+| `rec [ms]` | Record mono 16 kHz audio from the microphone (default 2 s, max 10 s); reports the peak amplitude. |
+| `playrec` | Play the last recording back through the speaker (loops 3×). |
 
 ## Data storage (SD card)
 
