@@ -218,6 +218,18 @@ static void debug_task(void *arg)
                 vTaskDelay(pdMS_TO_TICKS(400));
                 drv2605_go(twatch_haptic_dev);
                 xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
+            } else if (strcmp(line, "motor cal") == 0) {
+                /* Run the on-chip auto-calibration and save to NVS. The motor
+                 * vibrates for ~1 s during calibration. */
+                xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, true);
+                vTaskDelay(pdMS_TO_TICKS(20));
+                esp_err_t err = drv2605_auto_calibrate(twatch_haptic_dev);
+                printf("motor cal: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+                xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
+            } else if (strcmp(line, "motor calrestore") == 0) {
+                esp_err_t err = drv2605_calibrate_restore(twatch_haptic_dev);
+                printf("motor calrestore: %s\n",
+                       (err == ESP_OK) ? "ok" : (err == ESP_ERR_NOT_FOUND) ? "none stored" : esp_err_to_name(err));
             } else if (cmd_len > 0) {
                 printf("unknown command: %s\n", line);
             }
