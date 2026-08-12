@@ -85,9 +85,11 @@ static uint32_t s_ttf_sum_ms;
 static uint32_t s_ttf_start_ms;
 static bool s_ttf_running;
 static bool s_had_fix;
+static bool s_rtc_synced;    /* RTC synced from GPS once per power-on */
 static uint16_t s_agc;          /* last MON-RF AGC counter */
 
 static void note_fix(void);     /* defined below (stats/TTFF) */
+static void note_fix_if_first(void);
 static void stats_load(void);
 static void send_utc_time_aid(void);
 
@@ -256,38 +258,39 @@ static void ubx_handle_pvt(void)
         s_fix.fix_3d = (fix_type == 3);
         s_state = M10Q_STATE_FIXED;
 
-        /* First valid fix since power-on: sync RTC + record TTFF. */
-        if (!s_had_fix) {
-            s_had_fix = true;
-            if (p[11] & 0x03) {   /* validDate | validTime */
-                /* PVT time is UTC; the RTC stores local wall time. Convert
-                 * using the configured TZ (set in app_main). */
-                struct tm utc = { 0 };
-                utc.tm_year = (int)((uint16_t)p[4] | ((uint16_t)p[5] << 8)) - 1900;
-                utc.tm_mon = p[6] - 1;
-                utc.tm_mday = p[7];
-                utc.tm_hour = p[8];
-                utc.tm_min = p[9];
-                utc.tm_sec = p[10];
-                utc.tm_isdst = 0;
-                time_t epoch = timegm(&utc);
-                struct tm local;
-                localtime_r(&epoch, &local);
-                pcf85063a_time_t t;
-                memset(&t, 0, sizeof(t));
-                t.year = (uint16_t)(local.tm_year + 1900);
-                t.month = (uint8_t)(local.tm_mon + 1);
-                t.day = (uint8_t)local.tm_mday;
-                t.hour = (uint8_t)local.tm_hour;
-                t.min = (uint8_t)local.tm_min;
-                t.sec = (uint8_t)local.tm_sec;
-                if (s_rtc && pcf85063a_set_time(s_rtc, &t) == ESP_OK) {
-                    ESP_LOGI(TAG, "RTC synced from GPS: %04u-%02u-%02u %02u:%02u:%02u local",
-                             (unsigned)t.year, (unsigned)t.month, (unsigned)t.day,
-                             (unsigned)t.hour, (unsigned)t.min, (unsigned)t.sec);
-                }
+        /* First valid fix since power-on: record stats + persist LKP. */
+        note_fix_if_first();
+
+        /* Sync the RTC from the first PVT frame that carries a valid UTC date
+         * (independent of which sentence reported the first fix). */
+        if (!s_rtc_synced && (p[11] & 0x03)) {   /* validDate | validTime */
+            /* PVT time is UTC; the RTC stores local wall time. Convert
+             * using the configured TZ (set in app_main). */
+            struct tm utc = { 0 };
+            utc.tm_year = (int)((uint16_t)p[4] | ((uint16_t)p[5] << 8)) - 1900;
+            utc.tm_mon = p[6] - 1;
+            utc.tm_mday = p[7];
+            utc.tm_hour = p[8];
+            utc.tm_min = p[9];
+            utc.tm_sec = p[10];
+            utc.tm_isdst = 0;
+            time_t epoch = timegm(&utc);
+            struct tm local;
+            localtime_r(&epoch, &local);
+            pcf85063a_time_t t;
+            memset(&t, 0, sizeof(t));
+            t.year = (uint16_t)(local.tm_year + 1900);
+            t.month = (uint8_t)(local.tm_mon + 1);
+            t.day = (uint8_t)local.tm_mday;
+            t.hour = (uint8_t)local.tm_hour;
+            t.min = (uint8_t)local.tm_min;
+            t.sec = (uint8_t)local.tm_sec;
+            if (s_rtc && pcf85063a_set_time(s_rtc, &t) == ESP_OK) {
+                s_rtc_synced = true;
+                ESP_LOGI(TAG, "RTC synced from GPS: %04u-%02u-%02u %02u:%02u:%02u local",
+                         (unsigned)t.year, (unsigned)t.month, (unsigned)t.day,
+                         (unsigned)t.hour, (unsigned)t.min, (unsigned)t.sec);
             }
-            note_fix();
         }
     } else {
         /* Losing a fix: allow a new TTFF measurement on the next lock. */
@@ -575,11 +578,22 @@ static void stats_save(void)
 }
 
 /* Record a fix: TTFF, counters, today's date, last position. */
+/* Record stats + persist LKP on the first valid fix since power-on, regardless
+ * of which sentence reported it (GGA or PVT). The PVT handler already does this
+ * in its own !s_had_fix block; this catches the case where GGA locks before
+ * UBX-NAV-PVT is received, so the last-known position / stats are never lost. */
+static void note_fix_if_first(void)
+{
+    if (!s_had_fix) {
+        s_had_fix = true;
+        note_fix();
+    }
+}
+
 static void note_fix(void)
 {
     uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-    uint32_t ttf_ms = 0;
-    if (s_ttf_running && now_ms >= s_ttf_start_ms) {
+    uint32_t ttf_ms = 0;    if (s_ttf_running && now_ms >= s_ttf_start_ms) {
         ttf_ms = now_ms - s_ttf_start_ms;
     }
     s_ttf_running = false;
@@ -727,6 +741,9 @@ static void parse_gga(char *line)
     s_fix.second = (uint8_t)(hms % 100);
     s_fix.valid = (quality > 0);
     s_state = s_fix.valid ? M10Q_STATE_FIXED : M10Q_STATE_ACQUIRING;
+    if (s_fix.valid) {
+        note_fix_if_first();
+    }
 }
 
 static void parse_rmc(char *line)
@@ -1008,6 +1025,7 @@ esp_err_t m10q_power(bool on)
         /* Load stats and start a TTFF measurement. */
         stats_load();
         s_had_fix = false;
+        s_rtc_synced = false;
         s_ttf_running = true;
         s_ttf_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
 
