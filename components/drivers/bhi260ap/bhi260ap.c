@@ -62,9 +62,10 @@ static volatile bool s_tilt_detector;
  * folds are at most STEP_FOLD_STEP lost on sudden power loss. */
 #define STEP_NVS_NS     "bhi260ap"
 #define STEP_NVS_KEY    "step_base"
-#define STEP_FOLD_STEP  100   /* fold chip steps into the base every ~100 */
+#define STEP_FOLD_STEP  1000  /* fold chip steps into the base every ~1000 */
 
 static uint32_t s_step_at_base;
+static SemaphoreHandle_t s_step_mux;   /* guards step fold/total arithmetic */
 
 static void step_base_load(void)
 {
@@ -92,15 +93,22 @@ static void step_base_save(void)
     nvs_close(h);
 }
 
-/* Fold the steps accumulated since s_step_at_base into the persisted base. */
+/* Fold the steps accumulated since s_step_at_base into the persisted base.
+ * Called from the polling task (parse_step_counter) and from AP-suspend
+ * (LVGL task context), so it is guarded by a mutex. */
 static void step_fold(void)
 {
+    if (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return;
+    }
     uint32_t delta = s_step_count - s_step_at_base;
     if (delta == 0) {
+        xSemaphoreGive(s_step_mux);
         return;
     }
     s_step_base += delta;
     s_step_at_base = s_step_count;
+    xSemaphoreGive(s_step_mux);
     step_base_save();
 }
 
@@ -173,18 +181,25 @@ static void parse_step_counter(const struct bhy2_fifo_parse_data_info *callback_
     uint32_t steps = BHY2_LE2U32(callback_info->data_ptr);
     /* The chip counter restarts at 0 after a firmware upload / rail power-cycle.
      * Fold the accumulated chip steps into the base so the total is monotonic. */
+    if (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return;
+    }
     if (steps < s_step_count) {
-        step_fold();
-        s_step_count = steps;
+        uint32_t delta = s_step_count - s_step_at_base;
+        s_step_base += delta;
         s_step_at_base = steps;
+        s_step_count = steps;
     } else {
         s_step_count = steps;
     }
-    if (s_step_count - s_step_at_base >= STEP_FOLD_STEP) {
-        step_fold();
+    uint32_t total = s_step_base + (s_step_count - s_step_at_base);
+    bool need_fold = (s_step_count - s_step_at_base) >= STEP_FOLD_STEP;
+    xSemaphoreGive(s_step_mux);
+    if (need_fold) {
+        step_fold();   /* re-takes the mutex + NVS save */
     }
     ESP_LOGI(TAG, "step counter: %lu (total %lu)",
-             (unsigned long)steps, (unsigned long)(s_step_base + (s_step_count - s_step_at_base)));
+             (unsigned long)steps, (unsigned long)total);
 }
 
 static void parse_accel(const struct bhy2_fifo_parse_data_info *callback_info, void *callback_ref)
@@ -447,6 +462,9 @@ esp_err_t bhi260ap_init(i2c_master_dev_handle_t dev)
     /* Start the staleness clock now, so the re-init logic doesn't see an
      * immediate "stale" before the first FIFO sample arrives. */
     bhi260ap_mark_data();
+    if (!s_step_mux) {
+        s_step_mux = xSemaphoreCreateMutex();
+    }
     step_base_load();
     s_step_at_base = 0;
     s_step_count = 0;
@@ -543,7 +561,12 @@ esp_err_t bhi260ap_get_step_count(uint32_t *steps)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
-    *steps = s_step_base + (s_step_count - s_step_at_base);
+    uint32_t total = 0;
+    if (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
+        total = s_step_base + (s_step_count - s_step_at_base);
+        xSemaphoreGive(s_step_mux);
+    }
+    *steps = total;
     return ESP_OK;
 }
 
@@ -553,7 +576,12 @@ esp_err_t bhi260ap_get_status(bool *ready, uint32_t *steps)
         *ready = s_initialized;
     }
     if (steps) {
-        *steps = s_initialized ? (s_step_base + (s_step_count - s_step_at_base)) : 0;
+        uint32_t total = 0;
+        if (s_initialized && xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
+            total = s_step_base + (s_step_count - s_step_at_base);
+            xSemaphoreGive(s_step_mux);
+        }
+        *steps = total;
     }
     return ESP_OK;
 }

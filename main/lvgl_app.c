@@ -72,8 +72,16 @@ static lv_obj_t *s_gps_pos_label;
 static lv_obj_t *s_gps_speed_label;
 static lv_obj_t *s_gps_sats_label;
 static lv_obj_t *s_gps_dots[M10Q_MAX_SATS];   /* satellite dots (in view order) */
-static bool s_gps_powered;
+static volatile bool s_gps_powered;
 static uint32_t s_gps_acq_start_ms;            /* power-on timestamp */
+
+/* GNSS control runs off the LVGL task (m10q_power blocks for seconds during
+ * baud probing/config); the UI issues a request and a worker task applies it. */
+#define GPS_CTRL_NONE 0
+#define GPS_CTRL_ON   1
+#define GPS_CTRL_OFF  2
+static volatile int s_gps_ctrl_req;
+static TaskHandle_t s_gps_ctrl_task;
 
 /* Swipe detection at the input-device level (works regardless of widget). */
 #define SWIPE_DIST         60
@@ -89,6 +97,7 @@ static void lvgl_build_power_screen(void);
 static void lvgl_build_bhi_screen(void);
 static void lvgl_build_gps_screen(void);
 static void gps_power(bool on);
+static void gps_ctrl_task(void *arg);
 static void lvgl_build_watch_face(void);
 static void menu_timeout_cb(lv_timer_t *timer);
 static void lvgl_show_watch_face(void);
@@ -284,6 +293,11 @@ static void power_screen_update(lv_timer_t *timer)
     if (!s_pw_batt_label) {
         return;
     }
+    /* The timer fires every second forever; skip the AXP I2C reads when the
+     * power screen is not active (saves battery + bus traffic). */
+    if (lv_screen_active() != s_power_screen) {
+        return;
+    }
 
     char buf[64];
     uint8_t pct = 0;
@@ -454,6 +468,11 @@ static void bhi_screen_update(lv_timer_t *timer)
     if (!s_bhi_status_label) {
         return;
     }
+    /* Skip when the BHI screen is not active (avoids gesture consumption and
+     * needless sensor reads while on another screen). */
+    if (lv_screen_active() != s_bhi_screen) {
+        return;
+    }
     char buf[64];
 
     bool ready = false;
@@ -611,21 +630,21 @@ static void gps_screen_update(lv_timer_t *timer)
     if (!s_gps_status_label) {
         return;
     }
+    /* Skip all work (fix reads + widget updates) when the GPS screen is not
+     * the active screen. The timer fires every second forever. */
+    if (lv_screen_active() != s_gps_screen) {
+        return;
+    }
     m10q_fix_t fix;
     m10q_get_fix(&fix);
     m10q_state_t st = m10q_get_state();
     char buf[96];
 
-    /* Only keep the watch awake while the GPS screen is actually active. If
-     * the user has left it, normal auto-sleep must resume (the timer still
-     * fires forever). */
-    bool active = (lv_screen_active() == s_gps_screen);
-
     /* While acquiring, keep the watch awake (no auto-sleep) so the GNSS rail
      * stays powered. Once a fix is obtained, stop reporting activity: the
      * adapter's idle timeout then auto-sleeps the watch ~5 s after the fix,
      * powering BLDO1 off (VRTC backup keeps ephemeris for the next session). */
-    if (active && (st != M10Q_STATE_FIXED || !fix.valid)) {
+    if (st != M10Q_STATE_FIXED || !fix.valid) {
         esp_lv_adapter_report_activity();
     }
     if (st == M10Q_STATE_FIXED && fix.valid) {
@@ -775,24 +794,47 @@ static void lvgl_build_gps_screen(void)
 
     gps_screen_update(NULL);
     lv_timer_create(gps_screen_update, 1000, NULL);
+    if (s_gps_ctrl_task == NULL) {
+        xTaskCreate(gps_ctrl_task, "gps_ctrl", 3072, NULL,
+                    ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, &s_gps_ctrl_task);
+    }
 }
 
-/* Power the GNSS receiver on/off with the GPS screen. */
+/* Worker task that actually powers the GNSS receiver. m10q_power() blocks for
+ * up to a few seconds (baud probe + configuration), so it must not run on the
+ * LVGL task or the UI freezes. */
+static void gps_ctrl_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        int req = s_gps_ctrl_req;
+        s_gps_ctrl_req = GPS_CTRL_NONE;
+        if (req == GPS_CTRL_ON && !s_gps_powered) {
+            s_gps_acq_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+            m10q_power(true);
+            s_gps_powered = true;
+            ESP_LOGI(TAG, "GNSS powered on");
+        } else if (req == GPS_CTRL_OFF && s_gps_powered) {
+            m10q_power(false);
+            s_gps_powered = false;
+            ESP_LOGI(TAG, "GNSS powered off");
+        } else if (s_gps_powered && m10q_get_state() == M10Q_STATE_OFF) {
+            /* Auto-sleep cut the GNSS rail underneath us (power_mgmt told the
+             * driver, which set state=OFF). On wake the rail is restored but
+             * the module needs a fresh power-on + config, so re-arm it. */
+            s_gps_acq_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+            m10q_power(true);
+            ESP_LOGI(TAG, "GNSS re-powered after wake");
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+/* Power the GNSS receiver on/off with the GPS screen. The actual m10q power
+ * transition happens on the background control task so the UI never blocks. */
 static void gps_power(bool on)
 {
-    if (on == s_gps_powered) {
-        return;
-    }
-    if (on) {
-        s_gps_acq_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-        m10q_power(true);
-        s_gps_powered = true;
-        ESP_LOGI(TAG, "GNSS powered on");
-    } else {
-        m10q_power(false);
-        s_gps_powered = false;
-        ESP_LOGI(TAG, "GNSS powered off");
-    }
+    s_gps_ctrl_req = on ? GPS_CTRL_ON : GPS_CTRL_OFF;
 }
 
 /* ---- Swipe navigation (indev-level: fires for every touch) ---- */

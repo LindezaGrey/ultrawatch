@@ -68,10 +68,10 @@ static void ring_append(const char *fmt, va_list args)
     if (xSemaphoreTake(s_ring_mux, pdMS_TO_TICKS(50)) != pdTRUE) {
         return;
     }
-    if ((size_t)n + 1 > sizeof(s_ring) - s_ring_len) {
+    if ((size_t)n + 1 > LOG_RING_SIZE - s_ring_len) {
         /* Drop oldest lines to make room. */
         size_t need = (size_t)n + 1;
-        size_t room = sizeof(s_ring) - s_ring_len;
+        size_t room = LOG_RING_SIZE - s_ring_len;
         size_t drop = need - room;
         size_t start = 0;
         size_t found = 0;
@@ -88,9 +88,13 @@ static void ring_append(const char *fmt, va_list args)
             s_ring_len -= start;
         }
     }
+    /* Bound-check before copying: s_ring_len must stay < LOG_RING_SIZE. */
+    if (s_ring_len + (size_t)n >= LOG_RING_SIZE) {
+        s_ring_len = 0;   /* should not happen after drop above; be safe */
+    }
     memcpy(s_ring + s_ring_len, line, (size_t)n);
     s_ring_len += (size_t)n;
-    if (s_ring_len + 1 < sizeof(s_ring)) {
+    if (s_ring_len + 1 < LOG_RING_SIZE) {
         s_ring[s_ring_len] = '\n';
         s_ring_len++;
     }
@@ -197,14 +201,12 @@ static esp_err_t write_png(const char *path, const uint16_t *rgb565, int w, int 
 static void flush_task(void *arg)
 {
     (void)arg;
-    char buf[2048];
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(LOG_FLUSH_INTERVAL_MS));
         if (!s_sd_ready) {
             continue;
         }
         sd_log_flush();
-        (void)buf;
     }
 }
 
@@ -314,23 +316,25 @@ void sd_log_flush(void)
     if (!s_sd_ready || !s_ring_mux) {
         return;
     }
-    size_t n = 0;
+    /* Hold the mutex for the whole write. The ring is contiguous (compacts,
+     * never wraps) and small (LOG_RING_SIZE), so the SD append takes a few ms
+     * at most; ring_append() just blocks briefly instead of racing the write.
+     * No large stack buffer needed (the flush task has a limited stack). */
     if (xSemaphoreTake(s_ring_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
         return;
     }
-    n = s_ring_len;
+    size_t n = s_ring_len;
+    if (n == 0) {
+        xSemaphoreGive(s_ring_mux);
+        return;
+    }
+    FILE *f = fopen(SD_LOG_FILE, "a");
+    if (f) {
+        fwrite(s_ring, 1, n, f);
+        fclose(f);
+    }
     s_ring_len = 0;
     xSemaphoreGive(s_ring_mux);
-    if (n == 0) {
-        return;
-    }
-
-    FILE *f = fopen(SD_LOG_FILE, "a");
-    if (!f) {
-        return;
-    }
-    fwrite(s_ring, 1, n, f);
-    fclose(f);
 }
 
 esp_err_t sd_log_clear(void)

@@ -30,7 +30,7 @@ static const char *TAG = "m10q";
 #define M10Q_RX_BUF       512
 #define M10Q_TX_BUF       0
 #define M10Q_EVT_QUEUE    16
-#define M10Q_RX_TASK_STACK 3072
+#define M10Q_RX_TASK_STACK 4096
 #define M10Q_LINE_MAX     128
 
 /* NVS persistence (stats + last position for aiding). */
@@ -62,6 +62,7 @@ static i2c_master_dev_handle_t s_pmu;
 static i2c_master_dev_handle_t s_rtc;
 static bool s_powered;
 static bool s_uart_installed;
+static volatile bool s_probing;   /* set during baud probe; RX task idles */
 static m10q_state_t s_state = M10Q_STATE_OFF;
 static m10q_fix_t s_fix;
 static QueueHandle_t s_uart_queue;
@@ -318,6 +319,7 @@ static void ubx_send(uint8_t cls, uint8_t id, const uint8_t *payload, size_t len
 static uint32_t m10q_probe_baud(void)
 {
     static const uint32_t probe_bauds[] = { M10Q_BAUD_INIT, M10Q_BAUD_RUN, 9600 };
+    s_probing = true;
     for (size_t pb = 0; pb < sizeof(probe_bauds) / sizeof(probe_bauds[0]); pb++) {
         uart_set_baudrate(M10Q_UART_NUM, probe_bauds[pb]);
         vTaskDelay(pdMS_TO_TICKS(200));
@@ -340,10 +342,12 @@ static uint32_t m10q_probe_baud(void)
             }
             if (seen_sync) {
                 ESP_LOGI(TAG, "module responds at %lu baud", (unsigned long)probe_bauds[pb]);
+                s_probing = false;
                 return probe_bauds[pb];
             }
         }
     }
+    s_probing = false;
     return 0;
 }
 
@@ -751,13 +755,22 @@ static void uart_rx_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
+        if (s_probing) {
+            /* The baud probe is reading the UART directly; do not steal its
+             * bytes (would miss the UBX sync and fall back to the wrong
+             * baud). */
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
         if (xQueueReceive(s_uart_queue, &evt, pdMS_TO_TICKS(200)) != pdTRUE) {
             continue;
         }
         if (evt.type == UART_DATA) {
             uint8_t buf[256];
             int n = uart_read_bytes(M10Q_UART_NUM, buf, sizeof(buf), pdMS_TO_TICKS(20));
-            s_rx_bytes += (uint32_t)n;
+            if (n > 0) {
+                s_rx_bytes += (uint32_t)n;
+            }
             for (int i = 0; i < n; i++) {
                 uint8_t b = buf[i];
                 /* Feed the UBX binary parser (NAV-PVT for hAcc). UBX frames

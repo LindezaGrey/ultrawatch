@@ -21,6 +21,7 @@
 #include "co5300.h"
 #include "pcf85063a.h"
 #include "bhi260ap.h"
+#include "m10q.h"
 #include "lvgl_app.h"
 
 static const char *TAG = "power_mgmt";
@@ -115,16 +116,18 @@ static void IRAM_ATTR button_isr(void *arg)
 {
     uint32_t gpio = (uint32_t)arg;
     s_wake_gpio = gpio;
-    gpio_intr_disable(PM_GPIO_PWRKEY);
-    gpio_intr_disable(PM_GPIO_BOOT);
     /* The IMU INT pulses on every gesture/step while awake; only act on it
      * when the host is actually asleep (light-sleep wake). While awake, keep
      * the interrupt DISABLED so a busy INT line cannot storm the CPU; it is
-     * re-enabled in pm_arm_gpio_wakeup() when sleep is entered. */
+     * re-enabled in pm_arm_gpio_wakeup() when sleep is entered. Note: the
+     * PWRKEY/BOOT disables come AFTER this early-return, so an awake IMU
+     * pulse must not disable the button edge ISRs. */
     if (gpio == PM_GPIO_IMU && !s_imu_wake_armed) {
         gpio_intr_disable(PM_GPIO_IMU);
         return;
     }
+    gpio_intr_disable(PM_GPIO_PWRKEY);
+    gpio_intr_disable(PM_GPIO_BOOT);
     gpio_intr_disable(PM_GPIO_IMU);
     if (s_wake_task) {
         BaseType_t woken = pdFALSE;
@@ -140,12 +143,14 @@ static void pm_wake_task(void *arg)
     (void)arg;
     uint32_t since_night_check = 0;
     for (;;) {
-        /* Wake every 2 s: pump USB activity (so the adapter never hits its idle
+        /* Wake every 5 s: pump USB activity (so the adapter never hits its idle
          * timeout while plugged in -> no sleep attempt / no error spam), and
-         * run the night-mode clock check every PM_NIGHT_CHECK_MS. */
-        uint32_t t = pdMS_TO_TICKS(2000);
+         * run the night-mode clock check every PM_NIGHT_CHECK_MS. A shorter
+         * period would cap every light-sleep segment and force needless I2C
+         * reads on battery. */
+        uint32_t t = pdMS_TO_TICKS(5000);
         if (ulTaskNotifyTake(pdTRUE, t) == 0) {
-            since_night_check += 2000;
+            since_night_check += 5000;
             bool vbus = false;
             if (axp2101_is_vbus_present(twatch_pmu_dev, &vbus) == ESP_OK && vbus) {
                 esp_lv_adapter_report_activity();
@@ -191,6 +196,17 @@ static void pm_wake_task(void *arg)
 static void pm_arm_gpio_wakeup(void)
 {
     s_wake_gpio = 0;
+    /* Clear any previously-armed RTC level wakeups. gpio_wakeup_enable()
+     * config persists across sleep cycles until explicitly disabled, so a
+     * stale LOW_LEVEL from an earlier cycle could instantly re-wake the watch
+     * on a line that is low at entry. Re-arm from a clean state every cycle. */
+    gpio_wakeup_disable(PM_GPIO_TOUCH);
+    gpio_wakeup_disable(PM_GPIO_IMU);
+    gpio_wakeup_disable(PM_GPIO_PWRKEY);
+    gpio_wakeup_disable(PM_GPIO_BOOT);
+    s_imu_wake_armed = false;
+    gpio_intr_disable(PM_GPIO_IMU);
+
     /* Touch and IMU-gesture are not wake sources in night mode (avoid
      * accidental screen activation); PWR/BOOT buttons always wake. The
      * BHI260AP INT line (GPIO8) is active-LOW (idles high, pulses low on a
@@ -241,7 +257,7 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
      * rail power-cycle. Keep ALDO2 (display/touch) for touch wake. */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, false);  /* SD */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);  /* LoRa */
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO1, false);  /* GNSS */
+    m10q_power(false);                                          /* GNSS (tells the driver) */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);  /* speaker */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, false);  /* NFC */
 
@@ -308,7 +324,7 @@ void power_mgmt_init(void)
     }
     /* Wake handler task (priority above the LVGL adapter task). Created before
      * the button ISRs so button_isr always has a task to re-arm the pins. */
-    xTaskCreate(pm_wake_task, "pm_wake", 2048, NULL,
+    xTaskCreate(pm_wake_task, "pm_wake", 4096, NULL,
                 ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY + 1, &s_wake_task);
 
     gpio_config_t io = {
