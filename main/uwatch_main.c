@@ -203,6 +203,18 @@ static void debug_task(void *arg)
                 if (m10q_get_agc(&agc) == ESP_OK) {
                     printf("gnss: agc=%u\n", (unsigned)agc);
                 }
+            } else if (strcmp(line, "gpscheck") == 0) {
+                /* Re-run the boot-time GNSS position check (background). */
+                printf("gpscheck: queued (GNSS powers on for a 3D fix, then off)\n");
+                lvgl_gps_refresh();
+            } else if (strcmp(line, "lpk") == 0) {
+                double lat = 0, lon = 0;
+                m10q_get_last_position(&lat, &lon);
+                if (lat == 0 && lon == 0) {
+                    printf("lpk: none stored yet\n");
+                } else {
+                    printf("lpk: %.5f, %.5f\n", lat, lon);
+                }
             } else if (strcmp(line, "motor") == 0) {
                 /* Verify the haptic motor: enable the DRV2605 rail and fire a
                  * short vibration. Usage: "motor" or "motor 47" (waveform id).

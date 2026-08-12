@@ -35,6 +35,21 @@ swipe in a direction to open a menu, and swipe back the opposite way to return.
   signal strength; filled dot = used in fix) plus position, altitude, speed
   (km/h), course, satellite count and estimated accuracy (HDOP-based).
 
+## Watch face GNSS indicator
+
+The clock shows a small **satellite icon** in the top centre whose colour
+reflects the GNSS receiver state:
+
+| Colour | Meaning |
+|---|---|
+| Grey | GNSS off (normal idle state) |
+| Red | GNSS on, acquiring / no fix yet |
+| Green | 3D fix obtained |
+
+It turns red while the boot-time position check runs, green once a 3D fix
+locks (briefly, before the receiver is powered back off), and returns to grey
+when idle.
+
 ## GPS power management
 
 The GNSS receiver (u-blox MIA-M10Q) is the most power-hungry peripheral
@@ -43,6 +58,12 @@ and only switched on while the **GPS screen is open**. Leaving the screen (or
 the 5 s menu timeout) powers it back off. GNSS power transitions run on a
 background task, so the UI never stalls during the seconds-long receiver
 probe/config.
+
+**On power-up** the watch runs a one-shot GNSS position check in the
+background: it powers the receiver, waits for a **3D fix** (up to 120 s; the
+VRTC backup normally makes it a warm/hot start in a few seconds), updates the
+persisted last-known position if the new fix is **more than 50 m** away from
+the stored one, then powers the receiver back off.
 
 Despite being unpowered, the receiver's always-on **VRTC backup rail** keeps its
 RTC and ephemeris alive (~28 µA), so the next power-up is a **warm/hot start**
@@ -83,6 +104,8 @@ available (type them and press Enter):
 | `sdls` | List screenshot files on the SD card. |
 | `bhi` | Dump all BHI260AP sensor values. |
 | `gnss` | Dump GNSS state, fix (position/speed/sats/accuracy) and per-satellite azimuth/elevation/SNR. |
+| `gpscheck` | Re-run the one-shot GNSS position check (background, like on power-up). |
+| `lpk` | Show the persisted last-known position (degrees). |
 | `suspend` / `resume` | Manually toggle the BHI260AP AP-suspend mode (debug). |
 | `imon` | Watch the BHI260AP INT line (GPIO8) for 30 s (debug). |
 | `motor` | Play a single haptic buzz. |

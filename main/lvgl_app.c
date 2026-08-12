@@ -44,6 +44,7 @@ static lv_obj_t *s_sec_label;
 static lv_obj_t *s_date_label;
 static lv_obj_t *s_batt_label;
 static lv_obj_t *s_batt_fill;
+static lv_obj_t *s_gps_icon;   /* satellite status icon (grey/red/green) */
 
 /* Power management screen. */
 static lv_obj_t *s_power_screen;
@@ -77,11 +78,14 @@ static uint32_t s_gps_acq_start_ms;            /* power-on timestamp */
 
 /* GNSS control runs off the LVGL task (m10q_power blocks for seconds during
  * baud probing/config); the UI issues a request and a worker task applies it. */
-#define GPS_CTRL_NONE 0
-#define GPS_CTRL_ON   1
-#define GPS_CTRL_OFF  2
+#define GPS_CTRL_NONE    0
+#define GPS_CTRL_ON      1
+#define GPS_CTRL_OFF     2
+#define GPS_CTRL_REFRESH 3   /* one-shot boot position check */
+#define GPS_REFRESH_TIMEOUT_MS 120000
 static volatile int s_gps_ctrl_req;
 static TaskHandle_t s_gps_ctrl_task;
+static volatile bool s_gps_screen_open;   /* GPS screen is the active screen */
 
 /* Swipe detection at the input-device level (works regardless of widget). */
 #define SWIPE_DIST         60
@@ -97,6 +101,7 @@ static void lvgl_build_power_screen(void);
 static void lvgl_build_bhi_screen(void);
 static void lvgl_build_gps_screen(void);
 static void gps_power(bool on);
+static void gps_refresh(void);
 static void gps_ctrl_task(void *arg);
 static void lvgl_build_watch_face(void);
 static void menu_timeout_cb(lv_timer_t *timer);
@@ -220,6 +225,22 @@ static void watch_face_update(lv_timer_t *timer)
         lv_label_set_text(s_batt_label, buf);
         lv_obj_set_width(s_batt_fill, (lv_coord_t)(140 * pct / 100));
     }
+
+    /* Satellite status: green = 3D fix, red = on/no fix, grey = off. */
+    if (s_gps_icon) {
+        m10q_state_t st = m10q_get_state();
+        m10q_fix_t fix;
+        m10q_get_fix(&fix);
+        lv_color_t c;
+        if (st == M10Q_STATE_FIXED && fix.valid && fix.fix_3d) {
+            c = lv_color_hex(0x00E676);   /* green */
+        } else if (st == M10Q_STATE_ACQUIRING || (st == M10Q_STATE_FIXED && !fix.fix_3d)) {
+            c = lv_color_hex(0xFF5252);   /* red */
+        } else {
+            c = lv_color_hex(0x888888);   /* grey */
+        }
+        lv_obj_set_style_text_color(s_gps_icon, c, 0);
+    }
 }
 
 static void lvgl_build_watch_face(void)
@@ -232,6 +253,15 @@ static void lvgl_build_watch_face(void)
     lv_obj_set_style_text_font(s_date_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_date_label, lv_color_hex(0x9E9E9E), 0);
     lv_obj_align(s_date_label, LV_ALIGN_CENTER, 0, -110);
+
+    /* GNSS satellite status icon: grey = receiver off, red = on/no fix,
+     * green = 3D fix. Uses the built-in symbol font for the satellite glyph
+     * (LV_SYMBOL_GPS, 0xF124), which the FreeType fonts do not contain. */
+    s_gps_icon = lv_label_create(lv_screen_active());
+    lv_label_set_text(s_gps_icon, LV_SYMBOL_GPS);
+    lv_obj_set_style_text_font(s_gps_icon, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_color(s_gps_icon, lv_color_hex(0x888888), 0);
+    lv_obj_align(s_gps_icon, LV_ALIGN_TOP_MID, 0, 6);
 
     s_time_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_time_label, "--:--");
@@ -818,6 +848,48 @@ static void gps_ctrl_task(void *arg)
             m10q_power(false);
             s_gps_powered = false;
             ESP_LOGI(TAG, "GNSS powered off");
+        } else if (req == GPS_CTRL_REFRESH) {
+            /* One-shot boot position check: power on, wait for a 3D fix, let
+             * m10q's 50 m-gated LKP write run, then power back off. Runs on
+             * this task so the seconds-long probe never blocks LVGL. */
+            if (!s_gps_powered) {
+                s_gps_acq_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+                m10q_power(true);
+                s_gps_powered = true;
+            }
+            ESP_LOGI(TAG, "GNSS position refresh: acquiring 3D fix...");
+            uint32_t start = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+            bool got_fix = false;
+            for (;;) {
+                m10q_fix_t fix;
+                m10q_get_fix(&fix);
+                if (fix.valid && fix.fix_3d) {
+                    got_fix = true;
+                    break;
+                }
+                uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+                if (now - start >= GPS_REFRESH_TIMEOUT_MS) {
+                    break;
+                }
+                /* Keep the watch awake so auto-sleep can't cut the rail. */
+                esp_lv_adapter_report_activity();
+                vTaskDelay(pdMS_TO_TICKS(1000));
+            }
+            if (got_fix) {
+                m10q_fix_t fix;
+                m10q_get_fix(&fix);
+                ESP_LOGI(TAG, "GNSS position refresh: 3D fix (%.5f, %.5f)",
+                         fix.lat, fix.lon);
+            } else {
+                ESP_LOGW(TAG, "GNSS position refresh: no 3D fix within %u s",
+                         GPS_REFRESH_TIMEOUT_MS / 1000);
+            }
+            /* Power off, unless the GPS screen is open (it keeps GNSS on). */
+            if (s_gps_powered && !s_gps_screen_open) {
+                m10q_power(false);
+                s_gps_powered = false;
+                ESP_LOGI(TAG, "GNSS powered off after refresh");
+            }
         } else if (s_gps_powered && m10q_get_state() == M10Q_STATE_OFF) {
             /* Auto-sleep cut the GNSS rail underneath us (power_mgmt told the
              * driver, which set state=OFF). On wake the rail is restored but
@@ -835,6 +907,18 @@ static void gps_ctrl_task(void *arg)
 static void gps_power(bool on)
 {
     s_gps_ctrl_req = on ? GPS_CTRL_ON : GPS_CTRL_OFF;
+}
+
+/* One-shot boot-time GNSS position check (background). */
+static void gps_refresh(void)
+{
+    s_gps_ctrl_req = GPS_CTRL_REFRESH;
+}
+
+/* Public wrapper for console/other modules. */
+void lvgl_gps_refresh(void)
+{
+    gps_refresh();
 }
 
 /* ---- Swipe navigation (indev-level: fires for every touch) ---- */
@@ -877,6 +961,7 @@ static void swipe_event_cb(lv_event_t *e)
                 if (!s_gps_screen) {
                     lvgl_build_gps_screen();
                 }
+                s_gps_screen_open = true;
                 gps_power(true);
                 lv_scr_load(s_gps_screen);
             }
@@ -896,6 +981,7 @@ static void swipe_event_cb(lv_event_t *e)
         }
     } else if (cur == s_gps_screen) {
         if (horiz && dx < 0) {   /* left -> clock */
+            s_gps_screen_open = false;
             gps_power(false);
             lvgl_show_watch_face();
         }
@@ -1091,6 +1177,15 @@ esp_err_t lvgl_app_start(void)
 
     /* BHI260AP sensor task (needs SPIFFS assets, already mounted above). */
     xTaskCreate(bhi260_task, "bhi260", 4096, NULL, 5, NULL);
+
+    /* GNSS control task + one-shot boot position check (background). It powers
+     * the receiver, waits for a 3D fix and persists the last-known position if
+     * it moved (m10q applies the 50 m gate), then powers GNSS back off. */
+    if (s_gps_ctrl_task == NULL) {
+        xTaskCreate(gps_ctrl_task, "gps_ctrl", 3072, NULL,
+                    ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, &s_gps_ctrl_task);
+    }
+    gps_refresh();
 
     return ESP_OK;
 }

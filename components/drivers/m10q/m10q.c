@@ -18,6 +18,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <math.h>
 
 #include "axp2101.h"
 #include "pcf85063a.h"
@@ -32,6 +33,10 @@ static const char *TAG = "m10q";
 #define M10Q_EVT_QUEUE    16
 #define M10Q_RX_TASK_STACK 4096
 #define M10Q_LINE_MAX     128
+
+/* Only persist the last-known position when the fix moved this far from the
+ * stored one (avoids NVS writes every second while stationary). */
+#define LKP_UPDATE_MIN_M  50
 
 /* NVS persistence (stats + last position for aiding). */
 #define M10Q_NVS_NS       "m10q"
@@ -81,6 +86,31 @@ static uint16_t s_agc;          /* last MON-RF AGC counter */
 static void note_fix(void);     /* defined below (stats/TTFF) */
 static void stats_load(void);
 static void send_utc_time_aid(void);
+
+/* ---- Distance / last-known-position ---- */
+
+/* Great-circle distance in metres between two WGS84 points (haversine). */
+static double haversine_m(double lat1, double lon1, double lat2, double lon2)
+{
+    const double rad = 0.017453292519943295;   /* pi / 180 */
+    double dlat = (lat2 - lat1) * rad;
+    double dlon = (lon2 - lon1) * rad;
+    double a = sin(dlat / 2.0) * sin(dlat / 2.0) +
+               cos(lat1 * rad) * cos(lat2 * rad) *
+               sin(dlon / 2.0) * sin(dlon / 2.0);
+    return 6371000.0 * 2.0 * atan2(sqrt(a), sqrt(1.0 - a));
+}
+
+/* Stored last-known position (NVS), 1e7 fixed point. */
+static void lkp_load(int32_t *lat, int32_t *lon)
+{
+    nvs_handle_t h;
+    if (nvs_open(M10Q_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_i32(h, NVS_KEY_LAT, lat);
+        nvs_get_i32(h, NVS_KEY_LON, lon);
+        nvs_close(h);
+    }
+}
 
 /* ---- UBX RX parser (for NAV-PVT accuracy) ----
  * Byte-fed state machine for u-blox binary frames. Only UBX-NAV-PVT is
@@ -218,6 +248,7 @@ static void ubx_handle_pvt(void)
         s_fix.minute = p[9];
         s_fix.second = p[10];
         s_fix.valid = true;
+        s_fix.fix_3d = (fix_type == 3);
         s_state = M10Q_STATE_FIXED;
 
         /* First valid fix since power-on: sync RTC + record TTFF. */
@@ -542,8 +573,17 @@ static void note_fix(void)
 
     nvs_handle_t wh;
     if (nvs_open(M10Q_NVS_NS, NVS_READWRITE, &wh) == ESP_OK) {
-        nvs_set_i32(wh, NVS_KEY_LAT, (int32_t)(s_fix.lat * 1e7));
-        nvs_set_i32(wh, NVS_KEY_LON, (int32_t)(s_fix.lon * 1e7));
+        /* Persist the last-known position only when the new fix is more than
+         * LKP_UPDATE_MIN_M from the stored one, so a stationary watch does not
+         * rewrite NVS on every fix (wear) while still tracking real movement. */
+        int32_t old_lat = 0, old_lon = 0;
+        lkp_load(&old_lat, &old_lon);
+        double d = haversine_m(old_lat / 1e7, old_lon / 1e7, s_fix.lat, s_fix.lon);
+        if (d >= LKP_UPDATE_MIN_M) {
+            nvs_set_i32(wh, NVS_KEY_LAT, (int32_t)(s_fix.lat * 1e7));
+            nvs_set_i32(wh, NVS_KEY_LON, (int32_t)(s_fix.lon * 1e7));
+            ESP_LOGI(TAG, "last position updated (moved %.0f m)", d);
+        }
         if (today != 0) {
             nvs_set_u32(wh, NVS_KEY_DAY, today);
         }
@@ -934,6 +974,18 @@ esp_err_t m10q_get_fix(m10q_fix_t *fix)
     }
     *fix = s_fix;
     return ESP_OK;
+}
+
+void m10q_get_last_position(double *lat, double *lon)
+{
+    int32_t ilat = 0, ilon = 0;
+    lkp_load(&ilat, &ilon);
+    if (lat) {
+        *lat = ilat / 1e7;
+    }
+    if (lon) {
+        *lon = ilon / 1e7;
+    }
 }
 
 m10q_state_t m10q_get_state(void)

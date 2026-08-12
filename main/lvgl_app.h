@@ -19,6 +19,10 @@ void lvgl_force_redraw(void);
  * between ==SHOT:WxH== and ==ENDSHOT== markers (debug). Call from any task. */
 esp_err_t lvgl_app_dump_screenshot(void);
 
+/* One-shot GNSS position check (background): power on, wait for a 3D fix,
+ * persist the last-known position if moved (50 m gate), power off. */
+void lvgl_gps_refresh(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -44,6 +44,7 @@ typedef struct {
 
 typedef struct {
     bool     valid;
+    bool     fix_3d;            /* true when the fix is 3D (not just 2D) */
     double   lat;            /* degrees, N+ */
     double   lon;            /* degrees, E+ */
     double   alt_m;
@@ -78,6 +79,9 @@ esp_err_t m10q_power(bool on);
 
 /* Latest fix + satellites. Returns ESP_OK (fix->valid may be false). */
 esp_err_t m10q_get_fix(m10q_fix_t *fix);
+
+/* Last known position persisted in NVS (from a previous fix), degrees. */
+void m10q_get_last_position(double *lat, double *lon);
 
 /* Current receiver power/fix state. */
 m10q_state_t m10q_get_state(void);
