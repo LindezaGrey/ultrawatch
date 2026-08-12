@@ -1242,7 +1242,7 @@ esp_err_t lvgl_app_start(void)
         CO5300_RES_X,
         CO5300_RES_Y,
         ESP_LV_ADAPTER_ROTATE_0);   /* rotation not supported for QSPI */
-    display_cfg.profile.buffer_height = 16;   /* partial bands; full frame exceeds SPI DMA max */
+    display_cfg.profile.buffer_height = 48;   /* partial bands; full frame exceeds SPI DMA max */
 
     lv_display_t *disp = esp_lv_adapter_register_display(&display_cfg);
     if (!disp) {
