@@ -161,6 +161,7 @@ available (type them and press Enter):
 | `crashread <file>` | Print a saved crash report from the SD card. |
 | `panictest` | Deliberately crash (null deref) to exercise the core dump feature. |
 | `tone [hz] [ms] [amp]` | Play a sine tone on the speaker (default 440 Hz / 500 ms / near-max volume). |
+| `sweep [f0] [f1] [ms]` | Play a log-frequency sweep (default 200→8000 Hz, 3 s) while the mic records it; reports the recorded peak. |
 | `rec [ms]` | Record mono 16 kHz audio from the microphone (default 2 s, max 10 s); reports the peak amplitude. |
 | `playrec` | Play the last recording back through the speaker (loops 3×). |
 

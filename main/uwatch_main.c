@@ -43,6 +43,20 @@ static const char *TAG = "uwatch";
 /* Audio test: buffer holding the last recording (PSRAM), shared by rec/playrec. */
 static int16_t *s_rec_buf;
 static size_t s_rec_n;
+static SemaphoreHandle_t s_rec_done;   /* signalled when a background rec finishes */
+
+/* Background recorder: fills s_rec_buf while the speaker plays (the amp and
+ * mic are on separate I2S controllers, so TX + RX can run concurrently). */
+static void rec_task(void *arg)
+{
+    (void)arg;
+    size_t n = s_rec_n;
+    t3902_read(s_rec_buf, n);
+    if (s_rec_done) {
+        xSemaphoreGive(s_rec_done);
+    }
+    vTaskDelete(NULL);
+}
 
 static void debug_task(void *arg)
 {
@@ -415,6 +429,80 @@ static void debug_task(void *arg)
                         }
                     }
                     printf("playrec: done\n");
+                }
+            } else if (strncmp(line, "sweep ", 6) == 0 || strcmp(line, "sweep") == 0) {
+                /* Play a log-frequency sweep and record it with the mic.
+                 * Usage: "sweep" (200..8000 Hz, 3 s) or "sweep <f0> <f1> <ms>". */
+                int f0 = 200, f1 = 8000, ms = 3000, amp = 30000;
+                char *sp = strchr(line, ' ');
+                if (sp) {
+                    f0 = atoi(sp + 1);
+                    sp = strchr(sp + 1, ' ');
+                    if (sp) {
+                        f1 = atoi(sp + 1);
+                        sp = strchr(sp + 1, ' ');
+                        if (sp) {
+                            ms = atoi(sp + 1);
+                        }
+                    }
+                }
+                if (f0 < 20) f0 = 20;
+                if (f1 <= f0) f1 = f0 + 100;
+                if (ms <= 0) ms = 3000;
+                if (ms > 10000) ms = 10000;
+                size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
+                int f0_start = f0, f1_end = f1;
+
+                /* Generate a logarithmic sine sweep f0 -> f1 over the duration. */
+                int16_t *sweep = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                if (!sweep) {
+                    printf("sweep: no mem for %u samples\n", (unsigned)n);
+                } else {
+                    double k = exp(log((double)f1 / f0) / n);
+                    double ph = 0.0;
+                    for (size_t i = 0; i < n; i++) {
+                        sweep[i] = (int16_t)(sinf(ph) * amp);
+                        ph += 2.0 * 3.14159265358979 * f0 / AUDIO_SAMPLE_RATE;
+                        f0 = (int)(f0 * k);
+                    }
+                    if (!s_rec_done) {
+                        s_rec_done = xSemaphoreCreateBinary();
+                    }
+                    xSemaphoreTake(s_rec_done, 0);
+                    /* (Re)size the recording buffer to match. */
+                    if (!s_rec_buf) {
+                        s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                    } else if (s_rec_n != n) {
+                        int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                        if (nb) {
+                            s_rec_buf = nb;
+                        }
+                    }
+                    if (!s_rec_buf) {
+                        printf("sweep: no mem for rec buffer\n");
+                        heap_caps_free(sweep);
+                    } else {
+                        s_rec_n = n;
+                        printf("sweep: %d -> %d Hz, %d ms (playing + recording)\n", f0_start, f1_end, ms);
+                        /* Start the mic first so it captures the whole sweep. */
+                        xTaskCreate(rec_task, "sweep_rec", 2048, NULL, 5, NULL);
+                        vTaskDelay(pdMS_TO_TICKS(50));
+                        esp_err_t err = max98357a_write(sweep, n);
+                        printf("sweep: playback %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+                        /* Wait for the recording to finish. */
+                        if (xSemaphoreTake(s_rec_done, pdMS_TO_TICKS(n * 1000 / AUDIO_SAMPLE_RATE + 5000)) != pdTRUE) {
+                            printf("sweep: rec timed out\n");
+                        } else {
+                            int32_t peak = 0;
+                            for (size_t i = 0; i < n; i++) {
+                                int32_t v = s_rec_buf[i];
+                                if (v < 0) v = -v;
+                                if (v > peak) peak = v;
+                            }
+                            printf("sweep: recorded, peak amp %ld (play 'playrec' to hear)\n", (long)peak);
+                        }
+                        heap_caps_free(sweep);
+                    }
                 }
             } else if (strcmp(line, "panictest") == 0) {
                 /* Deliberately crash to exercise the core dump -> SD path. */
