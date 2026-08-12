@@ -17,6 +17,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -37,6 +38,16 @@ static const char *TAG = "tracking";
 #define TRACK_STEPS_PER_FIX    50
 #define TRACK_POLL_MS          1000
 
+/* Activity classes that count as "active" for GNSS pulsing + distance. */
+static bool track_activity_active(void)
+{
+    uint8_t act = BHI260AP_ACTIVITY_UNKNOWN;
+    if (bhi260ap_get_activity(&act) != ESP_OK) {
+        return true;   /* fail-open: don't stall tracking on a sensor glitch */
+    }
+    return (act == BHI260AP_ACTIVITY_WALKING || act == BHI260AP_ACTIVITY_RUNNING);
+}
+
 /* ---- Persisted lifetime totals ---- */
 static tracking_totals_t s_totals;
 
@@ -47,6 +58,7 @@ static uint32_t s_last_fix_steps;    /* steps at the last GNSS fix */
 static uint32_t s_session_dist_cm;   /* distance accumulated this session */
 static bool s_session_has_pos;       /* a fix has been recorded this session */
 static double s_prev_lat, s_prev_lon;
+static uint16_t s_prev_course_deg;   /* last GNSS course at the last fix */
 static bool s_fix_due;
 
 static TaskHandle_t s_task;
@@ -85,6 +97,15 @@ static void tracking_task(void *arg)
         esp_lv_adapter_report_activity();
         uint32_t steps = 0;
         if (bhi260ap_get_step_count(&steps) != ESP_OK) {
+            continue;
+        }
+        /* Gate on activity: only pulse GNSS while walking/running. When the
+         * user is in a vehicle/on a bike/stationary, reset the step baseline so
+         * the next walk starts a fresh 50-step window (no fix burst after a
+         * drive). */
+        if (!track_activity_active()) {
+            s_last_fix_steps = steps;
+            s_fix_due = false;
             continue;
         }
         /* Every TRACK_STEPS_PER_FIX new steps -> ask for a GNSS fix. */
@@ -151,6 +172,37 @@ bool tracking_is_active(void)
     return s_active;
 }
 
+bool tracking_is_gated_active(void)
+{
+    return s_active && track_activity_active();
+}
+
+bool tracking_get_estimated_position(double *lat, double *lon)
+{
+    if (!lat || !lon || !s_session_has_pos) {
+        return false;
+    }
+    uint32_t steps = 0;
+    if (bhi260ap_get_step_count(&steps) != ESP_OK || steps <= s_last_fix_steps) {
+        *lat = s_prev_lat;
+        *lon = s_prev_lon;
+        return true;
+    }
+    /* Distance moved since the last fix: steps x average step length. */
+    uint32_t avg_cm = tracking_get_avg_step_cm();
+    double stride = (avg_cm > 0) ? avg_cm / 100.0 : 0.70;   /* default 0.7 m */
+    double dist_m = (double)(steps - s_last_fix_steps) * stride;
+
+    /* Project along the last known GNSS course (magnetic north on the M10 is
+     * true north; no compass on the BHI, so this is the heading of travel). */
+    double course = s_prev_course_deg * 3.14159265358979 / 180.0;
+    double dlat = dist_m * cos(course) / 111320.0;
+    double dlon = dist_m * sin(course) / (111320.0 * cos(s_prev_lat * 3.14159265358979 / 180.0));
+    *lat = s_prev_lat + dlat;
+    *lon = s_prev_lon + dlon;
+    return true;
+}
+
 void tracking_on_fix(double lat, double lon)
 {
     if (!s_active) {
@@ -165,6 +217,12 @@ void tracking_on_fix(double lat, double lon)
     s_prev_lat = lat;
     s_prev_lon = lon;
     s_session_has_pos = true;
+
+    /* Remember the course at this fix for the next position estimate. */
+    m10q_fix_t f;
+    if (m10q_get_fix(&f) == ESP_OK) {
+        s_prev_course_deg = f.course_deg;
+    }
 
     uint32_t steps = 0;
     bhi260ap_get_step_count(&steps);

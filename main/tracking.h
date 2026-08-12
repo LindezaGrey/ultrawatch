@@ -21,10 +21,21 @@ typedef struct {
 void tracking_init(void);
 
 /* Start/stop a tracking session. Session steps are measured from the step
- * counter at start; GNSS is pulsed every TRACK_STEPS_PER_FIX steps. */
+ * counter at start; GNSS is pulsed every TRACK_STEPS_PER_FIX steps while the
+ * BHI activity class is walking or running (vehicle/cycling/still gates the
+ * pulses). */
 esp_err_t tracking_start(void);
 esp_err_t tracking_stop(void);
 bool tracking_is_active(void);
+
+/* True when tracking is active AND the current BHI activity is walking or
+ * running (i.e. GNSS pulses + distance are being gated on). */
+bool tracking_is_gated_active(void);
+
+/* Estimated current position (degrees): the last session fix projected by the
+ * steps taken since it, along the last GNSS course, using the lifetime average
+ * step length. Returns false if no session fix exists yet. */
+bool tracking_get_estimated_position(double *lat, double *lon);
 
 /* Called by the GNSS control task when a tracking fix arrives (lat/lon deg).
  * Accumulates haversine distance and updates the persisted last position. */

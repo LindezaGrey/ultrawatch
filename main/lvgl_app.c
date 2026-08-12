@@ -54,6 +54,7 @@ static lv_obj_t *s_power_screen;
 static lv_obj_t *s_pw_batt_label;
 static lv_obj_t *s_pw_chg_label;
 static lv_obj_t *s_pw_temp_label;
+static lv_obj_t *s_pw_runtime_label;
 static lv_obj_t *s_pw_chg_switch;
 static lv_obj_t *s_pw_cur_100;
 static lv_obj_t *s_pw_cur_400;
@@ -381,6 +382,29 @@ static void power_screen_update(lv_timer_t *timer)
                  cache.chg_ma);
         lv_label_set_text(s_pw_chg_label, buf);
 
+        /* Runtime / charge-time from the background battery gauge estimate. */
+        battery_estimate_t est;
+        battery_estimate_get(&est);
+        if (s_pw_runtime_label) {
+            if (est.estimate_valid && est.runtime_h > 0) {
+                uint32_t mins = (uint32_t)(est.runtime_h * 60.0f);
+                snprintf(buf, sizeof(buf), "Runtime: ~%uh %02um", (unsigned)(mins / 60), (unsigned)(mins % 60));
+            } else {
+                snprintf(buf, sizeof(buf), "Runtime: --");
+            }
+            lv_label_set_text(s_pw_runtime_label, buf);
+        }
+        /* Append charge-time to the charge line when actively charging. */
+        if (est.estimate_valid && est.charge_h > 0 &&
+                (cache.chg_state == AXP2101_CHG_CC || cache.chg_state == AXP2101_CHG_CV ||
+                 cache.chg_state == AXP2101_CHG_TRI || cache.chg_state == AXP2101_CHG_PRE)) {
+            uint32_t mins = (uint32_t)(est.charge_h * 60.0f);
+            snprintf(buf, sizeof(buf), "%s%s  %umA  full in ~%uh %02um",
+                     s, cache.chg_enabled ? "" : " (disabled)", cache.chg_ma,
+                     (unsigned)(mins / 60), (unsigned)(mins % 60));
+            lv_label_set_text(s_pw_chg_label, buf);
+        }
+
         int16_t tc = cache.batt_temp_c10;
         snprintf(buf, sizeof(buf), "Battery temp  %d.%d C", tc / 10, abs(tc % 10));
         lv_label_set_text(s_pw_temp_label, buf);
@@ -445,6 +469,12 @@ static void lvgl_build_power_screen(void)
     lv_obj_set_style_text_font(s_pw_temp_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_pw_temp_label, lv_color_hex(0xE0E0E0), 0);
     lv_obj_align(s_pw_temp_label, LV_ALIGN_TOP_MID, 0, 140);
+
+    s_pw_runtime_label = lv_label_create(s_power_screen);
+    lv_label_set_text(s_pw_runtime_label, "");
+    lv_obj_set_style_text_font(s_pw_runtime_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_pw_runtime_label, lv_color_hex(0x80D8FF), 0);
+    lv_obj_align(s_pw_runtime_label, LV_ALIGN_TOP_MID, 0, 170);
 
     /* Charging enable switch. */
     lv_obj_t *sw_lbl = lv_label_create(s_power_screen);
@@ -759,10 +789,14 @@ static void gps_screen_update(lv_timer_t *timer)
         tracking_get_totals(&t);
         uint32_t session_steps = tracking_get_session_steps();
         uint32_t avg = tracking_get_avg_step_cm();
+        const char *gate = "paused";
+        if (tracking_is_gated_active()) {
+            gate = "walking";
+        }
         if (active) {
-            snprintf(buf, sizeof(buf), "Track: %.2f km  %lu steps  avg %.2f m",
+            snprintf(buf, sizeof(buf), "Track: %.2f km  %lu steps  avg %.2f m  (%s)",
                      t.dist_cm / 100000.0, (unsigned long)t.steps,
-                     avg / 100.0);
+                     avg / 100.0, gate);
         } else {
             snprintf(buf, sizeof(buf), "Tracked: %.2f km  %lu steps  avg %.2f m",
                      t.dist_cm / 100000.0, (unsigned long)t.steps,
@@ -954,10 +988,18 @@ static void gps_ctrl_task(void *arg)
             /* Step-gated tracking: a tracking fix is due (every N steps).
              * Power on, wait for a 3D fix, hand the position to tracking (which
              * accumulates distance + updates the LKP), then power off. */
+            double seed_lat = 0, seed_lon = 0;
+            bool have_seed = tracking_get_estimated_position(&seed_lat, &seed_lon);
             if (!s_gps_powered) {
                 s_gps_acq_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
                 m10q_power(true);
                 s_gps_powered = true;
+            }
+            /* IMU-assisted re-acquisition: seed the receiver with the estimated
+             * position (last fix + steps x stride along the last course) so the
+             * warm start is faster and the on-time shorter. */
+            if (have_seed) {
+                m10q_seed_position(seed_lat, seed_lon);
             }
             ESP_LOGI(TAG, "GNSS tracking fix: acquiring 3D fix...");
             uint32_t start = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);

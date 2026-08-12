@@ -41,6 +41,18 @@ void sensor_cache_get(sensor_cache_t *out);
  * the cache holds a valid RTC reading. */
 bool sensor_cache_get_rtc(pcf85063a_time_t *out);
 
+/* Battery gauge rate estimate, derived from the % change over a rolling
+ * ~5-minute window while the watch is awake. */
+typedef struct {
+    bool   estimate_valid;   /* enough stable movement to estimate */
+    float  pct_per_hour;     /* signed: <0 discharging, >0 charging */
+    float  runtime_h;        /* valid when discharging (hours until empty) */
+    float  charge_h;         /* valid when charging (hours until full) */
+} battery_estimate_t;
+
+/* Latest battery rate estimate (computed in the background cache task). */
+void battery_estimate_get(battery_estimate_t *out);
+
 #ifdef __cplusplus
 }
 #endif

@@ -14,6 +14,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "twatch_board.h"
+#include <stdlib.h>
 
 static const char *TAG = "sensor_cache";
 
@@ -23,6 +24,84 @@ static const char *TAG = "sensor_cache";
 static sensor_cache_t s_cache;
 static SemaphoreHandle_t s_mux;
 static TaskHandle_t s_task;
+
+/* ---- Battery gauge rate tracker ----
+ * Samples batt_pct each poll and derives a drain/charge rate over a rolling
+ * window of active (awake) time. The AXP % register is 1%-resolution, so a
+ * window of ~5 minutes is needed for a stable rate. */
+#define GAUGE_WINDOW_MS   (5 * 60 * 1000)   /* 5 min rolling window */
+#define GAUGE_MIN_DELTA   3                  /* need >=3% movement to estimate */
+#define GAUGE_MIN_SAMPLES 2
+
+typedef struct {
+    uint32_t first_ms;   /* uptime of the window's first sample */
+    uint8_t  first_pct;
+    uint32_t last_ms;    /* uptime of the latest sample */
+    uint8_t  last_pct;
+    bool     first_set;
+} gauge_window_t;
+
+static gauge_window_t s_gauge;
+static battery_estimate_t s_est;
+static uint8_t s_gauge_prev_chg;   /* last charge state, to detect flips */
+
+static void gauge_reset(void)
+{
+    s_gauge.first_set = false;
+    s_gauge.first_ms = 0;
+    s_gauge.first_pct = 0;
+    s_gauge.last_ms = 0;
+    s_gauge.last_pct = 0;
+    s_est.estimate_valid = false;
+    s_est.pct_per_hour = 0;
+    s_est.runtime_h = 0;
+    s_est.charge_h = 0;
+}
+
+/* Feed a battery % sample (with uptime ms) into the rolling tracker. */
+static void gauge_feed(uint32_t now_ms, uint8_t pct, uint8_t chg_state)
+{
+    if (s_gauge_prev_chg != chg_state) {
+        gauge_reset();            /* plug/unplug or charge toggle */
+        s_gauge_prev_chg = chg_state;
+    }
+    if (!s_gauge.first_set) {
+        s_gauge.first_ms = now_ms;
+        s_gauge.first_pct = pct;
+        s_gauge.first_set = true;
+    }
+    s_gauge.last_ms = now_ms;
+    s_gauge.last_pct = pct;
+
+    /* Drop old first sample when the window is full. */
+    while (s_gauge.first_set &&
+           (now_ms - s_gauge.first_ms) > GAUGE_WINDOW_MS) {
+        if (s_gauge.last_ms <= s_gauge.first_ms) {
+            break;
+        }
+        /* slide: approximate by re-basing the first sample one step later */
+        s_gauge.first_ms += 1000;
+    }
+
+    int32_t dpct = (int32_t)s_gauge.last_pct - s_gauge.first_pct;
+    uint32_t dms = s_gauge.last_ms - s_gauge.first_ms;
+    if (dms == 0 || abs((int)dpct) < GAUGE_MIN_DELTA) {
+        s_est.estimate_valid = false;
+        return;
+    }
+    float hours = dms / 3600000.0f;
+    float pct_per_hour = (float)dpct / hours;
+
+    s_est.estimate_valid = true;
+    s_est.pct_per_hour = pct_per_hour;
+    s_est.runtime_h = 0;
+    s_est.charge_h = 0;
+    if (pct_per_hour < 0) {
+        s_est.runtime_h = s_gauge.last_pct / -pct_per_hour;
+    } else if (pct_per_hour > 0) {
+        s_est.charge_h = (100 - s_gauge.last_pct) / pct_per_hour;
+    }
+}
 
 static void cache_task(void *arg)
 {
@@ -54,6 +133,9 @@ static void cache_task(void *arg)
 
         if (xSemaphoreTake(s_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
             s_cache = c;
+            /* Track battery % rate in the background (independent of screen). */
+            gauge_feed((uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS),
+                       c.batt_pct, (uint8_t)c.chg_state);
             xSemaphoreGive(s_mux);
         }
         vTaskDelay(pdMS_TO_TICKS(CACHE_PERIOD_MS));
@@ -95,4 +177,15 @@ bool sensor_cache_get_rtc(pcf85063a_time_t *out)
         xSemaphoreGive(s_mux);
     }
     return valid;
+}
+
+void battery_estimate_get(battery_estimate_t *out)
+{
+    if (!out) {
+        return;
+    }
+    if (s_mux && xSemaphoreTake(s_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
+        *out = s_est;
+        xSemaphoreGive(s_mux);
+    }
 }
