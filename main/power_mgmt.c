@@ -24,6 +24,7 @@
 #include "m10q.h"
 #include "sensor_cache.h"
 #include "lvgl_app.h"
+#include "alarm.h"
 
 static const char *TAG = "power_mgmt";
 
@@ -31,6 +32,7 @@ static const char *TAG = "power_mgmt";
 #define PM_GPIO_PWRKEY 7    /* AXP2101 IRQ */
 #define PM_GPIO_BOOT   0
 #define PM_GPIO_IMU    8    /* BHI260AP INT (wake on wrist-raise/gesture) */
+#define PM_GPIO_RTC    1    /* PCF85063A INT (alarm / snooze timer) */
 
 /* Night-mode clock check period while the watch is idle. */
 #define PM_NIGHT_CHECK_MS  60000
@@ -130,6 +132,7 @@ static void IRAM_ATTR button_isr(void *arg)
     gpio_intr_disable(PM_GPIO_PWRKEY);
     gpio_intr_disable(PM_GPIO_BOOT);
     gpio_intr_disable(PM_GPIO_IMU);
+    gpio_intr_disable(PM_GPIO_RTC);
     if (s_wake_task) {
         BaseType_t woken = pdFALSE;
         vTaskNotifyGiveFromISR(s_wake_task, &woken);
@@ -190,6 +193,19 @@ static void pm_wake_task(void *arg)
             gpio_intr_enable(PM_GPIO_IMU);
         }
 
+/* RTC INT (GPIO1): the PCF85063A pulls the line LOW when the alarm
+ * (AF) or snooze timer (TF) fires. Restore edge triggering (the
+ * LOW_LEVEL sleep wake left it level) and re-arm the ISR, then let
+ * the alarm module check the flags and start the ring. The ring task
+ * clears the pending flag(s), which de-asserts the line. */
+if (gpio == PM_GPIO_RTC) {
+    gpio_set_intr_type(PM_GPIO_RTC, GPIO_INTR_NEGEDGE);
+    gpio_intr_enable(PM_GPIO_RTC);
+}
+if (gpio == PM_GPIO_RTC) {
+    alarm_handle_wake();
+}
+
         esp_lv_adapter_request_wake();
     }
 }
@@ -205,6 +221,7 @@ static void pm_arm_gpio_wakeup(void)
     gpio_wakeup_disable(PM_GPIO_IMU);
     gpio_wakeup_disable(PM_GPIO_PWRKEY);
     gpio_wakeup_disable(PM_GPIO_BOOT);
+    gpio_wakeup_disable(PM_GPIO_RTC);
     s_imu_wake_armed = false;
     gpio_intr_disable(PM_GPIO_IMU);
 
@@ -232,6 +249,15 @@ static void pm_arm_gpio_wakeup(void)
     }
     gpio_wakeup_enable(PM_GPIO_PWRKEY, GPIO_INTR_LOW_LEVEL);
     gpio_wakeup_enable(PM_GPIO_BOOT, GPIO_INTR_LOW_LEVEL);
+
+    /* RTC INT (GPIO1): the PCF85063A pulls it LOW when the alarm (AF) or the
+     * snooze timer (TF) fires, and it stays low until the flag is cleared.
+     * Arm it as a LOW_LEVEL wake only while an alarm is armed; the ring task
+     * re-arms the daily alarm after dismiss and the snooze timer after snooze,
+     * both of which clear the pending flag and de-assert the line. */
+    if (alarm_is_armed()) {
+        gpio_wakeup_enable(PM_GPIO_RTC, GPIO_INTR_LOW_LEVEL);
+    }
     esp_sleep_enable_gpio_wakeup();
 }
 
@@ -355,6 +381,20 @@ void power_mgmt_init(void)
      * entered (pm_arm_gpio_wakeup) and self-disables on any pulse while awake,
      * so a busy INT line can never storm the CPU. */
     gpio_intr_disable(PM_GPIO_IMU);
+
+    /* PCF85063A INT (GPIO1) as input. It idles high and pulses/stays LOW while
+     * the alarm (AF) or snooze timer (TF) flag is set. Falling edge wakes the
+     * power task to start the ring; during light sleep it is additionally
+     * armed as a LOW_LEVEL wake source in pm_arm_gpio_wakeup(). */
+    gpio_config_t rtc_io = {
+        .pin_bit_mask = (1ULL << PM_GPIO_RTC),
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE,   /* INT is open-drain, active-low */
+        .intr_type = GPIO_INTR_NEGEDGE,
+    };
+    gpio_config(&rtc_io);
+    gpio_isr_handler_add(PM_GPIO_RTC, button_isr, (void *)(uintptr_t)PM_GPIO_RTC);
 
     /* Apply the initial night-mode state (and touch-ISR state). */
     pm_apply_night_mode(pm_is_night_time());
