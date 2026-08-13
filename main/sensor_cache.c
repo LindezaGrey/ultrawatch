@@ -135,7 +135,8 @@ static void cache_task(void *arg)
 
         if (xSemaphoreTake(s_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
             s_cache = c;
-            /* Track battery % rate in the background (independent of screen). */
+            /* Track battery % rate in the foreground/background (sampled while holding
+ * the cache mutex; rate estimate reflects awake time at the time of polling). */
             gauge_feed((uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS),
                        c.batt_pct, (uint8_t)c.chg_state);
             xSemaphoreGive(s_mux);
