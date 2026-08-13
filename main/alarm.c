@@ -376,6 +376,10 @@ void alarm_get_config(alarm_config_t *cfg)
 esp_err_t alarm_check(void)
 {
     /* Alarm flag: start the ring if the configured time matched. */
+    if (!twatch_rtc_dev) {
+        ESP_LOGW(TAG, "alarm_check: RTC dev not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
     bool af = false;
     if (pcf85063a_alarm_triggered(twatch_rtc_dev, &af) != ESP_OK) {
         return ESP_FAIL;
