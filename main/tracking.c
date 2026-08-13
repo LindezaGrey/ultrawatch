@@ -209,7 +209,11 @@ bool tracking_get_estimated_position(double *lat, double *lon)
      * true north; no compass on the BHI, so this is the heading of travel). */
     double course = s_prev_course_deg * 3.14159265358979 / 180.0;
     double dlat = dist_m * cos(course) / 111320.0;
-    double dlon = dist_m * sin(course) / (111320.0 * cos(s_prev_lat * 3.14159265358979 / 180.0));
+    double cos_lat = cos(s_prev_lat * 3.14159265358979 / 180.0);
+    if (cos_lat < 0.01) {
+        cos_lat = 0.01;   /* avoid division by zero at extreme latitudes */
+    }
+    double dlon = dist_m * sin(course) / (111320.0 * cos_lat);
     *lat = s_prev_lat + dlat;
     *lon = s_prev_lon + dlon;
     return true;
