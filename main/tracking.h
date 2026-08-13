@@ -7,6 +7,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* TEMPORARILY DEACTIVATED while GNSS is being debugged (the step-gated pulsing
+ * would fight the "GNSS always on" mode). Set back to 1 to re-enable. */
+#ifndef TRACKING_ENABLED
+#define TRACKING_ENABLED 0
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -17,13 +23,14 @@ typedef struct {
     uint32_t steps;     /* lifetime steps counted during tracking sessions */
 } tracking_totals_t;
 
-/* Init: load persisted totals and create the background tracking task. */
+/* Init: load persisted totals and create the background tracking task.
+ * No-op while TRACKING_ENABLED is 0. */
 void tracking_init(void);
 
 /* Start/stop a tracking session. Session steps are measured from the step
  * counter at start; GNSS is pulsed every TRACK_STEPS_PER_FIX steps while the
  * BHI activity class is walking or running (vehicle/cycling/still gates the
- * pulses). */
+ * pulses). Return ESP_ERR_NOT_SUPPORTED while TRACKING_ENABLED is 0. */
 esp_err_t tracking_start(void);
 esp_err_t tracking_stop(void);
 bool tracking_is_active(void);
@@ -42,7 +49,8 @@ bool tracking_get_estimated_position(double *lat, double *lon);
 void tracking_on_fix(double lat, double lon);
 
 /* True when the step threshold since the last fix has been reached and a GNSS
- * position fix is due. Polled by the GNSS control task each loop. */
+ * position fix is due. Polled by the GNSS control task each loop. Always false
+ * while TRACKING_ENABLED is 0. */
 bool tracking_fix_due(void);
 
 /* Clear the fix-due flag without recording a position (used when the GNSS

@@ -17,6 +17,7 @@
 #include "esp_heap_caps.h"
 #include "esp_app_desc.h"
 #include "esp_spiffs.h"
+#include "nvs_flash.h"
 #include "driver/usb_serial_jtag.h"
 #include "esp_lv_adapter.h"
 #include "lvgl.h"
@@ -81,6 +82,7 @@ static volatile bool s_gps_powered;
 static uint32_t s_gps_acq_start_ms;            /* power-on timestamp */
 static lv_obj_t *s_gps_track_label;            /* tracking stats (distance/steps/avg) */
 static lv_obj_t *s_gps_track_btn;              /* Start/Stop tracking button */
+static lv_obj_t *s_gps_pwr_switch;             /* GNSS on/off switch */
 
 /* GNSS control runs off the LVGL task (m10q_power blocks for seconds during
  * baud probing/config); the UI issues a request and a worker task applies it. */
@@ -91,7 +93,33 @@ static lv_obj_t *s_gps_track_btn;              /* Start/Stop tracking button */
 #define GPS_REFRESH_TIMEOUT_MS 120000
 static volatile int s_gps_ctrl_req;
 static TaskHandle_t s_gps_ctrl_task;
-static volatile bool s_gps_screen_open;   /* GPS screen is the active screen */
+
+/* Persisted "GNSS enabled" setting (NVS, namespace "gps", key "en"). */
+#define GPS_NVS_NS       "gps"
+#define GPS_NVS_KEY_EN   "en"
+
+static bool gps_load_enabled(void)
+{
+    bool en = true;   /* default: GNSS on at startup */
+    nvs_handle_t h;
+    if (nvs_open(GPS_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        uint8_t v = 1;
+        nvs_get_u8(h, GPS_NVS_KEY_EN, &v);
+        nvs_close(h);
+        en = (v != 0);
+    }
+    return en;
+}
+
+static void gps_save_enabled(bool on)
+{
+    nvs_handle_t h;
+    if (nvs_open(GPS_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u8(h, GPS_NVS_KEY_EN, on ? 1 : 0);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
 
 /* Swipe detection at the input-device level (works regardless of widget). */
 #define SWIPE_DIST         60
@@ -104,6 +132,7 @@ static uint32_t s_last_touch_tick;   /* lv_tick_get() at last touch */
 
 static void swipe_event_cb(lv_event_t *e);
 static void gps_track_btn_cb(lv_event_t *e);
+static void gps_pwr_switch_cb(lv_event_t *e);
 static void lvgl_build_power_screen(void);
 static void lvgl_build_bhi_screen(void);
 static void lvgl_build_gps_screen(void);
@@ -782,8 +811,21 @@ static void gps_screen_update(lv_timer_t *timer)
         }
     }
 
+    /* GNSS on/off switch state. */
+    if (s_gps_pwr_switch) {
+        bool powered = s_gps_powered && m10q_get_state() != M10Q_STATE_OFF;
+        if (lv_obj_has_state(s_gps_pwr_switch, LV_STATE_CHECKED) != powered) {
+            if (powered) {
+                lv_obj_add_state(s_gps_pwr_switch, LV_STATE_CHECKED);
+            } else {
+                lv_obj_clear_state(s_gps_pwr_switch, LV_STATE_CHECKED);
+            }
+        }
+    }
+
     /* Tracking stats + button state. */
     if (s_gps_track_label && s_gps_track_btn) {
+#if TRACKING_ENABLED
         bool active = tracking_is_active();
         tracking_totals_t t;
         tracking_get_totals(&t);
@@ -810,6 +852,14 @@ static void gps_screen_update(lv_timer_t *timer)
         lv_obj_set_style_bg_color(s_gps_track_btn,
                                   active ? lv_color_hex(0x8B0000) : lv_color_hex(0x1B5E20), 0);
         (void)session_steps;
+#else
+        lv_label_set_text(s_gps_track_label, "Tracking disabled");
+        lv_obj_t *bl = lv_obj_get_child(s_gps_track_btn, 0);
+        if (bl) {
+            lv_label_set_text(bl, "Off");
+        }
+        lv_obj_set_style_bg_color(s_gps_track_btn, lv_color_hex(0x444444), 0);
+#endif
     }
 }
 
@@ -823,6 +873,16 @@ static void lvgl_build_gps_screen(void)
     lv_obj_set_style_text_font(title, s_font_small, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
+
+    /* GNSS on/off switch. */
+    lv_obj_t *pwr_lbl = lv_label_create(s_gps_screen);
+    lv_label_set_text(pwr_lbl, "GNSS");
+    lv_obj_set_style_text_font(pwr_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(pwr_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(pwr_lbl, LV_ALIGN_TOP_LEFT, 12, 4);
+    s_gps_pwr_switch = lv_switch_create(s_gps_screen);
+    lv_obj_align(s_gps_pwr_switch, LV_ALIGN_TOP_RIGHT, -12, 2);
+    lv_obj_add_event_cb(s_gps_pwr_switch, gps_pwr_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     /* Skyplot: horizon ring + elevation rings. */
     gps_ring(GPS_SKY_RADIUS);
@@ -943,9 +1003,9 @@ static void gps_ctrl_task(void *arg)
             s_gps_powered = false;
             ESP_LOGI(TAG, "GNSS powered off");
         } else if (req == GPS_CTRL_REFRESH) {
-            /* One-shot boot position check: power on, wait for a 3D fix, let
-             * m10q's 50 m-gated LKP write run, then power back off. Runs on
-             * this task so the seconds-long probe never blocks LVGL. */
+            /* Boot LKP check: wait for a 3D fix so m10q's gate can persist the
+             * last-known position. GNSS stays on (always-on mode); the fix just
+             * updates the LKP for the next session's position aiding. */
             if (!s_gps_powered) {
                 s_gps_acq_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
                 m10q_power(true);
@@ -978,16 +1038,13 @@ static void gps_ctrl_task(void *arg)
                 ESP_LOGW(TAG, "GNSS position refresh: no 3D fix within %u s",
                          GPS_REFRESH_TIMEOUT_MS / 1000);
             }
-            /* Power off, unless the GPS screen is open (it keeps GNSS on). */
-            if (s_gps_powered && !s_gps_screen_open) {
-                m10q_power(false);
-                s_gps_powered = false;
-                ESP_LOGI(TAG, "GNSS powered off after refresh");
-            }
-        } else if (tracking_fix_due()) {
+            /* GNSS stays on (always-on mode); do NOT power it off here. */
+        }
+#if TRACKING_ENABLED
+        else if (tracking_fix_due()) {
             /* Step-gated tracking: a tracking fix is due (every N steps).
-             * Power on, wait for a 3D fix, hand the position to tracking (which
-             * accumulates distance + updates the LKP), then power off. */
+             * GNSS is already on in always-on mode, so just wait for a 3D fix
+             * and hand the position to tracking. */
             double seed_lat = 0, seed_lon = 0;
             bool have_seed = tracking_get_estimated_position(&seed_lat, &seed_lon);
             if (!s_gps_powered) {
@@ -1026,12 +1083,10 @@ static void gps_ctrl_task(void *arg)
                 /* No fix: don't block forever; try again after more steps. */
                 tracking_fix_clear();
             }
-            if (s_gps_powered && !s_gps_screen_open) {
-                m10q_power(false);
-                s_gps_powered = false;
-                ESP_LOGI(TAG, "GNSS powered off after tracking fix");
-            }
-        } else if (s_gps_powered && m10q_get_state() == M10Q_STATE_OFF) {
+            /* GNSS stays on (always-on mode); do NOT power it off here. */
+        }
+#endif
+        else if (s_gps_powered && m10q_get_state() == M10Q_STATE_OFF) {
             /* Auto-sleep cut the GNSS rail underneath us (power_mgmt told the
              * driver, which set state=OFF). On wake the rail is restored but
              * the module needs a fresh power-on + config, so re-arm it. */
@@ -1043,23 +1098,40 @@ static void gps_ctrl_task(void *arg)
     }
 }
 
-/* Power the GNSS receiver on/off with the GPS screen. The actual m10q power
- * transition happens on the background control task so the UI never blocks. */
+/* Power the GNSS receiver on/off. The actual m10q power transition happens on
+ * the background control task so the UI never blocks. */
 static void gps_power(bool on)
 {
     s_gps_ctrl_req = on ? GPS_CTRL_ON : GPS_CTRL_OFF;
+}
+
+/* GNSS on/off switch on the GPS screen. Persists the choice so the next boot
+ * powers GNSS on only if it was left enabled. */
+static void gps_pwr_switch_cb(lv_event_t *e)
+{
+    (void)e;
+    if (!s_gps_pwr_switch) {
+        return;
+    }
+    bool on = lv_obj_has_state(s_gps_pwr_switch, LV_STATE_CHECKED);
+    gps_power(on);
+    gps_save_enabled(on);
 }
 
 /* GPS screen Start/Stop tracking button. */
 static void gps_track_btn_cb(lv_event_t *e)
 {
     (void)e;
+#if TRACKING_ENABLED
     if (tracking_is_active()) {
         lvgl_tracking_stop();
     } else {
         lvgl_tracking_start();
     }
     gps_screen_update(NULL);
+#else
+    ESP_LOGW(TAG, "tracking disabled (TRACKING_ENABLED=0)");
+#endif
 }
 
 /* One-shot boot-time GNSS position check (background). */
@@ -1135,8 +1207,6 @@ static void swipe_event_cb(lv_event_t *e)
                 if (!s_gps_screen) {
                     lvgl_build_gps_screen();
                 }
-                s_gps_screen_open = true;
-                gps_power(true);
                 lv_scr_load(s_gps_screen);
             }
         } else if (dy > 0) {     /* down  -> Power Management */
@@ -1155,8 +1225,6 @@ static void swipe_event_cb(lv_event_t *e)
         }
     } else if (cur == s_gps_screen) {
         if (horiz && dx < 0) {   /* left -> clock */
-            s_gps_screen_open = false;
-            gps_power(false);
             lvgl_show_watch_face();
         }
     }
@@ -1357,16 +1425,17 @@ esp_err_t lvgl_app_start(void)
     /* BHI260AP sensor task (needs SPIFFS assets, already mounted above). */
     xTaskCreate(bhi260_task, "bhi260", 4096, NULL, 5, NULL);
 
-    /* GNSS control task + one-shot boot position check (background). It powers
-     * the receiver, waits for a 3D fix and persists the last-known position if
-     * it moved (m10q applies the 50 m gate), then powers GNSS back off. */
+    /* GNSS control task. GNSS is powered on at startup and left on (always-on
+     * mode); the GPS screen switch or 'gnsson/gnssoff' toggle it. */
     if (s_gps_ctrl_task == NULL) {
         xTaskCreate(gps_ctrl_task, "gps_ctrl", 3072, NULL,
                     ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, &s_gps_ctrl_task);
     }
+    gps_power(gps_load_enabled());
     gps_refresh();
 
-    /* Step-gated distance tracking (lifetime distance + steps). */
+    /* Step-gated distance tracking (lifetime distance + steps). No-op while
+     * TRACKING_ENABLED is 0. */
     tracking_init();
 
     return ESP_OK;

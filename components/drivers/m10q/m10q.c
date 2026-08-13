@@ -117,6 +117,28 @@ static void lkp_load(int32_t *lat, int32_t *lon)
     }
 }
 
+/* Persist the given fix as the last-known position, but only when it moved
+ * more than LKP_UPDATE_MIN_M from the stored one, so a stationary receiver
+ * does not rewrite NVS on every fix (wear) while still tracking movement.
+ * No-op when the fix is not valid. */
+static void lkp_persist_if_moved(double lat, double lon)
+{
+    nvs_handle_t wh;
+    if (nvs_open(M10Q_NVS_NS, NVS_READWRITE, &wh) != ESP_OK) {
+        return;
+    }
+    int32_t old_lat = 0, old_lon = 0;
+    lkp_load(&old_lat, &old_lon);
+    double d = m10q_distance_m(old_lat / 1e7, old_lon / 1e7, lat, lon);
+    if (d >= LKP_UPDATE_MIN_M) {
+        nvs_set_i32(wh, NVS_KEY_LAT, (int32_t)(lat * 1e7));
+        nvs_set_i32(wh, NVS_KEY_LON, (int32_t)(lon * 1e7));
+        ESP_LOGI(TAG, "last position updated (moved %.0f m)", d);
+    }
+    nvs_commit(wh);
+    nvs_close(wh);
+}
+
 /* ---- UBX RX parser (for NAV-PVT accuracy) ----
  * Byte-fed state machine for u-blox binary frames. Only UBX-NAV-PVT is
  * consumed (for the measured horizontal accuracy); everything else is
@@ -641,17 +663,7 @@ static void note_fix(void)
 
     nvs_handle_t wh;
     if (nvs_open(M10Q_NVS_NS, NVS_READWRITE, &wh) == ESP_OK) {
-        /* Persist the last-known position only when the new fix is more than
-         * LKP_UPDATE_MIN_M from the stored one, so a stationary watch does not
-         * rewrite NVS on every fix (wear) while still tracking real movement. */
-        int32_t old_lat = 0, old_lon = 0;
-        lkp_load(&old_lat, &old_lon);
-        double d = m10q_distance_m(old_lat / 1e7, old_lon / 1e7, s_fix.lat, s_fix.lon);
-        if (d >= LKP_UPDATE_MIN_M) {
-            nvs_set_i32(wh, NVS_KEY_LAT, (int32_t)(s_fix.lat * 1e7));
-            nvs_set_i32(wh, NVS_KEY_LON, (int32_t)(s_fix.lon * 1e7));
-            ESP_LOGI(TAG, "last position updated (moved %.0f m)", d);
-        }
+        lkp_persist_if_moved(s_fix.lat, s_fix.lon);
         if (today != 0) {
             nvs_set_u32(wh, NVS_KEY_DAY, today);
         }
@@ -1063,6 +1075,13 @@ esp_err_t m10q_power(bool on)
 
         ESP_LOGI(TAG, "powered on (BLDO1) at %lu baud", (unsigned long)baud);
     } else {
+        /* Persist the freshest position before the rail is cut, so the next
+         * power-on's position aiding (send_pos_llh_aid) seeds the right area.
+         * lkp_persist_if_moved keeps the 50 m wear gate (no rewrite if the
+         * watch has not moved since the stored position). */
+        if (s_fix.valid) {
+            lkp_persist_if_moved(s_fix.lat, s_fix.lon);
+        }
         ubx_rxm_pmreq();   /* soft standby keeps backup RAM */
         vTaskDelay(pdMS_TO_TICKS(50));
         /* UART stays installed (see power-on); only cut the rail. */

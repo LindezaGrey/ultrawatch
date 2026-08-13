@@ -270,9 +270,13 @@ static void debug_process_cmd(const char *cmd)
     printf("lpk: %.5f, %.5f\n", lat, lon);
     }
     } else if (strcmp(cmd, "track") == 0) {
+#if TRACKING_ENABLED
     lvgl_tracking_start();
-                printf("track: started (GNSS pulses every 50 steps)\n");
-            } else if (strcmp(cmd, "cachedump") == 0) {
+    printf("track: started (GNSS pulses every 50 steps)\n");
+#else
+    printf("track: disabled (TRACKING_ENABLED=0)\n");
+#endif
+    } else if (strcmp(cmd, "cachedump") == 0) {
                 sensor_cache_t c;
                 sensor_cache_get(&c);
                 printf("cache: valid=%d rtc=%04u-%02u-%02u %02u:%02u:%02u wd=%u\n",

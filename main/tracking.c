@@ -121,16 +121,21 @@ static void tracking_task(void *arg)
 
 void tracking_init(void)
 {
+#if TRACKING_ENABLED
     totals_load();
     if (s_task == NULL) {
         xTaskCreate(tracking_task, "track", 2048, NULL, 2, &s_task);
     }
     ESP_LOGI(TAG, "tracking ready: dist %.0f m, steps %lu",
              s_totals.dist_cm / 100.0, (unsigned long)s_totals.steps);
+#else
+    ESP_LOGI(TAG, "tracking disabled (TRACKING_ENABLED=0)");
+#endif
 }
 
 esp_err_t tracking_start(void)
 {
+#if TRACKING_ENABLED
     if (s_active) {
         return ESP_OK;
     }
@@ -146,10 +151,14 @@ esp_err_t tracking_start(void)
     s_fix_due = false;
     ESP_LOGI(TAG, "tracking started (base steps %lu)", (unsigned long)steps);
     return ESP_OK;
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 esp_err_t tracking_stop(void)
 {
+#if TRACKING_ENABLED
     if (!s_active) {
         return ESP_OK;
     }
@@ -165,6 +174,9 @@ esp_err_t tracking_stop(void)
              s_session_dist_cm / 100.0,
              s_totals.dist_cm / 100000.0, (unsigned long)s_totals.steps);
     return ESP_OK;
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 bool tracking_is_active(void)
@@ -234,7 +246,11 @@ void tracking_on_fix(double lat, double lon)
 
 bool tracking_fix_due(void)
 {
+#if TRACKING_ENABLED
     return s_active && s_fix_due;
+#else
+    return false;
+#endif
 }
 
 void tracking_fix_clear(void)
