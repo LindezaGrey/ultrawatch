@@ -77,6 +77,7 @@ static lv_obj_t *s_gps_status_label;
 static lv_obj_t *s_gps_pos_label;
 static lv_obj_t *s_gps_speed_label;
 static lv_obj_t *s_gps_sats_label;
+static lv_obj_t *s_gps_diag_label;           /* GNSS diagnostics (state/offset/ttff/rx) */
 static lv_obj_t *s_gps_dots[M10Q_MAX_SATS];   /* satellite dots (in view order) */
 static volatile bool s_gps_powered;
 static uint32_t s_gps_acq_start_ms;            /* power-on timestamp */
@@ -767,9 +768,9 @@ static void gps_screen_update(lv_timer_t *timer)
                  (unsigned)fix.speed_kmh, (unsigned)fix.course_deg);
         lv_label_set_text(s_gps_speed_label, buf);
 
-        snprintf(buf, sizeof(buf), "%02u:%02u:%02u UTC  (%u in view)",
+        snprintf(buf, sizeof(buf), "%02u:%02u:%02u UTC  (%u in view)  GPS-RTC %+ld s",
                  (unsigned)fix.hour, (unsigned)fix.minute, (unsigned)fix.second,
-                 (unsigned)fix.sat_in_view);
+                 (unsigned)fix.sat_in_view, (long)fix.rtc_offset_s);
         lv_label_set_text(s_gps_sats_label, buf);
     } else if (st == M10Q_STATE_ACQUIRING) {
         uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
@@ -784,6 +785,30 @@ static void gps_screen_update(lv_timer_t *timer)
         lv_label_set_text(s_gps_pos_label, "");
         lv_label_set_text(s_gps_speed_label, "");
         lv_label_set_text(s_gps_sats_label, "");
+    }
+
+    /* Diagnostics line: receiver state, RX traffic, TTFF. */
+    if (s_gps_diag_label) {
+        uint32_t rx = 0, lines = 0;
+        m10q_get_dbg(&rx, &lines);
+        uint16_t agc = 0;
+        m10q_get_agc(&agc);
+        m10q_stats_t stats;
+        if (m10q_get_stats(&stats) == ESP_OK) {
+            snprintf(buf, sizeof(buf),
+                     "st=%d rx=%lu ln=%lu gsv=%lu | fixes=%lu ttf=%lu/%lums agc=%u",
+                     (int)m10q_get_state(), (unsigned long)rx, (unsigned long)lines,
+                     (unsigned long)m10q_get_gsv_count(),
+                     (unsigned long)stats.total_fixes,
+                     (unsigned long)stats.ttf_avg_ms, (unsigned long)stats.ttf_best_ms,
+                     (unsigned)agc);
+        } else {
+            snprintf(buf, sizeof(buf),
+                     "st=%d rx=%lu ln=%lu gsv=%lu | agc=%u",
+                     (int)m10q_get_state(), (unsigned long)rx, (unsigned long)lines,
+                     (unsigned long)m10q_get_gsv_count(), (unsigned)agc);
+        }
+        lv_label_set_text(s_gps_diag_label, buf);
     }
 
     /* Satellite dots. Satellites with no elevation/azimuth (receiver not yet
@@ -953,6 +978,12 @@ static void lvgl_build_gps_screen(void)
     lv_obj_set_style_text_font(s_gps_sats_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_sats_label, lv_color_hex(0x80D8FF), 0);
     lv_obj_align(s_gps_sats_label, LV_ALIGN_TOP_MID, 0, 440);
+
+    s_gps_diag_label = lv_label_create(s_gps_screen);
+    lv_label_set_text(s_gps_diag_label, "");
+    lv_obj_set_style_text_font(s_gps_diag_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s_gps_diag_label, lv_color_hex(0x8A9BA8), 0);
+    lv_obj_align(s_gps_diag_label, LV_ALIGN_TOP_MID, 0, 468);
 
     /* Tracking stats + start/stop. */
     s_gps_track_label = lv_label_create(s_gps_screen);

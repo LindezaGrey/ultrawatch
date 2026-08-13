@@ -281,11 +281,12 @@ static void ubx_handle_pvt(void)
         /* First valid fix since power-on: record stats + persist LKP. */
         note_fix_if_first();
 
-        /* Sync the RTC from the first PVT frame that carries a valid UTC date
-         * (independent of which sentence reported the first fix). */
-        if (!s_rtc_synced && (p[11] & 0x03)) {   /* validDate | validTime */
-            /* PVT time is UTC; the RTC stores local wall time. Convert
-             * using the configured TZ (set in app_main). */
+        /* Sync the RTC from GPS time. PVT time is UTC; the RTC stores local
+         * wall time, converted via the configured TZ (set in app_main). The
+         * first valid fix syncs unconditionally; afterwards, re-sync only
+         * when GPS and RTC drift apart by more than RTC_RE_SYNC_S seconds so
+         * a long-running watch corrects RTC drift without hammering I2C. */
+        if ((p[11] & 0x03)) {   /* validDate | validTime */
             struct tm utc = { 0 };
             utc.tm_year = (int)((uint16_t)p[4] | ((uint16_t)p[5] << 8)) - 1900;
             utc.tm_mon = p[6] - 1;
@@ -294,22 +295,64 @@ static void ubx_handle_pvt(void)
             utc.tm_min = p[9];
             utc.tm_sec = p[10];
             utc.tm_isdst = 0;
-            time_t epoch = timegm(&utc);
-            struct tm local;
-            localtime_r(&epoch, &local);
-            pcf85063a_time_t t;
-            memset(&t, 0, sizeof(t));
-            t.year = (uint16_t)(local.tm_year + 1900);
-            t.month = (uint8_t)(local.tm_mon + 1);
-            t.day = (uint8_t)local.tm_mday;
-            t.hour = (uint8_t)local.tm_hour;
-            t.min = (uint8_t)local.tm_min;
-            t.sec = (uint8_t)local.tm_sec;
-            if (s_rtc && pcf85063a_set_time(s_rtc, &t) == ESP_OK) {
-                s_rtc_synced = true;
-                ESP_LOGI(TAG, "RTC synced from GPS: %04u-%02u-%02u %02u:%02u:%02u local",
-                         (unsigned)t.year, (unsigned)t.month, (unsigned)t.day,
-                         (unsigned)t.hour, (unsigned)t.min, (unsigned)t.sec);
+            time_t gps_epoch = timegm(&utc);
+
+            /* Diagnostic: GPS vs RTC clock offset (seconds). */
+            s_fix.rtc_offset_s = 0;
+            if (s_rtc) {
+                pcf85063a_time_t rt;
+                if (pcf85063a_get_time(s_rtc, &rt) == ESP_OK) {
+                    struct tm rt_tm = { 0 };
+                    rt_tm.tm_year = (int)rt.year - 1900;
+                    rt_tm.tm_mon = (int)rt.month - 1;
+                    rt_tm.tm_mday = (int)rt.day;
+                    rt_tm.tm_hour = (int)rt.hour;
+                    rt_tm.tm_min = (int)rt.min;
+                    rt_tm.tm_sec = (int)rt.sec;
+                    rt_tm.tm_isdst = -1;
+                    time_t rtc_epoch = mktime(&rt_tm);
+                    if (rtc_epoch != (time_t)-1) {
+                        s_fix.rtc_offset_s = (int32_t)(gps_epoch - rtc_epoch);
+                    }
+                }
+            }
+
+            bool do_sync = !s_rtc_synced;
+            if (!do_sync && s_rtc) {
+                pcf85063a_time_t rt;
+                if (pcf85063a_get_time(s_rtc, &rt) == ESP_OK) {
+                    struct tm rt_tm = { 0 };
+                    rt_tm.tm_year = (int)rt.year - 1900;
+                    rt_tm.tm_mon = (int)rt.month - 1;
+                    rt_tm.tm_mday = (int)rt.day;
+                    rt_tm.tm_hour = (int)rt.hour;
+                    rt_tm.tm_min = (int)rt.min;
+                    rt_tm.tm_sec = (int)rt.sec;
+                    rt_tm.tm_isdst = -1;
+                    time_t rtc_epoch = mktime(&rt_tm);
+                    if (rtc_epoch != (time_t)-1 &&
+                        (gps_epoch - rtc_epoch > 5 || rtc_epoch - gps_epoch > 5)) {
+                        do_sync = true;
+                    }
+                }
+            }
+            if (do_sync) {
+                struct tm local;
+                localtime_r(&gps_epoch, &local);
+                pcf85063a_time_t t;
+                memset(&t, 0, sizeof(t));
+                t.year = (uint16_t)(local.tm_year + 1900);
+                t.month = (uint8_t)(local.tm_mon + 1);
+                t.day = (uint8_t)local.tm_mday;
+                t.hour = (uint8_t)local.tm_hour;
+                t.min = (uint8_t)local.tm_min;
+                t.sec = (uint8_t)local.tm_sec;
+                if (s_rtc && pcf85063a_set_time(s_rtc, &t) == ESP_OK) {
+                    s_rtc_synced = true;
+                    ESP_LOGI(TAG, "RTC synced from GPS: %04u-%02u-%02u %02u:%02u:%02u local",
+                             (unsigned)t.year, (unsigned)t.month, (unsigned)t.day,
+                             (unsigned)t.hour, (unsigned)t.min, (unsigned)t.sec);
+                }
             }
         }
     } else {

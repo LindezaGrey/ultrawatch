@@ -150,6 +150,14 @@ static void sync_system_time(void)
     ESP_LOGI(TAG, "system clock synced from RTC");
 }
 
+/* Public wrapper: the sensor cache calls this periodically so the ESP32
+ * system clock (used by time()/mktime/crash timestamps) never drifts away
+ * from the battery-backed RTC, which is the authoritative clock. */
+void twatch_board_sync_system_time(void)
+{
+    sync_system_time();
+}
+
 esp_err_t twatch_board_init(void)
 {
     esp_err_t err = ESP_OK;

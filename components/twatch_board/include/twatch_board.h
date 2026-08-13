@@ -117,6 +117,11 @@ extern i2s_chan_handle_t twatch_audio_rx;
  */
 esp_err_t twatch_board_init(void);
 
+/* Push the RTC wall-clock time into the ESP32 system clock (settimeofday).
+ * Called by the sensor cache periodically so time()/mktime never drift away
+ * from the battery-backed RTC, which is the authoritative clock. */
+void twatch_board_sync_system_time(void);
+
 #ifdef __cplusplus
 }
 #endif

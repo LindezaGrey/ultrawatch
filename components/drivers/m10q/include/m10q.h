@@ -57,6 +57,7 @@ typedef struct {
     uint8_t  hour;
     uint8_t  minute;
     uint8_t  second;
+    int32_t  rtc_offset_s;     /* GPS time - RTC time (seconds), 0 if unknown */
     m10q_sat_t sats[M10Q_MAX_SATS];
 } m10q_fix_t;
 

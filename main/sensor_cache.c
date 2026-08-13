@@ -24,6 +24,7 @@ static const char *TAG = "sensor_cache";
 static sensor_cache_t s_cache;
 static SemaphoreHandle_t s_mux;
 static TaskHandle_t s_task;
+static uint32_t s_sync_system_count;   /* periodic RTC -> system clock re-sync */
 
 /* ---- Battery gauge rate tracker ----
  * Samples batt_pct each poll and derives a drain/charge rate over a rolling
@@ -138,6 +139,14 @@ static void cache_task(void *arg)
                        c.batt_pct, (uint8_t)c.chg_state);
             xSemaphoreGive(s_mux);
         }
+
+        /* The RTC is the authoritative clock; re-push it into the ESP32 system
+         * clock every minute so time()/mktime/crash timestamps never drift. */
+        if (++s_sync_system_count >= (60u * 1000u) / CACHE_PERIOD_MS) {
+            s_sync_system_count = 0;
+            twatch_board_sync_system_time();
+        }
+
         vTaskDelay(pdMS_TO_TICKS(CACHE_PERIOD_MS));
     }
 }
