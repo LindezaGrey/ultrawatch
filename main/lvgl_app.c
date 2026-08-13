@@ -1010,7 +1010,7 @@ static void lvgl_build_gps_screen(void)
     gps_screen_update(NULL);
     lv_timer_create(gps_screen_update, 1000, NULL);
     if (s_gps_ctrl_task == NULL) {
-        xTaskCreate(gps_ctrl_task, "gps_ctrl", 3072, NULL,
+        xTaskCreate(gps_ctrl_task, "gps_ctrl", 8192, NULL,
                     ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, &s_gps_ctrl_task);
     }
 }
@@ -1459,7 +1459,7 @@ esp_err_t lvgl_app_start(void)
     /* GNSS control task. GNSS is powered on at startup and left on (always-on
      * mode); the GPS screen switch or 'gnsson/gnssoff' toggle it. */
     if (s_gps_ctrl_task == NULL) {
-        xTaskCreate(gps_ctrl_task, "gps_ctrl", 3072, NULL,
+        xTaskCreate(gps_ctrl_task, "gps_ctrl", 8192, NULL,
                     ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, &s_gps_ctrl_task);
     }
     gps_power(gps_load_enabled());
