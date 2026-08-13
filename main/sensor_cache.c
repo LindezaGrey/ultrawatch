@@ -75,13 +75,14 @@ static void gauge_feed(uint32_t now_ms, uint8_t pct, uint8_t chg_state)
     s_gauge.last_pct = pct;
 
     /* Drop old first sample when the window is full. */
-    while (s_gauge.first_set &&
-           (now_ms - s_gauge.first_ms) > GAUGE_WINDOW_MS) {
+    if (s_gauge.first_set && (now_ms - s_gauge.first_ms) > GAUGE_WINDOW_MS) {
         if (s_gauge.last_ms <= s_gauge.first_ms) {
+            gauge_reset();
+            s_gauge.first_set = false;
             break;
         }
-        /* slide: approximate by re-basing the first sample one step later */
-        s_gauge.first_ms += 1000;
+        /* slide: re-base the first sample to the start of the next window */
+        s_gauge.first_ms = now_ms - GAUGE_WINDOW_MS + 1000;
     }
 
     int32_t dpct = (int32_t)s_gauge.last_pct - s_gauge.first_pct;
