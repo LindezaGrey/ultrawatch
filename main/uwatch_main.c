@@ -32,8 +32,10 @@
 #include "sensor_cache.h"
 #include "max98357a.h"
 #include "t3902.h"
+#include "axp2101.h"
 #include "uwatch_main.h"
 #include "ble_debug.h"
+#include "alarm.h"
 #include <stdio.h>
 #include <dirent.h>
 
@@ -48,6 +50,25 @@ static size_t s_rec_n;
 static SemaphoreHandle_t s_rec_done;   /* signalled when a background rec finishes */
 
 static void debug_process_cmd(const char *cmd);
+
+/* Ensure s_rec_buf can hold n samples; returns true on success. On alloc/realloc
+ * failure the previous buffer is left intact (it may still be NULL), so the
+ * caller can retry later without having s_rec_n outpace the actual buffer size.
+ * When only shrinking, the existing larger buffer is reused as-is. */
+static bool rec_ensure_buf(size_t n)
+{
+    if (!s_rec_buf) {
+        s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    } else if (n > s_rec_n) {
+        int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t),
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!nb) {
+            return false;   /* old (smaller) buffer kept, s_rec_n unchanged */
+        }
+        s_rec_buf = nb;
+    }
+    return s_rec_buf != NULL;
+}
 
 /* Background recorder: fills s_rec_buf while the speaker plays (the amp and
  * mic are on separate I2S controllers, so TX + RX can run concurrently). */
@@ -408,7 +429,9 @@ static void debug_process_cmd(const char *cmd)
     buf[i] = (int16_t)(sinf(2.0f * 3.14159265f * hz * i / AUDIO_SAMPLE_RATE) * amp);
     }
     printf("tone: %d Hz, %d ms, amp %d (%u samples)\n", hz, ms, amp, (unsigned)n);
+    axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);   /* amp */
     esp_err_t err = max98357a_write(buf, n);
+    axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
     printf("tone: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
     heap_caps_free(buf);
     }
@@ -427,15 +450,7 @@ static void debug_process_cmd(const char *cmd)
     ms = 10000;
     }
     size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
-    if (!s_rec_buf) {
-    s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    } else if (s_rec_n != n) {
-    int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (nb) {
-    s_rec_buf = nb;
-    }
-    }
-    if (!s_rec_buf) {
+    if (!rec_ensure_buf(n)) {
     printf("rec: no mem for %u samples\n", (unsigned)n);
     } else {
     s_rec_n = n;
@@ -504,15 +519,7 @@ static void debug_process_cmd(const char *cmd)
     s_rec_done = xSemaphoreCreateBinary();
     }
     xSemaphoreTake(s_rec_done, 0);
-    if (!s_rec_buf) {
-    s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    } else if (s_rec_n != n) {
-    int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (nb) {
-    s_rec_buf = nb;
-    }
-    }
-    if (!s_rec_buf) {
+    if (!rec_ensure_buf(n)) {
     printf("tonerec: no mem for rec buffer\n");
     heap_caps_free(tone);
     } else {
@@ -579,15 +586,7 @@ static void debug_process_cmd(const char *cmd)
     }
     xSemaphoreTake(s_rec_done, 0);
     /* (Re)size the recording buffer to match. */
-    if (!s_rec_buf) {
-    s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    } else if (s_rec_n != n) {
-    int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (nb) {
-    s_rec_buf = nb;
-    }
-    }
-    if (!s_rec_buf) {
+    if (!rec_ensure_buf(n)) {
     printf("sweep: no mem for rec buffer\n");
     heap_caps_free(sweep);
     } else {
@@ -613,6 +612,46 @@ static void debug_process_cmd(const char *cmd)
     heap_caps_free(sweep);
     }
     }
+        } else if (strcmp(cmd, "alarm") == 0) {
+    /* Status. */
+    alarm_config_t ac;
+    alarm_get_config(&ac);
+    printf("alarm: %s %02u:%02u mode %u ringing=%d armed=%d\n",
+    ac.enabled ? "armed" : "disabled", (unsigned)ac.hour, (unsigned)ac.min,
+    (unsigned)ac.ring_mode, (int)alarm_is_ringing(), (int)alarm_is_armed());
+    } else if (strncmp(cmd, "alarm ", 6) == 0) {
+    /* alarm HH:MM [beep|vib|both]  or  alarm off */
+    const char *rest = cmd + 6;
+    if (strcmp(rest, "off") == 0) {
+    alarm_set(0, 0, false, ALARM_RING_BEEP);
+    printf("alarm: disabled\n");
+    } else {
+    int hh = atoi(rest);
+    const char *sp = strchr(rest, ' ');
+    if (sp && hh >= 0 && hh <= 23) {
+    int mm = atoi(sp + 1);
+    uint8_t mode = ALARM_RING_BEEP;
+    const char *sp2 = strchr(sp + 1, ' ');
+    if (sp2) {
+    if (strncmp(sp2 + 1, "vib", 3) == 0) mode = ALARM_RING_VIB;
+    else if (strncmp(sp2 + 1, "both", 4) == 0) mode = ALARM_RING_BOTH;
+    }
+    alarm_set((uint8_t)hh, (uint8_t)mm, true, mode);
+    printf("alarm: set %02d:%02d mode %u\n", hh, mm, (unsigned)mode);
+    } else {
+    printf("alarm: usage alarm <hh> <mm> [beep|vib|both] | alarm off\n");
+    }
+    }
+    } else if (strcmp(cmd, "alarmring") == 0) {
+    /* Fire the ring now (test). */
+    alarm_ring_test();
+    printf("alarm: ring test\n");
+    } else if (strcmp(cmd, "alarmdismiss") == 0) {
+    alarm_dismiss();
+    printf("alarm: dismissed\n");
+    } else if (strcmp(cmd, "alarmsnooze") == 0) {
+    alarm_snooze();
+    printf("alarm: snoozed\n");
     } else if (strcmp(cmd, "ble") == 0) {
     ble_debug_print_status();
     } else if (strcmp(cmd, "bleadv") == 0) {
