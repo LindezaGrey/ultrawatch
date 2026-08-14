@@ -170,6 +170,16 @@ static void area_rounder_cb(lv_event_t *e)
     area->y2 = ((area->y2 >> 1) << 1) + 1;
 }
 
+/* New screen with scrolling disabled: no scrollbars, content locked so swipes
+ * always reach the screen-swipe navigation instead of scrolling the content. */
+static lv_obj_t *screen_new(void)
+{
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+    return scr;
+}
+
 /* Red-only night-mode transform. LVGL renders RGB565_SWAPPED (big-endian on
  * the panel): each pixel is 2 bytes, byte0 = MSB = RRRRR GGG, byte1 = GGG BBBBB.
  * Keeping only the red channel zeroes green/blue. Applied in-place; the blit is
@@ -216,6 +226,8 @@ void lvgl_force_redraw(void)
 static void lvgl_build_boot_screen(void)
 {
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x000000), 0);
+    lv_obj_clear_flag(lv_screen_active(), LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(lv_screen_active(), LV_SCROLLBAR_MODE_OFF);
 
     lv_obj_t *title = lv_label_create(lv_screen_active());
     lv_label_set_text(title, "UWatch");
@@ -509,7 +521,7 @@ static void power_cur_btn_cb(lv_event_t *e)
 
 static void lvgl_build_power_screen(void)
 {
-    s_power_screen = lv_obj_create(NULL);
+    s_power_screen = screen_new();
     lv_obj_set_style_bg_color(s_power_screen, lv_color_hex(0x0A1030), 0);
 
     lv_obj_t *title = lv_label_create(s_power_screen);
@@ -677,7 +689,7 @@ static lv_obj_t *bhi_text_row(lv_obj_t *parent, const char *text, lv_obj_t **lab
 
 static void lvgl_build_bhi_screen(void)
 {
-    s_bhi_screen = lv_obj_create(NULL);
+    s_bhi_screen = screen_new();
     lv_obj_set_style_bg_color(s_bhi_screen, lv_color_hex(0x002030), 0);
 
     lv_obj_t *title = lv_label_create(s_bhi_screen);
@@ -926,7 +938,7 @@ static void gps_screen_update(lv_timer_t *timer)
 
 static void lvgl_build_gps_screen(void)
 {
-    s_gps_screen = lv_obj_create(NULL);
+    s_gps_screen = screen_new();
     lv_obj_set_style_bg_color(s_gps_screen, lv_color_hex(0x102010), 0);
 
     lv_obj_t *title = lv_label_create(s_gps_screen);
@@ -1276,7 +1288,7 @@ static void alarm_mode_btn_cb(lv_event_t *e)
 
 static void lvgl_build_alarm_screen(void)
 {
-    s_alarm_screen = lv_obj_create(NULL);
+    s_alarm_screen = screen_new();
     lv_obj_set_style_bg_color(s_alarm_screen, lv_color_hex(0x201020), 0);
 
     lv_obj_t *title = lv_label_create(s_alarm_screen);
@@ -1414,7 +1426,7 @@ static void alarm_snooze_btn_cb(lv_event_t *e)
 
 static void lvgl_build_ring_screen(void)
 {
-    s_ring_screen = lv_obj_create(NULL);
+    s_ring_screen = screen_new();
     lv_obj_set_style_bg_color(s_ring_screen, lv_color_hex(0x300000), 0);
 
     lv_obj_t *title = lv_label_create(s_ring_screen);
