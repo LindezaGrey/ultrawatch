@@ -60,6 +60,9 @@ esp_err_t pcf85063a_timer_flag_clear(i2c_master_dev_handle_t dev);
 /* Frequency offset trimming (0x02). value is the raw 7-bit offset. */
 esp_err_t pcf85063a_set_offset(i2c_master_dev_handle_t dev, uint8_t raw7);
 
+/* Debug: dump Control_1/2 and the alarm + timer registers (0x00-0x11). */
+void pcf85063a_debug_dump(i2c_master_dev_handle_t dev);
+
 /* General-purpose RAM byte (0x03), survives backup battery. */
 esp_err_t pcf85063a_write_ram(i2c_master_dev_handle_t dev, uint8_t val);
 esp_err_t pcf85063a_read_ram(i2c_master_dev_handle_t dev, uint8_t *val);

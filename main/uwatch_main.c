@@ -652,6 +652,8 @@ static void debug_process_cmd(const char *cmd)
     } else if (strcmp(cmd, "alarmsnooze") == 0) {
     alarm_snooze();
     printf("alarm: snoozed\n");
+    } else if (strcmp(cmd, "rtcdump") == 0) {
+    pcf85063a_debug_dump(twatch_rtc_dev);
     } else if (strcmp(cmd, "ble") == 0) {
     ble_debug_print_status();
     } else if (strcmp(cmd, "bleadv") == 0) {

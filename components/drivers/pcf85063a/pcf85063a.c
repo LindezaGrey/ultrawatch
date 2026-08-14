@@ -20,6 +20,9 @@ static const char *TAG = "pcf85063a";
 #define CTRL2_AF        (1 << 6)
 #define CTRL2_AIE       (1 << 7)
 #define CTRL2_TF        (1 << 3)
+#define CTRL2_MI        (1 << 5)   /* minute interrupt */
+#define CTRL2_HMI       (1 << 4)   /* half-minute interrupt */
+#define CTRL2_COF_OFF   0x07       /* COF[2:0] = 111 -> CLKOUT disabled */
 
 #define SEC_OS          0x80
 #define MON_CENTURY     0x80
@@ -68,6 +71,12 @@ esp_err_t pcf85063a_init(i2c_master_dev_handle_t dev)
         ESP_RETURN_ON_ERROR(write_byte(dev, REG_CTRL1, ctrl1 & ~CTRL1_STOP), TAG, "clear stop");
         ESP_LOGI(TAG, "cleared oscillator STOP bit");
     }
+
+    /* Normalize Control_2: clear the alarm/timer flags and the MI/HMI
+     * minute-interrupt enables so a stale CTRL2 left over from older firmware
+     * or from the battery-backed registers cannot assert INT/TF every minute.
+     * AIE is re-armed by pcf85063a_set_alarm() when needed. CLKOUT off. */
+    ESP_RETURN_ON_ERROR(write_byte(dev, REG_CTRL2, CTRL2_COF_OFF), TAG, "init ctrl2");
 
     pcf85063a_time_t t;
     if (pcf85063a_get_time(dev, &t) == ESP_OK) {
@@ -230,4 +239,22 @@ esp_err_t pcf85063a_write_ram(i2c_master_dev_handle_t dev, uint8_t val)
 esp_err_t pcf85063a_read_ram(i2c_master_dev_handle_t dev, uint8_t *val)
 {
     return read_regs(dev, REG_RAM, val, 1);
+}
+
+void pcf85063a_debug_dump(i2c_master_dev_handle_t dev)
+{
+    uint8_t buf[18];
+    if (read_regs(dev, REG_CTRL1, buf, sizeof(buf)) != ESP_OK) {
+        ESP_LOGE(TAG, "debug dump read failed");
+        return;
+    }
+    ESP_LOGI(TAG,
+             "CTRL1=0x%02x CTRL2=0x%02x OFF=0x%02x RAM=0x%02x "
+             "TIME=%02x%02x%02x%02x%02x%02x%02x "
+             "ALM=%02x%02x%02x%02x%02x "
+             "TMRVAL=0x%02x TMRMODE=0x%02x",
+             buf[0], buf[1], buf[2], buf[3],
+             buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+             buf[11], buf[12], buf[13], buf[14], buf[15],
+             buf[16], buf[17]);
 }
