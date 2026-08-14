@@ -64,6 +64,9 @@ static bool s_ubxlib_init;
 #define NVS_KEY_DAY       "day"
 #define NVS_KEY_LAT       "gps_lat"
 #define NVS_KEY_LON       "gps_lon"
+#define NVS_KEY_POWERONS  "powerons"
+
+static uint32_t s_power_on_count;   /* cumulative GNSS power-ons (persisted) */
 
 static void lkp_load(int32_t *lat, int32_t *lon)
 {
@@ -107,6 +110,17 @@ static void stats_load(void)
         nvs_get_u32(h, "today", &s_stats.fixes_today);
         nvs_get_u32(h, "ttfa", &s_stats.ttf_avg_ms);
         nvs_get_u32(h, "ttfb", &s_stats.ttf_best_ms);
+        nvs_get_u32(h, NVS_KEY_POWERONS, &s_power_on_count);
+        nvs_close(h);
+    }
+}
+
+static void power_on_count_save(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(M10Q_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u32(h, NVS_KEY_POWERONS, s_power_on_count);
+        nvs_commit(h);
         nvs_close(h);
     }
 }
@@ -235,7 +249,8 @@ static void pos_cb(uDeviceHandle_t gnssHandle, int32_t errorCode,
             }
         }
         stats_save();
-        ESP_LOGI(TAG, "FIX: %d sats, TTFF %u ms (avg %lu, best %lu)",
+        ESP_LOGI(TAG, "FIX (power-on #%lu): %d sats, TTFF %u ms (avg %lu, best %lu)",
+                 (unsigned long)s_power_on_count,
                  (int)s_fix.sat_count, ttf_ms,
                  (unsigned long)s_stats.ttf_avg_ms,
                  (unsigned long)s_stats.ttf_best_ms);
@@ -266,10 +281,13 @@ esp_err_t m10q_power(bool on)
         return ESP_OK;
     }
     if (on) {
+        uint32_t pwr_no = s_power_on_count + 1;
+        ESP_LOGI(TAG, "POWER-ON #%lu (ttf_avg %lu ms)", (unsigned long)pwr_no,
+                 (unsigned long)s_stats.ttf_avg_ms);
         if (!s_ubxlib_init) {
             /* Init the ubxlib port layer + device/GNSS APIs once. */
             if (uPortInit() != 0 || uDeviceInit() != 0 || uGnssInit() != 0) {
-                ESP_LOGE(TAG, "ubxlib init failed");
+                ESP_LOGE(TAG, "ubxlib init failed (power-on #%lu)", (unsigned long)pwr_no);
                 return ESP_ERR_INVALID_STATE;
             }
             s_ubxlib_init = true;
@@ -298,14 +316,16 @@ esp_err_t m10q_power(bool on)
                 /* The module may be mid-restart or at an unexpected baud
                  * (RAM/BBRAM config persists via VRTC). Power-cycle the rail
                  * and retry once before giving up. */
-                ESP_LOGW(TAG, "uDeviceOpen failed (%d); power-cycling and retrying", (int)err);
+                ESP_LOGW(TAG, "uDeviceOpen failed (%d) on power-on #%lu; power-cycling and retrying",
+                         (int)err, (unsigned long)pwr_no);
                 axp2101_enable_rail(s_pmu, AXP2101_BLDO1, false);
                 vTaskDelay(pdMS_TO_TICKS(500));
                 axp2101_enable_rail(s_pmu, AXP2101_BLDO1, true);
                 vTaskDelay(pdMS_TO_TICKS(1500));
                 err = uDeviceOpen(&cfg, &s_gnss);
                 if (err != 0) {
-                    ESP_LOGE(TAG, "uDeviceOpen failed again: %d", (int)err);
+                    ESP_LOGE(TAG, "uDeviceOpen failed again (power-on #%lu): %d",
+                             (unsigned long)pwr_no, (int)err);
                     s_powered = false;
                     axp2101_enable_rail(s_pmu, AXP2101_BLDO1, false);
                     return ESP_ERR_INVALID_STATE;
@@ -315,7 +335,7 @@ esp_err_t m10q_power(bool on)
         }
 
         if (uGnssPwrOn(s_gnss) != 0) {
-            ESP_LOGW(TAG, "uGnssPwrOn failed");
+            ESP_LOGW(TAG, "uGnssPwrOn failed (power-on #%lu)", (unsigned long)pwr_no);
         }
 
         /* Enable UBX-NAV-SAT output on UART1 for the skyplot. */
@@ -328,7 +348,8 @@ esp_err_t m10q_power(bool on)
         /* Streamed position: callback fires on every PVT. */
         int32_t sret = uGnssPosGetStreamedStart(s_gnss, 1000, pos_cb);
         if (sret != 0) {
-            ESP_LOGE(TAG, "uGnssPosGetStreamedStart failed: %d", (int)sret);
+            ESP_LOGE(TAG, "uGnssPosGetStreamedStart failed (power-on #%lu): %d",
+                     (unsigned long)pwr_no, (int)sret);
         }
 
         /* Reset TTFF state. */
@@ -336,7 +357,10 @@ esp_err_t m10q_power(bool on)
         s_ttf_running = true;
         s_ttf_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         s_fix.valid = false;
-        ESP_LOGI(TAG, "powered on (BLDO1) at %u baud", (unsigned)M10Q_BAUD);
+        s_power_on_count = pwr_no;
+        power_on_count_save();
+        ESP_LOGI(TAG, "POWER-ON #%lu complete (BLDO1 at %u baud)", (unsigned long)pwr_no,
+                 (unsigned)M10Q_BAUD);
     } else {
         if (s_opened) {
             uGnssPosGetStreamedStop(s_gnss);
@@ -356,7 +380,7 @@ esp_err_t m10q_power(bool on)
         axp2101_enable_rail(s_pmu, AXP2101_BLDO1, false);
         s_powered = false;
         s_fix.valid = false;
-        ESP_LOGI(TAG, "powered off (backup RAM kept)");
+        ESP_LOGI(TAG, "POWER-OFF #%lu (backup RAM kept)", (unsigned long)s_power_on_count);
     }
     return ESP_OK;
 }

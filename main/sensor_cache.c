@@ -79,7 +79,6 @@ static void gauge_feed(uint32_t now_ms, uint8_t pct, uint8_t chg_state)
         if (s_gauge.last_ms <= s_gauge.first_ms) {
             gauge_reset();
             s_gauge.first_set = false;
-            break;
         }
         /* slide: re-base the first sample to the start of the next window */
         s_gauge.first_ms = now_ms - GAUGE_WINDOW_MS + 1000;

@@ -13,22 +13,25 @@ static const char *TAG = "pcf85063a";
 #define REG_RAM         0x03
 #define REG_SEC         0x04   /* time/date base */
 #define REG_ALM_SEC     0x0B   /* alarm base */
-#define REG_TIMER_CTRL  0x10
-#define REG_TIMER       0x11
-#define REG_TIMER_FLAG  0x12
+#define REG_TIMER_VALUE 0x10
+#define REG_TIMER_MODE  0x11
 
 #define CTRL1_STOP      (1 << 5)
 #define CTRL2_AF        (1 << 6)
 #define CTRL2_AIE       (1 << 7)
-#define CTRL2_TIE       (1 << 5)
-#define CTRL2_TF        (1 << 4)
+#define CTRL2_TF        (1 << 3)
 
 #define SEC_OS          0x80
 #define MON_CENTURY     0x80
 #define ALM_AEN         0x80
 
-#define TIMER_TE        (1 << 7)
-#define TIMER_TFS_1HZ   0x02    /* TFS = 010 -> 1 Hz clock */
+/* Timer_mode (0x11): TCF[1:0] at bits 4:3 (00=4.096k, 01=64 Hz, 10=1 Hz,
+ * 11=1/60 Hz), TE at bit 2, TIE at bit 1, TI_TP at bit 0. */
+#define TIMER_TCF_1HZ   0x10    /* TCF = 10 -> 1 Hz clock (max 255 s) */
+#define TIMER_TCF_1MIN  0x18    /* TCF = 11 -> 1/60 Hz clock (max 255 min) */
+#define TIMER_TE        (1 << 2)
+#define TIMER_TIE       (1 << 1)
+#define TIMER_TI_TP     (1 << 0)   /* 0 = INT follows TF flag, 1 = pulse */
 
 static uint8_t bcd_to_bin(uint8_t v) { return (uint8_t)((v & 0x0f) + ((v >> 4) * 10)); }
 static uint8_t bin_to_bcd(uint8_t v) { return (uint8_t)(((v / 10) << 4) | (v % 10)); }
@@ -154,33 +157,63 @@ esp_err_t pcf85063a_alarm_triggered(i2c_master_dev_handle_t dev, bool *triggered
     return ESP_OK;
 }
 
+/* Clear the countdown-timer flag TF (Control_2 bit 3). */
+esp_err_t pcf85063a_timer_flag_clear(i2c_master_dev_handle_t dev)
+{
+    uint8_t ctrl2 = 0;
+    ESP_RETURN_ON_ERROR(read_regs(dev, REG_CTRL2, &ctrl2, 1), TAG, "read ctrl2");
+    ctrl2 &= (uint8_t)~CTRL2_TF;
+    return write_byte(dev, REG_CTRL2, ctrl2);
+}
+
+/* Arm a countdown timer. value is written to Timer_value (0x10), the clock
+ * source/control to Timer_mode (0x11). Order matters: write the value first,
+ * then enable TE last so the counter starts from a known value. */
+static esp_err_t timer_start(i2c_master_dev_handle_t dev, uint8_t value,
+                             uint8_t tcf, bool enable_int)
+{
+    /* Stop first: changing T with TE=1 is not recommended by the datasheet. */
+    ESP_RETURN_ON_ERROR(write_byte(dev, REG_TIMER_MODE, 0x00), TAG, "timer stop");
+    ESP_RETURN_ON_ERROR(pcf85063a_timer_flag_clear(dev), TAG, "clear TF");
+    ESP_RETURN_ON_ERROR(write_byte(dev, REG_TIMER_VALUE, value), TAG, "timer val");
+
+    /* TI_TP stays 0: the INT line follows the TF flag, so it is held LOW
+     * until TF is cleared (matches the LOW_LEVEL GPIO1 wake in power_mgmt). */
+    uint8_t mode = tcf | TIMER_TE;
+    if (enable_int) {
+        mode |= TIMER_TIE;
+    }
+    return write_byte(dev, REG_TIMER_MODE, mode);
+}
+
 esp_err_t pcf85063a_set_timer_seconds(i2c_master_dev_handle_t dev, uint16_t seconds, bool enable_int)
 {
     if (seconds == 0 || seconds > 255) {
         return ESP_ERR_INVALID_ARG;
     }
-    uint8_t tctrl = TIMER_TE | TIMER_TFS_1HZ;   /* 1 Hz countdown */
-    ESP_RETURN_ON_ERROR(write_byte(dev, REG_TIMER_CTRL, tctrl), TAG, "timer ctrl");
-    ESP_RETURN_ON_ERROR(write_byte(dev, REG_TIMER, (uint8_t)seconds), TAG, "timer val");
+    return timer_start(dev, (uint8_t)seconds, TIMER_TCF_1HZ, enable_int);
+}
 
-    uint8_t ctrl2 = 0;
-    ESP_RETURN_ON_ERROR(read_regs(dev, REG_CTRL2, &ctrl2, 1), TAG, "read ctrl2");
-    if (enable_int) {
-        ctrl2 |= CTRL2_TIE;
-    } else {
-        ctrl2 &= (uint8_t)~CTRL2_TIE;
+esp_err_t pcf85063a_set_timer_minutes(i2c_master_dev_handle_t dev, uint8_t minutes, bool enable_int)
+{
+    if (minutes == 0) {
+        return ESP_ERR_INVALID_ARG;
     }
-    return write_byte(dev, REG_CTRL2, ctrl2);
+    return timer_start(dev, minutes, TIMER_TCF_1MIN, enable_int);
+}
+
+esp_err_t pcf85063a_timer_stop(i2c_master_dev_handle_t dev)
+{
+    /* Disable the timer (TE=0) and its interrupt (TIE=0); clear TF too. */
+    ESP_RETURN_ON_ERROR(write_byte(dev, REG_TIMER_MODE, 0x00), TAG, "timer off");
+    return pcf85063a_timer_flag_clear(dev);
 }
 
 esp_err_t pcf85063a_timer_triggered(i2c_master_dev_handle_t dev, bool *triggered)
 {
-    uint8_t tf = 0;
-    ESP_RETURN_ON_ERROR(read_regs(dev, REG_TIMER_FLAG, &tf, 1), TAG, "read timer flag");
-    *triggered = (tf & 0x01) != 0;
-    if (*triggered) {
-        write_byte(dev, REG_TIMER_FLAG, 0x00);   /* clear the timer flag */
-    }
+    uint8_t ctrl2 = 0;
+    ESP_RETURN_ON_ERROR(read_regs(dev, REG_CTRL2, &ctrl2, 1), TAG, "read ctrl2");
+    *triggered = (ctrl2 & CTRL2_TF) != 0;
     return ESP_OK;
 }
 

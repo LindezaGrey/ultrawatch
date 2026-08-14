@@ -51,7 +51,11 @@ esp_err_t pcf85063a_alarm_triggered(i2c_master_dev_handle_t dev, bool *triggered
 
 /* Countdown timer (seconds; also 1/4s, 1min, 1hr sources available). */
 esp_err_t pcf85063a_set_timer_seconds(i2c_master_dev_handle_t dev, uint16_t seconds, bool enable_int);
+/* Countdown timer using the 1/min clock, so it can exceed 255 s (snooze). */
+esp_err_t pcf85063a_set_timer_minutes(i2c_master_dev_handle_t dev, uint8_t minutes, bool enable_int);
+esp_err_t pcf85063a_timer_stop(i2c_master_dev_handle_t dev);
 esp_err_t pcf85063a_timer_triggered(i2c_master_dev_handle_t dev, bool *triggered);
+esp_err_t pcf85063a_timer_flag_clear(i2c_master_dev_handle_t dev);
 
 /* Frequency offset trimming (0x02). value is the raw 7-bit offset. */
 esp_err_t pcf85063a_set_offset(i2c_master_dev_handle_t dev, uint8_t raw7);

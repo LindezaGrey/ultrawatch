@@ -33,6 +33,7 @@
 #include "sensor_cache.h"
 #include "m10q.h"
 #include "power_mgmt.h"
+#include "alarm.h"
 
 static const char *TAG = "lvgl_app";
 
@@ -49,6 +50,7 @@ static lv_obj_t *s_batt_label;
 static lv_obj_t *s_batt_fill;
 static lv_obj_t *s_gps_icon;   /* satellite status icon (grey/red/green) */
 static lv_obj_t *s_track_dot;  /* solid red dot: tracking session active */
+static lv_obj_t *s_snooze_icon; /* "Zz" shown while snoozing */
 
 /* Power management screen. */
 static lv_obj_t *s_power_screen;
@@ -84,6 +86,17 @@ static uint32_t s_gps_acq_start_ms;            /* power-on timestamp */
 static lv_obj_t *s_gps_track_label;            /* tracking stats (distance/steps/avg) */
 static lv_obj_t *s_gps_track_btn;              /* Start/Stop tracking button */
 static lv_obj_t *s_gps_pwr_switch;             /* GNSS on/off switch */
+
+/* Alarm screen (set) + ringing screen. */
+static lv_obj_t *s_alarm_screen;
+static lv_obj_t *s_alarm_time_label;           /* live HH:MM while editing */
+static lv_obj_t *s_alarm_en_switch;
+static lv_obj_t *s_alarm_mode_beep;
+static lv_obj_t *s_alarm_mode_vib;
+static lv_obj_t *s_alarm_mode_both;
+static alarm_config_t s_alarm_edit;            /* live-edited copy (Set applies) */
+static lv_obj_t *s_ring_screen;
+static lv_obj_t *s_ring_time_label;
 
 /* GNSS control runs off the LVGL task (m10q_power blocks for seconds during
  * baud probing/config); the UI issues a request and a worker task applies it. */
@@ -143,6 +156,8 @@ static void gps_ctrl_task(void *arg);
 static void lvgl_build_watch_face(void);
 static void menu_timeout_cb(lv_timer_t *timer);
 static void lvgl_show_watch_face(void);
+static void lvgl_build_alarm_screen(void);
+static void lvgl_build_ring_screen(void);
 
 /* Round invalidated areas to even coordinates (SH8601 requirement) BEFORE
  * LVGL renders, so the buffer content always matches the flushed area. */
@@ -234,6 +249,10 @@ static void watch_face_update(lv_timer_t *timer)
 {
     (void)timer;
 
+    /* Fire the alarm when the RTC AF/TF flag is set (also covers a wake from
+     * light sleep via the RTC INT line). */
+    alarm_check();
+
     /* Read the wall-clock time from the RTC (PCF85063A), not the ESP32 system
      * clock, so the display never drifts. The RTC is polled by the background
      * telemetry task; reading the cache keeps I2C off the UI task. */
@@ -290,6 +309,15 @@ static void watch_face_update(lv_timer_t *timer)
             lv_obj_add_flag(s_track_dot, LV_OBJ_FLAG_HIDDEN);
         }
     }
+
+    /* Snooze icon: visible while the 10 min snooze timer is pending. */
+    if (s_snooze_icon) {
+        if (alarm_is_snoozing()) {
+            lv_obj_clear_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 }
 
 static void lvgl_build_watch_face(void)
@@ -310,18 +338,26 @@ static void lvgl_build_watch_face(void)
     lv_label_set_text(s_gps_icon, LV_SYMBOL_GPS);
     lv_obj_set_style_text_font(s_gps_icon, &lv_font_montserrat_22, 0);
     lv_obj_set_style_text_color(s_gps_icon, lv_color_hex(0x888888), 0);
-    lv_obj_align(s_gps_icon, LV_ALIGN_TOP_MID, 0, 6);
+    lv_obj_align(s_gps_icon, LV_ALIGN_TOP_MID, 0, 24);
 
     /* Tracking indicator: solid red dot, visible only while a tracking
      * session is active. */
     s_track_dot = lv_obj_create(lv_screen_active());
     lv_obj_set_size(s_track_dot, 12, 12);
-    lv_obj_align(s_track_dot, LV_ALIGN_TOP_RIGHT, -8, 8);
+    lv_obj_align(s_track_dot, LV_ALIGN_TOP_MID, 40, 24);
     lv_obj_clear_flag(s_track_dot, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(s_track_dot, lv_color_hex(0xFF2020), 0);
     lv_obj_set_style_radius(s_track_dot, 6, 0);
     lv_obj_set_style_pad_all(s_track_dot, 0, 0);
     lv_obj_add_flag(s_track_dot, LV_OBJ_FLAG_HIDDEN);
+
+    /* Snooze indicator: "Zz" over the alarm icon, hidden unless snoozing. */
+    s_snooze_icon = lv_label_create(lv_screen_active());
+    lv_label_set_text(s_snooze_icon, "Zz");
+    lv_obj_set_style_text_font(s_snooze_icon, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_color(s_snooze_icon, lv_color_hex(0xFFD54F), 0);
+    lv_obj_align(s_snooze_icon, LV_ALIGN_TOP_LEFT, 70, 40);
+    lv_obj_add_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN);
 
     s_time_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_time_label, "--:--");
@@ -480,7 +516,7 @@ static void lvgl_build_power_screen(void)
     lv_label_set_text(title, "Power Management");
     lv_obj_set_style_text_font(title, s_font_small, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
 
     s_pw_batt_label = lv_label_create(s_power_screen);
     lv_label_set_text(s_pw_batt_label, "");
@@ -549,7 +585,7 @@ static void lvgl_build_power_screen(void)
     lv_label_set_text(hint, "swipe down to go back");
     lv_obj_set_style_text_font(hint, s_font_small, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -50);
 
     lv_timer_create(power_screen_update, 1000, NULL);
     power_screen_update(NULL);   /* populate instantly from the cached snapshot */
@@ -648,40 +684,40 @@ static void lvgl_build_bhi_screen(void)
     lv_label_set_text(title, "BHI260AP");
     lv_obj_set_style_text_font(title, s_font_small, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
 
     /* All values as plain text rows. */
     lv_obj_t *l;
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_status_label);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 36);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 50);
 
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_steps_label);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 66);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 80);
 
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_accel_label);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 96);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 110);
 
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_gyro_label);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 126);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 140);
 
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_ori_label);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 156);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 170);
 
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_rv_label);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 186);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 200);
 
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_activity_label);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 216);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 230);
 
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_gesture_label);
     lv_obj_set_style_text_color(l, lv_color_hex(0xFFD54D), 0);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 8, 246);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 260);
 
     lv_obj_t *hint = lv_label_create(s_bhi_screen);
     lv_label_set_text(hint, "swipe right to go back");
     lv_obj_set_style_text_font(hint, s_font_small, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -90);
 
     bhi_screen_update(NULL);
     lv_timer_create(bhi_screen_update, 1000, NULL);
@@ -692,9 +728,9 @@ static void lvgl_build_bhi_screen(void)
  * opened and disabled when it is left. The always-on VRTC backup rail keeps
  * the receiver's ephemeris/RTC alive, so each power-up is a warm/hot start. */
 
-#define GPS_SKY_RADIUS    140
+#define GPS_SKY_RADIUS    100
 #define GPS_SKY_CX        205
-#define GPS_SKY_CY        205
+#define GPS_SKY_CY        190
 
 static lv_obj_t *gps_ring(int radius)
 {
@@ -897,16 +933,16 @@ static void lvgl_build_gps_screen(void)
     lv_label_set_text(title, "GPS");
     lv_obj_set_style_text_font(title, s_font_small, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
 
     /* GNSS on/off switch. */
     lv_obj_t *pwr_lbl = lv_label_create(s_gps_screen);
     lv_label_set_text(pwr_lbl, "GNSS");
     lv_obj_set_style_text_font(pwr_lbl, s_font_small, 0);
     lv_obj_set_style_text_color(pwr_lbl, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(pwr_lbl, LV_ALIGN_TOP_LEFT, 12, 4);
+    lv_obj_align(pwr_lbl, LV_ALIGN_TOP_LEFT, 90, 22);
     s_gps_pwr_switch = lv_switch_create(s_gps_screen);
-    lv_obj_align(s_gps_pwr_switch, LV_ALIGN_TOP_RIGHT, -12, 2);
+    lv_obj_align(s_gps_pwr_switch, LV_ALIGN_TOP_RIGHT, -90, 22);
     lv_obj_add_event_cb(s_gps_pwr_switch, gps_pwr_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     /* Skyplot: horizon ring + elevation rings. */
@@ -959,53 +995,47 @@ static void lvgl_build_gps_screen(void)
     lv_label_set_text(s_gps_status_label, "");
     lv_obj_set_style_text_font(s_gps_status_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_status_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(s_gps_status_label, LV_ALIGN_TOP_MID, 0, 356);
+    lv_obj_align(s_gps_status_label, LV_ALIGN_TOP_MID, 0, 306);
 
     s_gps_pos_label = lv_label_create(s_gps_screen);
     lv_label_set_text(s_gps_pos_label, "");
     lv_obj_set_style_text_font(s_gps_pos_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_pos_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_gps_pos_label, LV_ALIGN_TOP_MID, 0, 384);
+    lv_obj_align(s_gps_pos_label, LV_ALIGN_TOP_MID, 0, 334);
 
     s_gps_speed_label = lv_label_create(s_gps_screen);
     lv_label_set_text(s_gps_speed_label, "");
     lv_obj_set_style_text_font(s_gps_speed_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_speed_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_gps_speed_label, LV_ALIGN_TOP_MID, 0, 412);
+    lv_obj_align(s_gps_speed_label, LV_ALIGN_TOP_MID, 0, 362);
 
     s_gps_sats_label = lv_label_create(s_gps_screen);
     lv_label_set_text(s_gps_sats_label, "");
     lv_obj_set_style_text_font(s_gps_sats_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_sats_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_gps_sats_label, LV_ALIGN_TOP_MID, 0, 440);
+    lv_obj_align(s_gps_sats_label, LV_ALIGN_TOP_MID, 0, 390);
 
     s_gps_diag_label = lv_label_create(s_gps_screen);
     lv_label_set_text(s_gps_diag_label, "");
     lv_obj_set_style_text_font(s_gps_diag_label, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_gps_diag_label, lv_color_hex(0x8A9BA8), 0);
-    lv_obj_align(s_gps_diag_label, LV_ALIGN_TOP_MID, 0, 468);
+    lv_obj_align(s_gps_diag_label, LV_ALIGN_TOP_MID, 0, 56);
 
     /* Tracking stats + start/stop. */
     s_gps_track_label = lv_label_create(s_gps_screen);
     lv_label_set_text(s_gps_track_label, "");
     lv_obj_set_style_text_font(s_gps_track_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_track_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_gps_track_label, LV_ALIGN_BOTTOM_MID, 0, -40);
+    lv_obj_align(s_gps_track_label, LV_ALIGN_TOP_MID, 0, 424);
 
     s_gps_track_btn = lv_btn_create(s_gps_screen);
     lv_obj_set_size(s_gps_track_btn, 120, 34);
-    lv_obj_align(s_gps_track_btn, LV_ALIGN_BOTTOM_MID, 0, -2);
+    lv_obj_align(s_gps_track_btn, LV_ALIGN_BOTTOM_MID, 0, -16);
     lv_obj_add_event_cb(s_gps_track_btn, gps_track_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *btn_lbl = lv_label_create(s_gps_track_btn);
     lv_label_set_text(btn_lbl, "Start");
     lv_obj_set_style_text_font(btn_lbl, s_font_small, 0);
     lv_obj_center(btn_lbl);
-
-    lv_obj_t *hint = lv_label_create(s_gps_screen);
-    lv_label_set_text(hint, "swipe left to go back");
-    lv_obj_set_style_text_font(hint, s_font_small, 0);
-    lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, 44);
 
     gps_screen_update(NULL);
     lv_timer_create(gps_screen_update, 1000, NULL);
@@ -1198,6 +1228,259 @@ void lvgl_tracking_stop(void)
     ESP_LOGI(TAG, "tracking stopped");
 }
 
+/* ---- Alarm set + ringing screens ---- */
+
+static void alarm_edit_refresh(void)
+{
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%02u:%02u", (unsigned)s_alarm_edit.hour,
+             (unsigned)s_alarm_edit.min);
+    lv_label_set_text(s_alarm_time_label, buf);
+}
+
+static void alarm_set_apply(lv_event_t *e)
+{
+    (void)e;
+    s_alarm_edit.enabled = lv_obj_has_state(s_alarm_en_switch, LV_STATE_CHECKED);
+    alarm_set(s_alarm_edit.hour, s_alarm_edit.min, s_alarm_edit.enabled,
+              s_alarm_edit.ring_mode);
+    lvgl_show_watch_face();
+}
+
+static void alarm_hour_btn_cb(lv_event_t *e)
+{
+    int delta = (int)(intptr_t)lv_event_get_user_data(e);
+    s_alarm_edit.hour = (uint8_t)((s_alarm_edit.hour + 24 + delta) % 24);
+    alarm_edit_refresh();
+}
+
+static void alarm_min_btn_cb(lv_event_t *e)
+{
+    int delta = (int)(intptr_t)lv_event_get_user_data(e);
+    s_alarm_edit.min = (uint8_t)((s_alarm_edit.min + 60 + delta) % 60);
+    alarm_edit_refresh();
+}
+
+static void alarm_mode_btn_cb(lv_event_t *e)
+{
+    uint8_t mode = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+    s_alarm_edit.ring_mode = mode;
+    /* Visual: uncheck the others. */
+    lv_obj_clear_state(s_alarm_mode_beep, LV_STATE_CHECKED);
+    lv_obj_clear_state(s_alarm_mode_vib, LV_STATE_CHECKED);
+    lv_obj_clear_state(s_alarm_mode_both, LV_STATE_CHECKED);
+    lv_obj_add_state((mode == ALARM_RING_BEEP) ? s_alarm_mode_beep :
+                     (mode == ALARM_RING_VIB) ? s_alarm_mode_vib : s_alarm_mode_both,
+                     LV_STATE_CHECKED);
+}
+
+static void lvgl_build_alarm_screen(void)
+{
+    s_alarm_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(s_alarm_screen, lv_color_hex(0x201020), 0);
+
+    lv_obj_t *title = lv_label_create(s_alarm_screen);
+    lv_label_set_text(title, "Alarm");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    s_alarm_time_label = lv_label_create(s_alarm_screen);
+    lv_obj_set_style_text_font(s_alarm_time_label, s_font_sec, 0);
+    lv_obj_set_style_text_color(s_alarm_time_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(s_alarm_time_label, LV_ALIGN_TOP_MID, 0, 40);
+
+    /* Hour +/- (plus on the right) */
+    lv_obj_t *h_plus = lv_button_create(s_alarm_screen);
+    lv_obj_set_size(h_plus, 160, 96);
+    lv_obj_align(h_plus, LV_ALIGN_TOP_RIGHT, -25, 90);
+    lv_obj_t *h_plus_lbl = lv_label_create(h_plus);
+    lv_label_set_text(h_plus_lbl, "H+");
+    lv_obj_set_style_text_font(h_plus_lbl, s_font_small, 0);
+    lv_obj_center(h_plus_lbl);
+    lv_obj_add_event_cb(h_plus, alarm_hour_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)1);
+
+    lv_obj_t *h_minus = lv_button_create(s_alarm_screen);
+    lv_obj_set_size(h_minus, 160, 96);
+    lv_obj_align(h_minus, LV_ALIGN_TOP_LEFT, 25, 90);
+    lv_obj_t *h_minus_lbl = lv_label_create(h_minus);
+    lv_label_set_text(h_minus_lbl, "H-");
+    lv_obj_set_style_text_font(h_minus_lbl, s_font_small, 0);
+    lv_obj_center(h_minus_lbl);
+    lv_obj_add_event_cb(h_minus, alarm_hour_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
+
+    lv_obj_t *m_plus = lv_button_create(s_alarm_screen);
+    lv_obj_set_size(m_plus, 160, 96);
+    lv_obj_align(m_plus, LV_ALIGN_TOP_RIGHT, -25, 195);
+    lv_obj_t *m_plus_lbl = lv_label_create(m_plus);
+    lv_label_set_text(m_plus_lbl, "M+");
+    lv_obj_set_style_text_font(m_plus_lbl, s_font_small, 0);
+    lv_obj_center(m_plus_lbl);
+    lv_obj_add_event_cb(m_plus, alarm_min_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)1);
+
+    lv_obj_t *m_minus = lv_button_create(s_alarm_screen);
+    lv_obj_set_size(m_minus, 160, 96);
+    lv_obj_align(m_minus, LV_ALIGN_TOP_LEFT, 25, 195);
+    lv_obj_t *m_minus_lbl = lv_label_create(m_minus);
+    lv_label_set_text(m_minus_lbl, "M-");
+    lv_obj_set_style_text_font(m_minus_lbl, s_font_small, 0);
+    lv_obj_center(m_minus_lbl);
+    lv_obj_add_event_cb(m_minus, alarm_min_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
+
+    /* Ring mode selector. */
+    lv_obj_t *mode_lbl = lv_label_create(s_alarm_screen);
+    lv_label_set_text(mode_lbl, "Ring");
+    lv_obj_set_style_text_font(mode_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(mode_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(mode_lbl, LV_ALIGN_TOP_LEFT, 40, 305);
+
+    s_alarm_mode_beep = lv_button_create(s_alarm_screen);
+    lv_obj_set_size(s_alarm_mode_beep, 120, 72);
+    lv_obj_align(s_alarm_mode_beep, LV_ALIGN_TOP_LEFT, 25, 330);
+    lv_obj_t *mb = lv_label_create(s_alarm_mode_beep);
+    lv_label_set_text(mb, "Beep");
+    lv_obj_set_style_text_font(mb, s_font_small, 0);
+    lv_obj_center(mb);
+    lv_obj_add_flag(s_alarm_mode_beep, LV_OBJ_FLAG_CHECKABLE);
+    lv_obj_add_event_cb(s_alarm_mode_beep, alarm_mode_btn_cb, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)ALARM_RING_BEEP);
+
+    s_alarm_mode_vib = lv_button_create(s_alarm_screen);
+    lv_obj_set_size(s_alarm_mode_vib, 120, 72);
+    lv_obj_align(s_alarm_mode_vib, LV_ALIGN_TOP_MID, 0, 330);
+    lv_obj_t *mv = lv_label_create(s_alarm_mode_vib);
+    lv_label_set_text(mv, "Vib");
+    lv_obj_set_style_text_font(mv, s_font_small, 0);
+    lv_obj_center(mv);
+    lv_obj_add_flag(s_alarm_mode_vib, LV_OBJ_FLAG_CHECKABLE);
+    lv_obj_add_event_cb(s_alarm_mode_vib, alarm_mode_btn_cb, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)ALARM_RING_VIB);
+
+    s_alarm_mode_both = lv_button_create(s_alarm_screen);
+    lv_obj_set_size(s_alarm_mode_both, 120, 72);
+    lv_obj_align(s_alarm_mode_both, LV_ALIGN_TOP_RIGHT, -25, 330);
+    lv_obj_t *mbt = lv_label_create(s_alarm_mode_both);
+    lv_label_set_text(mbt, "Both");
+    lv_obj_set_style_text_font(mbt, s_font_small, 0);
+    lv_obj_center(mbt);
+    lv_obj_add_flag(s_alarm_mode_both, LV_OBJ_FLAG_CHECKABLE);
+    lv_obj_add_event_cb(s_alarm_mode_both, alarm_mode_btn_cb, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)ALARM_RING_BOTH);
+
+    /* On/off switch. */
+    lv_obj_t *en_lbl = lv_label_create(s_alarm_screen);
+    lv_label_set_text(en_lbl, "Enabled");
+    lv_obj_set_style_text_font(en_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(en_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(en_lbl, LV_ALIGN_TOP_LEFT, 40, 415);
+
+    s_alarm_en_switch = lv_switch_create(s_alarm_screen);
+    lv_obj_align(s_alarm_en_switch, LV_ALIGN_TOP_RIGHT, -40, 410);
+    lv_obj_set_size(s_alarm_en_switch, 70, 40);
+
+    /* Set */
+    lv_obj_t *set_btn = lv_button_create(s_alarm_screen);
+    lv_obj_set_size(set_btn, 120, 52);
+    lv_obj_align(set_btn, LV_ALIGN_TOP_MID, 0, 414);
+    lv_obj_t *set_lbl = lv_label_create(set_btn);
+    lv_label_set_text(set_lbl, "Set");
+    lv_obj_set_style_text_font(set_lbl, s_font_small, 0);
+    lv_obj_center(set_lbl);
+    lv_obj_add_event_cb(set_btn, alarm_set_apply, LV_EVENT_CLICKED, NULL);
+
+    /* Load current config into the edit buffer. */
+    alarm_get_config(&s_alarm_edit);
+    alarm_edit_refresh();
+    if (s_alarm_edit.enabled) {
+        lv_obj_add_state(s_alarm_en_switch, LV_STATE_CHECKED);
+    }
+    lv_obj_add_state(s_alarm_edit.ring_mode == ALARM_RING_BEEP ? s_alarm_mode_beep :
+                     s_alarm_edit.ring_mode == ALARM_RING_VIB ? s_alarm_mode_vib : s_alarm_mode_both,
+                     LV_STATE_CHECKED);
+}
+
+/* Ringing screen: shown while the alarm rings. */
+static void alarm_dismiss_btn_cb(lv_event_t *e)
+{
+    (void)e;
+    alarm_dismiss();
+}
+
+static void alarm_snooze_btn_cb(lv_event_t *e)
+{
+    (void)e;
+    alarm_snooze();
+}
+
+static void lvgl_build_ring_screen(void)
+{
+    s_ring_screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(s_ring_screen, lv_color_hex(0x300000), 0);
+
+    lv_obj_t *title = lv_label_create(s_ring_screen);
+    lv_label_set_text(title, "ALARM");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    s_ring_time_label = lv_label_create(s_ring_screen);
+    lv_obj_set_style_text_font(s_ring_time_label, s_font_time, 0);
+    lv_obj_set_style_text_color(s_ring_time_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(s_ring_time_label, LV_ALIGN_TOP_MID, 0, 60);
+
+    lv_obj_t *dismiss = lv_button_create(s_ring_screen);
+    lv_obj_set_size(dismiss, 330, 112);
+    lv_obj_align(dismiss, LV_ALIGN_TOP_MID, 0, 220);
+    lv_obj_t *dl = lv_label_create(dismiss);
+    lv_label_set_text(dl, "Dismiss");
+    lv_obj_set_style_text_font(dl, s_font_small, 0);
+    lv_obj_center(dl);
+    /* Fire on touch-down so the first tap acts immediately, regardless of
+     * click state or timing. */
+    lv_obj_add_event_cb(dismiss, alarm_dismiss_btn_cb, LV_EVENT_PRESSED, NULL);
+
+    lv_obj_t *snooze = lv_button_create(s_ring_screen);
+    lv_obj_set_size(snooze, 330, 112);
+    lv_obj_align(snooze, LV_ALIGN_TOP_MID, 0, 340);
+    lv_obj_t *sl = lv_label_create(snooze);
+    lv_label_set_text(sl, "Snooze 10 min");
+    lv_obj_set_style_text_font(sl, s_font_small, 0);
+    lv_obj_center(sl);
+    lv_obj_add_event_cb(snooze, alarm_snooze_btn_cb, LV_EVENT_PRESSED, NULL);
+}
+
+/* Ring start/stop callback (runs on the alarm ring task, so the LVGL lock is
+ * required around screen changes). */
+static void alarm_ring_cb(bool ringing)
+{
+    if (esp_lv_adapter_lock(-1) != ESP_OK) {
+        ESP_LOGW(TAG, "alarm_ring_cb: LVGL lock timeout");
+        return;
+    }
+    if (ringing) {
+        if (lv_screen_active() != s_ring_screen) {
+            if (!s_ring_screen) {
+                lvgl_build_ring_screen();
+            }
+            /* Stamp the configured time on the ring screen. */
+            alarm_config_t c;
+            alarm_get_config(&c);
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%02u:%02u", (unsigned)c.hour, (unsigned)c.min);
+            lv_label_set_text(s_ring_time_label, buf);
+            lv_scr_load(s_ring_screen);
+            esp_lv_adapter_request_wake();
+        }
+    } else {
+        /* Ring finished: back to the watch face. */
+        if (lv_screen_active() == s_ring_screen) {
+            lv_scr_load(s_watch_screen);
+            watch_face_update(NULL);
+        }
+    }
+    esp_lv_adapter_unlock();
+}
+
 /* ---- Swipe navigation (indev-level: fires for every touch) ---- */
 
 static void swipe_event_cb(lv_event_t *e)
@@ -1245,9 +1528,18 @@ static void swipe_event_cb(lv_event_t *e)
                 lvgl_build_power_screen();
             }
             lv_scr_load(s_power_screen);
+        } else if (dy < 0) {     /* up   -> Alarm */
+            if (!s_alarm_screen) {
+                lvgl_build_alarm_screen();
+            }
+            lv_scr_load(s_alarm_screen);
         }
     } else if (cur == s_power_screen) {
         if (!horiz && dy < 0) {  /* up -> clock */
+            lvgl_show_watch_face();
+        }
+    } else if (cur == s_alarm_screen) {
+        if (!horiz && dy > 0) {  /* down -> clock */
             lvgl_show_watch_face();
         }
     } else if (cur == s_bhi_screen) {
@@ -1269,7 +1561,8 @@ static void menu_timeout_cb(lv_timer_t *timer)
 {
     (void)timer;
     lv_obj_t *cur = lv_screen_active();
-    if (cur == s_watch_screen || cur == s_bhi_screen || cur == s_gps_screen) {
+    if (cur == s_watch_screen || cur == s_bhi_screen || cur == s_gps_screen ||
+        cur == s_alarm_screen || cur == s_ring_screen) {
         return;
     }
     if (lv_tick_get() - s_last_touch_tick >= MENU_TIMEOUT_MS) {
@@ -1407,8 +1700,15 @@ esp_err_t lvgl_app_start(void)
      * for night-mode checks. */
     sensor_cache_init();
 
+    /* Alarm clock: load config + arm the RTC alarm. Must happen before
+     * power_mgmt_init() so pm_arm_gpio_wakeup() sees the armed state. */
+    alarm_init();
+
     /* Power management: DFS + light sleep + wake sources. */
     power_mgmt_init();
+
+    /* Alarm clocks: show the ring screen when the alarm starts/stops. */
+    alarm_register_ring_cb(alarm_ring_cb);
 
     /* Default charge current: 100 mA (gentle for the 1100 mAh cell; 400 mA is
      * the user-selectable maximum on the power screen). */

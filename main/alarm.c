@@ -3,9 +3,10 @@
  *
  * Implementation notes:
  *  - Config is persisted in NVS ("alarm"/"cfg").
- *  - The RTC alarm matches hour+minute with seconds/day/weekday masked, so it
- *    fires once per day at the configured time. AIE (alarm interrupt) and GPIO1
- *    wake are armed only while the alarm is enabled.
+ *  - The RTC alarm matches hour+minute at second 0 (day/weekday masked), so it
+ *    fires once per day at the configured time. Matching only hour+minute would
+ *    keep AF asserted all minute long and re-ring after every dismissal.
+ *    AIE (alarm interrupt) and GPIO1 wake are armed only while enabled.
  *  - The ring runs on a dedicated task so it never blocks LVGL or the sensor
  *    cache. Beep (MAX98357A) enables the BLDO2 amp rail; vibration (DRV2605)
  *    enables the haptic M_EN line; both pulse on the same cadence.
@@ -108,8 +109,11 @@ static void rtc_arm_alarm(void)
     pcf85063a_alarm_t a;
     memset(&a, 0, sizeof(a));
     a.enabled = true;
-    /* Match hour+minute only -> fires daily. */
-    a.mask_sec = true;
+    /* Match hour+minute exactly at second 0 -> fires once daily at hh:mm:00.
+     * Matching only hour+minute would keep AF asserted for the entire minute,
+     * so a dismissal would be overridden a second later by a fresh AF. */
+    a.mask_sec = false;
+    a.time.sec = 0;
     a.mask_day = true;
     a.mask_weekday = true;
     a.time.hour = s_cfg.hour;
