@@ -230,6 +230,22 @@ static void debug_process_cmd(const char *cmd)
     } else if (strcmp(cmd, "gnssoff") == 0) {
     m10q_power(false);
     printf("gnss: powered off\n");
+} else if (strcmp(cmd, "gnssver") == 0) {
+    /* Dump UBX-MON-VER to identify the module (genuine u-blox vs clone). */
+    m10q_power(true);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    uGnssVersionType_t ver;
+    memset(&ver, 0, sizeof(ver));
+    if (m10q_get_versions(&ver) == ESP_OK) {
+        printf("gnssver: sw=%s\n", ver.ver);
+        printf("gnssver: hw=%s\n", ver.hw);
+        printf("gnssver: mod=%s\n", ver.mod);
+        printf("gnssver: fw=%s\n", ver.fw);
+        printf("gnssver: prot=%s\n", ver.prot);
+    } else {
+        printf("gnssver: failed to read MON-VER\n");
+    }
+    m10q_power(false);
     } else if (strcmp(cmd, "rtccal") == 0) {
     /* Re-run the PPS-based RTC drift calibration (needs a GNSS fix). */
     m10q_rtc_calibrate();

@@ -648,6 +648,15 @@ esp_err_t m10q_power(bool on)
          * if its own VRTC-backed time went stale. */
         mga_ini_seed();
 
+        /* Identify the module once per power-on (UBX-MON-VER): a genuine
+         * MIA-M10Q reports its MOD= string; clones usually differ/omit it. */
+        uGnssVersionType_t ver;
+        memset(&ver, 0, sizeof(ver));
+        if (uGnssInfoGetVersions(s_gnss, &ver) == 0) {
+            ESP_LOGI(TAG, "MON-VER: sw=%s hw=%s mod=%s fw=%s prot=%s",
+                     ver.ver, ver.hw, ver.mod, ver.fw, ver.prot);
+        }
+
         /* Streamed position: callback fires on every PVT. */
         int32_t sret = uGnssPosGetStreamedStart(s_gnss, 1000, pos_cb);
         if (sret != 0) {
@@ -792,17 +801,49 @@ esp_err_t m10q_get_nav_status(m10q_nav_status_t *nav)
     return ESP_OK;
 }
 
+esp_err_t m10q_get_versions(uGnssVersionType_t *ver)
+{
+    if (!ver || !s_opened) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(ver, 0, sizeof(*ver));
+    return uGnssInfoGetVersions(s_gnss, ver);
+}
+
+/* Plausibility check on the local RTC (PCF85063A) before we ever inject its
+ * time into the GNSS module: guards against a garbage/stale wall clock (e.g.
+ * the year-2070 bug) being sent as aiding data. */
+static bool rtc_fields_plausible(const pcf85063a_time_t *rt)
+{
+    if (rt->year < 2000 || rt->year > 2100 ||
+        rt->month < 1 || rt->month > 12 ||
+        rt->day < 1 || rt->day > 31 ||
+        rt->hour > 23 || rt->min > 59 || rt->sec > 60 ||
+        rt->weekday < 1 || rt->weekday > 7) {
+        return false;
+    }
+    return true;
+}
+
 /* Inject MGA-INI aiding from the RTC (local time -> UTC epoch via mktime) and
- * the NVS last-known position. Uses the ubxlib helpers that wait for and check
- * the module's MGA-ACK, so a FAILED result tells us the module rejected the
- * data (a wrong/stale RTC time is a common no-fix cause). Called on power-on. */
+ * the NVS last-known position, but only when the module actually needs it:
+ *
+ *  - Time: the module keeps its own RTC on the VBACKUP rail. If that is alive
+ *    (uGnssInfoGetTimeUtcRaw() returns a plausible epoch), injection is
+ *    unnecessary and is skipped. Only a missing/stale module time is seeded.
+ *  - Position: sent only if the NVS last-known position is in range.
+ *
+ * Uses the ubxlib helpers that wait for and check the module's MGA-ACK, so a
+ * FAILED result tells us the module rejected the data. */
 static void mga_ini_seed(void)
 {
     if (!s_opened || s_rtc == NULL) {
         return;
     }
+
     pcf85063a_time_t rt;
-    if (pcf85063a_get_time(s_rtc, &rt) == ESP_OK) {
+    time_t epoch = 0;
+    if (pcf85063a_get_time(s_rtc, &rt) == ESP_OK && rtc_fields_plausible(&rt)) {
         struct tm rtm = {
             .tm_sec   = rt.sec,
             .tm_min   = rt.min,
@@ -812,17 +853,30 @@ static void mga_ini_seed(void)
             .tm_year  = rt.year - 1900,
             .tm_isdst = -1,
         };
-        time_t epoch = mktime(&rtm);   /* LOCAL -> epoch, TZ respected */
-        if (epoch > 0) {
-            int32_t err = uGnssMgaIniTimeSend(s_gnss, (int64_t)epoch * 1000000000LL,
-                                              1000000000LL, NULL);   /* ~1 s */
-            ESP_LOGI(TAG, "MGA-INI TIME %s (epoch %lld)",
-                     err == 0 ? "acked" : "NACK/FAILED", (long long)epoch);
-        }
+        epoch = mktime(&rtm);   /* LOCAL -> epoch, TZ respected */
     }
+
+    /* Check the module's own VBACKUP-backed time first. */
+    int64_t mod_epoch = uGnssInfoGetTimeUtcRaw(s_gnss);
+    if (epoch > 0 && mod_epoch > 0 &&
+        (mod_epoch - (int64_t)epoch) > -3600 && (mod_epoch - (int64_t)epoch) < 3600) {
+        ESP_LOGI(TAG, "MGA-INI TIME skipped: module time valid (diff %+lld s)",
+                 (long long)(mod_epoch - (int64_t)epoch));
+    } else if (epoch > 0) {
+        int32_t err = uGnssMgaIniTimeSend(s_gnss, (int64_t)epoch * 1000000000LL,
+                                          1000000000LL, NULL);   /* ~1 s */
+        ESP_LOGI(TAG, "MGA-INI TIME %s (epoch %lld, module had %lld)",
+                 err == 0 ? "acked" : "NACK/FAILED",
+                 (long long)epoch, (long long)mod_epoch);
+    } else {
+        ESP_LOGW(TAG, "MGA-INI TIME skipped: local RTC not plausible");
+    }
+
     int32_t ilat = 0, ilon = 0;
     lkp_load(&ilat, &ilon);
-    if (ilat != 0 || ilon != 0) {
+    if (ilat >= -90 * 10000000 && ilat <= 90 * 10000000 &&
+        ilon >= -180 * 10000000 && ilon <= 180 * 10000000 &&
+        (ilat != 0 || ilon != 0)) {
         uGnssMgaPos_t pos = {
             .latitudeX1e7  = ilat,
             .longitudeX1e7 = ilon,

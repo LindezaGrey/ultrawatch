@@ -1644,6 +1644,12 @@ static void bhi260_task(void *arg)
             if (bhi260ap_process_fifo() != ESP_OK) {
                 ESP_LOGW(TAG, "BHI260AP FIFO read failed");
             }
+            /* Consume gesture flags so they don't stick */
+            bool wg = false, gg = false, pg = false;
+            bhi260ap_consume_gestures(NULL, &wg, &gg, &pg, NULL);
+            if (wg) ESP_LOGI(TAG, "Wake gesture consumed");
+            if (gg) ESP_LOGI(TAG, "Glance gesture consumed");
+            if (pg) ESP_LOGI(TAG, "Pickup gesture consumed");
             if (bhi260ap_get_data_age_ms() > BHI_STALE_MS) {
                 ESP_LOGW(TAG, "BHI260AP data stale, re-initializing");
                 bhi260ap_deinit();

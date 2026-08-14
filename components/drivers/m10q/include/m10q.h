@@ -14,6 +14,8 @@
 #include <stdbool.h>
 #include "esp_err.h"
 #include "driver/i2c_master.h"
+#include "u_gnss_type.h"
+#include "u_gnss_info.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -137,6 +139,9 @@ void m10q_set_raw_dump(bool on);
  * calibration already applied an offset this session). Needs a valid GNSS fix
  * so the MIA-M10Q emits its 1PPS signal on GPIO 13. */
 void m10q_rtc_calibrate(void);
+
+/* Read module version info (UBX-MON-VER) for hardware identification. */
+esp_err_t m10q_get_versions(uGnssVersionType_t *ver);
 
 #ifdef __cplusplus
 }
