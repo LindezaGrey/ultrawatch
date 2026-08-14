@@ -89,6 +89,19 @@ load
 - FreeRTOS-aware debugging: `xtensa-esp32s3-elf-gdb` from ESP-IDF has FreeRTOS task awareness built in via `task` commands (`task list`, `task current`).
 - Common GDB commands: `continue`, `break`, `b <file>:<line>`, `p *pxCurrentTCB`, `thread`, `task list`.
 
+## Style-Guide:
+
+Since we want to create an POC and evaluate and learn the code, do NOT:
+
+- Create "fluff" like error handling, unnecessary case matching etc.
+- Do not write verbose code
+- Do not put comments in the code 
+- be ware of compilation errors -> common mistake ...marked 'override', but does not override...
+Instead:
+- be concise
+- keep it simple!
+- minimum neccessary code
+
 ## Conventions
 
 - Target app: `UWatch` (name may be revised to lower-case `uwatch` in build config).
