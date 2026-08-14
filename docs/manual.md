@@ -35,10 +35,11 @@ swipe in a direction to open a menu, and swipe back the opposite way to return.
   signal strength; filled dot = used in fix) plus position, altitude, speed
   (km/h), course, satellite count and estimated accuracy (HDOP-based).
 
-## Watch face GNSS indicator
+## Watch face
 
-The clock shows a small **satellite icon** in the top centre whose colour
-reflects the GNSS receiver state:
+The clock shows the local time as **HH:MM:SS** (large), with **UTC HH:MM**
+below it and the date above. A **satellite icon** in the top centre reflects
+the GNSS receiver state:
 
 | Colour | Meaning |
 |---|---|

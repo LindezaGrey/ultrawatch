@@ -38,7 +38,7 @@
 static const char *TAG = "lvgl_app";
 
 /* Fonts. */
-static const lv_font_t *s_font_time = NULL;   /* 96 px  HH:MM */
+static const lv_font_t *s_font_time = NULL;   /* 96 px  HH:MM:SS */
 static const lv_font_t *s_font_sec  = NULL;   /* 40 px  UTC time */
 static const lv_font_t *s_font_small = NULL;  /* 28 px  date/battery */
 
