@@ -39,7 +39,7 @@ static const char *TAG = "lvgl_app";
 
 /* Fonts. */
 static const lv_font_t *s_font_time = NULL;   /* 96 px  HH:MM */
-static const lv_font_t *s_font_sec  = NULL;   /* 40 px  seconds */
+static const lv_font_t *s_font_sec  = NULL;   /* 40 px  UTC time */
 static const lv_font_t *s_font_small = NULL;  /* 28 px  date/battery */
 
 /* Watch face objects. */
@@ -274,10 +274,27 @@ static void watch_face_update(lv_timer_t *timer)
     }
 
     char buf[32];
-    snprintf(buf, sizeof(buf), "%02d:%02d", t.hour, t.min);
+    snprintf(buf, sizeof(buf), "%02d:%02d:%02d", t.hour, t.min, t.sec);
     lv_label_set_text(s_time_label, buf);
 
-    snprintf(buf, sizeof(buf), "%02d", t.sec);
+    /* UTC derived from the same RTC snapshot (which holds local time), so it
+     * stays DST-aware: local fields -> epoch via mktime -> gmtime. */
+    struct tm lt = {0};
+    lt.tm_sec   = t.sec;
+    lt.tm_min   = t.min;
+    lt.tm_hour  = t.hour;
+    lt.tm_mday  = t.day;
+    lt.tm_mon   = t.month - 1;
+    lt.tm_year  = (int)t.year - 1900;
+    lt.tm_isdst = -1;
+    time_t epoch = mktime(&lt);
+    if (epoch != (time_t)-1) {
+        struct tm utc;
+        gmtime_r(&epoch, &utc);
+        snprintf(buf, sizeof(buf), "UTC %02d:%02d", utc.tm_hour, utc.tm_min);
+    } else {
+        snprintf(buf, sizeof(buf), "UTC --:--");
+    }
     lv_label_set_text(s_sec_label, buf);
 
     static const char *wday[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
@@ -372,13 +389,13 @@ static void lvgl_build_watch_face(void)
     lv_obj_add_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN);
 
     s_time_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_time_label, "--:--");
+    lv_label_set_text(s_time_label, "--:--:--");
     lv_obj_set_style_text_font(s_time_label, s_font_time, 0);
     lv_obj_set_style_text_color(s_time_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(s_time_label, LV_ALIGN_CENTER, 0, -20);
 
     s_sec_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_sec_label, "--");
+    lv_label_set_text(s_sec_label, "UTC --:--");
     lv_obj_set_style_text_font(s_sec_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_sec_label, lv_color_hex(0x80D8FF), 0);
     lv_obj_align(s_sec_label, LV_ALIGN_CENTER, 0, 70);
