@@ -90,7 +90,7 @@ The panel has rounded corners; `assets/ui/safe_area_transparent.png` is the tran
 |---|---|
 | GNSS MIA-M10Q TX | 43 |
 | GNSS MIA-M10Q RX | 44 |
-| GNSS PPS | 13 |
+| GNSS PPS | 13 | 1PPS output (rising edge); used to discipline the RTC — see [`manual.md`](manual.md#time-source). |
 | Audio MAX98357A BCLK | 9 |
 | Audio MAX98357A WCLK | 10 |
 | Audio MAX98357A DOUT | 11 |

@@ -114,6 +114,13 @@ touch. Touching the screen resets the timer.
 The displayed time is read from the on-board RTC (PCF85063A) every second, so
 it never drifts from the ESP32's internal clock.
 
+On the first GNSS fix the RTC is set from GPS UTC (converted to local time via
+the configured timezone). While a fix is present, the receiver's 1PPS output
+(GPIO13) is used to measure the RTC's drift and write a correction to the
+PCF85063A **OFFSET** register (step 4.34 ppm/LSB, ±64 ppm). The offset is
+persisted in NVS and re-applied on every boot, so the RTC keeps GPS accuracy
+even in the blind. `rtccal` re-runs the calibration manually (needs a fix).
+
 ## Architecture: background tasks + cached sensors
 
 Sensors and slow I2C peripherals are handled by dedicated background tasks so
@@ -174,6 +181,7 @@ available (type them and press Enter):
 | `bhi` | Dump all BHI260AP sensor values. |
 | `gnss` | Dump GNSS state, fix (position/speed/sats/accuracy) and per-satellite azimuth/elevation/SNR. |
 | `gpscheck` | Re-run the one-shot GNSS position check (background, like on power-up). |
+| `rtccal` | Re-run the PPS-based RTC drift calibration now (needs a GNSS fix; ~120 s window). |
 | `lpk` | Show the persisted last-known position (degrees). |
 | `track` | Start a step-gated tracking session (shows a red dot on the watch face). |
 | `track stop` | Stop tracking and persist the session totals. |
@@ -216,6 +224,5 @@ When an SD card is present it is mounted at `/sdcard`:
 - A long press on **PWR** powers the device off (AXP2101 PEK behaviour).
 - The BHI260AP firmware is uploaded to RAM on every boot from the SPIFFS
   assets partition.
-- **Open point (future):** the GNSS receiver's PPS output (GPIO13) could be
-  used to discipline the RTC (PCF85063A) to UTC with ~30 ns accuracy whenever
-  a GNSS fix is available. Not implemented yet.
+- The RTC (PCF85063A) is synced from GPS UTC on the first fix and disciplined
+  via the GNSS 1PPS (GPIO13) into the OFFSET register (see "Time source").

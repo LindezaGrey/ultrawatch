@@ -230,6 +230,10 @@ static void debug_process_cmd(const char *cmd)
     } else if (strcmp(cmd, "gnssoff") == 0) {
     m10q_power(false);
     printf("gnss: powered off\n");
+    } else if (strcmp(cmd, "rtccal") == 0) {
+    /* Re-run the PPS-based RTC drift calibration (needs a GNSS fix). */
+    m10q_rtc_calibrate();
+    printf("rtccal: triggered (PPS window ~120 s, needs fix)\n");
     } else if (strcmp(cmd, "gnss") == 0) {
     /* Dump GNSS state, fix, and satellites. */
     m10q_fix_t fix;

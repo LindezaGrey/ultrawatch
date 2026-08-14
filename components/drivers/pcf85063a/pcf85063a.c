@@ -129,6 +129,11 @@ esp_err_t pcf85063a_set_time(i2c_master_dev_handle_t dev, const pcf85063a_time_t
     return write_byte(dev, REG_SEC, (uint8_t)(sec & ~SEC_OS));
 }
 
+esp_err_t pcf85063a_get_second(i2c_master_dev_handle_t dev, uint8_t *sec)
+{
+    return read_regs(dev, REG_SEC, sec, 1);
+}
+
 esp_err_t pcf85063a_set_alarm(i2c_master_dev_handle_t dev, const pcf85063a_alarm_t *alarm)
 {
     uint8_t r[5];

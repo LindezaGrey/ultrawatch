@@ -44,6 +44,9 @@ esp_err_t pcf85063a_init(i2c_master_dev_handle_t dev);
 esp_err_t pcf85063a_get_time(i2c_master_dev_handle_t dev, pcf85063a_time_t *t);
 esp_err_t pcf85063a_set_time(i2c_master_dev_handle_t dev, const pcf85063a_time_t *t);
 
+/* Read only the seconds register (BCD). Used for sub-second drift tracking. */
+esp_err_t pcf85063a_get_second(i2c_master_dev_handle_t dev, uint8_t *sec);
+
 /* Alarm. One hardware alarm; multiple alarms must be handled in software. */
 esp_err_t pcf85063a_set_alarm(i2c_master_dev_handle_t dev, const pcf85063a_alarm_t *alarm);
 esp_err_t pcf85063a_clear_alarm(i2c_master_dev_handle_t dev);

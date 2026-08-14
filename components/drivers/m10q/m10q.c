@@ -20,9 +20,12 @@
 
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
+#include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #include "ubxlib.h"
 #include "u_gnss_module_type.h"
@@ -56,8 +59,226 @@ static uint32_t s_ttf_start_ms;
 static bool s_ttf_running;
 static uint32_t s_ttf_sum_ms;
 
+/* ---- RTC sync + PPS drift calibration ---- */
+#define RTC_SYNC_MIN_DELTA_S  1         /* only set the RTC if |delta| > this */
+#define PPS_WINDOW_S          120       /* measure drift over this many PPS pulses */
+#define PPS_OFFSET_STEP_PPM   4.340     /* PCF85063A normal-mode LSB */
+#define PPS_MIN_EDGES         10        /* abort calibration below this */
+static bool s_cal_active;
+static int16_t s_rtc_offset = -1;     /* last calibrated OFFSET value, or -1 if unset */
+static TaskHandle_t s_cal_task;
+static volatile int64_t s_pps_time_us;   /* esp_timer at last PPS rising edge */
+static volatile uint32_t s_pps_count;    /* PPS edge counter */
+static time_t s_pending_utc;             /* UTC epoch from last fix; 0 = none */
+
+static void rtc_sync_from_utc(time_t utc);
+static void cal_run(void);
+static void cal_task(void *arg);
+static void offset_save(void);
+static void offset_load(void);
+
+/* ---- RTC sync + PPS drift calibration ----
+ * GNSS time is UTC (from UBX-NAV-PVT timeUtc); the RTC stores LOCAL wall
+ * time. rtc_sync_from_utc() rewrites the RTC from GPS when they disagree by
+ * >= 1 s. cal_run() then measures the RTC's rate against the MIA-M10Q 1PPS
+ * on GPIO 13 and maps the drift into the PCF85063A OFFSET register.
+ *
+ * Drift measurement: the PPS edge marks a GPS second boundary; the RTC
+ * seconds register rolls over at its own (slightly off) second boundary.
+ * Between PPS edges we time the RTC rollover, so each PPS cycle yields one
+ * rollover instant. Over the window, the mean RTC interval vs the mean PPS
+ * interval (both on the esp_timer clock, so its own ~ppm error cancels)
+ * gives the RTC rate error.
+ */
+
+#define RTC_CAL_START_BIT   (1UL << 0)
+
+/* PPS ISR (POSEDGE on GPIO 13): timestamp the GPS second boundary. */
+static void IRAM_ATTR pps_isr(void *arg)
+{
+    (void)arg;
+    s_pps_time_us = esp_timer_get_time();
+    s_pps_count++;
+}
+
+static int64_t rollover_detect(uint8_t *prev);
+
+static void cal_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        uint32_t bits = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (!(bits & RTC_CAL_START_BIT)) {
+            continue;
+        }
+        s_cal_active = true;
+        if (s_rtc) {
+            if (s_pending_utc) {
+                rtc_sync_from_utc(s_pending_utc);
+            }
+            cal_run();
+        }
+        s_cal_active = false;
+    }
+}
+
 /* ubxlib init-once guard. */
 static bool s_ubxlib_init;
+
+/* Set the RTC from GPS UTC time. RTC holds LOCAL time (TZ set in app_main),
+ * so we convert via localtime_r(). Updates s_fix.rtc_offset_s. */
+static void rtc_sync_from_utc(time_t utc)
+{
+    pcf85063a_time_t rt;
+    if (pcf85063a_get_time(s_rtc, &rt) != ESP_OK) {
+        return;
+    }
+    struct tm rtm = {
+        .tm_sec  = rt.sec,
+        .tm_min  = rt.min,
+        .tm_hour = rt.hour,
+        .tm_mday = rt.day,
+        .tm_wday = rt.weekday - 1,
+        .tm_mon  = rt.month - 1,
+        .tm_year = rt.year - 1900,
+        .tm_isdst = -1,
+    };
+    time_t rtc_epoch = mktime(&rtm);   /* LOCAL -> epoch, TZ respected */
+    int32_t delta = (int32_t)(utc - rtc_epoch);
+    s_fix.rtc_offset_s = delta;
+
+    if (delta < -RTC_SYNC_MIN_DELTA_S || delta > RTC_SYNC_MIN_DELTA_S) {
+        struct tm gtm;
+        localtime_r(&utc, &gtm);       /* epoch -> LOCAL wall time */
+        pcf85063a_time_t nt = {
+            .sec     = (uint8_t)gtm.tm_sec,
+            .min     = (uint8_t)gtm.tm_min,
+            .hour    = (uint8_t)gtm.tm_hour,
+            .day     = (uint8_t)gtm.tm_mday,
+            .weekday = (uint8_t)(gtm.tm_wday + 1),
+            .month   = (uint8_t)(gtm.tm_mon + 1),
+            .year    = (uint16_t)(gtm.tm_year + 1900),
+        };
+        if (pcf85063a_set_time(s_rtc, &nt) == ESP_OK) {
+            s_fix.rtc_offset_s = 0;    /* just applied; now in sync */
+            ESP_LOGI(TAG, "RTC set from GPS: %04d-%02d-%02d %02d:%02d:%02d (was %+ld s)",
+                     (int)nt.year, nt.month, nt.day, nt.hour, nt.min, nt.sec,
+                     (long)delta);
+        }
+    } else {
+        ESP_LOGI(TAG, "RTC already matched GPS (delta %+ld s)", (long)delta);
+    }
+}
+
+/* Poll the RTC seconds register until it changes; return the esp_timer
+ * instant (us) of that rollover, updating *prev. Returns 0 on timeout. */
+static int64_t rollover_detect(uint8_t *prev)
+{
+    int64_t t0 = esp_timer_get_time();
+    for (;;) {
+        uint8_t sec;
+        if (pcf85063a_get_second(s_rtc, &sec) == ESP_OK) {
+            uint8_t b = sec & 0x7f;
+            if (*prev != 0xFF && b != *prev) {
+                *prev = b;
+                return esp_timer_get_time();
+            }
+            *prev = b;
+        } else {
+            break;
+        }
+        if (esp_timer_get_time() - t0 > 1500000LL) {
+            break;    /* no rollover within 1.5 s: RTC stopped or PPS early */
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    return 0;
+}
+
+/* Run the PPS-rate measurement and apply the PCF85063A offset. */
+static void cal_run(void)
+{
+    ESP_LOGI(TAG, "RTC PPS calibration: %d s window", PPS_WINDOW_S);
+
+    /* The ISR service is installed by power_mgmt_init; be safe if not yet. */
+    esp_err_t isr_err = gpio_install_isr_service(0);
+    if (isr_err != ESP_OK && isr_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "PPS cal: ISR service unavailable (%s)", esp_err_to_name(isr_err));
+        return;
+    }
+
+    gpio_config_t pps_cfg = {
+        .pin_bit_mask = (1ULL << M10Q_PIN_PPS),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_POSEDGE,
+    };
+    gpio_config(&pps_cfg);
+    gpio_isr_handler_add(M10Q_PIN_PPS, pps_isr, NULL);
+
+    int64_t p_first = 0, r_first = 0, p_last = 0, r_last = 0;
+    int n = 0;
+    uint8_t prev_sec = 0xFF;
+    uint32_t last_cnt = s_pps_count;
+    while (n < PPS_WINDOW_S && s_cal_active) {
+        /* wait for a PPS edge, up to 3 s */
+        uint32_t waited = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        while (s_pps_count == last_cnt) {
+            if (!s_cal_active ||
+                (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS) - waited > 3000) {
+                break;    /* PPS stopped (fix lost / GNSS off) */
+            }
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        if (s_pps_count == last_cnt || !s_cal_active) {
+            break;
+        }
+        last_cnt = s_pps_count;
+        int64_t pps = s_pps_time_us;
+        int64_t roll = rollover_detect(&prev_sec);
+        if (roll == 0) {
+            break;
+        }
+        if (n == 0) {
+            p_first = pps;
+            r_first = roll;
+        }
+        p_last = pps;
+        r_last = roll;
+        n++;
+    }
+    gpio_isr_handler_remove(M10Q_PIN_PPS);
+    gpio_set_intr_type(M10Q_PIN_PPS, GPIO_INTR_DISABLE);
+
+    if (n < PPS_MIN_EDGES) {
+        ESP_LOGW(TAG, "PPS cal aborted: only %d edges (need %d)", n, PPS_MIN_EDGES);
+        return;
+    }
+    /* mean RTC second interval vs mean PPS (GPS) interval, same clock.
+     * drift_ppm > 0: RTC seconds are longer -> RTC runs SLOW (loses time).
+     * Register value > 0 slows the clock (Linux offset convention), so we
+     * negate: a slow RTC gets a negative offset (sped up), a fast RTC
+     * (drift_ppm < 0) gets a positive offset (slowed down). */
+    double mean_pps = (double)(p_last - p_first) / (n - 1);
+    double mean_rtc = (double)(r_last - r_first) / (n - 1);
+    double drift_ppm = (mean_rtc / mean_pps - 1.0) * 1e6;
+    int16_t off = (int16_t)lround(-drift_ppm / PPS_OFFSET_STEP_PPM);
+    if (off > 63) {
+        off = 63;
+    }
+    if (off < -63) {
+        off = -63;
+    }
+    if (pcf85063a_set_offset(s_rtc, (uint8_t)(off & 0x7f)) != ESP_OK) {
+        ESP_LOGE(TAG, "PPS cal: failed to write OFFSET");
+        return;
+    }
+    s_rtc_offset = off;
+    offset_save();
+    ESP_LOGI(TAG, "PPS cal done: drift %+.1f ppm, OFFSET %+d (%d edges)",
+             drift_ppm, (int)off, n);
+}
 
 /* ---- NVS stats persistence ---- */
 #define M10Q_NVS_NS       "m10q"
@@ -65,6 +286,7 @@ static bool s_ubxlib_init;
 #define NVS_KEY_LAT       "gps_lat"
 #define NVS_KEY_LON       "gps_lon"
 #define NVS_KEY_POWERONS  "powerons"
+#define NVS_KEY_RTCOFF    "rtcoff"
 
 static uint32_t s_power_on_count;   /* cumulative GNSS power-ons (persisted) */
 
@@ -122,6 +344,34 @@ static void power_on_count_save(void)
         nvs_set_u32(h, NVS_KEY_POWERONS, s_power_on_count);
         nvs_commit(h);
         nvs_close(h);
+    }
+}
+
+static void offset_save(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(M10Q_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_i16(h, NVS_KEY_RTCOFF, s_rtc_offset);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+static void offset_load(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(M10Q_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        int16_t v = -1;
+        nvs_get_i16(h, NVS_KEY_RTCOFF, &v);
+        if (v >= -63 && v <= 63) {
+            s_rtc_offset = v;
+        }
+        nvs_close(h);
+    }
+    if (s_rtc_offset >= -63 && s_rtc_offset <= 63) {
+        /* Re-apply the last good offset on boot. */
+        pcf85063a_set_offset(s_rtc, (uint8_t)(s_rtc_offset & 0x7f));
+        ESP_LOGI(TAG, "RTC offset restored: %+d", (int)s_rtc_offset);
     }
 }
 
@@ -226,7 +476,7 @@ static void pos_cb(uDeviceHandle_t gnssHandle, int32_t errorCode,
     s_fix.hdop = 0;
 
     if (timeUtc > 0) {
-        time_t e = (time_t)(timeUtc / 1000);
+        time_t e = (time_t)timeUtc;
         struct tm tm;
         gmtime_r(&e, &tm);
         s_fix.hour = (uint8_t)tm.tm_hour;
@@ -259,6 +509,11 @@ static void pos_cb(uDeviceHandle_t gnssHandle, int32_t errorCode,
         if (m10q_distance_m(olat / 1e7, olon / 1e7, s_fix.lat, s_fix.lon) >= 50) {
             lkp_persist(s_fix.lat, s_fix.lon);
         }
+        /* First fix with a time tag: sync the RTC and start PPS calibration. */
+        if (timeUtc > 0 && s_cal_task) {
+            s_pending_utc = (time_t)timeUtc;
+            xTaskNotify(s_cal_task, RTC_CAL_START_BIT, eSetBits);
+        }
     }
 }
 
@@ -270,8 +525,14 @@ esp_err_t m10q_init(i2c_master_dev_handle_t pmu, i2c_master_dev_handle_t rtc)
     s_rtc = rtc;
     s_powered = false;
     s_opened = false;
+    s_pending_utc = 0;
     memset(&s_fix, 0, sizeof(s_fix));
     stats_load();
+    offset_load();
+    if (xTaskCreate(cal_task, "rtccal", 4096, NULL, 3, &s_cal_task) != pdPASS) {
+        s_cal_task = NULL;
+        return ESP_ERR_NO_MEM;
+    }
     return ESP_OK;
 }
 
@@ -380,6 +641,13 @@ esp_err_t m10q_power(bool on)
         axp2101_enable_rail(s_pmu, AXP2101_BLDO1, false);
         s_powered = false;
         s_fix.valid = false;
+        s_pending_utc = 0;
+        /* Abort an in-flight PPS calibration (GNSS rail is now off). */
+        if (s_cal_active) {
+            s_cal_active = false;
+            gpio_set_intr_type(M10Q_PIN_PPS, GPIO_INTR_DISABLE);
+            gpio_isr_handler_remove(M10Q_PIN_PPS);
+        }
         ESP_LOGI(TAG, "POWER-OFF #%lu (backup RAM kept)", (unsigned long)s_power_on_count);
     }
     return ESP_OK;
@@ -483,4 +751,16 @@ uint32_t m10q_get_gsv_count(void)
 void m10q_set_raw_dump(bool on)
 {
     s_dump_raw = on;
+}
+
+void m10q_rtc_calibrate(void)
+{
+    if (!s_cal_task || s_cal_active) {
+        return;
+    }
+    if (s_fix.valid && s_fix.sat_count >= 3) {
+        xTaskNotify(s_cal_task, RTC_CAL_START_BIT, eSetBits);
+    } else {
+        ESP_LOGW(TAG, "PPS cal: no valid fix, skipping");
+    }
 }

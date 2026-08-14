@@ -34,6 +34,8 @@ Comparison of the GPS/GNSS (u-blox MIA-M10Q) integration in the two projects:
 | TTFF measurement | Yes (avg / best, ms, NVS-persisted) | Yes (avg / best, ms, NVS-persisted) |
 | Fix counter (total / today) | Yes (NVS) | Yes (NVS) |
 | RTC sync from GPS | Yes (PCF85063A, UTC->local via TZ) | Yes (PCF85063A, UTC->local, <2 s guard) |
+| **RTC drift calibration** | **Yes — 1PPS (GPIO13) measures drift, writes PCF85063A OFFSET (±64 ppm), NVS-persisted, re-applied at boot** | No |
+| `rtccal` console command | Yes (re-run calibration on demand) | — |
 
 ## Config & aiding (fast lock)
 
@@ -71,8 +73,8 @@ Comparison of the GPS/GNSS (u-blox MIA-M10Q) integration in the two projects:
 
 **UWatch strengths:** satellite skyplot, per-sat az/el/SNR, measured hAcc,
 speed/course, on-demand rail power (best battery), USB console debugging,
-time+position aiding, constellation tuning, RTC sync, TTFF stats, RF AGC
-diagnostics.
+time+position aiding, constellation tuning, **PPS-disciplined RTC**, TTFF
+stats, RF AGC diagnostics.
 
 **UWatch gaps (vs ultrawatch):** none significant remain — the follow-ups below
 have been implemented.
@@ -89,6 +91,9 @@ always powered (higher idle current).
    lat/lon (from NVS) sent to the module for a fast first fix.
 2. **RTC sync** from NAV-PVT on first fix (UTC -> local via configured TZ;
    PCF85063A).
-3. **TTFF + fix statistics** persisted in NVS (total, today, avg, best).
-4. **Constellation config** — GPS + GAL + BDS B1I + QZSS + SBAS, B1C/GLO off.
-5. **MON-RF AGC** debug (0 = weak, 8191 = saturated), exposed in `gnss`.
+3. **RTC drift calibration via 1PPS** — first fix also starts a PPS-measured
+   drift correction written to the PCF85063A OFFSET register; persisted in NVS
+   and re-applied at boot (`rtccal` re-runs it).
+4. **TTFF + fix statistics** persisted in NVS (total, today, avg, best).
+5. **Constellation config** — GPS + GAL + BDS B1I + QZSS + SBAS, B1C/GLO off.
+6. **MON-RF AGC** debug (0 = weak, 8191 = saturated), exposed in `gnss`.

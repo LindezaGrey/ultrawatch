@@ -118,6 +118,11 @@ uint32_t m10q_get_gsv_count(void);
 /* Debug: toggle raw UART dump (prints every received NMEA/UBX byte). */
 void m10q_set_raw_dump(bool on);
 
+/* Force a PPS-based RTC drift calibration now (re-runs even if a previous
+ * calibration already applied an offset this session). Needs a valid GNSS fix
+ * so the MIA-M10Q emits its 1PPS signal on GPIO 13. */
+void m10q_rtc_calibrate(void);
+
 #ifdef __cplusplus
 }
 #endif
