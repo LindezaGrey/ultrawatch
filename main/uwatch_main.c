@@ -252,6 +252,12 @@ static void debug_process_cmd(const char *cmd)
     (unsigned)fix.hacc_m);
     }
     printf("gnss: in view %u\n", (unsigned)fix.sat_in_view);
+    m10q_nav_status_t ns;
+    if (m10q_get_nav_status(&ns) == ESP_OK && ns.updated) {
+    printf("gnss: nav fix=%u fixOk=%d wknsSet=%d towSet=%d ttff=%lu ms\n",
+    (unsigned)ns.gps_fix, (int)ns.gps_fix_ok, (int)ns.wkns_set,
+    (int)ns.tow_set, (unsigned long)ns.ttff_ms);
+    }
     for (int i = 0; i < (int)fix.sat_in_view && i < M10Q_MAX_SATS; i++) {
     printf("gnss: sat %2u el %3d az %3d snr %d used %d\n",
     (unsigned)fix.sats[i].prn, (int)fix.sats[i].elevation_deg,

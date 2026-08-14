@@ -61,6 +61,17 @@ typedef struct {
     m10q_sat_t sats[M10Q_MAX_SATS];
 } m10q_fix_t;
 
+/* Receiver navigation status from UBX-NAV-STATUS (0x01 0x03), updated
+ * asynchronously while powered on. updated=false until the first message. */
+typedef struct {
+    bool     updated;
+    uint8_t  gps_fix;         /* 0=no fix, 2=2D, 3=3D */
+    bool     gps_fix_ok;      /* flags bit0 (valid fix available) */
+    bool     wkns_set;        /* flags bit2 (GPS week number valid) */
+    bool     tow_set;         /* flags bit3 (GPS time-of-week valid) */
+    uint32_t ttff_ms;         /* module-reported last time-to-first-fix */
+} m10q_nav_status_t;
+
 /* Cumulative fix statistics (persisted in NVS, namespace "m10q"). */
 typedef struct {
     uint32_t total_fixes;    /* total number of fixes since first use */
@@ -114,6 +125,10 @@ void m10q_get_dbg(uint32_t *rx_bytes, uint32_t *nmea_lines);
 
 /* Debug: number of GSV sentences seen since power-on. */
 uint32_t m10q_get_gsv_count(void);
+
+/* Receiver navigation status (UBX-NAV-STATUS): fix type + time/position
+ * validity flags. updated=false until the first message arrives. */
+esp_err_t m10q_get_nav_status(m10q_nav_status_t *nav);
 
 /* Debug: toggle raw UART dump (prints every received NMEA/UBX byte). */
 void m10q_set_raw_dump(bool on);

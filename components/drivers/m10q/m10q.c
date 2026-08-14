@@ -48,6 +48,7 @@ static uDeviceHandle_t s_gnss;   /* ubxlib GNSS device handle */
 
 static m10q_fix_t s_fix;
 static m10q_stats_t s_stats;
+static m10q_nav_status_t s_nav_status;
 static uint32_t s_rx_bytes;      /* debug */
 static uint32_t s_nmea_lines;    /* debug */
 static uint32_t s_gsv_count;     /* debug */
@@ -76,6 +77,7 @@ static void cal_run(void);
 static void cal_task(void *arg);
 static void offset_save(void);
 static void offset_load(void);
+static void mga_ini_seed(void);
 
 /* ---- RTC sync + PPS drift calibration ----
  * GNSS time is UTC (from UBX-NAV-PVT timeUtc); the RTC stores LOCAL wall
@@ -445,6 +447,36 @@ static void nav_sat_cb(uDeviceHandle_t handle, const uGnssMessageId_t *pId,
     s_gsv_count++;
 }
 
+/* UBX-NAV-STATUS (class 0x01, id 0x03) callback. Payload:
+ *   iTOW(4) gpsFix(1) flags(1) fixStat(1) flags2(1) ttff(4) msss(4)
+ * flags bit0 gpsFixOk, bit2 wknsSet (GPS week valid), bit3 towSet
+ * (GPS time-of-week valid). towSet/wknsSet tell us whether the receiver
+ * has a valid time base at all (the no-fix root cause when they are 0). */
+static void nav_status_cb(uDeviceHandle_t handle, const uGnssMessageId_t *pId,
+                          int32_t errorCodeOrLength, void *pParam)
+{
+    (void)pParam;
+    if (errorCodeOrLength <= 0 || pId == NULL ||
+        pId->type != U_GNSS_PROTOCOL_UBX || pId->id.ubx != 0x0103) {
+        return;
+    }
+    int32_t size = errorCodeOrLength;
+    char *buf = (char *)heap_caps_malloc(size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
+    if (buf) {
+        if (uGnssMsgReceiveCallbackRead(handle, buf, (size_t)size) == size) {
+            const uint8_t *p = (const uint8_t *)buf + 6;   /* past 6-byte header */
+            s_nav_status.gps_fix    = p[4];
+            s_nav_status.gps_fix_ok = (p[5] & 0x01) != 0;
+            s_nav_status.wkns_set   = (p[5] & 0x04) != 0;
+            s_nav_status.tow_set    = (p[5] & 0x08) != 0;
+            s_nav_status.ttff_ms    = (uint32_t)p[8] | ((uint32_t)p[9] << 8) |
+                                      ((uint32_t)p[10] << 16) | ((uint32_t)p[11] << 24);
+            s_nav_status.updated    = true;
+        }
+        heap_caps_free(buf);
+    }
+}
+
 /* Streamed position callback: updates s_fix on every PVT. Runs in the
  * ubxlib receiver task. */
 static void pos_cb(uDeviceHandle_t gnssHandle, int32_t errorCode,
@@ -606,6 +638,16 @@ esp_err_t m10q_power(bool on)
         uGnssMessageId_t navSat = { .type = U_GNSS_PROTOCOL_UBX, .id.ubx = 0x0135 };
         uGnssMsgReceiveStart(s_gnss, &navSat, nav_sat_cb, NULL);
 
+        /* UBX-NAV-STATUS (0x01 0x03): fix type + gpsFixOk/wknsSet/towSet so we
+         * can see whether the receiver has a valid time base while acquiring. */
+        U_GNSS_CFG_SET_VAL_RAM(s_gnss, MSGOUT_UBX_NAV_STATUS_UART1_U1, 1);
+        uGnssMessageId_t navStat = { .type = U_GNSS_PROTOCOL_UBX, .id.ubx = 0x0103 };
+        uGnssMsgReceiveStart(s_gnss, &navStat, nav_status_cb, NULL);
+
+        /* Warm-start aiding (time + position) so the receiver can fix fast even
+         * if its own VRTC-backed time went stale. */
+        mga_ini_seed();
+
         /* Streamed position: callback fires on every PVT. */
         int32_t sret = uGnssPosGetStreamedStart(s_gnss, 1000, pos_cb);
         if (sret != 0) {
@@ -715,22 +757,15 @@ void m10q_seed_position(double lat, double lon)
     if (!s_opened) {
         return;
     }
-    /* UBX-MGA-INI POS_LLH (class 0x13, id 0x40): seed an approximate position
-     * so acquisition is faster. lat/lon in 1e-7 deg fixed point. */
-    uint8_t payload[20] = { 0 };
-    payload[0] = 0x01;   /* type: POS_LLH */
-    int32_t ilat = (int32_t)(lat * 1e7);
-    int32_t ilon = (int32_t)(lon * 1e7);
-    payload[4] = ilat & 0xFF;
-    payload[5] = (ilat >> 8) & 0xFF;
-    payload[6] = (ilat >> 16) & 0xFF;
-    payload[7] = (ilat >> 24) & 0xFF;
-    payload[8] = ilon & 0xFF;
-    payload[9] = (ilon >> 8) & 0xFF;
-    payload[10] = (ilon >> 16) & 0xFF;
-    payload[11] = (ilon >> 24) & 0xFF;
-    uGnssMsgSend(s_gnss, (const char *)payload, sizeof(payload));
-    ESP_LOGI(TAG, "MGA-INI POS_LLH seeded (%.5f, %.5f)", lat, lon);
+    uGnssMgaPos_t pos = {
+        .latitudeX1e7  = (int32_t)(lat * 1e7),
+        .longitudeX1e7 = (int32_t)(lon * 1e7),
+        .altitudeMillimetres = 0,
+        .radiusMillimetres   = 1000000,   /* ~1 km radius so it is never rejected */
+    };
+    int32_t err = uGnssMgaIniPosSend(s_gnss, &pos);
+    ESP_LOGI(TAG, "MGA-INI POS_LLH %s (%.5f, %.5f)",
+             err == 0 ? "acked" : "NACK/FAILED", lat, lon);
 }
 
 void m10q_get_dbg(uint32_t *rx_bytes, uint32_t *nmea_lines)
@@ -746,6 +781,58 @@ void m10q_get_dbg(uint32_t *rx_bytes, uint32_t *nmea_lines)
 uint32_t m10q_get_gsv_count(void)
 {
     return s_gsv_count;
+}
+
+esp_err_t m10q_get_nav_status(m10q_nav_status_t *nav)
+{
+    if (!nav) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *nav = s_nav_status;
+    return ESP_OK;
+}
+
+/* Inject MGA-INI aiding from the RTC (local time -> UTC epoch via mktime) and
+ * the NVS last-known position. Uses the ubxlib helpers that wait for and check
+ * the module's MGA-ACK, so a FAILED result tells us the module rejected the
+ * data (a wrong/stale RTC time is a common no-fix cause). Called on power-on. */
+static void mga_ini_seed(void)
+{
+    if (!s_opened || s_rtc == NULL) {
+        return;
+    }
+    pcf85063a_time_t rt;
+    if (pcf85063a_get_time(s_rtc, &rt) == ESP_OK) {
+        struct tm rtm = {
+            .tm_sec   = rt.sec,
+            .tm_min   = rt.min,
+            .tm_hour  = rt.hour,
+            .tm_mday  = rt.day,
+            .tm_mon   = rt.month - 1,
+            .tm_year  = rt.year - 1900,
+            .tm_isdst = -1,
+        };
+        time_t epoch = mktime(&rtm);   /* LOCAL -> epoch, TZ respected */
+        if (epoch > 0) {
+            int32_t err = uGnssMgaIniTimeSend(s_gnss, (int64_t)epoch * 1000000000LL,
+                                              1000000000LL, NULL);   /* ~1 s */
+            ESP_LOGI(TAG, "MGA-INI TIME %s (epoch %lld)",
+                     err == 0 ? "acked" : "NACK/FAILED", (long long)epoch);
+        }
+    }
+    int32_t ilat = 0, ilon = 0;
+    lkp_load(&ilat, &ilon);
+    if (ilat != 0 || ilon != 0) {
+        uGnssMgaPos_t pos = {
+            .latitudeX1e7  = ilat,
+            .longitudeX1e7 = ilon,
+            .altitudeMillimetres = 0,
+            .radiusMillimetres   = 1000000,   /* ~1 km */
+        };
+        int32_t err = uGnssMgaIniPosSend(s_gnss, &pos);
+        ESP_LOGI(TAG, "MGA-INI POS %s (%.5f, %.5f)",
+                 err == 0 ? "acked" : "NACK/FAILED", ilat / 1e7, ilon / 1e7);
+    }
 }
 
 void m10q_set_raw_dump(bool on)
