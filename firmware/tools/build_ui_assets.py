@@ -12,6 +12,8 @@ TILE_SIZE = 48
 TILE_ORDER = (
     "launcher", "clock", "settings", "activity", "heart", "sleep",
     "wellness", "weather", "music", "messages", "rings",
+    "ble_off", "ble_on", "battery_empty", "battery_low",
+    "battery_medium", "battery_full",
 )
 ATLAS_SIZE = len(TILE_ORDER) * TILE_SIZE * TILE_SIZE * 2
 

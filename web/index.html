@@ -192,7 +192,7 @@
         <button id="readSystemPower" data-connected disabled>Read power state</button>
         <button id="writeSystemPower" data-connected disabled>Apply power state</button>
       </div>
-      <p>Light sleep preserves BLE and application state. Active sensors can still wake the CPU for their scheduled work.</p>
+      <p>Frequency changes apply immediately and are restored at boot. Automatic light sleep is also stored, but the ESP-IDF Bluetooth controller prevents entry while BLE is running.</p>
     </section>
 
     <section id="rtc" class="sensor">

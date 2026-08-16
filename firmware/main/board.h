@@ -52,6 +52,7 @@
 #define BOARD_DISPLAY_D3            GPIO_NUM_45
 #define BOARD_DISPLAY_CS            GPIO_NUM_41
 #define BOARD_DISPLAY_RESET         GPIO_NUM_37
+#define BOARD_DISPLAY_TE            GPIO_NUM_6
 
 #define BOARD_DISPLAY_WIDTH         410
 #define BOARD_DISPLAY_HEIGHT        502

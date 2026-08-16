@@ -32,6 +32,10 @@
 #include "services/gatt/ble_svc_gatt.h"
 #include "screen_control.h"
 
+#ifndef CONFIG_PM_ENABLE
+#error "The BLE CPU-frequency and automatic light-sleep controls require CONFIG_PM_ENABLE"
+#endif
+
 #define RTC_CONTROL1_REGISTER 0x00
 #define RTC_SECONDS_REGISTER  0x04
 #define RTC_24_HOUR_BIT       5

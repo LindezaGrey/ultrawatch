@@ -24,7 +24,13 @@
 #include "cascadia_code_72.h"
 #include "screen_control.h"
 
+#ifndef CONFIG_SPIRAM
+#error "The cached window manager requires CONFIG_SPIRAM"
+#endif
+
 #define DISPLAY_BAND_ROWS 32
+#define DISPLAY_BUFFER_COUNT 2
+#define DISPLAY_TE_WAIT_US 50000
 #define CONTOUR_OUTER_INSET_PIXELS 13
 #define CONTOUR_WIDTH_PIXELS 3
 #define SAFE_CONTENT_INSET_PIXELS 16
@@ -35,9 +41,14 @@
 #define UI_EVENT_TOUCH   (1U << 1)
 #define UI_EVENT_ASSETS_READY (1U << 2)
 #define ICON_SIZE 48
-#define ICON_COUNT 11
-#define ICON_ATLAS_BYTES (ICON_COUNT * ICON_SIZE * ICON_SIZE * 2)
+#define LEGACY_ICON_COUNT 11
+#define ICON_COUNT 17
+#define ICON_TILE_BYTES (ICON_SIZE * ICON_SIZE * 2)
+#define LEGACY_ICON_ATLAS_BYTES (LEGACY_ICON_COUNT * ICON_TILE_BYTES)
+#define ICON_ATLAS_BYTES (ICON_COUNT * ICON_TILE_BYTES)
 #define ICON_ATLAS_PATH "/sdcard/ultrawatch/ui/icons.rgb565"
+#define DISPLAY_FRAME_BYTES \
+    (BOARD_DISPLAY_WIDTH * BOARD_DISPLAY_HEIGHT * sizeof(uint16_t))
 
 typedef enum {
     UI_WATCH,
@@ -58,6 +69,12 @@ typedef enum {
     ICON_MUSIC,
     ICON_MESSAGES,
     ICON_RINGS,
+    ICON_BLE_OFF,
+    ICON_BLE_ON,
+    ICON_BATTERY_EMPTY,
+    ICON_BATTERY_LOW,
+    ICON_BATTERY_MEDIUM,
+    ICON_BATTERY_FULL,
 } icon_id_t;
 
 typedef struct {
@@ -80,15 +97,38 @@ typedef struct {
     uint16_t y[4];
 } ui_input_mailbox_t;
 
+typedef struct {
+    char time[6];
+    char date[12];
+    char battery[5];
+    bool ble_enabled;
+} watch_values_t;
+
+typedef struct {
+    spi_transaction_t command;
+    spi_transaction_t color;
+    bool pending;
+} display_transfer_t;
+
 static const char *TAG = "window_manager";
 static spi_device_handle_t display_spi;
 static TaskHandle_t ui_task_handle;
 static TaskHandle_t bootstrap_task_handle;
-static uint16_t *band_pixels;
+static uint16_t *band_pixels[DISPLAY_BUFFER_COUNT];
+static display_transfer_t display_transfer;
 static uint8_t *icon_atlas;
+static size_t icon_atlas_tile_count;
+static uint16_t *watch_frame;
+static uint16_t *launcher_frame;
+static uint16_t *settings_frame;
 static volatile uint8_t display_brightness_percentage = 50;
+static bool panel_hidden = true;
 static volatile ui_screen_t active_screen = UI_WATCH;
 static bool consume_touch_until_up;
+static bool wake_restore_pending;
+static bool assets_refresh_pending;
+static bool settings_slider_dirty;
+static bool settings_ble_dirty;
 static TickType_t last_touch_tick;
 static int64_t button_down_us;
 static int16_t content_left[BOARD_DISPLAY_HEIGHT];
@@ -97,6 +137,13 @@ static int16_t contour_left[BOARD_DISPLAY_HEIGHT];
 static int16_t contour_right[BOARD_DISPLAY_HEIGHT];
 static portMUX_TYPE ui_input_lock = portMUX_INITIALIZER_UNLOCKED;
 static ui_input_mailbox_t ui_input;
+static watch_values_t displayed_watch_values;
+static bool displayed_watch_values_valid;
+static char displayed_launcher_battery[5];
+static bool displayed_launcher_ble_enabled;
+static uint8_t glyph_indices[128];
+
+static bool touch_is_button(ui_screen_t screen, uint16_t x, uint16_t y);
 
 static const display_init_command_t display_init_commands[] = {
     {0xFE, {0x00}, 0x01}, {0xC4, {0x80}, 0x01},
@@ -112,8 +159,8 @@ static const bubble_t launcher_bubbles[] = {
     {205, 92, 42, ICON_ACTIVITY}, {110, 143, 42, ICON_HEART},
     {300, 143, 42, ICON_SLEEP}, {73, 241, 42, ICON_WELLNESS},
     {337, 241, 42, ICON_WEATHER}, {111, 340, 42, ICON_MUSIC},
-    {299, 340, 42, ICON_MESSAGES}, {205, 385, 42, ICON_RINGS},
-    {205, 235, 70, ICON_CLOCK}, {82, 410, 30, ICON_SETTINGS},
+    {299, 340, 42, ICON_MESSAGES}, {205, 385, 42, ICON_SETTINGS},
+    {205, 235, 70, ICON_CLOCK},
 };
 
 static esp_err_t i2c_read_register(uint8_t address, uint8_t reg, uint8_t *value)
@@ -214,7 +261,7 @@ static esp_err_t display_command(uint8_t command, const uint8_t *parameters,
     return result;
 }
 
-esp_err_t screen_set_brightness(uint8_t percentage)
+static esp_err_t display_apply_brightness(uint8_t percentage)
 {
     if (percentage > 100) {
         return ESP_ERR_INVALID_ARG;
@@ -224,11 +271,20 @@ esp_err_t screen_set_brightness(uint8_t percentage)
     }
     const uint8_t panel_level =
         (uint8_t)(((unsigned)percentage * 255U + 50U) / 100U);
-    esp_err_t result = display_command(0x51, &panel_level, 1);
-    if (result == ESP_OK) {
-        display_brightness_percentage = percentage;
+    return display_command(0x51, &panel_level, 1);
+}
+
+esp_err_t screen_set_brightness(uint8_t percentage)
+{
+    if (percentage > 100) {
+        return ESP_ERR_INVALID_ARG;
     }
-    return result;
+    if (!panel_hidden) {
+        ESP_RETURN_ON_ERROR(display_apply_brightness(percentage), TAG,
+                            "display brightness update failed");
+    }
+    display_brightness_percentage = percentage;
+    return ESP_OK;
 }
 
 uint8_t screen_get_brightness(void)
@@ -270,6 +326,16 @@ void screen_handle_touch(screen_touch_event_t event, uint16_t x, uint16_t y)
     ui_input.x[event] = x;
     ui_input.y[event] = y;
     portEXIT_CRITICAL(&ui_input_lock);
+    if (event == SCREEN_TOUCH_DOWN && active_screen != UI_BLACK &&
+        !consume_touch_until_up &&
+        touch_is_button(active_screen, x, y)) {
+        button_down_us = esp_timer_get_time();
+        esp_err_t result = ble_haptic_click();
+        if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "UI haptic click failed: %s",
+                     esp_err_to_name(result));
+        }
+    }
     if (ui_task_handle != NULL) {
         xTaskNotify(ui_task_handle, UI_EVENT_TOUCH, eSetBits);
     }
@@ -280,10 +346,10 @@ static bool touch_is_button(ui_screen_t screen, uint16_t x, uint16_t y)
     return (screen == UI_WATCH && point_in_circle(x, y, 205, 410, 34)) ||
            (screen == UI_LAUNCHER &&
             (point_in_circle(x, y, 205, 235, 70) ||
-             point_in_circle(x, y, 82, 410, 30))) ||
+             point_in_circle(x, y, 205, 385, 42))) ||
            (screen == UI_SETTINGS &&
-            (point_in_circle(x, y, 205, 420, 34) ||
-             (x >= 70 && x <= 340 && y >= 270 && y <= 334)));
+            (point_in_circle(x, y, 205, 425, 44) ||
+             (x >= 42 && x <= 368 && y >= 245 && y <= 355)));
 }
 
 static bool process_touch_event(screen_touch_event_t event, uint16_t x,
@@ -297,24 +363,16 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
         return false;
     }
 
-    if (event == SCREEN_TOUCH_DOWN && touch_is_button(active_screen, x, y)) {
-        button_down_us = esp_timer_get_time();
-        esp_err_t result = ble_haptic_click();
-        if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
-            ESP_LOGW(TAG, "UI haptic click failed: %s",
-                     esp_err_to_name(result));
-        }
-    }
-
     if (active_screen == UI_SETTINGS &&
         (event == SCREEN_TOUCH_DOWN || event == SCREEN_TOUCH_MOVE) &&
-        y >= 155 && y <= 215) {
-        int clamped_x = x < 48 ? 48 : (x > 362 ? 362 : x);
-        uint8_t brightness = (uint8_t)(((clamped_x - 48) * 100 + 157) / 314);
+        y >= 120 && y <= 220) {
+        int clamped_x = x < 42 ? 42 : (x > 368 ? 368 : x);
+        uint8_t brightness = (uint8_t)(((clamped_x - 42) * 100 + 163) / 326);
         if (screen_set_brightness(brightness) != ESP_OK) {
             ESP_LOGW(TAG, "brightness update failed");
         }
-        return true;
+        settings_slider_dirty = true;
+        return false;
     }
     if (event != SCREEN_TOUCH_UP) {
         return false;
@@ -329,22 +387,22 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
         active_screen = UI_WATCH;
         changed = true;
     } else if (active_screen == UI_LAUNCHER &&
-               point_in_circle(x, y, 82, 410, 30)) {
+               point_in_circle(x, y, 205, 385, 42)) {
         active_screen = UI_SETTINGS;
         changed = true;
     } else if (active_screen == UI_SETTINGS &&
-               point_in_circle(x, y, 205, 420, 34)) {
+               point_in_circle(x, y, 205, 425, 44)) {
         active_screen = UI_LAUNCHER;
         changed = true;
     } else if (active_screen == UI_SETTINGS &&
-               x >= 70 && x <= 340 && y >= 270 && y <= 334) {
+               x >= 42 && x <= 368 && y >= 245 && y <= 355) {
         esp_err_t result = ble_rtc_set_advertising_enabled(
             !ble_rtc_advertising_enabled());
         if (result != ESP_OK) {
             ESP_LOGW(TAG, "BLE advertising update failed: %s",
                      esp_err_to_name(result));
         } else {
-            changed = true;
+            settings_ble_dirty = true;
         }
     }
     return changed;
@@ -364,7 +422,7 @@ static bool process_ui_input(void)
         if (active_screen == UI_BLACK) {
             active_screen = UI_WATCH;
             consume_touch_until_up = true;
-            changed = true;
+            wake_restore_pending = true;
         }
     }
     for (int event = SCREEN_TOUCH_DOWN; event <= SCREEN_TOUCH_UP; event++) {
@@ -397,6 +455,7 @@ static void initialize_display(void)
         .queue_size = 10,
     };
     ESP_ERROR_CHECK(gpio_set_direction(BOARD_DISPLAY_RESET, GPIO_MODE_OUTPUT));
+    ESP_ERROR_CHECK(gpio_set_direction(BOARD_DISPLAY_TE, GPIO_MODE_INPUT));
     ESP_ERROR_CHECK(gpio_set_level(BOARD_DISPLAY_RESET, 1));
     vTaskDelay(pdMS_TO_TICKS(200));
     ESP_ERROR_CHECK(gpio_set_level(BOARD_DISPLAY_RESET, 0));
@@ -407,19 +466,18 @@ static void initialize_display(void)
                                        SPI_DMA_CH_AUTO));
     ESP_ERROR_CHECK(spi_bus_add_device(BOARD_DISPLAY_SPI_HOST, &device,
                                        &display_spi));
-    for (int pass = 0; pass < 2; pass++) {
-        for (size_t i = 0; i < sizeof(display_init_commands) /
-                                sizeof(display_init_commands[0]); i++) {
-            const display_init_command_t *entry = &display_init_commands[i];
-            ESP_ERROR_CHECK(display_command(entry->command, entry->parameters,
-                                            entry->length & 0x1F));
-            if (entry->length & 0x80) {
-                vTaskDelay(pdMS_TO_TICKS(120));
-            }
+    for (size_t i = 0; i < sizeof(display_init_commands) /
+                            sizeof(display_init_commands[0]); i++) {
+        const display_init_command_t *entry = &display_init_commands[i];
+        ESP_ERROR_CHECK(display_command(entry->command, entry->parameters,
+                                        entry->length & 0x1F));
+        if (entry->length & 0x80) {
+            vTaskDelay(pdMS_TO_TICKS(120));
         }
     }
     ESP_ERROR_CHECK(display_command(0x36, &(uint8_t){0}, 1));
-    ESP_ERROR_CHECK(screen_set_brightness(display_brightness_percentage));
+    ESP_ERROR_CHECK(display_apply_brightness(0));
+    panel_hidden = true;
 }
 
 static bool pixel_is_safe_at_inset(int x, int y, int inset)
@@ -475,13 +533,6 @@ static bool pixel_is_safe_content(int x, int y)
            x >= content_left[y] && x <= content_right[y];
 }
 
-static bool pixel_is_contour(int x, int y)
-{
-    return y >= 0 && y < BOARD_DISPLAY_HEIGHT &&
-           x >= contour_left[y] && x <= contour_right[y] &&
-           !pixel_is_safe_content(x, y);
-}
-
 static void initialize_display_bounds(void)
 {
     for (int y = 0; y < BOARD_DISPLAY_HEIGHT; y++) {
@@ -531,9 +582,24 @@ static uint16_t wire_rgb565(uint8_t red, uint8_t green, uint8_t blue)
     return (uint16_t)((value >> 8) | (value << 8));
 }
 
-static void set_address_window(int y, int rows)
+static void wait_for_te_edge(void)
 {
-    const uint8_t columns[] = {0x00, 0x16, 0x01, 0xAF};
+    const int initial_level = gpio_get_level(BOARD_DISPLAY_TE);
+    const int64_t started_us = esp_timer_get_time();
+    while (gpio_get_level(BOARD_DISPLAY_TE) == initial_level &&
+           esp_timer_get_time() - started_us < DISPLAY_TE_WAIT_US) {
+        taskYIELD();
+    }
+}
+
+static void set_address_window(int x, int y, int width, int rows)
+{
+    const int start_x = x + BOARD_DISPLAY_COLUMN_OFFSET;
+    const int end_x = start_x + width - 1;
+    const uint8_t columns[] = {
+        (uint8_t)(start_x >> 8), (uint8_t)start_x,
+        (uint8_t)(end_x >> 8), (uint8_t)end_x,
+    };
     const int end_y = y + rows - 1;
     const uint8_t row_address[] = {
         (uint8_t)(y >> 8), (uint8_t)y,
@@ -543,52 +609,59 @@ static void set_address_window(int y, int rows)
     ESP_ERROR_CHECK(display_command(0x2B, row_address, sizeof(row_address)));
 }
 
-static void display_color_band(const uint16_t *pixels, size_t count)
+static void display_wait_for_transfer(void)
 {
-    const uint8_t wrapper[] = {0x32, 0x00, 0x2C, 0x00};
-    spi_transaction_t command = {
-        .flags = SPI_TRANS_CS_KEEP_ACTIVE,
-        .length = sizeof(wrapper) * 8, .tx_buffer = wrapper,
-    };
-    spi_transaction_t color = {
-        .flags = SPI_TRANS_MODE_QIO,
-        .length = count * 16, .tx_buffer = pixels,
-    };
-    ESP_ERROR_CHECK(spi_device_acquire_bus(display_spi, portMAX_DELAY));
-    ESP_ERROR_CHECK(spi_device_polling_transmit(display_spi, &command));
-    ESP_ERROR_CHECK(spi_device_polling_transmit(display_spi, &color));
+    if (!display_transfer.pending) {
+        return;
+    }
+    spi_transaction_t *completed;
+    ESP_ERROR_CHECK(spi_device_get_trans_result(display_spi, &completed,
+                                                portMAX_DELAY));
+    ESP_ERROR_CHECK(spi_device_get_trans_result(display_spi, &completed,
+                                                portMAX_DELAY));
     spi_device_release_bus(display_spi);
+    display_transfer.pending = false;
+}
+
+static void display_queue_color_band(const uint16_t *pixels, size_t count)
+{
+    static const uint8_t wrapper[] = {0x32, 0x00, 0x2C, 0x00};
+    memset(&display_transfer.command, 0, sizeof(display_transfer.command));
+    memset(&display_transfer.color, 0, sizeof(display_transfer.color));
+    display_transfer.command.flags = SPI_TRANS_CS_KEEP_ACTIVE;
+    display_transfer.command.length = sizeof(wrapper) * 8;
+    display_transfer.command.tx_buffer = wrapper;
+    display_transfer.color.flags = SPI_TRANS_MODE_QIO;
+    display_transfer.color.length = count * 16;
+    display_transfer.color.tx_buffer = pixels;
+    ESP_ERROR_CHECK(spi_device_acquire_bus(display_spi, portMAX_DELAY));
+    ESP_ERROR_CHECK(spi_device_queue_trans(display_spi,
+                                           &display_transfer.command,
+                                           portMAX_DELAY));
+    ESP_ERROR_CHECK(spi_device_queue_trans(display_spi,
+                                           &display_transfer.color,
+                                           portMAX_DELAY));
+    display_transfer.pending = true;
 }
 
 static int glyph_index(char character)
 {
-    for (int index = 0; index < CASCADIA_CODE_GLYPH_COUNT; index++) {
-        if (cascadia_code_characters[index] == character) {
-            return index;
-        }
+    unsigned value = (unsigned char)character;
+    if (value < sizeof(glyph_indices)) {
+        return glyph_indices[value];
     }
     return 0;
 }
 
-static bool text_pixel(const char *text, int start_x, int start_y,
-                       int divisor, int x, int y)
+static void initialize_glyph_indices(void)
 {
-    const int cell_width = (CASCADIA_CODE_CELL_WIDTH + divisor - 1) / divisor;
-    const int height = (CASCADIA_CODE_GLYPH_HEIGHT + divisor - 1) / divisor;
-    const int rx = x - start_x;
-    const int ry = y - start_y;
-    const size_t length = strlen(text);
-    if (rx < 0 || ry < 0 || rx >= (int)length * cell_width || ry >= height) {
-        return false;
+    memset(glyph_indices, 0, sizeof(glyph_indices));
+    for (int index = 0; index < CASCADIA_CODE_GLYPH_COUNT; index++) {
+        unsigned value = (unsigned char)cascadia_code_characters[index];
+        if (value < sizeof(glyph_indices)) {
+            glyph_indices[value] = (uint8_t)index;
+        }
     }
-    const int column = (rx % cell_width) * divisor;
-    const int row = ry * divisor;
-    if (column >= CASCADIA_CODE_CELL_WIDTH || row >= CASCADIA_CODE_GLYPH_HEIGHT) {
-        return false;
-    }
-    const uint8_t bits = cascadia_code_glyphs[glyph_index(text[rx / cell_width])]
-                                                [row][column / 8];
-    return (bits & (1U << (7 - column % 8))) != 0;
 }
 
 static int centered_text_x(const char *text, int divisor)
@@ -605,7 +678,7 @@ static uint16_t icon_pixel(icon_id_t icon, int center_x, int center_y,
     if (ix < 0 || iy < 0 || ix >= ICON_SIZE || iy >= ICON_SIZE) {
         return 0;
     }
-    if (icon_atlas != NULL) {
+    if (icon_atlas != NULL && (size_t)icon < icon_atlas_tile_count) {
         size_t offset = ((size_t)icon * ICON_SIZE * ICON_SIZE +
                          iy * ICON_SIZE + ix) * 2;
         if (icon_atlas[offset] == 0 && icon_atlas[offset + 1] == 0) {
@@ -635,6 +708,27 @@ static uint16_t icon_pixel(icon_id_t icon, int center_x, int center_y,
         if ((d2 >= 90 && d2 <= 200) ||
             ((abs(dx) <= 3 || abs(dy) <= 3) && d2 <= 300 && d2 >= 180)) {
             return wire_rgb565(95, 150, 255);
+        }
+    } else if (icon == ICON_BLE_OFF || icon == ICON_BLE_ON) {
+        const bool stem = abs(dx) <= 2 && abs(dy) <= 17;
+        const bool upper = abs(dy - dx + 2) <= 2 && dy <= 1 && dx >= -1;
+        const bool lower = abs(dy + dx - 2) <= 2 && dy >= -1 && dx >= -1;
+        const bool slash = icon == ICON_BLE_OFF && abs(dy - dx) <= 2;
+        if (stem || upper || lower || slash) {
+            return wire_rgb565(icon == ICON_BLE_ON ? 68 : 112,
+                               icon == ICON_BLE_ON ? 180 : 126,
+                               icon == ICON_BLE_ON ? 255 : 146);
+        }
+    } else if (icon >= ICON_BATTERY_EMPTY && icon <= ICON_BATTERY_FULL) {
+        const bool outline = abs(dx) >= 14 || abs(dy) >= 10;
+        const bool terminal = dx >= 18 && abs(dy) <= 5;
+        int level = (int)icon - (int)ICON_BATTERY_EMPTY;
+        int fill_right = -13 + level * 9;
+        const bool fill = dx >= -13 && dx <= fill_right && abs(dy) <= 8;
+        if ((outline && abs(dx) <= 17 && abs(dy) <= 12) || terminal || fill) {
+            return wire_rgb565(level == 0 ? 238 : 79,
+                               level == 0 ? 92 : 226,
+                               level == 0 ? 99 : 157);
         }
     }
     return 0;
@@ -674,165 +768,426 @@ static uint16_t glass_bubble_pixel(const bubble_t *bubble, int x, int y)
     return wire_rgb565(5, 30, 75);
 }
 
-static void read_watch_values(rtc_datetime_t *datetime, char time[6],
-                              char date[12], char battery[5])
+static void read_watch_values(watch_values_t *values)
 {
     static const char *weekdays[] = {"SO", "MO", "DI", "MI", "DO", "FR", "SA"};
     static const char *months[] = {
         "JAN", "FEB", "MRZ", "APR", "MAI", "JUN",
         "JUL", "AUG", "SEP", "OKT", "NOV", "DEZ",
     };
-    strcpy(time, "--:--");
-    strcpy(date, "-- -- ---");
-    strcpy(battery, "--%");
-    if (ble_rtc_get_datetime(datetime) == ESP_OK) {
-        snprintf(time, 6, "%02d:%02d", datetime->hour, datetime->minute);
-        snprintf(date, 12, "%s %02d %s", weekdays[datetime->weekday],
-                 datetime->day, months[datetime->month - 1]);
-    } else {
-        memset(datetime, 0, sizeof(*datetime));
+    rtc_datetime_t datetime;
+    strcpy(values->time, "--:--");
+    strcpy(values->date, "-- -- ---");
+    strcpy(values->battery, "--%");
+    values->ble_enabled = ble_rtc_advertising_enabled();
+    if (ble_rtc_get_datetime(&datetime) == ESP_OK) {
+        snprintf(values->time, sizeof(values->time), "%02d:%02d",
+                 datetime.hour, datetime.minute);
+        snprintf(values->date, sizeof(values->date), "%s %02d %s",
+                 weekdays[datetime.weekday], datetime.day,
+                 months[datetime.month - 1]);
     }
     char payload[24];
     unsigned percentage;
     if (ble_power_get_payload(payload, sizeof(payload)) == ESP_OK &&
         sscanf(payload, "%u,", &percentage) == 1 && percentage <= 100) {
-        snprintf(battery, 5, "%u%%", percentage);
+        snprintf(values->battery, sizeof(values->battery), "%u%%", percentage);
     }
 }
 
-static uint16_t render_watch_pixel(int x, int y, const char *time,
-                                   const char *date, const char *battery)
+static void frame_set_content(uint16_t *frame, int x, int y, uint16_t color)
 {
-    if (text_pixel(time, centered_text_x(time, 1), 174, 1, x, y)) {
-        return wire_rgb565(244, 248, 255);
+    if (x >= 0 && x < BOARD_DISPLAY_WIDTH && pixel_is_safe_content(x, y)) {
+        frame[y * BOARD_DISPLAY_WIDTH + x] = color;
     }
-    if (text_pixel(date, centered_text_x(date, 3), 265, 3, x, y)) {
-        return wire_rgb565(74, 137, 255);
-    }
-    bubble_t launcher = {205, 410, 34, ICON_LAUNCHER};
-    uint16_t color = glass_bubble_pixel(&launcher, x, y);
-    uint16_t icon = icon_pixel(ICON_LAUNCHER, 205, 410, x, y);
-    if (icon != 0) {
-        return icon;
-    }
-    if (color != 0) {
-        return color;
-    }
-    const char *ble = ble_rtc_advertising_enabled() ? "BLE AN" : "BLE AUS";
-    if (text_pixel(ble, 52, 450, 4, x, y) ||
-        text_pixel(battery, BOARD_DISPLAY_WIDTH - 52 -
-                   (int)strlen(battery) *
-                   ((CASCADIA_CODE_CELL_WIDTH + 3) / 4), 450, 4, x, y)) {
-        return wire_rgb565(170, 196, 230);
-    }
-    return 0;
 }
 
-static uint16_t render_launcher_pixel(int x, int y, const char *battery)
+static void clear_content_rect(uint16_t *frame, int x, int y,
+                               int width, int height)
 {
-    uint16_t color = 0;
-    if (((x * x + y * 7 + (x - y) * (x - y) / 8) % 43) < 2) {
-        color = wire_rgb565(2, 10, 24);
+    for (int py = y; py < y + height && py < BOARD_DISPLAY_HEIGHT; py++) {
+        for (int px = x; px < x + width && px < BOARD_DISPLAY_WIDTH; px++) {
+            frame_set_content(frame, px, py, 0);
+        }
     }
+}
+
+static void draw_text(uint16_t *frame, const char *text, int start_x,
+                      int start_y, int divisor, uint16_t color)
+{
+    const int cell_width = (CASCADIA_CODE_CELL_WIDTH + divisor - 1) / divisor;
+    const int height = (CASCADIA_CODE_GLYPH_HEIGHT + divisor - 1) / divisor;
+    for (size_t character = 0; text[character] != '\0'; character++) {
+        const uint8_t (*glyph)[(CASCADIA_CODE_CELL_WIDTH + 7) / 8] =
+            cascadia_code_glyphs[glyph_index(text[character])];
+        for (int py = 0; py < height; py++) {
+            const int source_y = py * divisor;
+            if (source_y >= CASCADIA_CODE_GLYPH_HEIGHT) {
+                continue;
+            }
+            for (int px = 0; px < cell_width; px++) {
+                const int source_x = px * divisor;
+                if (source_x >= CASCADIA_CODE_CELL_WIDTH) {
+                    continue;
+                }
+                if ((glyph[source_y][source_x / 8] &
+                     (1U << (7 - source_x % 8))) != 0) {
+                    frame_set_content(frame,
+                                      start_x + (int)character * cell_width + px,
+                                      start_y + py, color);
+                }
+            }
+        }
+    }
+}
+
+static int scaled_text_width(const char *text, int numerator, int denominator)
+{
+    const int cell_width =
+        (CASCADIA_CODE_CELL_WIDTH * numerator + denominator - 1) / denominator;
+    return (int)strlen(text) * cell_width;
+}
+
+static void draw_text_scaled(uint16_t *frame, const char *text, int start_x,
+                             int start_y, int numerator, int denominator,
+                             uint16_t color)
+{
+    const int cell_width =
+        (CASCADIA_CODE_CELL_WIDTH * numerator + denominator - 1) / denominator;
+    const int height =
+        (CASCADIA_CODE_GLYPH_HEIGHT * numerator + denominator - 1) /
+        denominator;
+    for (size_t character = 0; text[character] != '\0'; character++) {
+        const uint8_t (*glyph)[(CASCADIA_CODE_CELL_WIDTH + 7) / 8] =
+            cascadia_code_glyphs[glyph_index(text[character])];
+        for (int py = 0; py < height; py++) {
+            const int source_y = py * denominator / numerator;
+            for (int px = 0; px < cell_width; px++) {
+                const int source_x = px * denominator / numerator;
+                if (source_x < CASCADIA_CODE_CELL_WIDTH &&
+                    source_y < CASCADIA_CODE_GLYPH_HEIGHT &&
+                    (glyph[source_y][source_x / 8] &
+                     (1U << (7 - source_x % 8))) != 0) {
+                    frame_set_content(frame,
+                                      start_x + (int)character * cell_width + px,
+                                      start_y + py, color);
+                }
+            }
+        }
+    }
+}
+
+static icon_id_t battery_icon_for(const char *battery)
+{
+    unsigned percentage;
+    if (sscanf(battery, "%u%%", &percentage) != 1) {
+        return ICON_BATTERY_EMPTY;
+    }
+    if (percentage >= 75) {
+        return ICON_BATTERY_FULL;
+    }
+    if (percentage >= 40) {
+        return ICON_BATTERY_MEDIUM;
+    }
+    if (percentage >= 15) {
+        return ICON_BATTERY_LOW;
+    }
+    return ICON_BATTERY_EMPTY;
+}
+
+static void draw_contour(uint16_t *frame)
+{
+    const uint16_t color = wire_rgb565(24, 99, 255);
+    for (int y = 0; y < BOARD_DISPLAY_HEIGHT; y++) {
+        for (int x = contour_left[y]; x <= contour_right[y]; x++) {
+            if (!pixel_is_safe_content(x, y)) {
+                frame[y * BOARD_DISPLAY_WIDTH + x] = color;
+            }
+        }
+    }
+}
+
+static void draw_bubble(uint16_t *frame, const bubble_t *bubble)
+{
+    const int extent = bubble->radius + 4;
+    for (int y = bubble->y - extent; y <= bubble->y + extent; y++) {
+        for (int x = bubble->x - extent; x <= bubble->x + extent; x++) {
+            uint16_t color = glass_bubble_pixel(bubble, x, y);
+            if (color != 0) {
+                frame_set_content(frame, x, y, color);
+            }
+        }
+    }
+}
+
+static void draw_icon(uint16_t *frame, icon_id_t icon, int center_x,
+                      int center_y, int size)
+{
+    for (int y = center_y - size / 2; y < center_y + (size + 1) / 2; y++) {
+        for (int x = center_x - size / 2; x < center_x + (size + 1) / 2; x++) {
+            uint16_t color = size == ICON_SIZE
+                                 ? icon_pixel(icon, center_x, center_y, x, y)
+                                 : icon_pixel_sized(icon, center_x, center_y,
+                                                    size, x, y);
+            if (color != 0) {
+                frame_set_content(frame, x, y, color);
+            }
+        }
+    }
+}
+
+static void draw_watch_time(uint16_t *frame, const watch_values_t *values)
+{
+    clear_content_rect(frame, 20, 125, 370, 96);
+    const int width = scaled_text_width(values->time, 5, 3);
+    draw_text_scaled(frame, values->time, (BOARD_DISPLAY_WIDTH - width) / 2,
+                     132, 5, 3, wire_rgb565(244, 248, 255));
+}
+
+static void draw_watch_date(uint16_t *frame, const watch_values_t *values)
+{
+    clear_content_rect(frame, 70, 45, 270, 42);
+    draw_text(frame, values->date, centered_text_x(values->date, 2), 53, 2,
+              wire_rgb565(74, 137, 255));
+}
+
+static void draw_watch_launcher(uint16_t *frame)
+{
+    clear_content_rect(frame, 165, 370, 80, 80);
+    const bubble_t launcher = {205, 410, 34, ICON_LAUNCHER};
+    draw_bubble(frame, &launcher);
+    draw_icon(frame, ICON_LAUNCHER, 205, 410, ICON_SIZE);
+}
+
+static void draw_watch_status(uint16_t *frame, const watch_values_t *values)
+{
+    clear_content_rect(frame, 40, 390, 100, 40);
+    clear_content_rect(frame, 270, 390, 100, 40);
+    draw_icon(frame, values->ble_enabled ? ICON_BLE_ON : ICON_BLE_OFF,
+              70, 410, 36);
+    draw_icon(frame, battery_icon_for(values->battery), 315, 410, 36);
+    draw_text(frame, values->battery, 338, 403, 5,
+              wire_rgb565(170, 196, 230));
+}
+
+static void compose_watch_frame(uint16_t *frame,
+                                const watch_values_t *values)
+{
+    memset(frame, 0, BOARD_DISPLAY_WIDTH * BOARD_DISPLAY_HEIGHT *
+                     sizeof(*frame));
+    draw_watch_time(frame, values);
+    draw_watch_date(frame, values);
+    draw_watch_launcher(frame);
+    draw_watch_status(frame, values);
+    draw_contour(frame);
+}
+
+static void draw_launcher_background_region(uint16_t *frame, int start_x,
+                                            int start_y, int width, int height)
+{
+    for (int y = start_y; y < start_y + height && y < BOARD_DISPLAY_HEIGHT; y++) {
+        for (int x = start_x; x < start_x + width && x < BOARD_DISPLAY_WIDTH; x++) {
+            if (pixel_is_safe_content(x, y)) {
+                frame[y * BOARD_DISPLAY_WIDTH + x] =
+                    ((x * x + y * 7 + (x - y) * (x - y) / 8) % 43) < 2
+                        ? wire_rgb565(2, 10, 24) : 0;
+            }
+        }
+    }
+}
+
+static void draw_launcher_ble(uint16_t *frame, bool enabled)
+{
+    draw_launcher_background_region(frame, 42, 430, 56, 40);
+    draw_icon(frame, enabled ? ICON_BLE_ON : ICON_BLE_OFF, 70, 450, 36);
+}
+
+static void draw_launcher_battery(uint16_t *frame, const char *battery)
+{
+    draw_launcher_background_region(frame, 295, 430, 95, 40);
+    draw_icon(frame, battery_icon_for(battery), 315, 450, 36);
+    draw_text(frame, battery, 338, 443, 5, wire_rgb565(105, 238, 166));
+}
+
+static void compose_launcher_frame(uint16_t *frame,
+                                   const watch_values_t *values)
+{
+    memset(frame, 0, BOARD_DISPLAY_WIDTH * BOARD_DISPLAY_HEIGHT *
+                     sizeof(*frame));
+    draw_launcher_background_region(frame, 0, 0, BOARD_DISPLAY_WIDTH,
+                                    BOARD_DISPLAY_HEIGHT);
     for (size_t index = 0; index < sizeof(launcher_bubbles) /
                                       sizeof(launcher_bubbles[0]); index++) {
-        uint16_t bubble_color = glass_bubble_pixel(&launcher_bubbles[index], x, y);
-        if (bubble_color != 0) {
-            color = bubble_color;
-        }
-        uint16_t icon = launcher_bubbles[index].icon == ICON_CLOCK
-                            ? icon_pixel_sized(ICON_CLOCK,
-                                               launcher_bubbles[index].x,
-                                               launcher_bubbles[index].y,
-                                               72, x, y)
-                            : icon_pixel(launcher_bubbles[index].icon,
-                                         launcher_bubbles[index].x,
-                                         launcher_bubbles[index].y, x, y);
-        if (icon != 0) {
-            color = icon;
-        }
+        draw_bubble(frame, &launcher_bubbles[index]);
+        draw_icon(frame, launcher_bubbles[index].icon,
+                  launcher_bubbles[index].x, launcher_bubbles[index].y,
+                  launcher_bubbles[index].icon == ICON_CLOCK ? 72 : ICON_SIZE);
     }
-    if (text_pixel(battery, 346 -
-                   ((int)strlen(battery) * ((CASCADIA_CODE_CELL_WIDTH + 3) / 4)) / 2,
-                   430, 4, x, y)) {
-        color = wire_rgb565(105, 238, 166);
-    }
-    return color;
+    draw_launcher_ble(frame, values->ble_enabled);
+    draw_launcher_battery(frame, values->battery);
+    draw_contour(frame);
 }
 
-static uint16_t render_settings_pixel(int x, int y)
+static void draw_settings_slider(uint16_t *frame)
 {
-    if (text_pixel("EINSTELLUNGEN", centered_text_x("EINSTELLUNGEN", 3),
-                   70, 3, x, y) ||
-        text_pixel("HELLIGKEIT", 48, 125, 4, x, y)) {
-        return wire_rgb565(105, 160, 255);
-    }
-    if (y >= 180 && y <= 190 && x >= 48 && x <= 362) {
-        int position = 48 + screen_get_brightness() * 314 / 100;
-        return x <= position ? wire_rgb565(50, 133, 255)
-                             : wire_rgb565(34, 42, 58);
-    }
-    int position = 48 + screen_get_brightness() * 314 / 100;
-    if ((x - position) * (x - position) + (y - 185) * (y - 185) <= 144) {
-        return wire_rgb565(144, 196, 255);
-    }
-    if (x >= 70 && x <= 340 && y >= 270 && y <= 334) {
-        bool on = ble_rtc_advertising_enabled();
-        bool edge = x < 73 || x > 337 || y < 273 || y > 331;
-        if (edge) {
-            return on ? wire_rgb565(55, 151, 255) : wire_rgb565(70, 78, 92);
+    clear_content_rect(frame, 35, 120, 340, 104);
+    const int position = 42 + screen_get_brightness() * 326 / 100;
+    for (int y = 164; y <= 180; y++) {
+        for (int x = 42; x <= 368; x++) {
+            frame_set_content(frame, x, y,
+                              x <= position ? wire_rgb565(50, 133, 255)
+                                            : wire_rgb565(34, 42, 58));
         }
-        if (text_pixel(on ? "BLUETOOTH AN" : "BLUETOOTH AUS",
-                       centered_text_x(on ? "BLUETOOTH AN" : "BLUETOOTH AUS", 3),
-                       294, 3, x, y)) {
-            return wire_rgb565(240, 246, 255);
+    }
+    for (int y = 154; y <= 190; y++) {
+        for (int x = position - 18; x <= position + 18; x++) {
+            const int dx = x - position;
+            const int dy = y - 172;
+            if (dx * dx + dy * dy <= 324) {
+                frame_set_content(frame, x, y, wire_rgb565(144, 196, 255));
+            }
         }
-        return wire_rgb565(3, 18, on ? 48 : 22);
     }
-    bubble_t launcher = {205, 420, 34, ICON_LAUNCHER};
-    uint16_t icon = icon_pixel(ICON_LAUNCHER, 205, 420, x, y);
-    if (icon != 0) {
-        return icon;
-    }
-    return glass_bubble_pixel(&launcher, x, y);
 }
 
-static int64_t render_screen(ui_screen_t screen)
+static void draw_settings_ble(uint16_t *frame)
 {
-    int64_t started_us = esp_timer_get_time();
-    rtc_datetime_t datetime;
-    char time[6];
-    char date[12];
-    char battery[5];
-    read_watch_values(&datetime, time, date, battery);
-    for (int band_y = 0; band_y < BOARD_DISPLAY_HEIGHT;
-         band_y += DISPLAY_BAND_ROWS) {
-        int rows = BOARD_DISPLAY_HEIGHT - band_y;
+    clear_content_rect(frame, 40, 243, 330, 114);
+    const bool on = ble_rtc_advertising_enabled();
+    for (int y = 245; y <= 355; y++) {
+        for (int x = 42; x <= 368; x++) {
+            const bool edge = x < 46 || x > 364 || y < 249 || y > 351;
+            frame_set_content(frame, x, y,
+                              edge ? (on ? wire_rgb565(55, 151, 255)
+                                         : wire_rgb565(70, 78, 92))
+                                   : wire_rgb565(3, 18, on ? 48 : 22));
+        }
+    }
+    draw_icon(frame, on ? ICON_BLE_ON : ICON_BLE_OFF, 94, 300, 52);
+    const char *label = on ? "BLUETOOTH AN" : "BLUETOOTH AUS";
+    draw_text(frame, label, 137, 286, 3,
+              wire_rgb565(240, 246, 255));
+}
+
+static void compose_settings_frame(uint16_t *frame)
+{
+    memset(frame, 0, BOARD_DISPLAY_WIDTH * BOARD_DISPLAY_HEIGHT *
+                     sizeof(*frame));
+    draw_text(frame, "EINSTELLUNGEN", centered_text_x("EINSTELLUNGEN", 3),
+              48, 3, wire_rgb565(105, 160, 255));
+    draw_text(frame, "HELLIGKEIT", 42, 104, 4,
+              wire_rgb565(105, 160, 255));
+    draw_settings_slider(frame);
+    draw_settings_ble(frame);
+    const bubble_t launcher = {205, 425, 44, ICON_LAUNCHER};
+    draw_bubble(frame, &launcher);
+    draw_icon(frame, ICON_LAUNCHER, 205, 425, 58);
+    draw_contour(frame);
+}
+
+static void display_frame_region(const uint16_t *frame, int x, int y,
+                                 int width, int height, bool synchronize)
+{
+    if (synchronize) {
+        wait_for_te_edge();
+    }
+    int buffer_index = 0;
+    for (int band_y = y; band_y < y + height; band_y += DISPLAY_BAND_ROWS) {
+        int rows = y + height - band_y;
         if (rows > DISPLAY_BAND_ROWS) {
             rows = DISPLAY_BAND_ROWS;
         }
         for (int row = 0; row < rows; row++) {
-            int y = band_y + row;
-            for (int x = 0; x < BOARD_DISPLAY_WIDTH; x++) {
-                uint16_t color = 0;
-                if (screen != UI_BLACK && pixel_is_safe_content(x, y)) {
-                    if (screen == UI_WATCH) {
-                        color = render_watch_pixel(x, y, time, date, battery);
-                    } else if (screen == UI_LAUNCHER) {
-                        color = render_launcher_pixel(x, y, battery);
-                    } else if (screen == UI_SETTINGS) {
-                        color = render_settings_pixel(x, y);
-                    }
-                }
-                if (screen != UI_BLACK && pixel_is_contour(x, y)) {
-                    color = wire_rgb565(24, 99, 255);
-                }
-                band_pixels[row * BOARD_DISPLAY_WIDTH + x] = color;
-            }
+            memcpy(&band_pixels[buffer_index][row * width],
+                   &frame[(band_y + row) * BOARD_DISPLAY_WIDTH + x],
+                   width * sizeof(uint16_t));
         }
-        set_address_window(band_y, rows);
-        display_color_band(band_pixels, BOARD_DISPLAY_WIDTH * rows);
+        display_wait_for_transfer();
+        set_address_window(x, band_y, width, rows);
+        display_queue_color_band(band_pixels[buffer_index], width * rows);
+        buffer_index = (buffer_index + 1) % DISPLAY_BUFFER_COUNT;
     }
+    display_wait_for_transfer();
+}
+
+static void update_watch_cache(bool transfer_changes)
+{
+    watch_values_t values;
+    read_watch_values(&values);
+    const bool time_changed = !displayed_watch_values_valid ||
+        strcmp(values.time, displayed_watch_values.time) != 0;
+    const bool date_changed = !displayed_watch_values_valid ||
+        strcmp(values.date, displayed_watch_values.date) != 0;
+    const bool status_changed = !displayed_watch_values_valid ||
+        strcmp(values.battery, displayed_watch_values.battery) != 0 ||
+        values.ble_enabled != displayed_watch_values.ble_enabled;
+
+    if (time_changed) {
+        draw_watch_time(watch_frame, &values);
+        if (transfer_changes) {
+            display_frame_region(watch_frame, 20, 125, 370, 96, false);
+        }
+    }
+    if (date_changed) {
+        draw_watch_date(watch_frame, &values);
+        if (transfer_changes) {
+            display_frame_region(watch_frame, 70, 45, 270, 42, false);
+        }
+    }
+    if (status_changed) {
+        draw_watch_status(watch_frame, &values);
+        if (transfer_changes) {
+            display_frame_region(watch_frame, 40, 390, 330, 40, false);
+        }
+    }
+    displayed_watch_values = values;
+    displayed_watch_values_valid = true;
+}
+
+static void update_launcher_cache(bool transfer_change)
+{
+    watch_values_t values;
+    read_watch_values(&values);
+    const bool ble_changed =
+        values.ble_enabled != displayed_launcher_ble_enabled;
+    const bool battery_changed =
+        strcmp(values.battery, displayed_launcher_battery) != 0;
+    if (ble_changed) {
+        draw_launcher_ble(launcher_frame, values.ble_enabled);
+        displayed_launcher_ble_enabled = values.ble_enabled;
+        if (transfer_change) {
+            display_frame_region(launcher_frame, 42, 430, 56, 40, false);
+        }
+    }
+    if (battery_changed) {
+        draw_launcher_battery(launcher_frame, values.battery);
+        strcpy(displayed_launcher_battery, values.battery);
+        if (transfer_change) {
+            display_frame_region(launcher_frame, 295, 430, 95, 40, false);
+        }
+    }
+}
+
+static int64_t present_screen(ui_screen_t screen)
+{
+    const int64_t started_us = esp_timer_get_time();
+    ESP_ERROR_CHECK(display_apply_brightness(0));
+    panel_hidden = true;
+    const uint16_t *frame = watch_frame;
+    if (screen == UI_WATCH) {
+        update_watch_cache(false);
+    } else if (screen == UI_LAUNCHER) {
+        update_launcher_cache(false);
+        frame = launcher_frame;
+    } else if (screen == UI_SETTINGS) {
+        draw_settings_slider(settings_frame);
+        draw_settings_ble(settings_frame);
+        frame = settings_frame;
+    }
+    display_frame_region(frame, 0, 0, BOARD_DISPLAY_WIDTH,
+                         BOARD_DISPLAY_HEIGHT, true);
+    ESP_ERROR_CHECK(display_apply_brightness(display_brightness_percentage));
+    panel_hidden = false;
     return esp_timer_get_time() - started_us;
 }
 
@@ -845,11 +1200,38 @@ static TickType_t minute_wait_ticks(void)
     return pdMS_TO_TICKS(60000);
 }
 
+static void refresh_active_screen(void)
+{
+    if (panel_hidden || active_screen == UI_BLACK) {
+        return;
+    }
+    if (active_screen == UI_WATCH) {
+        update_watch_cache(true);
+    } else if (active_screen == UI_LAUNCHER) {
+        update_launcher_cache(true);
+    } else if (active_screen == UI_SETTINGS) {
+        draw_settings_slider(settings_frame);
+        draw_settings_ble(settings_frame);
+        display_frame_region(settings_frame, 35, 120, 340, 104, false);
+        display_frame_region(settings_frame, 40, 243, 330, 114, false);
+    }
+}
+
 static void ui_task(void *parameter)
 {
     (void)parameter;
     last_touch_tick = xTaskGetTickCount();
-    int64_t first_frame_us = render_screen(UI_WATCH);
+    watch_values_t initial_values;
+    read_watch_values(&initial_values);
+    int64_t first_frame_started_us = esp_timer_get_time();
+    compose_watch_frame(watch_frame, &initial_values);
+    displayed_watch_values = initial_values;
+    displayed_watch_values_valid = true;
+    display_frame_region(watch_frame, 0, 0, BOARD_DISPLAY_WIDTH,
+                         BOARD_DISPLAY_HEIGHT, false);
+    ESP_ERROR_CHECK(display_apply_brightness(display_brightness_percentage));
+    panel_hidden = false;
+    int64_t first_frame_us = esp_timer_get_time() - first_frame_started_us;
     ESP_LOGI(TAG, "first Watch frame rendered");
     ESP_LOGI(TAG, "Watch frame render: %lld ms", first_frame_us / 1000);
     xTaskNotifyGive(bootstrap_task_handle);
@@ -858,35 +1240,72 @@ static void ui_task(void *parameter)
         xTaskNotifyWait(0, UINT32_MAX, &bootstrap_events, portMAX_DELAY);
     } while ((bootstrap_events & UI_EVENT_ASSETS_READY) == 0);
 
-    bool render_pending = true;
+    if (assets_refresh_pending) {
+        draw_watch_launcher(watch_frame);
+        draw_watch_status(watch_frame, &displayed_watch_values);
+        display_frame_region(watch_frame, 165, 370, 80, 80, false);
+        display_frame_region(watch_frame, 40, 390, 330, 40, false);
+        assets_refresh_pending = false;
+    }
+    bool refresh_pending = true;
     for (;;) {
-        render_pending |= process_ui_input();
+        bool navigation_pending = process_ui_input();
+        if (wake_restore_pending) {
+            update_watch_cache(true);
+            ESP_ERROR_CHECK(display_apply_brightness(
+                display_brightness_percentage));
+            panel_hidden = false;
+            wake_restore_pending = false;
+            refresh_pending = false;
+            ESP_LOGI(TAG, "Watch restored after touch");
+        }
+        if (navigation_pending) {
+            ui_screen_t screen = active_screen;
+            int64_t render_us = present_screen(screen);
+            if (button_down_us != 0) {
+                int64_t response_us = esp_timer_get_time() - button_down_us;
+                ESP_LOGI(TAG, "UI response: %lld ms total, %lld ms presenting",
+                         response_us / 1000, render_us / 1000);
+                button_down_us = 0;
+            }
+            refresh_pending = false;
+        }
+        if (settings_slider_dirty && active_screen == UI_SETTINGS &&
+            !panel_hidden) {
+            draw_settings_slider(settings_frame);
+            display_frame_region(settings_frame, 35, 120, 340, 104, false);
+            settings_slider_dirty = false;
+        }
+        if (settings_ble_dirty && active_screen == UI_SETTINGS &&
+            !panel_hidden) {
+            draw_settings_ble(settings_frame);
+            display_frame_region(settings_frame, 40, 243, 330, 114, false);
+            settings_ble_dirty = false;
+        }
+        if (refresh_pending) {
+            refresh_active_screen();
+            refresh_pending = false;
+        }
+
         TickType_t now = xTaskGetTickCount();
         TickType_t elapsed = now - last_touch_tick;
         if (active_screen != UI_BLACK && elapsed >= SCREEN_IDLE_TICKS) {
+            ui_screen_t previous_screen = active_screen;
+            ESP_ERROR_CHECK(display_apply_brightness(0));
+            panel_hidden = true;
+            update_watch_cache(previous_screen == UI_WATCH);
+            if (previous_screen != UI_WATCH) {
+                display_frame_region(watch_frame, 0, 0, BOARD_DISPLAY_WIDTH,
+                                     BOARD_DISPLAY_HEIGHT, false);
+            }
             active_screen = UI_BLACK;
-            render_screen(UI_BLACK);
-            render_pending = false;
             button_down_us = 0;
+            ESP_LOGI(TAG, "display black; Watch staged for wake");
         }
         if (active_screen == UI_BLACK) {
             uint32_t events;
             xTaskNotifyWait(0, UINT32_MAX, &events, portMAX_DELAY);
             continue;
-        }
-
-        if (render_pending) {
-            ui_screen_t screen = active_screen;
-            int64_t render_us = render_screen(screen);
-            if (button_down_us != 0) {
-                int64_t response_us = esp_timer_get_time() - button_down_us;
-                ESP_LOGI(TAG, "UI response: %lld ms total, %lld ms rendering",
-                         response_us / 1000, render_us / 1000);
-                button_down_us = 0;
-            } else {
-                ESP_LOGD(TAG, "UI frame render: %lld ms", render_us / 1000);
-            }
-            render_pending = false;
         }
         now = xTaskGetTickCount();
         elapsed = now - last_touch_tick;
@@ -897,7 +1316,7 @@ static void ui_task(void *parameter)
         uint32_t events = 0;
         if (xTaskNotifyWait(0, UINT32_MAX, &events, wait) == pdFALSE ||
             (events & UI_EVENT_REFRESH) != 0) {
-            render_pending = true;
+            refresh_pending = true;
         }
     }
 }
@@ -1007,16 +1426,20 @@ static void load_icon_atlas_from_sd(void)
                    fseek(file, 0, SEEK_SET) != 0) {
             ESP_LOGW(TAG, "cannot determine atlas size: errno=%d (%s)",
                      errno, strerror(errno));
-        } else if (file_size != ICON_ATLAS_BYTES) {
-            ESP_LOGW(TAG, "atlas is %ld bytes; expected %u", file_size,
-                     ICON_ATLAS_BYTES);
+        } else if (file_size != ICON_ATLAS_BYTES &&
+                   file_size != LEGACY_ICON_ATLAS_BYTES) {
+            ESP_LOGW(TAG, "atlas is %ld bytes; expected %u or legacy %u",
+                     file_size, ICON_ATLAS_BYTES, LEGACY_ICON_ATLAS_BYTES);
         } else {
             uint8_t *candidate = heap_caps_malloc(
-                ICON_ATLAS_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+                (size_t)file_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
             if (candidate != NULL &&
-                fread(candidate, 1, ICON_ATLAS_BYTES, file) == ICON_ATLAS_BYTES) {
+                fread(candidate, 1, (size_t)file_size, file) ==
+                    (size_t)file_size) {
                 icon_atlas = candidate;
-                ESP_LOGI(TAG, "loaded %u-byte UI icon atlas", ICON_ATLAS_BYTES);
+                icon_atlas_tile_count = (size_t)file_size / ICON_TILE_BYTES;
+                ESP_LOGI(TAG, "loaded %ld-byte UI icon atlas (%u tiles)",
+                         file_size, (unsigned)icon_atlas_tile_count);
             } else {
                 free(candidate);
                 ESP_LOGW(TAG, "UI icon atlas read failed; using fallback symbols");
@@ -1030,6 +1453,7 @@ static void load_icon_atlas_from_sd(void)
             ESP_LOGW(TAG, "SD unmount failed: %s", esp_err_to_name(unmount));
             free(icon_atlas);
             icon_atlas = NULL;
+            icon_atlas_tile_count = 0;
         }
     } else {
         ESP_LOGW(TAG, "SD mount skipped/failed: %s", esp_err_to_name(result));
@@ -1048,10 +1472,23 @@ void app_main(void)
     enable_display_power();
     initialize_display();
     initialize_display_bounds();
-    band_pixels = heap_caps_malloc(
-        BOARD_DISPLAY_WIDTH * DISPLAY_BAND_ROWS * sizeof(*band_pixels),
-        MALLOC_CAP_DMA);
-    ESP_ERROR_CHECK(band_pixels == NULL ? ESP_ERR_NO_MEM : ESP_OK);
+    initialize_glyph_indices();
+    for (int index = 0; index < DISPLAY_BUFFER_COUNT; index++) {
+        band_pixels[index] = heap_caps_malloc(
+            BOARD_DISPLAY_WIDTH * DISPLAY_BAND_ROWS *
+                sizeof(*band_pixels[index]),
+            MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+        ESP_ERROR_CHECK(band_pixels[index] == NULL ? ESP_ERR_NO_MEM : ESP_OK);
+    }
+    watch_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
+                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    launcher_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    settings_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    ESP_ERROR_CHECK(watch_frame == NULL || launcher_frame == NULL ||
+                            settings_frame == NULL
+                        ? ESP_ERR_NO_MEM : ESP_OK);
 
     bootstrap_task_handle = xTaskGetCurrentTaskHandle();
     BaseType_t task_result = xTaskCreate(ui_task, "ui", 6144, NULL, 4,
@@ -1059,6 +1496,14 @@ void app_main(void)
     ESP_ERROR_CHECK(task_result == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     load_icon_atlas_from_sd();
+    watch_values_t cached_values;
+    read_watch_values(&cached_values);
+    draw_watch_launcher(watch_frame);
+    compose_launcher_frame(launcher_frame, &cached_values);
+    strcpy(displayed_launcher_battery, cached_values.battery);
+    displayed_launcher_ble_enabled = cached_values.ble_enabled;
+    compose_settings_frame(settings_frame);
+    assets_refresh_pending = icon_atlas != NULL;
     xTaskNotify(ui_task_handle, UI_EVENT_ASSETS_READY, eSetBits);
     ESP_ERROR_CHECK(ble_rtc_start());
 }

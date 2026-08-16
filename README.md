@@ -154,12 +154,22 @@ python3 firmware/tools/generate_cascadia_font.py \
 ## SD-card UI assets
 
 Copy the contents of `firmware/sdcard/` to the root of a FAT32 card. The watch
-expects `/ultrawatch/ui/icons.rgb565`, an exact 50,688-byte, row-major atlas of
-eleven 48 x 48 RGB565 tiles in display byte order. The tile order is launcher,
-clock, settings, activity, heart, sleep, wellness, weather, music, messages,
-and rings. The ready-to-copy atlas, original generated/chroma-key PNGs,
+expects `/ultrawatch/ui/icons.rgb565`, an exact 78,336-byte, row-major atlas of
+seventeen 48 x 48 RGB565 tiles in display byte order. The tile order is
+launcher, clock, settings, activity, heart, sleep, wellness, weather, music,
+messages, rings, BLE off, BLE on, and four battery states from empty to full.
+The ready-to-copy atlas, original generated/chroma-key PNGs,
 alpha-normalized source PNGs, 48 x 48 tiles, and QA contact sheet are retained
 under `firmware/`.
+Firmware also accepts the previous 50,688-byte, 11-tile atlas. In that case,
+it draws the new BLE and battery symbols with built-in procedural fallbacks.
+
+The BLE and battery variants are deterministic. Regenerate their transparent
+source PNGs before rebuilding the atlas:
+
+```sh
+python3 firmware/tools/create_status_icons.py firmware/assets/ui/sources
+```
 
 To reproduce the atlas after generating new flat-background source art, first
 remove each chroma key with the ImageGen helper, then run:
