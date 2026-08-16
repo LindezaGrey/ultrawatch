@@ -4,15 +4,18 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 #include "board.h"
 #include "bhy2.h"
 #include "bhy2_parse.h"
 #include "driver/i2c.h"
+#include "driver/i2s_std.h"
 #include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_pm.h"
 #include "esp_rom_sys.h"
 #include "esp_sleep.h"
@@ -20,6 +23,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "gps.h"
+#include "hal/gpio_ll.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
 #include "host/ble_uuid.h"
@@ -37,9 +41,16 @@
 #endif
 
 #define RTC_CONTROL1_REGISTER 0x00
+#define RTC_CONTROL2_REGISTER 0x01
 #define RTC_SECONDS_REGISTER  0x04
+#define RTC_ALARM_SECONDS_REGISTER 0x0b
 #define RTC_24_HOUR_BIT       5
 #define RTC_OSCILLATOR_STOP   7
+#define RTC_ALARM_FLAG_BIT    6
+#define RTC_ALARM_ENABLE_BIT  7
+#define RTC_MINUTE_INTERRUPT_BIT 5
+#define RTC_HALF_MINUTE_INTERRUPT_BIT 4
+#define RTC_TIMER_FLAG_BIT 3
 #define RTC_PAYLOAD_LENGTH    19
 #define POWER_PAYLOAD_MAX_LENGTH 20
 #define POWER_CONFIG_PAYLOAD_MAX_LENGTH 20
@@ -54,6 +65,7 @@
 #define HAPTIC_COMMAND_PAYLOAD_LENGTH 2
 #define SENSOR_CONTROL_PAYLOAD_LENGTH 2
 #define SYSTEM_POWER_PAYLOAD_LENGTH 3
+#define ALARM_PAYLOAD_LENGTH 3
 
 #define SENSOR_IMU_BIT   (1U << 0)
 #define SENSOR_GPS_BIT   (1U << 1)
@@ -67,6 +79,16 @@
 #define SYSTEM_POWER_NVS_SLEEP_KEY "light_sleep"
 #define SYSTEM_POWER_DEFAULT_MAX_MHZ 160
 #define SYSTEM_POWER_MIN_MHZ 40
+
+#define ALARM_NVS_NAMESPACE "alarm"
+#define ALARM_NVS_KEY "cfg_minimal"
+#define ALARM_AUDIO_SAMPLE_RATE 16000
+#define ALARM_TONE_HZ 880
+#define ALARM_TONE_MS 170
+#define ALARM_GAP_MS 130
+#define ALARM_BEEPS_PER_CYCLE 3
+#define ALARM_CYCLE_PAUSE_MS 1100
+#define ALARM_HAPTIC_EFFECT 47
 
 #define DRV2605_STATUS_REGISTER       0x00
 #define DRV2605_MODE_REGISTER         0x01
@@ -172,6 +194,11 @@ static const ble_uuid128_t system_power_characteristic_uuid =
         0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
         0x6c, 0x4b, 0x1e, 0x7a, 0x0b, 0x00, 0x1e, 0x7a);
 
+/* 7a1e000c-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t alarm_characteristic_uuid = BLE_UUID128_INIT(
+    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+    0x6c, 0x4b, 0x1e, 0x7a, 0x0c, 0x00, 0x1e, 0x7a);
+
 typedef struct {
     unsigned charge_current_ma;
     unsigned input_current_ma;
@@ -217,14 +244,24 @@ static TaskHandle_t gps_control_task_handle;
 static TaskHandle_t touch_control_task_handle;
 static TaskHandle_t touch_task_handle;
 static TaskHandle_t power_button_task_handle;
+static TaskHandle_t alarm_task_handle;
 static uint16_t system_power_max_mhz = SYSTEM_POWER_DEFAULT_MAX_MHZ;
 static bool system_power_light_sleep = true;
 static volatile bool advertising_enabled = true;
+static alarm_config_t alarm_config = {.hour = 7, .minute = 0, .enabled = false};
+static volatile bool alarm_ringing;
+static i2s_chan_handle_t alarm_audio_tx;
+static bool alarm_audio_ready;
 
 extern const uint8_t
     bhi260_firmware_start[] asm("_binary_BHI260AP_fw_start");
 extern const uint8_t
     bhi260_firmware_end[] asm("_binary_BHI260AP_fw_end");
+
+static esp_err_t rtc_read_registers(uint8_t reg, uint8_t *data,
+                                    size_t length);
+static esp_err_t rtc_write_registers(uint8_t reg, const uint8_t *data,
+                                     size_t length);
 
 static uint8_t decimal_to_bcd(int value)
 {
@@ -420,6 +457,344 @@ static esp_err_t sensor_rail_set(uint8_t voltage_register,
                                BOARD_AXP2101_LDO_ENABLE, &ldo_enable, 1);
 }
 
+static esp_err_t alarm_config_store(void)
+{
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(ALARM_NVS_NAMESPACE, NVS_READWRITE, &handle),
+                        TAG, "alarm preference open failed");
+    esp_err_t result = nvs_set_blob(handle, ALARM_NVS_KEY, &alarm_config,
+                                    sizeof(alarm_config));
+    if (result == ESP_OK) {
+        result = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return result;
+}
+
+static esp_err_t alarm_config_load(void)
+{
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(ALARM_NVS_NAMESPACE, NVS_READWRITE, &handle),
+                        TAG, "alarm preference open failed");
+    alarm_config_t stored;
+    size_t length = sizeof(stored);
+    esp_err_t result = nvs_get_blob(handle, ALARM_NVS_KEY, &stored, &length);
+    nvs_close(handle);
+    if (result == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    if (result != ESP_OK) {
+        return result;
+    }
+    if (length != sizeof(stored) || stored.hour > 23 || stored.minute > 59) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    alarm_config = stored;
+    return ESP_OK;
+}
+
+static esp_err_t alarm_rtc_apply(void)
+{
+    uint8_t control2;
+    ESP_RETURN_ON_ERROR(rtc_read_registers(RTC_CONTROL2_REGISTER, &control2, 1),
+                        TAG, "RTC alarm control read failed");
+    control2 &= ~((1U << RTC_ALARM_FLAG_BIT) |
+                  (1U << RTC_MINUTE_INTERRUPT_BIT) |
+                  (1U << RTC_HALF_MINUTE_INTERRUPT_BIT) |
+                  (1U << RTC_TIMER_FLAG_BIT));
+    if (alarm_config.enabled) {
+        const uint8_t alarm_registers[] = {
+            decimal_to_bcd(0), decimal_to_bcd(alarm_config.minute),
+            decimal_to_bcd(alarm_config.hour), 0x80, 0x80,
+        };
+        ESP_RETURN_ON_ERROR(rtc_write_registers(RTC_ALARM_SECONDS_REGISTER,
+                                                alarm_registers,
+                                                sizeof(alarm_registers)),
+                            TAG, "RTC alarm time write failed");
+        control2 |= 1U << RTC_ALARM_ENABLE_BIT;
+    } else {
+        control2 &= ~(1U << RTC_ALARM_ENABLE_BIT);
+    }
+    return rtc_write_registers(RTC_CONTROL2_REGISTER, &control2, 1);
+}
+
+static esp_err_t alarm_audio_initialize(void)
+{
+    i2s_chan_config_t channel = I2S_CHANNEL_DEFAULT_CONFIG(
+        I2S_NUM_1, I2S_ROLE_MASTER);
+    channel.dma_desc_num = 6;
+    channel.dma_frame_num = 240;
+    channel.auto_clear = true;
+    ESP_RETURN_ON_ERROR(i2s_new_channel(&channel, &alarm_audio_tx, NULL), TAG,
+                        "alarm I2S channel allocation failed");
+    i2s_std_config_t standard = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(ALARM_AUDIO_SAMPLE_RATE),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
+            I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {
+            .mclk = I2S_GPIO_UNUSED,
+            .bclk = BOARD_AUDIO_BCLK,
+            .ws = BOARD_AUDIO_WCLK,
+            .dout = BOARD_AUDIO_DOUT,
+            .din = I2S_GPIO_UNUSED,
+            .invert_flags = {
+                .mclk_inv = false,
+                .bclk_inv = false,
+                .ws_inv = false,
+            },
+        },
+    };
+    ESP_RETURN_ON_ERROR(i2s_channel_init_std_mode(alarm_audio_tx, &standard),
+                        TAG, "alarm I2S mode setup failed");
+    ESP_RETURN_ON_ERROR(i2s_channel_enable(alarm_audio_tx), TAG,
+                        "alarm I2S enable failed");
+    alarm_audio_ready = true;
+    ESP_LOGI(TAG, "alarm audio ready on I2S1 (BCLK %d, WCLK %d, DOUT %d)",
+             BOARD_AUDIO_BCLK, BOARD_AUDIO_WCLK, BOARD_AUDIO_DOUT);
+    return ESP_OK;
+}
+
+static void alarm_fill_beep(int16_t *samples, size_t sample_count)
+{
+    const size_t tone_samples =
+        ALARM_AUDIO_SAMPLE_RATE * ALARM_TONE_MS / 1000;
+    const size_t edge_samples = ALARM_AUDIO_SAMPLE_RATE * 12 / 1000;
+    for (size_t index = 0; index < sample_count; index++) {
+        if (index >= tone_samples) {
+            samples[index] = 0;
+            continue;
+        }
+        float envelope = 1.0f;
+        if (index < edge_samples) {
+            envelope = (float)index / (float)edge_samples;
+        } else if (index + edge_samples > tone_samples) {
+            envelope = (float)(tone_samples - index) / (float)edge_samples;
+        }
+        samples[index] = (int16_t)(sinf(2.0f * 3.14159265f *
+                                           ALARM_TONE_HZ * index /
+                                           ALARM_AUDIO_SAMPLE_RATE) *
+                                   3276.0f * envelope);
+    }
+}
+
+static esp_err_t alarm_audio_write(const int16_t *samples, size_t count)
+{
+    if (!alarm_audio_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    size_t written = 0;
+    ESP_RETURN_ON_ERROR(i2s_channel_write(alarm_audio_tx, samples,
+                                          count * sizeof(*samples), &written,
+                                          portMAX_DELAY),
+                        TAG, "alarm audio write failed");
+    return written == count * sizeof(*samples) ? ESP_OK : ESP_FAIL;
+}
+
+static void IRAM_ATTR alarm_interrupt_handler(void *argument)
+{
+    (void)argument;
+    /* The PCF85063A keeps INT low until AF is cleared. Mask its GPIO source
+     * before waking the task, or the level wake condition can starve CPU0. */
+    gpio_ll_intr_disable(GPIO_LL_GET_HW(0), BOARD_RTC_INTERRUPT);
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    if (alarm_task_handle != NULL) {
+        vTaskNotifyGiveFromISR(alarm_task_handle, &higher_priority_task_woken);
+    }
+    portYIELD_FROM_ISR(higher_priority_task_woken);
+}
+
+static bool alarm_take_rtc_flag(void)
+{
+    uint8_t control2;
+    if (rtc_read_registers(RTC_CONTROL2_REGISTER, &control2, 1) != ESP_OK) {
+        return false;
+    }
+    const bool alarm_flag =
+        (control2 & (1U << RTC_ALARM_FLAG_BIT)) != 0;
+    control2 &= ~((1U << RTC_ALARM_FLAG_BIT) |
+                  (1U << RTC_MINUTE_INTERRUPT_BIT) |
+                  (1U << RTC_HALF_MINUTE_INTERRUPT_BIT) |
+                  (1U << RTC_TIMER_FLAG_BIT));
+    if (rtc_write_registers(RTC_CONTROL2_REGISTER, &control2, 1) != ESP_OK) {
+        return false;
+    }
+    return alarm_flag && alarm_config.enabled;
+}
+
+static void alarm_task(void *parameter)
+{
+    (void)parameter;
+    const size_t unit_samples =
+        ALARM_AUDIO_SAMPLE_RATE * (ALARM_TONE_MS + ALARM_GAP_MS) / 1000;
+    int16_t *unit = heap_caps_malloc(unit_samples * sizeof(*unit),
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (unit != NULL) {
+        alarm_fill_beep(unit, unit_samples);
+    }
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        const bool alarm_triggered = alarm_take_rtc_flag();
+        esp_rom_delay_us(100);
+        if (gpio_get_level(BOARD_RTC_INTERRUPT) == 1) {
+            ESP_ERROR_CHECK_WITHOUT_ABORT(
+                gpio_intr_enable(BOARD_RTC_INTERRUPT));
+        } else {
+            ESP_LOGE(TAG, "RTC interrupt remained low after flag clear");
+        }
+        if (!alarm_triggered || alarm_ringing) {
+            continue;
+        }
+        alarm_ringing = true;
+        screen_alarm_ring_started();
+        ESP_LOGI(TAG, "alarm ringing at %02u:%02u with sound and vibration",
+                 alarm_config.hour, alarm_config.minute);
+        esp_err_t power_result = sensor_rail_set(
+            BOARD_AXP2101_BLDO2_VOLTAGE, 28, BOARD_AXP2101_BLDO2_BIT, true);
+        if (power_result != ESP_OK) {
+            ESP_LOGE(TAG, "alarm speaker power failed: %s",
+                     esp_err_to_name(power_result));
+        }
+        while (alarm_ringing) {
+            for (int beep = 0;
+                 beep < ALARM_BEEPS_PER_CYCLE && alarm_ringing; beep++) {
+                esp_err_t haptic_result = drv2605_play(ALARM_HAPTIC_EFFECT, 1);
+                if (haptic_result != ESP_OK) {
+                    ESP_LOGW(TAG, "alarm vibration failed: %s",
+                             esp_err_to_name(haptic_result));
+                }
+                if (unit != NULL && power_result == ESP_OK) {
+                    esp_err_t audio_result = alarm_audio_write(unit, unit_samples);
+                    if (audio_result != ESP_OK) {
+                        ESP_LOGW(TAG, "alarm sound failed: %s",
+                                 esp_err_to_name(audio_result));
+                    }
+                } else {
+                    vTaskDelay(pdMS_TO_TICKS(ALARM_TONE_MS + ALARM_GAP_MS));
+                }
+            }
+            for (int elapsed = 0;
+                 elapsed < ALARM_CYCLE_PAUSE_MS && alarm_ringing;
+                 elapsed += 100) {
+                vTaskDelay(pdMS_TO_TICKS(100));
+            }
+        }
+        drv2605_stop();
+        ESP_ERROR_CHECK_WITHOUT_ABORT(sensor_rail_set(
+            BOARD_AXP2101_BLDO2_VOLTAGE, 28, BOARD_AXP2101_BLDO2_BIT, false));
+        screen_request_refresh();
+        ESP_LOGI(TAG, "alarm dismissed");
+    }
+}
+
+static esp_err_t alarm_initialize(void)
+{
+    esp_err_t load_result = alarm_config_load();
+    if (load_result != ESP_OK) {
+        ESP_LOGW(TAG, "stored alarm unavailable; using 07:00 off: %s",
+                 esp_err_to_name(load_result));
+        alarm_config = (alarm_config_t){.hour = 7, .minute = 0,
+                                        .enabled = false};
+    }
+    ESP_RETURN_ON_ERROR(alarm_rtc_apply(), TAG, "RTC alarm setup failed");
+    esp_err_t audio_result = alarm_audio_initialize();
+    if (audio_result != ESP_OK) {
+        ESP_LOGE(TAG, "alarm sound initialization failed: %s",
+                 esp_err_to_name(audio_result));
+    }
+    ESP_ERROR_CHECK_WITHOUT_ABORT(sensor_rail_set(
+        BOARD_AXP2101_BLDO2_VOLTAGE, 28, BOARD_AXP2101_BLDO2_BIT, false));
+    if (xTaskCreate(alarm_task, "alarm", 4096, NULL, 6,
+                    &alarm_task_handle) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    gpio_config_t interrupt = {
+        .pin_bit_mask = 1ULL << BOARD_RTC_INTERRUPT,
+        .mode = GPIO_MODE_INPUT,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&interrupt), TAG,
+                        "RTC alarm interrupt GPIO setup failed");
+    /* GPIO interrupt configuration survives an ESP32-S3 software reset.
+     * Mask all shared wake sources before the first ISR-service install. A
+     * retained PMIC low-level source otherwise interrupts the allocator and
+     * causes an interrupt-watchdog reboot loop. */
+    gpio_dev_t *gpio_hw = GPIO_LL_GET_HW(0);
+    gpio_ll_intr_disable(gpio_hw, BOARD_RTC_INTERRUPT);
+    gpio_ll_intr_disable(gpio_hw, BOARD_TOUCH_INTERRUPT);
+    gpio_ll_intr_disable(gpio_hw, BOARD_PMU_INTERRUPT);
+    gpio_ll_clear_intr_status(gpio_hw,
+                              (1U << BOARD_RTC_INTERRUPT) |
+                                  (1U << BOARD_TOUCH_INTERRUPT) |
+                                  (1U << BOARD_PMU_INTERRUPT));
+    esp_err_t isr_result = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+    if (isr_result != ESP_OK && isr_result != ESP_ERR_INVALID_STATE) {
+        return isr_result;
+    }
+    ESP_RETURN_ON_ERROR(gpio_set_intr_type(BOARD_RTC_INTERRUPT,
+                                           GPIO_INTR_NEGEDGE),
+                        TAG, "RTC alarm interrupt type failed");
+    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(BOARD_RTC_INTERRUPT,
+                                             alarm_interrupt_handler, NULL),
+                        TAG, "RTC alarm interrupt handler failed");
+    ESP_RETURN_ON_ERROR(esp_sleep_enable_ext0_wakeup(BOARD_RTC_INTERRUPT, 0),
+                        TAG, "RTC alarm EXT0 wake source failed");
+    if (gpio_get_level(BOARD_RTC_INTERRUPT) == 0) {
+        xTaskNotifyGive(alarm_task_handle);
+    }
+    ESP_LOGI(TAG, "alarm %s at %02u:%02u",
+             alarm_config.enabled ? "enabled" : "disabled",
+             alarm_config.hour, alarm_config.minute);
+    screen_request_refresh();
+    return ESP_OK;
+}
+
+void ble_alarm_get_config(alarm_config_t *config)
+{
+    if (config != NULL) {
+        *config = alarm_config;
+    }
+}
+
+esp_err_t ble_alarm_set(uint8_t hour, uint8_t minute, bool enabled)
+{
+    if (hour > 23 || minute > 59) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const alarm_config_t previous = alarm_config;
+    alarm_config.hour = hour;
+    alarm_config.minute = minute;
+    alarm_config.enabled = enabled;
+    esp_err_t result = alarm_config_store();
+    if (result == ESP_OK) {
+        result = alarm_rtc_apply();
+    }
+    if (result != ESP_OK) {
+        alarm_config = previous;
+        ESP_ERROR_CHECK_WITHOUT_ABORT(alarm_config_store());
+        ESP_ERROR_CHECK_WITHOUT_ABORT(alarm_rtc_apply());
+        ESP_LOGE(TAG, "alarm update failed; restored prior setting: %s",
+                 esp_err_to_name(result));
+        return result;
+    }
+    ESP_LOGI(TAG, "alarm set: %s %02u:%02u, sound and vibration",
+             enabled ? "on" : "off", hour, minute);
+    screen_request_refresh();
+    return ESP_OK;
+}
+
+bool ble_alarm_is_ringing(void)
+{
+    return alarm_ringing;
+}
+
+esp_err_t ble_alarm_dismiss(void)
+{
+    alarm_ringing = false;
+    return ESP_OK;
+}
+
 static uint8_t sensor_ready_mask(void)
 {
     uint8_t mask = 0;
@@ -524,7 +899,12 @@ static esp_err_t system_power_load(void)
     if (!system_power_frequency_valid(frequency_mhz) || light_sleep > 1) {
         return ESP_ERR_INVALID_RESPONSE;
     }
-    return system_power_apply(frequency_mhz, light_sleep != 0);
+    /* Apply this only after all GPIO wake handlers are installed. Enabling
+     * automatic light sleep while the shared GPIO ISR is being allocated can
+     * leave the ESP32-S3 in a GPIO interrupt loop. */
+    system_power_max_mhz = frequency_mhz;
+    system_power_light_sleep = light_sleep != 0;
+    return ESP_OK;
 }
 
 static esp_err_t system_power_store(uint16_t frequency_mhz,
@@ -866,11 +1246,10 @@ static esp_err_t cst9217_initialize(void)
     ESP_RETURN_ON_ERROR(gpio_isr_handler_add(BOARD_TOUCH_INTERRUPT,
                                              touch_interrupt_handler, NULL),
                         TAG, "touch interrupt handler failed");
-    ESP_RETURN_ON_ERROR(gpio_wakeup_enable(BOARD_TOUCH_INTERRUPT,
-                                           GPIO_INTR_LOW_LEVEL),
-                        TAG, "touch wake source failed");
-    ESP_RETURN_ON_ERROR(esp_sleep_enable_gpio_wakeup(), TAG,
-                        "GPIO light-sleep wake failed");
+    ESP_RETURN_ON_ERROR(esp_sleep_enable_ext1_wakeup_io(
+                            1ULL << BOARD_TOUCH_INTERRUPT,
+                            ESP_EXT1_WAKEUP_ANY_LOW),
+                        TAG, "touch EXT1 wake source failed");
     ESP_RETURN_ON_ERROR(gpio_intr_enable(BOARD_TOUCH_INTERRUPT), TAG,
                         "touch interrupt enable failed");
     touch_ready = true;
@@ -887,7 +1266,7 @@ static esp_err_t cst9217_disable(void)
     touch_ready = false;
     gpio_intr_disable(BOARD_TOUCH_INTERRUPT);
     gpio_isr_handler_remove(BOARD_TOUCH_INTERRUPT);
-    gpio_wakeup_disable(BOARD_TOUCH_INTERRUPT);
+    esp_sleep_disable_ext1_wakeup_io(1ULL << BOARD_TOUCH_INTERRUPT);
     portENTER_CRITICAL(&touch_lock);
     touch_pressed = false;
     touch_event = TOUCH_EVENT_IDLE;
@@ -1679,6 +2058,41 @@ static int system_power_gatt_access(
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+static int alarm_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
+                             struct ble_gatt_access_ctxt *context, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+
+    if (context->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        alarm_config_t config;
+        ble_alarm_get_config(&config);
+        const uint8_t payload[ALARM_PAYLOAD_LENGTH] = {
+            config.hour, config.minute, config.enabled ? 1 : 0,
+        };
+        return os_mbuf_append(context->om, payload, sizeof(payload)) == 0
+                   ? 0
+                   : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (context->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t payload[ALARM_PAYLOAD_LENGTH];
+        uint16_t length = 0;
+        int result = ble_hs_mbuf_to_flat(context->om, payload,
+                                         sizeof(payload), &length);
+        if (result != 0 || length != sizeof(payload)) {
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        }
+        if (payload[0] > 23 || payload[1] > 59 || payload[2] > 1) {
+            return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+        }
+        return ble_alarm_set(payload[0], payload[1], payload[2] != 0) == ESP_OK
+                   ? 0
+                   : BLE_ATT_ERR_UNLIKELY;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 static const struct ble_gatt_svc_def rtc_gatt_services[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -1740,6 +2154,11 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
             {
                 .uuid = &system_power_characteristic_uuid.u,
                 .access_cb = system_power_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+            },
+            {
+                .uuid = &alarm_characteristic_uuid.u,
+                .access_cb = alarm_gatt_access,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
             },
             {0},
@@ -1870,7 +2289,7 @@ static void IRAM_ATTR power_button_interrupt_handler(void *argument)
 {
     (void)argument;
     BaseType_t higher_priority_task_woken = pdFALSE;
-    gpio_intr_disable(BOARD_PMU_INTERRUPT);
+    gpio_ll_intr_disable(GPIO_LL_GET_HW(0), BOARD_PMU_INTERRUPT);
     if (power_button_task_handle != NULL) {
         vTaskNotifyGiveFromISR(power_button_task_handle,
                                &higher_priority_task_woken);
@@ -1890,7 +2309,7 @@ static void power_button_task(void *parameter)
         if (result != ESP_OK) {
             ESP_LOGW(TAG, "PMIC interrupt status read failed: %s",
                      esp_err_to_name(result));
-            gpio_intr_enable(BOARD_PMU_INTERRUPT);
+            xTaskNotifyGive(power_button_task_handle);
             continue;
         }
         result = i2c_write_registers(BOARD_AXP2101_ADDR,
@@ -1916,7 +2335,11 @@ static void power_button_task(void *parameter)
             }
             long_press_seen = false;
         }
-        gpio_intr_enable(BOARD_PMU_INTERRUPT);
+        if (gpio_get_level(BOARD_PMU_INTERRUPT) == 1) {
+            gpio_intr_enable(BOARD_PMU_INTERRUPT);
+        } else {
+            xTaskNotifyGive(power_button_task_handle);
+        }
     }
 }
 
@@ -1927,7 +2350,7 @@ static esp_err_t power_button_initialize(void)
         .mode = GPIO_MODE_INPUT,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .pull_up_en = GPIO_PULLUP_ENABLE,
-        .intr_type = GPIO_INTR_LOW_LEVEL,
+        .intr_type = GPIO_INTR_NEGEDGE,
     };
     ESP_RETURN_ON_ERROR(gpio_config(&interrupt_config), TAG,
                         "PMIC interrupt GPIO setup failed");
@@ -1960,12 +2383,8 @@ static esp_err_t power_button_initialize(void)
                                              power_button_interrupt_handler,
                                              NULL),
                         TAG, "power-button interrupt handler failed");
-    ESP_RETURN_ON_ERROR(gpio_wakeup_enable(BOARD_PMU_INTERRUPT,
-                                           GPIO_INTR_LOW_LEVEL),
-                        TAG, "power-button wake source failed");
-    ESP_RETURN_ON_ERROR(esp_sleep_enable_gpio_wakeup(), TAG,
-                        "GPIO light-sleep wake failed");
-    return gpio_intr_enable(BOARD_PMU_INTERRUPT);
+    return esp_sleep_enable_ext1_wakeup_io(1ULL << BOARD_PMU_INTERRUPT,
+                                           ESP_EXT1_WAKEUP_ANY_LOW);
 }
 
 static void host_sync(void)
@@ -2281,6 +2700,8 @@ esp_err_t ble_rtc_start(void)
         ESP_LOGW(TAG, "haptic unavailable; other features remain active: %s",
                  esp_err_to_name(haptic_result));
     }
+    ESP_RETURN_ON_ERROR(alarm_initialize(), TAG,
+                        "alarm initialization failed");
 
     ESP_RETURN_ON_ERROR(nimble_port_init(), TAG, "NimBLE init failed");
     ble_svc_gap_init();
@@ -2313,6 +2734,9 @@ esp_err_t ble_rtc_start(void)
     }
     ESP_RETURN_ON_ERROR(power_button_initialize(), TAG,
                         "power-button initialization failed");
+    ESP_RETURN_ON_ERROR(system_power_apply(system_power_max_mhz,
+                                            system_power_light_sleep),
+                        TAG, "saved ESP32 power state apply failed");
     if (xTaskCreate(imu_control_task, "imu_control", 4096, NULL, 5,
                     &imu_control_task_handle) != pdPASS) {
         return ESP_ERR_NO_MEM;

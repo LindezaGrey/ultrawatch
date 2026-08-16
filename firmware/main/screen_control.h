@@ -22,5 +22,8 @@ void screen_request_refresh(void);
 /* Wake the black screen and restart its touch-inactivity deadline. */
 void screen_wake_from_touch(void);
 
+/* Wake the display and show the alarm scene when the RTC alarm fires. */
+void screen_alarm_ring_started(void);
+
 /* Route a CST9217 coordinate event into the window manager. */
 void screen_handle_touch(screen_touch_event_t event, uint16_t x, uint16_t y);

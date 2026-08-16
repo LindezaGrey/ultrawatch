@@ -33,6 +33,7 @@
     h2 { margin: 0; font-size: 1rem; font-weight: 600; }
     .tag { color: #777; font: .75rem ui-monospace, monospace; }
     .clock { margin: 1.4rem 0; white-space: nowrap; font: 600 clamp(1.35rem, 7vw, 2.8rem) ui-monospace, monospace; letter-spacing: -.07em; }
+    .alarm-time { max-width: 14rem; margin: 1rem 0; font: 600 2rem ui-monospace, monospace; }
     label { display: block; margin-bottom: .4rem; color: #bbb; font-size: .88rem; }
     input, select, button { border: 1px solid #444; border-radius: .45rem; background: #222; color: inherit; font: inherit; }
     input { width: 100%; padding: .7rem; }
@@ -104,6 +105,7 @@
         <a href="#sensorControl">Sensor power</a>
         <a href="#systemPower">ESP32 power</a>
         <a href="#rtc">RTC</a>
+        <a href="#alarm">Alarm</a>
         <a href="#power">Battery &amp; power</a>
         <a href="#imu">IMU</a>
         <a href="#screen">Screen</a>
@@ -204,6 +206,18 @@
         <button id="readTime" data-connected disabled>Read time</button>
         <button id="browserTime" data-connected disabled>Set browser time</button>
         <button id="writeTime" data-connected disabled>Set entered time</button>
+      </div>
+    </section>
+
+    <section id="alarm" class="sensor">
+      <header><h2>Alarm</h2><span class="tag">daily · persisted · 24 h</span></header>
+      <p>The alarm always uses sound and vibration.</p>
+      <label for="alarmTime">Alarm time</label>
+      <input id="alarmTime" class="alarm-time" type="time" step="60" value="07:00" data-connected disabled>
+      <label class="toggle"><input id="alarmEnabled" type="checkbox" data-connected disabled> Enabled</label>
+      <div class="buttons">
+        <button id="readAlarm" data-connected disabled>Read alarm</button>
+        <button id="writeAlarm" data-connected disabled>Apply alarm</button>
       </div>
     </section>
 
@@ -441,7 +455,8 @@
       gps: '7a1e0008-7a1e-4b6c-8d9e-001122334455',
       haptic: '7a1e0009-7a1e-4b6c-8d9e-001122334455',
       sensorControl: '7a1e000a-7a1e-4b6c-8d9e-001122334455',
-      systemPower: '7a1e000b-7a1e-4b6c-8d9e-001122334455'
+      systemPower: '7a1e000b-7a1e-4b6c-8d9e-001122334455',
+      alarm: '7a1e000c-7a1e-4b6c-8d9e-001122334455'
     };
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -460,7 +475,8 @@
       'sensorImu', 'sensorGps', 'sensorTouch', 'sensorImuState',
       'sensorGpsState', 'sensorTouchState', 'readSensorControl',
       'cpuFrequency', 'automaticLightSleep', 'readSystemPower',
-      'writeSystemPower'];
+      'writeSystemPower', 'alarmTime', 'alarmEnabled', 'readAlarm',
+      'writeAlarm'];
     const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
     let device = null;
@@ -470,6 +486,7 @@
     let sensorReadyMask = 0;
     let sensorWriteInProgress = false;
     let systemPowerWriteInProgress = false;
+    let alarmWriteInProgress = false;
 
     function setConnected(connected) {
       ui.dot.classList.toggle('connected', connected);
@@ -563,6 +580,18 @@
       }
       ui.cpuFrequency.value = String(frequency);
       ui.automaticLightSleep.checked = Boolean(lightSleep);
+    }
+
+    function showAlarm(dataView) {
+      if (dataView.byteLength !== 3) throw new Error('Unexpected alarm payload');
+      const hour = dataView.getUint8(0);
+      const minute = dataView.getUint8(1);
+      const enabled = dataView.getUint8(2);
+      if (hour > 23 || minute > 59 || enabled > 1) {
+        throw new Error('Alarm value outside valid range');
+      }
+      ui.alarmTime.value = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+      ui.alarmEnabled.checked = Boolean(enabled);
     }
 
     function showImu(dataView) {
@@ -709,6 +738,7 @@
         characteristics.haptic = await service.getCharacteristic(CHAR_UUID.haptic);
         characteristics.sensorControl = await service.getCharacteristic(CHAR_UUID.sensorControl);
         characteristics.systemPower = await service.getCharacteristic(CHAR_UUID.systemPower);
+        characteristics.alarm = await service.getCharacteristic(CHAR_UUID.alarm);
         characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
         characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
         characteristics.imu.addEventListener('characteristicvaluechanged', notificationHandler(showImu));
@@ -729,15 +759,16 @@
         const configReady = await readPowerConfig(false);
         const sensorControlReady = await readSensorControl(false);
         const systemPowerReady = await readSystemPower(false);
+        const alarmReady = await readAlarm(false);
         const imuReady = !(sensorEnabledMask & 0x01) || !(sensorReadyMask & 0x01) || await readImu(false);
         const screenReady = await readScreen(false);
         const touchReady = !(sensorEnabledMask & 0x04) || !(sensorReadyMask & 0x04) || await readTouch(false);
         const gpsReady = !(sensorEnabledMask & 0x02) || !(sensorReadyMask & 0x02) || await readGps(false);
         const hapticReady = await readHaptic(false);
         const sensorsStarting = Boolean(sensorEnabledMask & ~sensorReadyMask);
-        if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && imuReady && screenReady && touchReady && gpsReady && hapticReady && sensorsStarting) {
+        if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && alarmReady && imuReady && screenReady && touchReady && gpsReady && hapticReady && sensorsStarting) {
           ui.message.textContent = 'Core controls ready. Enabled sensors are starting.';
-        } else if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && imuReady && screenReady && touchReady && gpsReady && hapticReady) {
+        } else if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && alarmReady && imuReady && screenReady && touchReady && gpsReady && hapticReady) {
           ui.message.textContent = 'Live sensor updates enabled.';
         } else if (!rtcReady) {
           ui.message.textContent = 'RTC unavailable. Set the browser time first.';
@@ -749,6 +780,8 @@
           ui.message.textContent = 'Sensor power settings are currently unavailable.';
         } else if (!systemPowerReady) {
           ui.message.textContent = 'ESP32 power settings are currently unavailable.';
+        } else if (!alarmReady) {
+          ui.message.textContent = 'Alarm settings are currently unavailable.';
         } else if (!imuReady) {
           ui.message.textContent = 'IMU data is currently unavailable.';
         } else if (!screenReady) {
@@ -840,6 +873,51 @@
       } catch (error) {
         if (reportError) ui.message.textContent = `ESP32 power read failed: ${error.message}`;
         return false;
+      }
+    }
+
+    async function readAlarm(reportError = true) {
+      try {
+        showAlarm(await characteristics.alarm.readValue());
+        return true;
+      } catch (error) {
+        if (reportError) ui.message.textContent = `Alarm read failed: ${error.message}`;
+        return false;
+      }
+    }
+
+    async function writeAlarm() {
+      if (alarmWriteInProgress) return;
+      const match = /^(\d{2}):(\d{2})$/.exec(ui.alarmTime.value);
+      if (!match) {
+        ui.message.textContent = 'Enter an alarm time in 24-hour format.';
+        return;
+      }
+      const hour = Number(match[1]);
+      const minute = Number(match[2]);
+      alarmWriteInProgress = true;
+      ui.alarmTime.disabled = true;
+      ui.alarmEnabled.disabled = true;
+      ui.writeAlarm.disabled = true;
+      try {
+        const payload = Uint8Array.of(hour, minute, ui.alarmEnabled.checked ? 1 : 0);
+        if (characteristics.alarm.writeValueWithResponse) {
+          await characteristics.alarm.writeValueWithResponse(payload);
+        } else {
+          await characteristics.alarm.writeValue(payload);
+        }
+        await readAlarm(false);
+        ui.message.textContent = `Alarm ${payload[2] ? 'enabled' : 'disabled'} at ${ui.alarmTime.value}.`;
+      } catch (error) {
+        ui.message.textContent = `Alarm write failed: ${error.message}`;
+        await readAlarm(false);
+      } finally {
+        if (device?.gatt?.connected) {
+          ui.alarmTime.disabled = false;
+          ui.alarmEnabled.disabled = false;
+          ui.writeAlarm.disabled = false;
+        }
+        alarmWriteInProgress = false;
       }
     }
 
@@ -1012,6 +1090,8 @@
     ui.readSensorControl.addEventListener('click', readSensorControl);
     ui.readSystemPower.addEventListener('click', readSystemPower);
     ui.writeSystemPower.addEventListener('click', writeSystemPower);
+    ui.readAlarm.addEventListener('click', readAlarm);
+    ui.writeAlarm.addEventListener('click', writeAlarm);
     [ui.sensorImu, ui.sensorGps, ui.sensorTouch].forEach(toggle => {
       toggle.addEventListener('change', writeSensorControl);
     });

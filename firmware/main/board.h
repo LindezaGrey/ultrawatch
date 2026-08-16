@@ -33,11 +33,18 @@
 #define BOARD_XL9555_SD_DETECT_BIT   2
 
 #define BOARD_PCF85063_ADDR         0x51
+#define BOARD_RTC_INTERRUPT         GPIO_NUM_1
 #define BOARD_BHI260_ADDR           0x28
 #define BOARD_BHI260_INTERRUPT      GPIO_NUM_8
 #define BOARD_TOUCH_INTERRUPT       GPIO_NUM_12
 #define BOARD_CST9217_ADDR_PRIMARY  0x1a
 #define BOARD_DRV2605_ADDR          0x5a
+
+#define BOARD_AUDIO_BCLK            GPIO_NUM_9
+#define BOARD_AUDIO_WCLK            GPIO_NUM_10
+#define BOARD_AUDIO_DOUT            GPIO_NUM_11
+#define BOARD_AXP2101_BLDO2_VOLTAGE 0x97
+#define BOARD_AXP2101_BLDO2_BIT     5
 
 #define BOARD_GPS_UART              UART_NUM_1
 #define BOARD_GPS_TX                GPIO_NUM_43

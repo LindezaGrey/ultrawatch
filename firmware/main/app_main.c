@@ -47,6 +47,7 @@
 #define LEGACY_ICON_ATLAS_BYTES (LEGACY_ICON_COUNT * ICON_TILE_BYTES)
 #define ICON_ATLAS_BYTES (ICON_COUNT * ICON_TILE_BYTES)
 #define ICON_ATLAS_PATH "/sdcard/ultrawatch/ui/icons.rgb565"
+#define ALARM_ROLL_STEP_PIXELS 60
 #define DISPLAY_FRAME_BYTES \
     (BOARD_DISPLAY_WIDTH * BOARD_DISPLAY_HEIGHT * sizeof(uint16_t))
 
@@ -54,6 +55,7 @@ typedef enum {
     UI_WATCH,
     UI_LAUNCHER,
     UI_SETTINGS,
+    UI_ALARM,
     UI_BLACK,
 } ui_screen_t;
 
@@ -92,6 +94,7 @@ typedef struct {
 
 typedef struct {
     bool wake;
+    bool alarm_ring;
     bool pending[4];
     uint16_t x[4];
     uint16_t y[4];
@@ -102,6 +105,7 @@ typedef struct {
     char date[12];
     char battery[5];
     bool ble_enabled;
+    bool alarm_enabled;
 } watch_values_t;
 
 typedef struct {
@@ -121,6 +125,7 @@ static size_t icon_atlas_tile_count;
 static uint16_t *watch_frame;
 static uint16_t *launcher_frame;
 static uint16_t *settings_frame;
+static uint16_t *alarm_frame;
 static volatile uint8_t display_brightness_percentage = 50;
 static bool panel_hidden = true;
 static volatile ui_screen_t active_screen = UI_WATCH;
@@ -129,6 +134,13 @@ static bool wake_restore_pending;
 static bool assets_refresh_pending;
 static bool settings_slider_dirty;
 static bool settings_ble_dirty;
+static bool alarm_controls_dirty;
+static bool alarm_swipe_active;
+static bool alarm_swipe_hours;
+static bool alarm_swipe_changed;
+static int alarm_swipe_y;
+static alarm_config_t alarm_edit = {.hour = 7, .minute = 0,
+                                    .enabled = false};
 static TickType_t last_touch_tick;
 static int64_t button_down_us;
 static int16_t content_left[BOARD_DISPLAY_HEIGHT];
@@ -309,6 +321,16 @@ void screen_wake_from_touch(void)
     }
 }
 
+void screen_alarm_ring_started(void)
+{
+    portENTER_CRITICAL(&ui_input_lock);
+    ui_input.alarm_ring = true;
+    portEXIT_CRITICAL(&ui_input_lock);
+    if (ui_task_handle != NULL) {
+        xTaskNotify(ui_task_handle, UI_EVENT_REFRESH, eSetBits);
+    }
+}
+
 static bool point_in_circle(int x, int y, int center_x, int center_y, int radius)
 {
     const int dx = x - center_x;
@@ -346,10 +368,16 @@ static bool touch_is_button(ui_screen_t screen, uint16_t x, uint16_t y)
     return (screen == UI_WATCH && point_in_circle(x, y, 205, 410, 34)) ||
            (screen == UI_LAUNCHER &&
             (point_in_circle(x, y, 205, 235, 70) ||
-             point_in_circle(x, y, 205, 385, 42))) ||
+             point_in_circle(x, y, 205, 385, 42) ||
+             point_in_circle(x, y, 300, 143, 42))) ||
            (screen == UI_SETTINGS &&
             (point_in_circle(x, y, 205, 425, 44) ||
-             (x >= 42 && x <= 368 && y >= 245 && y <= 355)));
+             (x >= 42 && x <= 368 && y >= 245 && y <= 355))) ||
+           (screen == UI_ALARM &&
+            (ble_alarm_is_ringing()
+                 ? (x >= 55 && x <= 355 && y >= 292 && y <= 378)
+                 : (point_in_circle(x, y, 205, 430, 40) ||
+                    (x >= 70 && x <= 340 && y >= 295 && y <= 365))));
 }
 
 static bool process_touch_event(screen_touch_event_t event, uint16_t x,
@@ -374,7 +402,61 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
         settings_slider_dirty = true;
         return false;
     }
+    if (active_screen == UI_ALARM && !ble_alarm_is_ringing()) {
+        const bool in_hours = x >= 55 && x <= 195 && y >= 60 && y <= 260;
+        const bool in_minutes = x >= 215 && x <= 355 && y >= 60 && y <= 260;
+        if (event == SCREEN_TOUCH_DOWN && (in_hours || in_minutes)) {
+            alarm_swipe_active = true;
+            alarm_swipe_hours = in_hours;
+            alarm_swipe_changed = false;
+            alarm_swipe_y = y;
+            return false;
+        }
+        if (event == SCREEN_TOUCH_MOVE && alarm_swipe_active) {
+            int delta = (int)y - alarm_swipe_y;
+            int steps = 0;
+            while (delta <= -ALARM_ROLL_STEP_PIXELS) {
+                steps++;
+                delta += ALARM_ROLL_STEP_PIXELS;
+                alarm_swipe_y -= ALARM_ROLL_STEP_PIXELS;
+            }
+            while (delta >= ALARM_ROLL_STEP_PIXELS) {
+                steps--;
+                delta -= ALARM_ROLL_STEP_PIXELS;
+                alarm_swipe_y += ALARM_ROLL_STEP_PIXELS;
+            }
+            if (steps != 0) {
+                if (alarm_swipe_hours) {
+                    alarm_edit.hour =
+                        (uint8_t)((alarm_edit.hour + 24 + steps) % 24);
+                } else {
+                    alarm_edit.minute =
+                        (uint8_t)((alarm_edit.minute + 60 + steps) % 60);
+                }
+                alarm_swipe_changed = true;
+                alarm_controls_dirty = true;
+            }
+            return false;
+        }
+    }
     if (event != SCREEN_TOUCH_UP) {
+        return false;
+    }
+
+    if (active_screen == UI_ALARM && ble_alarm_is_ringing()) {
+        if (x >= 55 && x <= 355 && y >= 292 && y <= 378) {
+            ESP_ERROR_CHECK_WITHOUT_ABORT(ble_alarm_dismiss());
+            alarm_controls_dirty = true;
+        }
+        return false;
+    }
+    if (active_screen == UI_ALARM && alarm_swipe_active) {
+        alarm_swipe_active = false;
+        if (alarm_swipe_changed) {
+            ESP_ERROR_CHECK_WITHOUT_ABORT(ble_alarm_set(
+                alarm_edit.hour, alarm_edit.minute, alarm_edit.enabled));
+        }
+        alarm_swipe_changed = false;
         return false;
     }
 
@@ -390,6 +472,11 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
                point_in_circle(x, y, 205, 385, 42)) {
         active_screen = UI_SETTINGS;
         changed = true;
+    } else if (active_screen == UI_LAUNCHER &&
+               point_in_circle(x, y, 300, 143, 42)) {
+        ble_alarm_get_config(&alarm_edit);
+        active_screen = UI_ALARM;
+        changed = true;
     } else if (active_screen == UI_SETTINGS &&
                point_in_circle(x, y, 205, 425, 44)) {
         active_screen = UI_LAUNCHER;
@@ -404,6 +491,21 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
         } else {
             settings_ble_dirty = true;
         }
+    } else if (active_screen == UI_ALARM &&
+               point_in_circle(x, y, 205, 430, 40)) {
+        active_screen = UI_LAUNCHER;
+        changed = true;
+    } else if (active_screen == UI_ALARM &&
+               x >= 70 && x <= 340 && y >= 295 && y <= 365) {
+        alarm_edit.enabled = !alarm_edit.enabled;
+        esp_err_t result = ble_alarm_set(alarm_edit.hour, alarm_edit.minute,
+                                         alarm_edit.enabled);
+        if (result != ESP_OK) {
+            ESP_LOGW(TAG, "alarm toggle failed: %s", esp_err_to_name(result));
+            alarm_edit.enabled = !alarm_edit.enabled;
+        } else {
+            alarm_controls_dirty = true;
+        }
     }
     return changed;
 }
@@ -416,6 +518,15 @@ static bool process_ui_input(void)
     input = ui_input;
     memset(&ui_input, 0, sizeof(ui_input));
     portEXIT_CRITICAL(&ui_input_lock);
+
+    if (input.alarm_ring) {
+        ble_alarm_get_config(&alarm_edit);
+        active_screen = UI_ALARM;
+        consume_touch_until_up = false;
+        wake_restore_pending = false;
+        last_touch_tick = xTaskGetTickCount();
+        changed = true;
+    }
 
     if (input.wake) {
         last_touch_tick = xTaskGetTickCount();
@@ -780,6 +891,9 @@ static void read_watch_values(watch_values_t *values)
     strcpy(values->date, "-- -- ---");
     strcpy(values->battery, "--%");
     values->ble_enabled = ble_rtc_advertising_enabled();
+    alarm_config_t alarm;
+    ble_alarm_get_config(&alarm);
+    values->alarm_enabled = alarm.enabled;
     if (ble_rtc_get_datetime(&datetime) == ESP_OK) {
         snprintf(values->time, sizeof(values->time), "%02d:%02d",
                  datetime.hour, datetime.minute);
@@ -951,6 +1065,34 @@ static void draw_watch_date(uint16_t *frame, const watch_values_t *values)
               wire_rgb565(74, 137, 255));
 }
 
+static void draw_watch_alarm(uint16_t *frame, const watch_values_t *values)
+{
+    clear_content_rect(frame, 185, 230, 40, 40);
+    if (!values->alarm_enabled) {
+        return;
+    }
+    const int center_x = 205;
+    const int center_y = 250;
+    const uint16_t color = wire_rgb565(104, 174, 255);
+    for (int y = center_y - 14; y <= center_y + 14; y++) {
+        for (int x = center_x - 14; x <= center_x + 14; x++) {
+            const int dx = x - center_x;
+            const int dy = y - center_y;
+            const int distance = dx * dx + dy * dy;
+            const bool face = distance >= 72 && distance <= 110;
+            const bool hour_hand = abs(dx) <= 1 && dy >= -6 && dy <= 1;
+            const bool minute_hand = abs(dy) <= 1 && dx >= 0 && dx <= 6;
+            const bool bells = dy >= -13 && dy <= -10 &&
+                ((dx >= -10 && dx <= -4) || (dx >= 4 && dx <= 10));
+            const bool feet = dy >= 9 && dy <= 13 &&
+                ((dx >= -9 && dx <= -6) || (dx >= 6 && dx <= 9));
+            if (face || hour_hand || minute_hand || bells || feet) {
+                frame_set_content(frame, x, y, color);
+            }
+        }
+    }
+}
+
 static void draw_watch_launcher(uint16_t *frame)
 {
     clear_content_rect(frame, 165, 370, 80, 80);
@@ -977,6 +1119,7 @@ static void compose_watch_frame(uint16_t *frame,
                      sizeof(*frame));
     draw_watch_time(frame, values);
     draw_watch_date(frame, values);
+    draw_watch_alarm(frame, values);
     draw_watch_launcher(frame);
     draw_watch_status(frame, values);
     draw_contour(frame);
@@ -1085,6 +1228,115 @@ static void compose_settings_frame(uint16_t *frame)
     draw_contour(frame);
 }
 
+static void draw_alarm_toggle(uint16_t *frame)
+{
+    const uint16_t edge = alarm_edit.enabled
+                              ? wire_rgb565(55, 151, 255)
+                              : wire_rgb565(70, 78, 92);
+    const uint16_t fill = alarm_edit.enabled
+                              ? wire_rgb565(3, 24, 58)
+                              : wire_rgb565(8, 12, 20);
+    for (int y = 295; y <= 365; y++) {
+        for (int x = 70; x <= 340; x++) {
+            const bool border = x < 74 || x > 336 || y < 299 || y > 361;
+            frame_set_content(frame, x, y, border ? edge : fill);
+        }
+    }
+    draw_text(frame, "AKTIV", 96, 318, 3,
+              wire_rgb565(240, 246, 255));
+    const int switch_center = alarm_edit.enabled ? 302 : 270;
+    for (int y = 313; y <= 347; y++) {
+        for (int x = 250; x <= 322; x++) {
+            const bool track = (x >= 267 && x <= 305) ||
+                ((x - 267) * (x - 267) + (y - 330) * (y - 330) <= 289) ||
+                ((x - 305) * (x - 305) + (y - 330) * (y - 330) <= 289);
+            if (track) {
+                frame_set_content(frame, x, y,
+                                  alarm_edit.enabled
+                                      ? wire_rgb565(38, 126, 255)
+                                      : wire_rgb565(45, 52, 66));
+            }
+            if ((x - switch_center) * (x - switch_center) +
+                    (y - 330) * (y - 330) <= 169) {
+                frame_set_content(frame, x, y,
+                                  wire_rgb565(238, 246, 255));
+            }
+        }
+    }
+}
+
+static void draw_alarm_rolling_time(uint16_t *frame)
+{
+    char current_hour[4];
+    char current_minute[4];
+    char previous_hour[4];
+    char previous_minute[4];
+    char next_hour[4];
+    char next_minute[4];
+    snprintf(current_hour, sizeof(current_hour), "%02u", alarm_edit.hour);
+    snprintf(current_minute, sizeof(current_minute), "%02u", alarm_edit.minute);
+    snprintf(previous_hour, sizeof(previous_hour), "%02u",
+             (alarm_edit.hour + 23) % 24);
+    snprintf(previous_minute, sizeof(previous_minute), "%02u",
+             (alarm_edit.minute + 59) % 60);
+    snprintf(next_hour, sizeof(next_hour), "%02u",
+             (alarm_edit.hour + 1) % 24);
+    snprintf(next_minute, sizeof(next_minute), "%02u",
+             (alarm_edit.minute + 1) % 60);
+
+    for (int y = 112; y <= 188; y++) {
+        for (int x = 55; x <= 355; x++) {
+            if (y < 115 || y > 185) {
+                frame_set_content(frame, x, y, wire_rgb565(36, 92, 170));
+            } else if (x == 205) {
+                frame_set_content(frame, x, y, wire_rgb565(16, 47, 94));
+            }
+        }
+    }
+    const uint16_t adjacent = wire_rgb565(71, 105, 158);
+    draw_text(frame, previous_hour, 109, 65, 2, adjacent);
+    draw_text(frame, previous_minute, 259, 65, 2, adjacent);
+    draw_text(frame, current_hour, 88, 125, 1,
+              wire_rgb565(246, 249, 255));
+    draw_text(frame, ":", 184, 125, 1, wire_rgb565(81, 151, 255));
+    draw_text(frame, current_minute, 238, 125, 1,
+              wire_rgb565(246, 249, 255));
+    draw_text(frame, next_hour, 109, 218, 2, adjacent);
+    draw_text(frame, next_minute, 259, 218, 2, adjacent);
+}
+
+static void compose_alarm_frame(uint16_t *frame)
+{
+    memset(frame, 0, DISPLAY_FRAME_BYTES);
+    if (ble_alarm_is_ringing()) {
+        char time[8];
+        snprintf(time, sizeof(time), "%02u:%02u", alarm_edit.hour,
+                 alarm_edit.minute);
+        draw_text(frame, "ALARM", centered_text_x("ALARM", 2), 62, 2,
+                  wire_rgb565(255, 98, 108));
+        const int width = scaled_text_width(time, 5, 3);
+        draw_text_scaled(frame, time, (BOARD_DISPLAY_WIDTH - width) / 2,
+                         135, 5, 3, wire_rgb565(250, 250, 255));
+        for (int y = 292; y <= 378; y++) {
+            for (int x = 55; x <= 355; x++) {
+                const bool border = x < 60 || x > 350 || y < 297 || y > 373;
+                frame_set_content(frame, x, y,
+                                  border ? wire_rgb565(255, 82, 96)
+                                         : wire_rgb565(58, 5, 14));
+            }
+        }
+        draw_text(frame, "STOP", centered_text_x("STOP", 2), 322, 2,
+                  wire_rgb565(255, 244, 246));
+    } else {
+        draw_alarm_rolling_time(frame);
+        draw_alarm_toggle(frame);
+        const bubble_t launcher = {205, 430, 40, ICON_LAUNCHER};
+        draw_bubble(frame, &launcher);
+        draw_icon(frame, ICON_LAUNCHER, 205, 430, 52);
+    }
+    draw_contour(frame);
+}
+
 static void display_frame_region(const uint16_t *frame, int x, int y,
                                  int width, int height, bool synchronize)
 {
@@ -1118,6 +1370,8 @@ static void update_watch_cache(bool transfer_changes)
         strcmp(values.time, displayed_watch_values.time) != 0;
     const bool date_changed = !displayed_watch_values_valid ||
         strcmp(values.date, displayed_watch_values.date) != 0;
+    const bool alarm_changed = !displayed_watch_values_valid ||
+        values.alarm_enabled != displayed_watch_values.alarm_enabled;
     const bool status_changed = !displayed_watch_values_valid ||
         strcmp(values.battery, displayed_watch_values.battery) != 0 ||
         values.ble_enabled != displayed_watch_values.ble_enabled;
@@ -1132,6 +1386,12 @@ static void update_watch_cache(bool transfer_changes)
         draw_watch_date(watch_frame, &values);
         if (transfer_changes) {
             display_frame_region(watch_frame, 70, 45, 270, 42, false);
+        }
+    }
+    if (alarm_changed) {
+        draw_watch_alarm(watch_frame, &values);
+        if (transfer_changes) {
+            display_frame_region(watch_frame, 185, 230, 40, 40, false);
         }
     }
     if (status_changed) {
@@ -1183,6 +1443,9 @@ static int64_t present_screen(ui_screen_t screen)
         draw_settings_slider(settings_frame);
         draw_settings_ble(settings_frame);
         frame = settings_frame;
+    } else if (screen == UI_ALARM) {
+        compose_alarm_frame(alarm_frame);
+        frame = alarm_frame;
     }
     display_frame_region(frame, 0, 0, BOARD_DISPLAY_WIDTH,
                          BOARD_DISPLAY_HEIGHT, true);
@@ -1214,6 +1477,13 @@ static void refresh_active_screen(void)
         draw_settings_ble(settings_frame);
         display_frame_region(settings_frame, 35, 120, 340, 104, false);
         display_frame_region(settings_frame, 40, 243, 330, 114, false);
+    } else if (active_screen == UI_ALARM) {
+        if (!alarm_swipe_active) {
+            ble_alarm_get_config(&alarm_edit);
+        }
+        compose_alarm_frame(alarm_frame);
+        display_frame_region(alarm_frame, 0, 0, BOARD_DISPLAY_WIDTH,
+                             BOARD_DISPLAY_HEIGHT, false);
     }
 }
 
@@ -1282,6 +1552,13 @@ static void ui_task(void *parameter)
             display_frame_region(settings_frame, 40, 243, 330, 114, false);
             settings_ble_dirty = false;
         }
+        if (alarm_controls_dirty && active_screen == UI_ALARM &&
+            !panel_hidden) {
+            compose_alarm_frame(alarm_frame);
+            display_frame_region(alarm_frame, 0, 0, BOARD_DISPLAY_WIDTH,
+                                 BOARD_DISPLAY_HEIGHT, false);
+            alarm_controls_dirty = false;
+        }
         if (refresh_pending) {
             refresh_active_screen();
             refresh_pending = false;
@@ -1289,7 +1566,8 @@ static void ui_task(void *parameter)
 
         TickType_t now = xTaskGetTickCount();
         TickType_t elapsed = now - last_touch_tick;
-        if (active_screen != UI_BLACK && elapsed >= SCREEN_IDLE_TICKS) {
+        if (active_screen != UI_BLACK && !ble_alarm_is_ringing() &&
+            elapsed >= SCREEN_IDLE_TICKS) {
             ui_screen_t previous_screen = active_screen;
             ESP_ERROR_CHECK(display_apply_brightness(0));
             panel_hidden = true;
@@ -1486,8 +1764,10 @@ void app_main(void)
                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     settings_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    alarm_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
+                                   MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     ESP_ERROR_CHECK(watch_frame == NULL || launcher_frame == NULL ||
-                            settings_frame == NULL
+                            settings_frame == NULL || alarm_frame == NULL
                         ? ESP_ERR_NO_MEM : ESP_OK);
 
     bootstrap_task_handle = xTaskGetCurrentTaskHandle();
@@ -1503,6 +1783,7 @@ void app_main(void)
     strcpy(displayed_launcher_battery, cached_values.battery);
     displayed_launcher_ble_enabled = cached_values.ble_enabled;
     compose_settings_frame(settings_frame);
+    compose_alarm_frame(alarm_frame);
     assets_refresh_pending = icon_atlas != NULL;
     xTaskNotify(ui_task_handle, UI_EVENT_ASSETS_READY, eSetBits);
     ESP_ERROR_CHECK(ble_rtc_start());
