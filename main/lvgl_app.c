@@ -76,6 +76,8 @@ static lv_obj_t *s_bhi_gesture_label;
 static lv_obj_t *s_daily_act_label[DAILY_ACT_COUNT];   /* today's per-activity minutes */
 static lv_obj_t *s_cube_line[12];                       /* GAMERV 3D wireframe cube */
 static lv_point_precise_t s_cube_pts[12][2];
+static lv_obj_t *s_axis_line[3];                        /* x/y/z origin pointer */
+static lv_point_precise_t s_axis_pts[3][2];
 
 /* GPS screen (skyplot + fix info). */
 static lv_obj_t *s_gps_screen;
@@ -718,8 +720,10 @@ static void bhi_cube_update(int16_t qx, int16_t qy, int16_t qz, int16_t qw)
     /* Rotation matrix from the quaternion (column-vector convention). */
     double r00 = 1 - 2 * (y * y + z * z), r01 = 2 * (x * y - w * z), r02 = 2 * (x * z + w * y);
     double r10 = 2 * (x * y + w * z), r11 = 1 - 2 * (x * x + z * z), r12 = 2 * (y * z - w * x);
+    double r20 = 2 * (x * z - w * y), r21 = 2 * (y * z + w * x), r22 = 1 - 2 * (x * x + y * y);
 
     const double S = 42.0;   /* half cube size in px */
+    const double A = 1.45;   /* axis length as a multiple of the half-size */
     const double cx = 300.0, cy = 135.0;   /* cube centre on screen */
 
     /* Unit cube corners (8). */
@@ -746,6 +750,22 @@ static void bhi_cube_update(int16_t qx, int16_t qy, int16_t qz, int16_t qw)
         s_cube_pts[e][1].x = (lv_coord_t)px[edges[e][1]];
         s_cube_pts[e][1].y = (lv_coord_t)py[edges[e][1]];
         lv_line_set_points(s_cube_line[e], s_cube_pts[e], 2);
+    }
+
+    /* Origin cross: rotated unit axes from the cube centre. Rows of the
+     * rotation matrix are the X/Y/Z axes in world x/y/z (orthographic: the
+     * axes use world X=row0, Y=row1, Z=row2 -> screen x/y). */
+    const double axes[3][3] = {
+        { r00, r01, r02 },   /* X */
+        { r10, r11, r12 },   /* Y */
+        { r20, r21, r22 },   /* Z */
+    };
+    for (int a = 0; a < 3; a++) {
+        s_axis_pts[a][0].x = (lv_coord_t)cx;
+        s_axis_pts[a][0].y = (lv_coord_t)cy;
+        s_axis_pts[a][1].x = (lv_coord_t)(cx + A * S * axes[a][0]);
+        s_axis_pts[a][1].y = (lv_coord_t)(cy + A * S * axes[a][1]);
+        lv_line_set_points(s_axis_line[a], s_axis_pts[a], 2);
     }
 }
 
@@ -848,6 +868,19 @@ static void lvgl_build_bhi_screen(void)
         lv_obj_set_style_line_color(ln, cube_col, 0);
         lv_obj_set_style_line_width(ln, 2, 0);
         s_cube_line[e] = ln;
+    }
+
+    /* Origin cross (x/y/z pointer) from the cube centre, RGB colors. */
+    const lv_color_t axis_col[3] = {
+        lv_color_hex(0xFF5252),   /* X red */
+        lv_color_hex(0x00E676),   /* Y green */
+        lv_color_hex(0x40C4FF),   /* Z blue */
+    };
+    for (int a = 0; a < 3; a++) {
+        lv_obj_t *al = lv_line_create(s_bhi_screen);
+        lv_obj_set_style_line_color(al, axis_col[a], 0);
+        lv_obj_set_style_line_width(al, 3, 0);
+        s_axis_line[a] = al;
     }
 
     /* Today's per-activity minutes, two compact columns to save height. */
