@@ -891,3 +891,30 @@ esp_err_t bhi260ap_set_sensor_rate(uint8_t id, float rate)
     int8_t rslt = bhy2_set_virt_sensor_cfg(id, rate, 0, &s_bhy2);
     return (rslt == BHY2_OK) ? ESP_OK : ESP_FAIL;
 }
+
+/* GNSS data-injection readiness probe. Reports whether the firmware exposes
+ * the GPS virtual sensor and accepts real-time sensor-data injection (which
+ * requires a firmware built with special injection drivers). Returns the raw
+ * bhy2 return code from the injection-mode switch (BHY2_OK=0 on success). */
+int8_t bhi260ap_gnss_inject_probe(void)
+{
+    if (!s_initialized) {
+        return BHY2_E_NULL_PTR;
+    }
+    /* present_buff holds the virtual-sensor presence bitmap; also check the
+     * physical GPS sensor id for the injectable input. */
+    uint8_t v_gps = bhy2_is_sensor_available(BHY2_SENSOR_ID_GPS, &s_bhy2);
+    uint8_t p_gps = bhy2_is_sensor_available(BHY2_PHYS_SENSOR_ID_GPS, &s_bhy2);
+    ESP_LOGI(TAG, "gnss probe: virtual_gps=%u physical_gps=%u",
+             (unsigned)v_gps, (unsigned)p_gps);
+
+    /* Try switching to real-time injection; a firmware without the injection
+     * drivers rejects this with a negative error code. Restore normal mode so
+     * the running sensor streams are not left in injection state. */
+    int8_t rslt = bhy2_set_data_injection_mode(BHY2_REAL_TIME_INJECTION, &s_bhy2);
+    ESP_LOGI(TAG, "gnss probe: set inject mode rslt=%d", (int)rslt);
+    if (rslt == BHY2_OK) {
+        bhy2_set_data_injection_mode(BHY2_NORMAL_MODE, &s_bhy2);
+    }
+    return rslt;
+}
