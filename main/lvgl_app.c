@@ -145,6 +145,7 @@ static void gps_save_enabled(bool on)
 /* Swipe detection at the input-device level (works regardless of widget). */
 #define SWIPE_DIST         60
 #define MENU_TIMEOUT_MS    5000   /* return to watch face after this idle */
+#define BHI_TIMEOUT_MS     10000  /* BHI screen keeps the cube up a bit longer */
 static lv_indev_t *s_touch_indev;
 static lv_point_t s_swipe_start;
 static bool s_swipe_active;
@@ -1766,17 +1767,21 @@ static void swipe_event_cb(lv_event_t *e)
 
 /* ---- Menu inactivity timeout ----
  * Any non-watch-face screen returns to the watch face after MENU_TIMEOUT_MS
- * without a touch. The BHI sensor and GPS screens are exempt: they are meant
- * for longer observation. */
+ * without a touch. The BHI sensor screen keeps its orientation cube up for
+ * BHI_TIMEOUT_MS (10 s); the GPS and alarm/ring screens are exempt (longer
+ * observation). */
 static void menu_timeout_cb(lv_timer_t *timer)
 {
     (void)timer;
     lv_obj_t *cur = lv_screen_active();
-    if (cur == s_watch_screen || cur == s_bhi_screen || cur == s_gps_screen ||
-        cur == s_alarm_screen || cur == s_ring_screen) {
+    if (cur == s_gps_screen || cur == s_alarm_screen || cur == s_ring_screen) {
         return;
     }
-    if (lv_tick_get() - s_last_touch_tick >= MENU_TIMEOUT_MS) {
+    if (cur == s_watch_screen) {
+        return;
+    }
+    uint32_t timeout = (cur == s_bhi_screen) ? BHI_TIMEOUT_MS : MENU_TIMEOUT_MS;
+    if (lv_tick_get() - s_last_touch_tick >= timeout) {
         lvgl_show_watch_face();
     }
 }
