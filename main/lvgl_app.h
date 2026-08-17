@@ -36,6 +36,9 @@ void lvgl_gps_set_enabled(bool on);
 void lvgl_tracking_start(void);
 void lvgl_tracking_stop(void);
 
+/* Load the BHI260AP status screen (with the GAMERV orientation cube). */
+void lvgl_show_bhi_screen(void);
+
 #ifdef __cplusplus
 }
 #endif

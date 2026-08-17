@@ -574,6 +574,9 @@ static void debug_process_cmd(const char *cmd)
     } else if (strcmp(cmd, "sensorlist") == 0) {
         bhi260ap_dump_sensor_list();
         printf("sensorlist: done\n");
+    } else if (strcmp(cmd, "bhishow") == 0) {
+        lvgl_show_bhi_screen();
+        printf("bhishow: done\n");
     } else if (strncmp(cmd, "pm night ", 9) == 0) {
         power_mgmt_set_night_mode_auto(atoi(cmd + 9) != 0);
         printf("pm: night_auto=%d\n", power_mgmt_get_night_mode_auto() ? 1 : 0);

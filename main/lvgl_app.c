@@ -70,14 +70,12 @@ static lv_obj_t *s_pw_cur_400;
 /* BHI260AP status screen. */
 static lv_obj_t *s_bhi_screen;
 static lv_obj_t *s_bhi_status_label;
-static lv_obj_t *s_bhi_accel_label;
-static lv_obj_t *s_bhi_gyro_label;
-static lv_obj_t *s_bhi_ori_label;
-static lv_obj_t *s_bhi_rv_label;
 static lv_obj_t *s_bhi_rv_acc_label;
 static lv_obj_t *s_bhi_activity_label;
 static lv_obj_t *s_bhi_gesture_label;
 static lv_obj_t *s_daily_act_label[DAILY_ACT_COUNT];   /* today's per-activity minutes */
+static lv_obj_t *s_cube_line[12];                       /* GAMERV 3D wireframe cube */
+static lv_point_precise_t s_cube_pts[12][2];
 
 /* GPS screen (skyplot + fix info). */
 static lv_obj_t *s_gps_screen;
@@ -700,6 +698,57 @@ static const char *activity_name(uint8_t activity)
     }
 }
 
+/* Project an 8-vertex unit cube rotated by the GAMERV quaternion (Q14 fixed
+ * point) and move the 12 wireframe edge lines. Orthographic projection, so the
+ * cube keeps constant size. */
+static void bhi_cube_update(int16_t qx, int16_t qy, int16_t qz, int16_t qw)
+{
+    if (!s_cube_line[0]) {
+        return;
+    }
+    /* Q14 -> float, renormalize. */
+    double x = qx / 16384.0, y = qy / 16384.0, z = qz / 16384.0, w = qw / 16384.0;
+    double n = sqrt(x * x + y * y + z * z + w * w);
+    if (n < 1e-6) {
+        x = 0; y = 0; z = 0; w = 1;
+    } else {
+        x /= n; y /= n; z /= n; w /= n;
+    }
+
+    /* Rotation matrix from the quaternion (column-vector convention). */
+    double r00 = 1 - 2 * (y * y + z * z), r01 = 2 * (x * y - w * z), r02 = 2 * (x * z + w * y);
+    double r10 = 2 * (x * y + w * z), r11 = 1 - 2 * (x * x + z * z), r12 = 2 * (y * z - w * x);
+
+    const double S = 42.0;   /* half cube size in px */
+    const double cx = 300.0, cy = 135.0;   /* cube centre on screen */
+
+    /* Unit cube corners (8). */
+    const double corners[8][3] = {
+        { -1, -1, -1 }, { 1, -1, -1 }, { 1, 1, -1 }, { -1, 1, -1 },
+        { -1, -1, 1 },  { 1, -1, 1 },  { 1, 1, 1 },  { -1, 1, 1 },
+    };
+    double px[8], py[8];
+    for (int i = 0; i < 8; i++) {
+        double vx = corners[i][0], vy = corners[i][1], vz = corners[i][2];
+        px[i] = cx + S * (r00 * vx + r01 * vy + r02 * vz);
+        py[i] = cy + S * (r10 * vx + r11 * vy + r12 * vz);
+    }
+
+    /* 12 cube edges. */
+    const int edges[12][2] = {
+        { 0, 1 }, { 1, 2 }, { 2, 3 }, { 3, 0 },
+        { 4, 5 }, { 5, 6 }, { 6, 7 }, { 7, 4 },
+        { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 },
+    };
+    for (int e = 0; e < 12; e++) {
+        s_cube_pts[e][0].x = (lv_coord_t)px[edges[e][0]];
+        s_cube_pts[e][0].y = (lv_coord_t)py[edges[e][0]];
+        s_cube_pts[e][1].x = (lv_coord_t)px[edges[e][1]];
+        s_cube_pts[e][1].y = (lv_coord_t)py[edges[e][1]];
+        lv_line_set_points(s_cube_line[e], s_cube_pts[e], 2);
+    }
+}
+
 static void bhi_screen_update(lv_timer_t *timer)
 {
     (void)timer;
@@ -717,26 +766,10 @@ static void bhi_screen_update(lv_timer_t *timer)
     bhi260ap_get_status(&ready, NULL);
     lv_label_set_text(s_bhi_status_label, ready ? "BHI260AP: ready" : "BHI260AP: not ready");
 
-    int16_t ax = 0, ay = 0, az = 0;
-    bhi260ap_get_accel(&ax, &ay, &az);
-    snprintf(buf, sizeof(buf), "Acc (mg): %d %d %d", ax, ay, az);
-    lv_label_set_text(s_bhi_accel_label, buf);
-
-    int16_t gx = 0, gy = 0, gz = 0;
-    bhi260ap_get_gyro(&gx, &gy, &gz);
-    snprintf(buf, sizeof(buf), "Gyro (dps): %d %d %d", gx, gy, gz);
-    lv_label_set_text(s_bhi_gyro_label, buf);
-
-    int16_t hd = 0, pt = 0, rl = 0;
-    bhi260ap_get_orientation(&hd, &pt, &rl);
-    snprintf(buf, sizeof(buf), "Ori (deg): %d %d %d", hd, pt, rl);
-    lv_label_set_text(s_bhi_ori_label, buf);
-
     int16_t rx = 0, ry = 0, rz = 0, rw = 0;
     uint16_t racc = 0;
     bhi260ap_get_rotation(&rx, &ry, &rz, &rw, &racc);
-    snprintf(buf, sizeof(buf), "RV: %d %d %d %d", rx, ry, rz, rw);
-    lv_label_set_text(s_bhi_rv_label, buf);
+    bhi_cube_update(rx, ry, rz, rw);
     snprintf(buf, sizeof(buf), "RV acc: %u", (unsigned)racc);
     lv_label_set_text(s_bhi_rv_acc_label, buf);
 
@@ -793,32 +826,29 @@ static void lvgl_build_bhi_screen(void)
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
 
-    /* All values as plain text rows. */
+    /* Status + rotation accuracy as text rows. */
     lv_obj_t *l;
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_status_label);
     lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 50);
 
-    l = bhi_text_row(s_bhi_screen, "", &s_bhi_accel_label);
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_rv_acc_label);
     lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 80);
 
-    l = bhi_text_row(s_bhi_screen, "", &s_bhi_gyro_label);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 110);
-
-    l = bhi_text_row(s_bhi_screen, "", &s_bhi_ori_label);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 140);
-
-    l = bhi_text_row(s_bhi_screen, "", &s_bhi_rv_label);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 170);
-
-    l = bhi_text_row(s_bhi_screen, "", &s_bhi_rv_acc_label);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 200);
-
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_activity_label);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 230);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 110);
 
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_gesture_label);
     lv_obj_set_style_text_color(l, lv_color_hex(0xFFD54D), 0);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 260);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 140);
+
+    /* 3D orientation wireframe cube from the GAMERV quaternion. */
+    const lv_color_t cube_col = lv_color_hex(0x4FC3F7);
+    for (int e = 0; e < 12; e++) {
+        lv_obj_t *ln = lv_line_create(s_bhi_screen);
+        lv_obj_set_style_line_color(ln, cube_col, 0);
+        lv_obj_set_style_line_width(ln, 2, 0);
+        s_cube_line[e] = ln;
+    }
 
     /* Today's per-activity minutes, two compact columns to save height. */
     for (int i = 0; i < DAILY_ACT_COUNT; i++) {
@@ -840,6 +870,19 @@ static void lvgl_build_bhi_screen(void)
 
     bhi_screen_update(NULL);
     lv_timer_create(bhi_screen_update, 1000, NULL);
+}
+
+void lvgl_show_bhi_screen(void)
+{
+    if (esp_lv_adapter_lock(-1) != ESP_OK) {
+        ESP_LOGW(TAG, "show bhi: LVGL lock timeout");
+        return;
+    }
+    if (!s_bhi_screen) {
+        lvgl_build_bhi_screen();
+    }
+    lv_scr_load(s_bhi_screen);
+    esp_lv_adapter_unlock();
 }
 
 /* ---- GPS screen (skyplot + fix info) ----
