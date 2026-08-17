@@ -60,6 +60,17 @@ bool bhi260ap_is_suspended(void);
  * total survives reboots). */
 esp_err_t bhi260ap_get_step_count(uint32_t *steps);
 
+/* Steps taken since the most recent midnight (daily count). Computed as the
+ * lifetime total minus the lifetime total captured at the last day-start (see
+ * bhi260ap_daily_set_day_start). The day-start snapshot is persisted to NVS,
+ * so it survives reboots; the caller is expected to call
+ * bhi260ap_daily_set_day_start() once per day at 00:00. */
+esp_err_t bhi260ap_get_daily_steps(uint32_t *steps);
+
+/* Snapshot the current lifetime total as the start of a new day, so
+ * bhi260ap_get_daily_steps() restarts near zero. Persisted to NVS. */
+esp_err_t bhi260ap_daily_set_day_start(void);
+
 /* Sensor status: ready flag and latest step count. Either out-param may be
  * NULL. Returns ESP_OK (never fails; reports the last known state). */
 esp_err_t bhi260ap_get_status(bool *ready, uint32_t *steps);

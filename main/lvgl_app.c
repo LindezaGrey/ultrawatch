@@ -22,6 +22,7 @@
 #include "esp_lv_adapter.h"
 #include "lvgl.h"
 #include "cascadia_fonts.h"
+#include "daily_log.h"
 #include "co5300.h"
 #include "cst9217.h"
 #include "bhi260ap.h"
@@ -76,6 +77,7 @@ static lv_obj_t *s_bhi_rv_label;
 static lv_obj_t *s_bhi_rv_acc_label;
 static lv_obj_t *s_bhi_activity_label;
 static lv_obj_t *s_bhi_gesture_label;
+static lv_obj_t *s_daily_act_label[DAILY_ACT_COUNT];   /* today's per-activity minutes */
 
 /* GPS screen (skyplot + fix info). */
 static lv_obj_t *s_gps_screen;
@@ -322,7 +324,7 @@ static void watch_face_update(lv_timer_t *timer)
     /* Step count from the BHI260AP (cached in the driver, no I2C here). */
     if (s_steps_label) {
         uint32_t steps = 0;
-        if (bhi260ap_get_status(NULL, &steps) == ESP_OK) {
+        if (bhi260ap_get_daily_steps(&steps) == ESP_OK) {
             snprintf(buf, sizeof(buf), "Steps: %lu", (unsigned long)steps);
         } else {
             snprintf(buf, sizeof(buf), "Steps: --");
@@ -743,6 +745,20 @@ static void bhi_screen_update(lv_timer_t *timer)
     snprintf(buf, sizeof(buf), "Activity: %s", activity_name(activity));
     lv_label_set_text(s_bhi_activity_label, buf);
 
+    /* Per-activity minutes logged today (from daily_log). */
+    const uint16_t *mins[DAILY_ACT_COUNT];
+    static const char *act_names[DAILY_ACT_COUNT] = {
+        "Still", "Walk", "Run", "Cycle", "Vehicle", "Tilt", "Other" };
+    if (daily_log_get_activity_minutes(mins) == ESP_OK) {
+        for (int i = 0; i < DAILY_ACT_COUNT; i++) {
+            if (s_daily_act_label[i]) {
+                snprintf(buf, sizeof(buf), "%s %u min", act_names[i],
+                         (unsigned)*mins[i]);
+                lv_label_set_text(s_daily_act_label[i], buf);
+            }
+        }
+    }
+
     /* Keep the last gesture shown until a new one fires (otherwise the text
      * would clear on the next 1 s refresh). */
     bool tilt = false, wake = false, glance = false, pickup = false, tdet = false;
@@ -803,6 +819,18 @@ static void lvgl_build_bhi_screen(void)
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_gesture_label);
     lv_obj_set_style_text_color(l, lv_color_hex(0xFFD54D), 0);
     lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 260);
+
+    /* Today's per-activity minutes, two compact columns to save height. */
+    for (int i = 0; i < DAILY_ACT_COUNT; i++) {
+        lv_obj_t *al = lv_label_create(s_bhi_screen);
+        lv_label_set_text(al, "");
+        lv_obj_set_style_text_font(al, s_font_micro, 0);
+        lv_obj_set_style_text_color(al, lv_color_hex(0x9ECBE0), 0);
+        int col = (i < 4) ? 0 : 1;
+        int row = (i < 4) ? i : (i - 4);
+        lv_obj_align(al, LV_ALIGN_TOP_LEFT, 44 + col * 190, 300 + row * 26);
+        s_daily_act_label[i] = al;
+    }
 
     lv_obj_t *hint = lv_label_create(s_bhi_screen);
     lv_label_set_text(hint, "swipe right to go back");

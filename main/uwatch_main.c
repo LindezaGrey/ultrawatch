@@ -32,6 +32,7 @@
 #include "crash_dump.h"
 #include "tracking.h"
 #include "sensor_cache.h"
+#include "daily_log.h"
 #include "max98357a.h"
 #include "t3902.h"
 #include "axp2101.h"
@@ -553,6 +554,19 @@ static void debug_process_cmd(const char *cmd)
         co5300_display_on();
         co5300_set_brightness(0x80);
         printf("disppwr: display power cycled\n");
+    } else if (strcmp(cmd, "dailylog") == 0) {
+        uint32_t steps = 0;
+        daily_log_get_steps(&steps);
+        const uint16_t *min[DAILY_ACT_COUNT];
+        daily_log_get_activity_minutes(min);
+        static const char *names[DAILY_ACT_COUNT] = {
+            "still", "walking", "running", "cycling", "vehicle", "tilting", "unknown" };
+        printf("dailylog: day_steps=%lu\n", (unsigned long)steps);
+        for (int i = 0; i < DAILY_ACT_COUNT; i++) {
+            printf("dailylog: %-8s %u min\n", names[i], (unsigned)*min[i]);
+        }
+        daily_log_flush();
+        printf("dailylog: sd=%d\n", sd_log_available() ? 1 : 0);
     } else if (strncmp(cmd, "pm night ", 9) == 0) {
         power_mgmt_set_night_mode_auto(atoi(cmd + 9) != 0);
         printf("pm: night_auto=%d\n", power_mgmt_get_night_mode_auto() ? 1 : 0);
@@ -919,6 +933,9 @@ void app_main(void)
     sd_log_set_version(UWATCH_GIT_HASH);
     sd_log_mount();
     sd_log_start();
+
+    /* Per-minute steps + activity logging to the SD card (daily_log.h). */
+    daily_log_init();
 
     /* If the previous boot crashed, decode the flash core dump to the SD card
      * (report + raw ELF) before the UI starts. */
