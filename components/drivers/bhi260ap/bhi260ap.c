@@ -12,6 +12,7 @@
  */
 #include "bhi260ap.h"
 #include "bhy2.h"
+#include "bhy2_hif.h"
 #include "bhy2_parse.h"
 #include "esp_log.h"
 #include "esp_check.h"
@@ -893,28 +894,51 @@ esp_err_t bhi260ap_set_sensor_rate(uint8_t id, float rate)
 }
 
 /* GNSS data-injection readiness probe. Reports whether the firmware exposes
- * the GPS virtual sensor and accepts real-time sensor-data injection (which
- * requires a firmware built with special injection drivers). Returns the raw
- * bhy2 return code from the injection-mode switch (BHY2_OK=0 on success). */
+ * the GPS virtual sensor, accepts real-time sensor-data injection, and -- after
+ * enabling injection -- whether BSX issues an Injected Sensor Configuration
+ * Request naming the GPS physical sensor (which proves a live GPS injection
+ * driver) and at what sample rate it wants GPS data. Returns the bhy2 code
+ * from the injection-mode switch (BHY2_OK=0 on success). */
 int8_t bhi260ap_gnss_inject_probe(void)
 {
     if (!s_initialized) {
         return BHY2_E_NULL_PTR;
     }
-    /* present_buff holds the virtual-sensor presence bitmap; also check the
-     * physical GPS sensor id for the injectable input. */
     uint8_t v_gps = bhy2_is_sensor_available(BHY2_SENSOR_ID_GPS, &s_bhy2);
     uint8_t p_gps = bhy2_is_sensor_available(BHY2_PHYS_SENSOR_ID_GPS, &s_bhy2);
     ESP_LOGI(TAG, "gnss probe: virtual_gps=%u physical_gps=%u",
              (unsigned)v_gps, (unsigned)p_gps);
 
-    /* Try switching to real-time injection; a firmware without the injection
-     * drivers rejects this with a negative error code. Restore normal mode so
-     * the running sensor streams are not left in injection state. */
     int8_t rslt = bhy2_set_data_injection_mode(BHY2_REAL_TIME_INJECTION, &s_bhy2);
     ESP_LOGI(TAG, "gnss probe: set inject mode rslt=%d", (int)rslt);
-    if (rslt == BHY2_OK) {
-        bhy2_set_data_injection_mode(BHY2_NORMAL_MODE, &s_bhy2);
+    if (rslt != BHY2_OK) {
+        return rslt;
     }
-    return rslt;
+
+    /* Poll the status FIFO briefly for an injected-sensor-config-request: if
+     * the firmware has a live GPS injection driver it will ask for physical
+     * sensor 48 (GPS) at a required rate. */
+    int found = 0;
+    uint8_t status[32];
+    for (int try = 0; try < 10; try++) {
+        uint16_t code = 0;
+        uint32_t remain = 0;
+        memset(status, 0, sizeof(status));
+        int8_t r = bhy2_hif_get_status_fifo(&code, status, sizeof(status), &remain,
+                                            &s_bhy2.hif);
+        if (r == BHY2_OK && code == BHY2_STATUS_INJECT_SENSOR_CONF_REQ && remain >= 9) {
+            float rate = 0.0f;
+            memcpy(&rate, &status[1], 4);   /* sample rate, Hz (LE float) */
+            uint8_t sid = status[5];         /* physical sensor id */
+            ESP_LOGI(TAG, "gnss probe: BSX requests sensor %u @ %.1f Hz",
+                     (unsigned)sid, (double)rate);
+            found = 1;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    ESP_LOGI(TAG, "gnss probe: %s", found ? "GPS injection driver active"
+                                          : "no GPS injection request seen");
+
+    bhy2_set_data_injection_mode(BHY2_NORMAL_MODE, &s_bhy2);
+    return found ? BHY2_OK : BHY2_E_INVALID_PARAM;
 }

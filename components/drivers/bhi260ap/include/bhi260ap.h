@@ -108,9 +108,11 @@ void bhi260ap_wu_trace_stop(void);
 uint32_t bhi260ap_wu_trace_get_count(uint8_t id);
 esp_err_t bhi260ap_set_sensor_rate(uint8_t id, float rate);
 
-/* GNSS data-injection readiness probe: reports GPS sensor availability and
- * attempts real-time data injection mode on the BHI260AP. Returns the bhy2
- * return code (0 = injection supported by the firmware). */
+/* GNSS data-injection readiness probe: reports GPS sensor availability,
+ * switches the BHI260AP into real-time injection mode and watches for a BSX
+ * injected-sensor-config request naming the GPS physical sensor. Returns
+ * BHY2_OK when a live GPS injection driver requests GPS data, else a negative
+ * bhy2 error code. */
 int8_t bhi260ap_gnss_inject_probe(void);
 void bhi260ap_meta_hist_start(void);
 void bhi260ap_meta_hist_stop(void);
