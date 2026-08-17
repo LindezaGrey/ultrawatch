@@ -571,6 +571,9 @@ static void debug_process_cmd(const char *cmd)
         int8_t r = bhi260ap_gnss_inject_probe();
         printf("gnssprobe: inject_driver=%s rslt=%d\n",
                (r == 0) ? "active" : "not active / no GPS request", (int)r);
+    } else if (strcmp(cmd, "sensorlist") == 0) {
+        bhi260ap_dump_sensor_list();
+        printf("sensorlist: done\n");
     } else if (strncmp(cmd, "pm night ", 9) == 0) {
         power_mgmt_set_night_mode_auto(atoi(cmd + 9) != 0);
         printf("pm: night_auto=%d\n", power_mgmt_get_night_mode_auto() ? 1 : 0);

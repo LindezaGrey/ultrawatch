@@ -942,3 +942,48 @@ int8_t bhi260ap_gnss_inject_probe(void)
     bhy2_set_data_injection_mode(BHY2_NORMAL_MODE, &s_bhy2);
     return found ? BHY2_OK : BHY2_E_INVALID_PARAM;
 }
+
+/* Print the virtual-sensor ids present in the loaded firmware's ACT subset.
+ * Used to factually compare firmware feature sets (standard vs KLIO/etc.). */
+void bhi260ap_dump_sensor_list(void)
+{
+    if (!s_initialized) {
+        ESP_LOGW(TAG, "sensor list: not initialized");
+        return;
+    }
+    /* Algorithm ids not defined in this driver's bhy2_defs.h (from the ACT). */
+    enum { SENSOR_ID_KLIO = 112, SENSOR_ID_PDR = 113, SENSOR_ID_SWIM = 114,
+           SENSOR_ID_LIGHT = 146, SENSOR_ID_PROX = 147 };
+    static const struct { uint8_t id; const char *name; } known[] = {
+        { BHY2_SENSOR_ID_ACC, "acc" },
+        { BHY2_SENSOR_ID_GYRO, "gyro" },
+        { BHY2_SENSOR_ID_GAMERV, "gamerv" },
+        { BHY2_SENSOR_ID_ORI, "orientation" },
+        { BHY2_SENSOR_ID_GEORV, "georv" },
+        { BHY2_SENSOR_ID_TILT_DETECTOR, "tilt" },
+        { BHY2_SENSOR_ID_STD, "step_det" },
+        { BHY2_SENSOR_ID_STC, "step_cnt" },
+        { BHY2_SENSOR_ID_SIG, "sig_motion" },
+        { BHY2_SENSOR_ID_WAKE_GESTURE, "wake" },
+        { BHY2_SENSOR_ID_GLANCE_GESTURE, "glance" },
+        { BHY2_SENSOR_ID_PICKUP_GESTURE, "pickup" },
+        { BHY2_SENSOR_ID_AR, "activity" },
+        { BHY2_SENSOR_ID_WRIST_TILT_GESTURE, "wrist_tilt" },
+        { BHY2_SENSOR_ID_DEVICE_ORI, "device_ori" },
+        { BHY2_SENSOR_ID_STATIONARY_DET, "stationary" },
+        { BHY2_SENSOR_ID_MOTION_DET, "motion" },
+        { BHY2_SENSOR_ID_STC_LP, "step_cnt_lp" },
+        { SENSOR_ID_KLIO, "klio_ai" },
+        { BHY2_SENSOR_ID_GPS, "gps" },
+        { SENSOR_ID_PDR, "pdr" },
+        { SENSOR_ID_SWIM, "swim" },
+        { BHY2_SENSOR_ID_TEMP, "temp" },
+        { BHY2_SENSOR_ID_BARO, "baro" },
+    };
+    ESP_LOGI(TAG, "sensor list:");
+    for (size_t i = 0; i < sizeof(known) / sizeof(known[0]); i++) {
+        if (bhy2_is_sensor_available(known[i].id, &s_bhy2)) {
+            ESP_LOGI(TAG, "  present: %-14s id=%u", known[i].name, (unsigned)known[i].id);
+        }
+    }
+}

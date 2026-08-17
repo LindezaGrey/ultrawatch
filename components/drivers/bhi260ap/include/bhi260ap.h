@@ -114,6 +114,9 @@ esp_err_t bhi260ap_set_sensor_rate(uint8_t id, float rate);
  * BHY2_OK when a live GPS injection driver requests GPS data, else a negative
  * bhy2 error code. */
 int8_t bhi260ap_gnss_inject_probe(void);
+
+/* Dump the firmware's present virtual-sensor ids to the console/log (debug). */
+void bhi260ap_dump_sensor_list(void);
 void bhi260ap_meta_hist_start(void);
 void bhi260ap_meta_hist_stop(void);
 uint8_t bhi260ap_meta_hist_len_get(void);
