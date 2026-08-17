@@ -691,7 +691,11 @@ esp_err_t bhi260ap_get_daily_steps(uint32_t *steps)
  * last-sampled lifetime so the count survives reboots without drift. */
 void bhi260ap_daily_sample(uint32_t lifetime, uint32_t ymd)
 {
-    if (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
+    /* The mutex is created during BHI init; sample-from-boot (daily_log task)
+     * can race ahead of that, so guard against a NULL handle (a take on NULL
+     * asserts and reboots the watch). */
+    if (s_step_mux == NULL ||
+        xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
         return;
     }
     if (s_daily_id != ymd) {
