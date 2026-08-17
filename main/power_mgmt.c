@@ -16,6 +16,7 @@
 #include "esp_lv_adapter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs_flash.h"
 #include "twatch_board.h"
 #include "axp2101.h"
 #include "co5300.h"
@@ -37,6 +38,14 @@ static const char *TAG = "power_mgmt";
 /* Night-mode clock check period while the watch is idle. */
 #define PM_NIGHT_CHECK_MS  60000
 
+/* NVS-persisted settings: night-mode auto and "do not sleep while on USB". */
+#define PM_NVS_NS         "pm"
+#define PM_NVS_KEY_NIGHT  "night_auto"
+#define PM_NVS_KEY_USB    "skip_usb"
+
+static bool s_night_mode_auto = true;    /* default: auto-enter night mode */
+static bool s_skip_sleep_on_usb = true;  /* default: never sleep on USB */
+
 /* RTC-capable GPIO wakeup for the touch line is armed here. */
 static volatile uint32_t s_wake_gpio;
 static TaskHandle_t s_wake_task;
@@ -51,6 +60,11 @@ static void pm_apply_night_mode(bool night);
 
 static bool pm_is_night_time(void)
 {
+    /* "Night mode auto" off means night mode never activates (stays off
+     * regardless of the RTC time). */
+    if (!s_night_mode_auto) {
+        return false;
+    }
     /* Use the RTC wall clock, not the ESP32 system clock, so night mode never
      * drifts. The RTC is polled by the background telemetry cache task. */
     pcf85063a_time_t t;
@@ -80,6 +94,66 @@ void power_mgmt_recheck_night_mode(void)
 void power_mgmt_register_night_mode_cb(power_mgmt_night_mode_cb_t cb)
 {
     s_night_mode_cb = cb;
+}
+
+/* ---- Persisted settings (night-mode auto, sleep-on-USB) ---- */
+
+static void pm_config_save(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(PM_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u8(h, PM_NVS_KEY_NIGHT, s_night_mode_auto ? 1 : 0);
+        nvs_set_u8(h, PM_NVS_KEY_USB, s_skip_sleep_on_usb ? 1 : 0);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+static void pm_config_load(void)
+{
+    nvs_handle_t h;
+    uint8_t v = 0;
+    if (nvs_open(PM_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        if (nvs_get_u8(h, PM_NVS_KEY_NIGHT, &v) == ESP_OK) {
+            s_night_mode_auto = (v != 0);
+        }
+        v = 0;
+        if (nvs_get_u8(h, PM_NVS_KEY_USB, &v) == ESP_OK) {
+            s_skip_sleep_on_usb = (v != 0);
+        }
+        nvs_close(h);
+    }
+}
+
+bool power_mgmt_get_night_mode_auto(void)
+{
+    return s_night_mode_auto;
+}
+
+void power_mgmt_set_night_mode_auto(bool on)
+{
+    if (on == s_night_mode_auto) {
+        return;
+    }
+    s_night_mode_auto = on;
+    /* Re-apply from the current time: turning auto off forces night mode off
+     * immediately; turning it back on re-enters night mode right away. */
+    pm_apply_night_mode(pm_is_night_time());
+    pm_config_save();
+}
+
+bool power_mgmt_get_skip_sleep_on_usb(void)
+{
+    return s_skip_sleep_on_usb;
+}
+
+void power_mgmt_set_skip_sleep_on_usb(bool yes)
+{
+    if (yes == s_skip_sleep_on_usb) {
+        return;
+    }
+    s_skip_sleep_on_usb = yes;
+    pm_config_save();
 }
 
 static void pm_apply_night_mode(bool night)
@@ -142,6 +216,26 @@ static void IRAM_ATTR button_isr(void *arg)
     }
 }
 
+/* Distinguish a REAL wrist-raise/wake gesture from the BHI260AP's routine
+ * WAKE-UP-FIFO traffic. The chip's scheduler continuously emits
+ * SAMPLE_RATE_CHANGED / POWER_MODE_CHANGED meta events for the gesture sensors
+ * (~1-3/s, also during AP-suspend), and with the WU-FIFO watermark at 1 every
+ * one asserts the INT line and wakes the sleeping host. Draining the FIFO and
+ * checking for an actual gesture flag keeps those spurious wakes invisible
+ * (screen stays off, CPU returns to light sleep) while a real gesture still
+ * turns the display on. Returns true if a gesture flag was latched. */
+static bool pm_imu_wake_is_real(void)
+{
+    bhi260ap_drain_wakeup_fifo();   /* read the WU FIFO, de-assert the INT line */
+    bool wrist = false, wake = false, glance = false, pickup = false, tilt = false;
+    bhi260ap_consume_gestures(&wrist, &wake, &glance, &pickup, &tilt);
+    bool real = wrist || wake || glance || pickup || tilt;
+    if (!real) {
+        ESP_LOGI(TAG, "IMU wake: no gesture flag (scheduler meta), staying asleep");
+    }
+    return real;
+}
+
 static void pm_wake_task(void *arg)
 {
     (void)arg;
@@ -155,9 +249,41 @@ static void pm_wake_task(void *arg)
         uint32_t t = pdMS_TO_TICKS(5000);
         if (ulTaskNotifyTake(pdTRUE, t) == 0) {
             since_night_check += 5000;
+            /* Pump USB activity so the adapter never hits its idle timeout
+             * while plugged in (no sleep attempt / no error spam). Only when
+             * "do not sleep on USB" is enabled - otherwise let it sleep even
+             * on USB. */
             bool vbus = false;
-            if (axp2101_is_vbus_present(twatch_pmu_dev, &vbus) == ESP_OK && vbus) {
+            if (s_skip_sleep_on_usb &&
+                    axp2101_is_vbus_present(twatch_pmu_dev, &vbus) == ESP_OK && vbus) {
                 esp_lv_adapter_report_activity();
+            }
+            /* Safety net for snooze-timer wakes: RTC INT (GPIO1) is active-low.
+             * If the line is held LOW on a timeout tick, the edge-ISR wake
+             * attribution may have been missed (e.g. a LOW_LEVEL light-sleep wake
+             * whose edge fired while LVGL was still paused, or the pin glitched
+             * back out before the ISR ran). Re-arm the edge ISR and let the alarm
+             * module check the flags, so a 10-min snooze re-ring is never silently
+             * dropped just because no wake notification arrived. */
+            if (gpio_get_level(PM_GPIO_RTC) == 0) {
+                gpio_set_intr_type(PM_GPIO_RTC, GPIO_INTR_NEGEDGE);
+                gpio_intr_enable(PM_GPIO_RTC);
+                alarm_handle_wake();
+                esp_lv_adapter_request_wake();
+            }
+            /* Same safety net for the BHI260AP gesture wake: while asleep its
+             * INT line (GPIO8) is held LOW until the WU FIFO is drained, so if
+             * the edge ISR attribution missed the wake (level wake without a
+             * clean edge on the tick), a wrist-tilt/wake gesture would never
+             * turn the display on. Re-arm the edge ISR and request a wake.
+             * gated on the same conditions used to arm the gesture wake
+             * (not night mode, IMU wake actually armed). */
+            if (!s_night_mode && s_imu_wake_armed && gpio_get_level(PM_GPIO_IMU) == 0) {
+                gpio_set_intr_type(PM_GPIO_IMU, GPIO_INTR_NEGEDGE);
+                gpio_intr_enable(PM_GPIO_IMU);
+                if (pm_imu_wake_is_real()) {
+                    esp_lv_adapter_request_wake();
+                }
             }
             if (since_night_check >= PM_NIGHT_CHECK_MS) {
                 since_night_check = 0;
@@ -193,6 +319,15 @@ static void pm_wake_task(void *arg)
             gpio_intr_enable(PM_GPIO_IMU);
         }
 
+        /* A BHI260AP INT is not proof of a gesture: scheduler meta events in
+         * the WU FIFO assert the same line constantly. Only wake the display
+         * when a real gesture flag was latched; otherwise return to light
+         * sleep with the screen off. */
+        bool wake_user = (gpio != PM_GPIO_IMU);
+        if (gpio == PM_GPIO_IMU && s_imu_wake_armed) {
+            wake_user = pm_imu_wake_is_real();
+        }
+
 /* RTC INT (GPIO1): the PCF85063A pulls the line LOW when the alarm
  * (AF) or snooze timer (TF) fires. Restore edge triggering (the
  * LOW_LEVEL sleep wake left it level) and re-arm the ISR, then let
@@ -201,12 +336,14 @@ static void pm_wake_task(void *arg)
 if (gpio == PM_GPIO_RTC) {
     gpio_set_intr_type(PM_GPIO_RTC, GPIO_INTR_NEGEDGE);
     gpio_intr_enable(PM_GPIO_RTC);
-}
-if (gpio == PM_GPIO_RTC) {
     alarm_handle_wake();
 }
 
-        esp_lv_adapter_request_wake();
+        if (wake_user) {
+            esp_lv_adapter_request_wake();
+        } else {
+            ESP_LOGI(TAG, "IMU wake was spurious, staying in light sleep");
+        }
     }
 }
 
@@ -225,6 +362,12 @@ static void pm_arm_gpio_wakeup(void)
     s_imu_wake_armed = false;
     gpio_intr_disable(PM_GPIO_IMU);
 
+    /* The rail shutdowns in power_mgmt_enter_sleep() (GNSS SPI/I2C BLDO1,
+     * etc.) latch AXP IRQ status bits and hold the GPIO7 line LOW; if PWRKEY
+     * is then armed as a LOW_LEVEL wake the ESP32 re-wakes the instant light
+     * sleep starts. Clear it here so the line de-asserts before arming. */
+    axp2101_clear_irq(twatch_pmu_dev);
+
     /* Touch and IMU-gesture are not wake sources in night mode (avoid
      * accidental screen activation); PWR/BOOT buttons always wake. The
      * BHI260AP INT line (GPIO8) is active-LOW (idles high, pulses low on a
@@ -234,11 +377,20 @@ static void pm_arm_gpio_wakeup(void)
         gpio_wakeup_enable(PM_GPIO_TOUCH, GPIO_INTR_LOW_LEVEL);
         /* The IMU edge ISR is disabled while awake (any pulse disables it);
          * arm it again so a gesture during light sleep wakes the adapter.
-         * Give the chip a moment after AP-suspend to settle, and only enable
-         * the level-wake if the line is de-asserted (high): if a spurious
-         * gesture already asserted it low, a LOW_LEVEL wake would fire
-         * instantly and the watch would never sleep. */
-        vTaskDelay(pdMS_TO_TICKS(50));
+         * Only enable the level-wake if the line is de-asserted (high): if a
+         * spurious gesture already asserted it low, a LOW_LEVEL wake would fire
+         * instantly and the watch would never sleep. bhi260ap_ap_suspend()
+         * already drained any leftover WU-FIFO event, but a real gesture can
+         * still land during the power-down window; drain again on each retry so
+         * a transient low doesn't permanently disable gesture wake (which would
+         * eat the very gesture that's supposed to wake the watch). */
+        for (int try = 0; try < 5; try++) {
+            bhi260ap_drain_wakeup_fifo();
+            if (gpio_get_level(PM_GPIO_IMU) == 1) {
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(30));
+        }
         if (gpio_get_level(PM_GPIO_IMU) == 1) {
             gpio_wakeup_enable(PM_GPIO_IMU, GPIO_INTR_LOW_LEVEL);
             s_imu_wake_armed = true;
@@ -247,8 +399,18 @@ static void pm_arm_gpio_wakeup(void)
             ESP_LOGI(TAG, "IMU INT low at sleep, gesture wake disabled this cycle");
         }
     }
-    gpio_wakeup_enable(PM_GPIO_PWRKEY, GPIO_INTR_LOW_LEVEL);
+    /* PWRKEY (GPIO7, AXP IRQ) and BOOT wake always. Arm as LOW_LEVEL only if
+     * the line is de-asserted (high): the AXP IRQ line is latched LOW until
+     * its status is cleared, so a pending PWRKEY/rail event would otherwise
+     * fire a LOW_LEVEL wake the instant light sleep starts (the watch would
+     * never actually sleep). Blocking on a low output covers presses logged
+     * during the sleep-entry window itself, which the edge ISR already saw. */
     gpio_wakeup_enable(PM_GPIO_BOOT, GPIO_INTR_LOW_LEVEL);
+    if (gpio_get_level(PM_GPIO_PWRKEY) == 1) {
+        gpio_wakeup_enable(PM_GPIO_PWRKEY, GPIO_INTR_LOW_LEVEL);
+    } else {
+        ESP_LOGI(TAG, "PWRKEY low at sleep, power-key wake disabled this cycle");
+    }
 
     /* RTC INT (GPIO1): the PCF85063A pulls it LOW when the alarm (AF) or the
      * snooze timer (TF) fires, and it stays low until the flag is cleared.
@@ -265,9 +427,11 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
 {
     (void)ctx;
 
-    /* Skip auto-sleep while on USB power (development / charging). */
+    /* Skip auto-sleep while on USB power (charging / development) unless the
+     * user disabled the "do not sleep on USB" setting. */
     bool vbus = false;
-    if (axp2101_is_vbus_present(twatch_pmu_dev, &vbus) == ESP_OK && vbus) {
+    if (s_skip_sleep_on_usb &&
+            axp2101_is_vbus_present(twatch_pmu_dev, &vbus) == ESP_OK && vbus) {
         ESP_LOGD(TAG, "on USB power, skipping auto sleep");
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -281,10 +445,22 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
     /* Disable unused peripheral rails. ALDO4 (sensor) is kept ON: the
      * BHI260AP runs its wake-up sensors in AP-suspend mode (wrist-raise wake)
      * at ~0.1-0.3 mA, avoiding the firmware re-upload + data freeze after a
-     * rail power-cycle. Keep ALDO2 (display/touch) for touch wake. */
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, false);  /* SD */
+     * rail power-cycle. Keep ALDO2 (display/touch) for touch wake.
+     * ALDO1 (SD) is KEPT ON: the FAT is left mounted across sleep, and
+     * power-cycling the rail without unmount leaves the card's SD registers
+     * undefined, so the log flush after wake fails with resp/CRC errors and
+     * the battery log is lost. The card draws little at idle. */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);  /* LoRa */
-    m10q_power(false);                                          /* GNSS (tells the driver) */
+    /* GNSS (BLDO1): cut the rail only when GNSS is not deliberately enabled.
+     * With the GPS-screen switch on, the receiver is kept alive across the
+     * whole sleep session so wake-ups don't pay the ~4 s cold re-power + warm
+     * start each time (one clean power-on per session). When the switch is
+     * off the rail is cut as usual and stays off. */
+    if (lvgl_gps_enabled()) {
+        ESP_LOGI(TAG, "GNSS enabled: keeping BLDO1 rail on across sleep");
+    } else {
+        m10q_power(false);                                       /* GNSS (tells the driver) */
+    }
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);  /* speaker */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, false);  /* NFC */
 
@@ -299,8 +475,7 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     esp_sleep_wakeup_cause_t cause = (esp_sleep_wakeup_cause_t)esp_sleep_get_wakeup_causes();
     ESP_LOGI(TAG, "waking: gpio=%u cause=0x%x", (unsigned)s_wake_gpio, (unsigned)cause);
 
-    /* Restore rails. */
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, true);
+    /* Restore rails. ALDO1 (SD) stays on across sleep; the rest are rearmed. */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, true);
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO1, true);
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);
@@ -326,6 +501,9 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
 
 void power_mgmt_init(void)
 {
+    pm_config_load();
+    /* Apply the persisted night-mode setting on boot. */
+    pm_apply_night_mode(pm_is_night_time());
     /* DFS + automatic light sleep (tickless). */
     esp_pm_config_t pm = {
         .max_freq_mhz = 240,

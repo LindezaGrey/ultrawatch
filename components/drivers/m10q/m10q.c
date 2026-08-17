@@ -23,6 +23,7 @@
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
+#include "driver/uart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -59,6 +60,24 @@ static bool s_had_fix;
 static uint32_t s_ttf_start_ms;
 static bool s_ttf_running;
 static uint32_t s_ttf_sum_ms;
+
+/* Mutex protecting s_fix and s_nav_status (updated in ubxlib callbacks, read
+ * from UI/tracking/BLE tasks). */
+static SemaphoreHandle_t s_data_mux;
+
+static void m10q_data_lock(void)
+{
+    if (s_data_mux) {
+        xSemaphoreTake(s_data_mux, portMAX_DELAY);
+    }
+}
+
+static void m10q_data_unlock(void)
+{
+    if (s_data_mux) {
+        xSemaphoreGive(s_data_mux);
+    }
+}
 
 /* ---- RTC sync + PPS drift calibration ---- */
 #define RTC_SYNC_MIN_DELTA_S  1         /* only set the RTC if |delta| > this */
@@ -321,6 +340,7 @@ static void stats_save(void)
         nvs_set_u32(h, "today", s_stats.fixes_today);
         nvs_set_u32(h, "ttfa", s_stats.ttf_avg_ms);
         nvs_set_u32(h, "ttfb", s_stats.ttf_best_ms);
+        nvs_set_u32(h, "ttfs", s_ttf_sum_ms);
         nvs_commit(h);
         nvs_close(h);
     }
@@ -334,6 +354,7 @@ static void stats_load(void)
         nvs_get_u32(h, "today", &s_stats.fixes_today);
         nvs_get_u32(h, "ttfa", &s_stats.ttf_avg_ms);
         nvs_get_u32(h, "ttfb", &s_stats.ttf_best_ms);
+        nvs_get_u32(h, "ttfs", &s_ttf_sum_ms);
         nvs_get_u32(h, NVS_KEY_POWERONS, &s_power_on_count);
         nvs_close(h);
     }
@@ -465,6 +486,7 @@ static void nav_status_cb(uDeviceHandle_t handle, const uGnssMessageId_t *pId,
     if (buf) {
         if (uGnssMsgReceiveCallbackRead(handle, buf, (size_t)size) == size) {
             const uint8_t *p = (const uint8_t *)buf + 6;   /* past 6-byte header */
+            m10q_data_lock();
             s_nav_status.gps_fix    = p[4];
             s_nav_status.gps_fix_ok = (p[5] & 0x01) != 0;
             s_nav_status.wkns_set   = (p[5] & 0x04) != 0;
@@ -472,6 +494,7 @@ static void nav_status_cb(uDeviceHandle_t handle, const uGnssMessageId_t *pId,
             s_nav_status.ttff_ms    = (uint32_t)p[8] | ((uint32_t)p[9] << 8) |
                                       ((uint32_t)p[10] << 16) | ((uint32_t)p[11] << 24);
             s_nav_status.updated    = true;
+            m10q_data_unlock();
         }
         heap_caps_free(buf);
     }
@@ -492,10 +515,13 @@ static void pos_cb(uDeviceHandle_t gnssHandle, int32_t errorCode,
             s_ttf_running = true;
             s_ttf_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         }
+        m10q_data_lock();
         s_fix.valid = false;
+        m10q_data_unlock();
         return;
     }
 
+    m10q_data_lock();
     s_fix.lat = lat1e7 / 1e7;
     s_fix.lon = lon1e7 / 1e7;
     s_fix.alt_m = altMm / 1000.0;
@@ -515,6 +541,7 @@ static void pos_cb(uDeviceHandle_t gnssHandle, int32_t errorCode,
         s_fix.minute = (uint8_t)tm.tm_min;
         s_fix.second = (uint8_t)tm.tm_sec;
     }
+    m10q_data_unlock();
 
     if (!s_had_fix) {
         s_had_fix = true;
@@ -559,6 +586,9 @@ esp_err_t m10q_init(i2c_master_dev_handle_t pmu, i2c_master_dev_handle_t rtc)
     s_opened = false;
     s_pending_utc = 0;
     memset(&s_fix, 0, sizeof(s_fix));
+    if (!s_data_mux) {
+        s_data_mux = xSemaphoreCreateMutex();
+    }
     stats_load();
     offset_load();
     if (xTaskCreate(cal_task, "rtccal", 4096, NULL, 3, &s_cal_task) != pdPASS) {
@@ -607,10 +637,12 @@ esp_err_t m10q_power(bool on)
             int32_t err = uDeviceOpen(&cfg, &s_gnss);
             if (err != 0) {
                 /* The module may be mid-restart or at an unexpected baud
-                 * (RAM/BBRAM config persists via VRTC). Power-cycle the rail
-                 * and retry once before giving up. */
+                 * (RAM/BBRAM config persists via VRTC). A failed open can leave
+                 * the UART driver holding a power-management lock; delete it so
+                 * the retry starts clean and light-sleep stays possible. */
                 ESP_LOGW(TAG, "uDeviceOpen failed (%d) on power-on #%lu; power-cycling and retrying",
                          (int)err, (unsigned long)pwr_no);
+                uart_driver_delete(M10Q_UART_NUM);
                 axp2101_enable_rail(s_pmu, AXP2101_BLDO1, false);
                 vTaskDelay(pdMS_TO_TICKS(500));
                 axp2101_enable_rail(s_pmu, AXP2101_BLDO1, true);
@@ -620,6 +652,7 @@ esp_err_t m10q_power(bool on)
                     ESP_LOGE(TAG, "uDeviceOpen failed again (power-on #%lu): %d",
                              (unsigned long)pwr_no, (int)err);
                     s_powered = false;
+                    uart_driver_delete(M10Q_UART_NUM);
                     axp2101_enable_rail(s_pmu, AXP2101_BLDO1, false);
                     return ESP_ERR_INVALID_STATE;
                 }
@@ -681,6 +714,9 @@ esp_err_t m10q_power(bool on)
             uDeviceClose(s_gnss, false);
             s_opened = false;
         }
+        /* Ensure the UART driver is fully removed so it does not hold a power
+         * lock that would block light sleep. */
+        uart_driver_delete(M10Q_UART_NUM);
         /* Persist LKP if we have a fresh fix. */
         if (s_fix.valid) {
             int32_t olat = 0, olon = 0;
@@ -709,7 +745,9 @@ esp_err_t m10q_get_fix(m10q_fix_t *fix)
     if (!fix) {
         return ESP_ERR_INVALID_ARG;
     }
+    m10q_data_lock();
     *fix = s_fix;
+    m10q_data_unlock();
     return ESP_OK;
 }
 
@@ -735,7 +773,10 @@ m10q_state_t m10q_get_state(void)
     if (!s_powered) {
         return M10Q_STATE_OFF;
     }
-    return s_fix.valid ? M10Q_STATE_FIXED : M10Q_STATE_ACQUIRING;
+    m10q_data_lock();
+    m10q_state_t st = s_fix.valid ? M10Q_STATE_FIXED : M10Q_STATE_ACQUIRING;
+    m10q_data_unlock();
+    return st;
 }
 
 esp_err_t m10q_get_stats(m10q_stats_t *stats)
@@ -797,7 +838,9 @@ esp_err_t m10q_get_nav_status(m10q_nav_status_t *nav)
     if (!nav) {
         return ESP_ERR_INVALID_ARG;
     }
+    m10q_data_lock();
     *nav = s_nav_status;
+    m10q_data_unlock();
     return ESP_OK;
 }
 
@@ -899,7 +942,10 @@ void m10q_rtc_calibrate(void)
     if (!s_cal_task || s_cal_active) {
         return;
     }
-    if (s_fix.valid && s_fix.sat_count >= 3) {
+    m10q_data_lock();
+    bool ok = s_fix.valid && s_fix.sat_count >= 3;
+    m10q_data_unlock();
+    if (ok) {
         xTaskNotify(s_cal_task, RTC_CAL_START_BIT, eSetBits);
     } else {
         ESP_LOGW(TAG, "PPS cal: no valid fix, skipping");

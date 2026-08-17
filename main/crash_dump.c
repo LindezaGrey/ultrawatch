@@ -181,6 +181,17 @@ esp_err_t crash_dump_save(void)
     if (err == ESP_ERR_NOT_FOUND) {
         return ESP_OK;
     }
+    if (err == ESP_ERR_INVALID_CRC) {
+        /* A bad CRC usually means an incomplete/corrupted dump (e.g. brown-out
+         * while writing). Erasing it lets future crashes be captured instead of
+         * failing the check on every boot. */
+        ESP_LOGW(TAG, "core dump CRC invalid, erasing stale image");
+        esp_err_t del = esp_core_dump_image_erase();
+        if (del != ESP_OK) {
+            ESP_LOGW(TAG, "failed to erase corrupt core dump: %s", esp_err_to_name(del));
+        }
+        return ESP_OK;
+    }
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "core dump image check failed: %s", esp_err_to_name(err));
         return err;

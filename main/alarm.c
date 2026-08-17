@@ -275,6 +275,12 @@ static void ring_task(void *arg)
             s_ring_cb(false);
         }
     }
+
+    /* Task termination path (not currently used): release the ring buffer. */
+    if (buf) {
+        heap_caps_free(buf);
+    }
+    vTaskDelete(NULL);
 }
 
 /* Notify the ring task to start. */
@@ -384,13 +390,15 @@ esp_err_t alarm_check(void)
         ESP_LOGW(TAG, "alarm_check: RTC dev not initialized");
         return ESP_ERR_INVALID_STATE;
     }
+    /* Read both flags; a transient AF read failure must not be allowed to skip
+     * the snooze-timer (TF) check, or a 10-min re-ring would silently die. */
     bool af = false;
-    if (pcf85063a_alarm_triggered(twatch_rtc_dev, &af) != ESP_OK) {
+    esp_err_t af_err = pcf85063a_alarm_triggered(twatch_rtc_dev, &af);
+    bool tf = false;
+    esp_err_t tf_err = pcf85063a_timer_triggered(twatch_rtc_dev, &tf);
+    if (af_err != ESP_OK && tf_err != ESP_OK) {
         return ESP_FAIL;
     }
-    /* Snooze timer expired (TF): start the ring too. */
-    bool tf = false;
-    pcf85063a_timer_triggered(twatch_rtc_dev, &tf);
 
     if ((af || tf) && !s_ringing) {
         if (tf) {

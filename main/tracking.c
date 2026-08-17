@@ -25,6 +25,7 @@
 #include "esp_lv_adapter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "bhi260ap.h"
 #include "m10q.h"
 
@@ -61,8 +62,26 @@ static double s_prev_lat, s_prev_lon;
 static uint16_t s_prev_course_deg;   /* last GNSS course at the last fix */
 static bool s_fix_due;
 
+static SemaphoreHandle_t s_mux;      /* protects all state above */
+#if TRACKING_ENABLED
 static TaskHandle_t s_task;
+#endif
 
+static void tracking_lock(void)
+{
+    if (s_mux) {
+        xSemaphoreTake(s_mux, portMAX_DELAY);
+    }
+}
+
+static void tracking_unlock(void)
+{
+    if (s_mux) {
+        xSemaphoreGive(s_mux);
+    }
+}
+
+#if TRACKING_ENABLED
 static void totals_load(void)
 {
     nvs_handle_t h;
@@ -83,13 +102,44 @@ static void totals_save(void)
         nvs_close(h);
     }
 }
+#endif
 
+/* Internal helpers that assume the tracking mutex is already held. */
+static void tracking_get_totals_locked(tracking_totals_t *totals)
+{
+    if (!totals) {
+        return;
+    }
+    uint32_t session_steps = 0;
+    if (s_active) {
+        uint32_t steps = 0;
+        if (bhi260ap_get_step_count(&steps) == ESP_OK && steps >= s_base_steps) {
+            session_steps = steps - s_base_steps;
+        }
+    }
+    totals->dist_cm = s_totals.dist_cm + s_session_dist_cm;
+    totals->steps = s_totals.steps + session_steps;
+}
+
+static uint32_t tracking_avg_step_cm_locked(void)
+{
+    tracking_totals_t t;
+    tracking_get_totals_locked(&t);
+    if (t.steps == 0) {
+        return 0;
+    }
+    return t.dist_cm / t.steps;
+}
+
+#if TRACKING_ENABLED
 static void tracking_task(void *arg)
 {
     (void)arg;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(TRACK_POLL_MS));
+        tracking_lock();
         if (!s_active) {
+            tracking_unlock();
             continue;
         }
         /* Keep the watch awake (no auto-sleep) so the BHI step counter keeps
@@ -97,6 +147,7 @@ static void tracking_task(void *arg)
         esp_lv_adapter_report_activity();
         uint32_t steps = 0;
         if (bhi260ap_get_step_count(&steps) != ESP_OK) {
+            tracking_unlock();
             continue;
         }
         /* Gate on activity: only pulse GNSS while walking/running. When the
@@ -106,6 +157,7 @@ static void tracking_task(void *arg)
         if (!track_activity_active()) {
             s_last_fix_steps = steps;
             s_fix_due = false;
+            tracking_unlock();
             continue;
         }
         /* Every TRACK_STEPS_PER_FIX new steps -> ask for a GNSS fix. */
@@ -114,14 +166,19 @@ static void tracking_task(void *arg)
             ESP_LOGI(TAG, "track: %lu steps since last fix, GNSS fix due",
                      (unsigned long)(steps - s_last_fix_steps));
         }
+        tracking_unlock();
     }
 }
+#endif
 
 /* ---- Public API ---- */
 
 void tracking_init(void)
 {
 #if TRACKING_ENABLED
+    if (!s_mux) {
+        s_mux = xSemaphoreCreateMutex();
+    }
     totals_load();
     if (s_task == NULL) {
         xTaskCreate(tracking_task, "track", 2048, NULL, 2, &s_task);
@@ -136,12 +193,14 @@ void tracking_init(void)
 esp_err_t tracking_start(void)
 {
 #if TRACKING_ENABLED
-    if (s_active) {
-        return ESP_OK;
-    }
     uint32_t steps = 0;
     if (bhi260ap_get_step_count(&steps) != ESP_OK) {
         return ESP_ERR_INVALID_STATE;
+    }
+    tracking_lock();
+    if (s_active) {
+        tracking_unlock();
+        return ESP_OK;
     }
     s_active = true;
     s_base_steps = steps;
@@ -149,6 +208,7 @@ esp_err_t tracking_start(void)
     s_session_dist_cm = 0;
     s_session_has_pos = false;
     s_fix_due = false;
+    tracking_unlock();
     ESP_LOGI(TAG, "tracking started (base steps %lu)", (unsigned long)steps);
     return ESP_OK;
 #else
@@ -159,7 +219,9 @@ esp_err_t tracking_start(void)
 esp_err_t tracking_stop(void)
 {
 #if TRACKING_ENABLED
+    tracking_lock();
     if (!s_active) {
+        tracking_unlock();
         return ESP_OK;
     }
     uint32_t steps = 0;
@@ -173,6 +235,7 @@ esp_err_t tracking_stop(void)
              (unsigned long)(steps >= s_base_steps ? steps - s_base_steps : 0),
              s_session_dist_cm / 100.0,
              s_totals.dist_cm / 100000.0, (unsigned long)s_totals.steps);
+    tracking_unlock();
     return ESP_OK;
 #else
     return ESP_ERR_NOT_SUPPORTED;
@@ -181,27 +244,39 @@ esp_err_t tracking_stop(void)
 
 bool tracking_is_active(void)
 {
-    return s_active;
+    tracking_lock();
+    bool active = s_active;
+    tracking_unlock();
+    return active;
 }
 
 bool tracking_is_gated_active(void)
 {
-    return s_active && track_activity_active();
+    tracking_lock();
+    bool active = s_active && track_activity_active();
+    tracking_unlock();
+    return active;
 }
 
 bool tracking_get_estimated_position(double *lat, double *lon)
 {
-    if (!lat || !lon || !s_session_has_pos) {
+    if (!lat || !lon) {
+        return false;
+    }
+    tracking_lock();
+    if (!s_session_has_pos) {
+        tracking_unlock();
         return false;
     }
     uint32_t steps = 0;
     if (bhi260ap_get_step_count(&steps) != ESP_OK || steps <= s_last_fix_steps) {
         *lat = s_prev_lat;
         *lon = s_prev_lon;
+        tracking_unlock();
         return true;
     }
     /* Distance moved since the last fix: steps x average step length. */
-    uint32_t avg_cm = tracking_get_avg_step_cm();
+    uint32_t avg_cm = tracking_avg_step_cm_locked();
     double stride = (avg_cm > 0) ? avg_cm / 100.0 : 0.70;   /* default 0.7 m */
     double dist_m = (double)(steps - s_last_fix_steps) * stride;
 
@@ -216,12 +291,15 @@ bool tracking_get_estimated_position(double *lat, double *lon)
     double dlon = dist_m * sin(course) / (111320.0 * cos_lat);
     *lat = s_prev_lat + dlat;
     *lon = s_prev_lon + dlon;
+    tracking_unlock();
     return true;
 }
 
 void tracking_on_fix(double lat, double lon)
 {
+    tracking_lock();
     if (!s_active) {
+        tracking_unlock();
         return;
     }
     if (s_session_has_pos) {
@@ -244,6 +322,7 @@ void tracking_on_fix(double lat, double lon)
     bhi260ap_get_step_count(&steps);
     s_last_fix_steps = steps;
     s_fix_due = false;
+    tracking_unlock();
     ESP_LOGI(TAG, "track: fix at (%.5f, %.5f), session dist %.0f m",
              lat, lon, s_session_dist_cm / 100.0);
 }
@@ -251,7 +330,10 @@ void tracking_on_fix(double lat, double lon)
 bool tracking_fix_due(void)
 {
 #if TRACKING_ENABLED
-    return s_active && s_fix_due;
+    tracking_lock();
+    bool due = s_active && s_fix_due;
+    tracking_unlock();
+    return due;
 #else
     return false;
 #endif
@@ -259,42 +341,45 @@ bool tracking_fix_due(void)
 
 void tracking_fix_clear(void)
 {
+    tracking_lock();
     s_fix_due = false;
     uint32_t steps = 0;
     bhi260ap_get_step_count(&steps);
     s_last_fix_steps = steps;
+    tracking_unlock();
 }
 
 void tracking_get_totals(tracking_totals_t *totals)
 {
-    if (totals) {
-        /* Report lifetime totals including the current session. */
-        uint32_t session_steps = tracking_get_session_steps();
-        uint32_t total_dist = s_totals.dist_cm + s_session_dist_cm;
-        uint32_t total_steps = s_totals.steps + session_steps;
-        totals->dist_cm = total_dist;
-        totals->steps = total_steps;
+    if (!totals) {
+        return;
     }
+    tracking_lock();
+    tracking_get_totals_locked(totals);
+    tracking_unlock();
 }
 
 uint32_t tracking_get_session_steps(void)
 {
+    tracking_lock();
     if (!s_active) {
+        tracking_unlock();
         return 0;
     }
     uint32_t steps = 0;
     if (bhi260ap_get_step_count(&steps) != ESP_OK) {
+        tracking_unlock();
         return 0;
     }
-    return (steps >= s_base_steps) ? (steps - s_base_steps) : 0;
+    uint32_t n = (steps >= s_base_steps) ? (steps - s_base_steps) : 0;
+    tracking_unlock();
+    return n;
 }
 
 uint32_t tracking_get_avg_step_cm(void)
 {
-    tracking_totals_t t;
-    tracking_get_totals(&t);
-    if (t.steps == 0) {
-        return 0;
-    }
-    return t.dist_cm / t.steps;
+    tracking_lock();
+    uint32_t avg = tracking_avg_step_cm_locked();
+    tracking_unlock();
+    return avg;
 }

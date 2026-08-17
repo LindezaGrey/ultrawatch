@@ -63,6 +63,12 @@ union bhy2_float_u32
  */
 static const uint8_t bhy2_sysid_event_size[11] = { 2, 3, 6, 4, 0, 18, 2, 3, 6, 4, 1 };
 
+/* Wake-up FIFO sample tracer (debugging only): when enabled, parse_fifo()
+ * tallies every sensor/sys id seen in the WAKE-UP FIFO so the host can see
+ * what is generating spurious wake events. */
+volatile bool s_bhy2_wu_trace_enabled;
+uint32_t s_bhy2_wu_trace_count[256];
+
 static int8_t parse_fifo(enum bhy2_fifo_type source, struct bhy2_fifo_buffer *fifo_p, struct bhy2_dev *dev);
 static int8_t get_buffer_status(const struct bhy2_fifo_buffer *fifo_p, uint8_t event_size, buffer_status_t *status);
 static int8_t get_time_stamp(enum bhy2_fifo_type source, uint64_t **time_stamp, struct bhy2_dev *dev);
@@ -1648,6 +1654,10 @@ static int8_t parse_fifo(enum bhy2_fifo_type source, struct bhy2_fifo_buffer *fi
     {
         tmp_read_pos = fifo_p->read_pos;
         tmp_sensor_id = fifo_p->buffer[tmp_read_pos];
+
+        if (source == BHY2_FIFO_TYPE_WAKEUP && s_bhy2_wu_trace_enabled) {
+            s_bhy2_wu_trace_count[tmp_sensor_id]++;
+        }
 
         rslt = get_time_stamp(source, &time_stamp, dev);
         rslt = check_return_value(rslt);

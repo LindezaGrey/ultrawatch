@@ -33,6 +33,16 @@ static const char *TAG = "bhi260ap";
 
 #define FIRMWARE_PATH           "/assets/bhi260/BHI260AP.fw"
 
+/* Meta-event payload histogram (debug): categorize what the chip keeps
+ * reporting into the WU FIFO so spurious wake interrupts can be traced. */
+#define META_HIST_MAX 16
+static uint8_t s_meta_hist_keys[META_HIST_MAX];
+static uint8_t s_meta_hist_counts[META_HIST_MAX];
+static uint8_t s_meta_hist_len;
+static volatile bool s_meta_hist_enabled;
+static volatile uint32_t s_meta_print_first;   /* debug: print first N metas */
+static volatile uint32_t s_meta_print_count;
+
 static struct bhy2_dev s_bhy2;
 static bool s_initialized;
 static volatile bool s_ap_suspended;
@@ -168,7 +178,30 @@ bool bhi260ap_is_suspended(void)
 static void parse_meta_event(const struct bhy2_fifo_parse_data_info *callback_info, void *callback_ref)
 {
     (void)callback_ref;
-    ESP_LOGD(TAG, "meta event: sid=%u data_size=%u", callback_info->sensor_id, callback_info->data_size);
+    /* Decode the idle WAKE-UP-FIFO meta stream (debug): print only WU metas
+     * (sid 248) while the metahist window is active. */
+    if (s_meta_hist_enabled && callback_info->sensor_id == BHY2_SYS_ID_META_EVENT_WU
+            && s_meta_print_first) {
+        s_meta_print_first--;
+        printf("wumeta[%lu] sid=%u dat=", (unsigned long)s_meta_print_count++, callback_info->sensor_id);
+        for (uint32_t i = 0; i < callback_info->data_size && i < 8; i++) {
+            printf("%02x ", callback_info->data_ptr[i]);
+        }
+        printf("\n");
+    }
+    /* Histogram the meta payload to identify what the chip keeps reporting. */
+    if (s_meta_hist_enabled && callback_info->data_size >= 1) {
+        uint8_t key = callback_info->data_ptr[0];
+        if (s_meta_hist_len == 0 || s_meta_hist_keys[s_meta_hist_len - 1] != key) {
+            if (s_meta_hist_len < META_HIST_MAX) {
+                s_meta_hist_keys[s_meta_hist_len] = key;
+                s_meta_hist_counts[s_meta_hist_len] = 1;
+                s_meta_hist_len++;
+            }
+        } else {
+            s_meta_hist_counts[s_meta_hist_len - 1]++;
+        }
+    }
 }
 
 static void parse_step_counter(const struct bhy2_fifo_parse_data_info *callback_info, void *callback_ref)
@@ -370,8 +403,15 @@ esp_err_t bhi260ap_init(i2c_master_dev_handle_t dev)
     /* Host interrupt only for the WAKE-UP FIFO (gesture wake). The
      * non-wakeup FIFO (continuous ACC/GYRO/etc. streams) must not assert INT
      * while the host is awake - the polling task drains it, and a live INT
-     * line would flood the wake task. Status/debug FIFOs are unused. */
-    bhy2_set_host_interrupt_ctrl(BHY2_ICTL_DISABLE_FIFO_NW |
+     * line would flood the wake task. Status/debug FIFOs are unused.
+     *
+     * IMPORTANT: the default firmware image configures the INT line ACTIVE
+     * HIGH (idles low, pulses high). Everything downstream (GPIO8 NEGEDGE
+     * ISR, LOW_LEVEL light-sleep wake, and the "arm only if line idles high"
+     * guard in pm_arm_gpio_wakeup) assumes an ACTIVE-LOW INT (idles high,
+     * pulses low). Override the polarity here so the whole wake path agrees. */
+    bhy2_set_host_interrupt_ctrl(BHY2_ICTL_ACTIVE_LOW |
+                                 BHY2_ICTL_DISABLE_FIFO_NW |
                                  BHY2_ICTL_DISABLE_STATUS_FIFO |
                                  BHY2_ICTL_DISABLE_DEBUG, &s_bhy2);
     bhy2_set_host_intf_ctrl(0, &s_bhy2);
@@ -451,10 +491,12 @@ esp_err_t bhi260ap_init(i2c_master_dev_handle_t dev)
     }
 
     /* Arm the host-interrupt wake path: the chip asserts its INT line (GPIO8)
-     * when the wake-up FIFO fills to this watermark, so a gesture/wake event
+     * when the wake-up FIFO reaches this watermark, so a gesture/wake event
      * wakes the sleeping host. The default watermark is 0 (never fires).
-     * A single wake-gesture event is small, so keep the threshold low. */
-    rslt = bhy2_set_fifo_wmark_wkup(4, &s_bhy2);
+     * One gesture = one FIFO event, so a threshold of 1 lets a single
+     * wrist-tilt/wake-raise assert the line immediately; anything higher
+     * would need several events before waking. */
+    rslt = bhy2_set_fifo_wmark_wkup(1, &s_bhy2);
     if (rslt != BHY2_OK) {
         ESP_LOGW(TAG, "set wake-up FIFO watermark failed: %d", rslt);
     }
@@ -485,6 +527,25 @@ esp_err_t bhi260ap_process_fifo(void)
     return (rslt == BHY2_OK) ? ESP_OK : ESP_FAIL;
 }
 
+/* Consume every pending wake-up FIFO event until the INT line (GPIO8)
+ * de-asserts back to its idle-high state. Used after AP-suspend and again at
+ * wake-arm time: a leftover WU event (a real gesture landing during the
+ * power-down window, glance/pickup disabling, or the FIFO flush) holds the
+ * ACTIVE-LOW INT low, which would trip a LOW_LEVEL wake the instant the ESP32
+ * goes to sleep. Returns ESP_OK once the line is high. */
+esp_err_t bhi260ap_drain_wakeup_fifo(void)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    for (int attempt = 0; attempt < 5 && gpio_get_level(GPIO_NUM_8) == 0; attempt++) {
+        uint8_t drain[BHY2_FIFO_BUFFER_SIZE];
+        bhy2_get_and_process_fifo(drain, sizeof(drain), &s_bhy2);
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    return (gpio_get_level(GPIO_NUM_8) == 1) ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+
 /* Tell the BHI260AP the host (ESP32) is going to sleep. It then runs only the
  * wake-up sensors (*_WU variants / gesture sensors) at low power and stops the
  * high-rate non-wakeup streams. Per the datasheet, flush the FIFO first so a
@@ -512,6 +573,17 @@ esp_err_t bhi260ap_ap_suspend(void)
         ESP_LOGW(TAG, "AP suspend failed: %d", rslt);
         return ESP_FAIL;
     }
+
+    /* Drain any event that slipped into the wake-up FIFO during the suspend
+     * transition (disabling glance/pickup, the FIFO flush, or the AP-suspend
+     * handshake can each leave one behind, and a real gesture can land at the
+     * same time). With the WU watermark at 1 such a leftover holds the INT line
+     * low while the host sleeps, and the arming gate in pm_arm_gpio_wakeup()
+     * would then see GPIO8 low and disable gesture wake for the whole cycle.
+     * Consume them now so the line de-asserts back to its idle-high state
+     * before the ESP32 arms the level wake. */
+    bhi260ap_drain_wakeup_fifo();
+
     ESP_LOGI(TAG, "AP suspend (host sleeping) intr_ctrl=0x%02x gpio8=%d",
              (unsigned)intr_ctrl, (int)gpio_get_level(GPIO_NUM_8));
     return ESP_OK;
@@ -523,6 +595,10 @@ esp_err_t bhi260ap_ap_resume(void)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
+    /* No data flowed while the chip was in AP-suspend (by design), so the
+     * staleness clock reads old. Reset it so the FIFO re-init logic doesn't
+     * declare the resumed stream dead before its first sample arrives. */
+    bhi260ap_mark_data();
     /* Re-enable the gestures that were paused during sleep. */
     bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_GLANCE_GESTURE, 1.0f, 0, &s_bhy2);
     bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_PICKUP_GESTURE, 1.0f, 0, &s_bhy2);
@@ -710,4 +786,61 @@ esp_err_t bhi260ap_consume_gestures(bool *wrist_tilt, bool *wake_gesture, bool *
         s_tilt_detector = false;
     }
     return ESP_OK;
+}
+
+/* ---- Wake-up FIFO sample tracer (debug) ----
+ * Counts every sensor/system id seen in the WU FIFO while enabled, so the
+ * source of spurious wake events can be identified. Non-reentrant: call from
+ * one task. */
+
+void bhi260ap_meta_hist_start(void){
+    s_meta_hist_len = 0;
+    s_meta_hist_enabled = true;
+}
+
+void bhi260ap_meta_hist_stop(void)
+{
+    s_meta_hist_enabled = false;
+}
+
+uint8_t bhi260ap_meta_hist_len_get(void) { return s_meta_hist_len; }
+
+void bhi260ap_meta_print(uint32_t n)
+{
+    s_meta_print_first = n;
+}
+
+void bhi260ap_meta_hist_get(uint8_t idx, uint8_t *key, uint8_t *count)
+{
+    *key = s_meta_hist_keys[idx];
+    *count = s_meta_hist_counts[idx];
+}
+
+extern volatile bool s_bhy2_wu_trace_enabled;
+extern uint32_t s_bhy2_wu_trace_count[256];
+
+void bhi260ap_wu_trace_start(void)
+{
+    memset((void *)s_bhy2_wu_trace_count, 0, sizeof(s_bhy2_wu_trace_count));
+    s_bhy2_wu_trace_enabled = true;
+}
+
+void bhi260ap_wu_trace_stop(void)
+{
+    s_bhy2_wu_trace_enabled = false;
+}
+
+uint32_t bhi260ap_wu_trace_get_count(uint8_t id)
+{
+    return s_bhy2_wu_trace_count[id];
+}
+
+/* Debug: change one virtual sensor's sample rate (0 = disable). */
+esp_err_t bhi260ap_set_sensor_rate(uint8_t id, float rate)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    int8_t rslt = bhy2_set_virt_sensor_cfg(id, rate, 0, &s_bhy2);
+    return (rslt == BHY2_OK) ? ESP_OK : ESP_FAIL;
 }

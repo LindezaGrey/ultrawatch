@@ -33,6 +33,18 @@ void power_mgmt_recheck_night_mode(void);
 typedef void (*power_mgmt_night_mode_cb_t)(bool night);
 void power_mgmt_register_night_mode_cb(power_mgmt_night_mode_cb_t cb);
 
+/* Night-mode auto: when enabled (default) the watch auto-enters night mode
+ * between PM_NIGHT_START_HOUR and PM_NIGHT_END_HOUR; when disabled, night
+ * mode stays off regardless of the time. Persisted in NVS. */
+bool power_mgmt_get_night_mode_auto(void);
+void power_mgmt_set_night_mode_auto(bool on);
+
+/* "Do not sleep while on USB": when enabled (default) the watch refuses
+ * auto-sleep while VBUS is present (charging / development); disable to allow
+ * sleep even when plugged in. Persisted in NVS. */
+bool power_mgmt_get_skip_sleep_on_usb(void);
+void power_mgmt_set_skip_sleep_on_usb(bool yes);
+
 #ifdef __cplusplus
 }
 #endif

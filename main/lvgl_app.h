@@ -23,6 +23,15 @@ esp_err_t lvgl_app_dump_screenshot(void);
  * persist the last-known position if moved (50 m gate), power off. */
 void lvgl_gps_refresh(void);
 
+/* True while GNSS is deliberately enabled (GPS screen switch). Defaults off;
+ * the power manager uses this to keep the GNSS rail alive across sleep. */
+bool lvgl_gps_enabled(void);
+
+/* Enable/disable GNSS (single entry for the UI switch, console commands and
+ * boot): persists the choice, updates the session on/off state and requests
+ * the power transition on the GPS control task. */
+void lvgl_gps_set_enabled(bool on);
+
 /* Start/stop a step-gated tracking session (blanks the display while active). */
 void lvgl_tracking_start(void);
 void lvgl_tracking_stop(void);

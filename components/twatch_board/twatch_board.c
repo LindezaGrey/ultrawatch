@@ -195,6 +195,12 @@ esp_err_t twatch_board_init(void)
         if (err != ESP_OK) ESP_LOGE(TAG, "haptic mode: %s", esp_err_to_name(err));
         err = xl9555_pin_mode(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, true);
         if (err != ESP_OK) ESP_LOGE(TAG, "touch rst mode: %s", esp_err_to_name(err));
+        /* Pulse the display power low->high so the CO5300 always starts from a
+         * clean power-on state: a panel stuck from an earlier sleep/wake or
+         * low-battery power state survives ESP resets (ALDO2 never drops), and
+         * only an actual power cut brings it back. */
+        xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, false);
+        vTaskDelay(pdMS_TO_TICKS(50));
         xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, true);
         xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
         xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, true);

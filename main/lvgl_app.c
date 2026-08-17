@@ -59,6 +59,8 @@ static lv_obj_t *s_pw_chg_label;
 static lv_obj_t *s_pw_temp_label;
 static lv_obj_t *s_pw_runtime_label;
 static lv_obj_t *s_pw_chg_switch;
+static lv_obj_t *s_pw_night_switch;
+static lv_obj_t *s_pw_usb_switch;
 static lv_obj_t *s_pw_cur_100;
 static lv_obj_t *s_pw_cur_400;
 
@@ -86,6 +88,7 @@ static uint32_t s_gps_acq_start_ms;            /* power-on timestamp */
 static lv_obj_t *s_gps_track_label;            /* tracking stats (distance/steps/avg) */
 static lv_obj_t *s_gps_track_btn;              /* Start/Stop tracking button */
 static lv_obj_t *s_gps_pwr_switch;             /* GNSS on/off switch */
+static bool s_gps_enabled;                     /* persisted "GNSS on" choice */
 
 /* Alarm screen (set) + ringing screen. */
 static lv_obj_t *s_alarm_screen;
@@ -114,7 +117,7 @@ static TaskHandle_t s_gps_ctrl_task;
 
 static bool gps_load_enabled(void)
 {
-    bool en = true;   /* default: GNSS on at startup */
+    bool en = false;   /* default: GNSS off at startup */
     nvs_handle_t h;
     if (nvs_open(GPS_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
         uint8_t v = 1;
@@ -512,6 +515,21 @@ static void power_screen_update(lv_timer_t *timer)
                 lv_obj_remove_state(s_pw_chg_switch, LV_STATE_CHECKED);
             }
         }
+        /* Keep the config switches reflecting the persisted settings. */
+        if (lv_obj_has_state(s_pw_night_switch, LV_STATE_CHECKED) != power_mgmt_get_night_mode_auto()) {
+            if (power_mgmt_get_night_mode_auto()) {
+                lv_obj_add_state(s_pw_night_switch, LV_STATE_CHECKED);
+            } else {
+                lv_obj_remove_state(s_pw_night_switch, LV_STATE_CHECKED);
+            }
+        }
+        if (lv_obj_has_state(s_pw_usb_switch, LV_STATE_CHECKED) != power_mgmt_get_skip_sleep_on_usb()) {
+            if (power_mgmt_get_skip_sleep_on_usb()) {
+                lv_obj_add_state(s_pw_usb_switch, LV_STATE_CHECKED);
+            } else {
+                lv_obj_remove_state(s_pw_usb_switch, LV_STATE_CHECKED);
+            }
+        }
         bool cur100 = (cache.chg_ma <= 150);
         lv_obj_add_state(s_pw_cur_100, LV_STATE_CHECKED);
         lv_obj_add_state(s_pw_cur_400, LV_STATE_CHECKED);
@@ -524,6 +542,18 @@ static void power_chg_switch_cb(lv_event_t *e)
     (void)e;
     bool en = lv_obj_has_state(s_pw_chg_switch, LV_STATE_CHECKED);
     axp2101_set_charge_enabled(twatch_pmu_dev, en);
+}
+
+static void power_night_switch_cb(lv_event_t *e)
+{
+    (void)e;
+    power_mgmt_set_night_mode_auto(lv_obj_has_state(s_pw_night_switch, LV_STATE_CHECKED));
+}
+
+static void power_usb_switch_cb(lv_event_t *e)
+{
+    (void)e;
+    power_mgmt_set_skip_sleep_on_usb(lv_obj_has_state(s_pw_usb_switch, LV_STATE_CHECKED));
 }
 
 static void power_cur_btn_cb(lv_event_t *e)
@@ -609,12 +639,34 @@ static void lvgl_build_power_screen(void)
     lv_obj_add_flag(s_pw_cur_400, LV_OBJ_FLAG_CHECKABLE);
     lv_obj_add_event_cb(s_pw_cur_400, power_cur_btn_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)400);
 
+    /* Night mode auto switch. */
+    lv_obj_t *night_lbl = lv_label_create(s_power_screen);
+    lv_label_set_text(night_lbl, "Night mode auto");
+    lv_obj_set_style_text_font(night_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(night_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(night_lbl, LV_ALIGN_TOP_LEFT, 40, 380);
+
+    s_pw_night_switch = lv_switch_create(s_power_screen);
+    lv_obj_align(s_pw_night_switch, LV_ALIGN_TOP_RIGHT, -40, 380);
+    lv_obj_add_event_cb(s_pw_night_switch, power_night_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    /* Do-not-sleep-on-USB switch. */
+    lv_obj_t *usb_lbl = lv_label_create(s_power_screen);
+    lv_label_set_text(usb_lbl, "No sleep on USB");
+    lv_obj_set_style_text_font(usb_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(usb_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(usb_lbl, LV_ALIGN_TOP_LEFT, 40, 430);
+
+    s_pw_usb_switch = lv_switch_create(s_power_screen);
+    lv_obj_align(s_pw_usb_switch, LV_ALIGN_TOP_RIGHT, -40, 430);
+    lv_obj_add_event_cb(s_pw_usb_switch, power_usb_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
     /* Hint. */
     lv_obj_t *hint = lv_label_create(s_power_screen);
     lv_label_set_text(hint, "swipe down to go back");
     lv_obj_set_style_text_font(hint, s_font_small, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -50);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -12);
 
     lv_timer_create(power_screen_update, 1000, NULL);
     power_screen_update(NULL);   /* populate instantly from the cached snapshot */
@@ -1176,10 +1228,16 @@ static void gps_ctrl_task(void *arg)
             /* GNSS stays on (always-on mode); do NOT power it off here. */
         }
 #endif
-        else if (s_gps_powered && m10q_get_state() == M10Q_STATE_OFF) {
+        else if (s_gps_powered && m10q_get_state() == M10Q_STATE_OFF &&
+                 !bhi260ap_is_suspended()) {
             /* Auto-sleep cut the GNSS rail underneath us (power_mgmt told the
              * driver, which set state=OFF). On wake the rail is restored but
-             * the module needs a fresh power-on + config, so re-arm it. */
+             * the module needs a fresh power-on + config, so re-arm it.
+             * Gated on !bhi260ap_is_suspended(): while the host is entering or
+             * in light sleep (AP-suspend set), the rail is being cut on
+             * purpose and must stay off - re-powering here (the task polls
+             * every 50 ms) would undo the power-down ~50 ms after it and leave
+             * the GNSS powered during sleep. */
             s_gps_acq_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
             m10q_power(true);
             ESP_LOGI(TAG, "GNSS re-powered after wake");
@@ -1203,9 +1261,7 @@ static void gps_pwr_switch_cb(lv_event_t *e)
     if (!s_gps_pwr_switch) {
         return;
     }
-    bool on = lv_obj_has_state(s_gps_pwr_switch, LV_STATE_CHECKED);
-    gps_power(on);
-    gps_save_enabled(on);
+    lvgl_gps_set_enabled(lv_obj_has_state(s_gps_pwr_switch, LV_STATE_CHECKED));
 }
 
 /* GPS screen Start/Stop tracking button. */
@@ -1234,6 +1290,24 @@ static void gps_refresh(void)
 void lvgl_gps_refresh(void)
 {
     gps_refresh();
+}
+
+/* True while GNSS was deliberately enabled (GPS screen switch). Used by the
+ * power manager to keep the GNSS rail alive across a sleep session instead of
+ * cutting + re-powering it on every wake. */
+bool lvgl_gps_enabled(void)
+{
+    return s_gps_enabled;
+}
+
+/* Enable/disable GNSS (single session entry point: UI switch, console, boot).
+ * Persists the choice and requests the power transition on the GPS control
+ * task, so every path feeds the same on/off state the power manager checks. */
+void lvgl_gps_set_enabled(bool on)
+{
+    s_gps_enabled = on;
+    gps_save_enabled(on);
+    gps_power(on);
 }
 
 /* Start/stop a step-gated tracking session. The display keeps working normally
@@ -1791,14 +1865,20 @@ esp_err_t lvgl_app_start(void)
     /* BHI260AP sensor task (needs SPIFFS assets, already mounted above). */
     xTaskCreate(bhi260_task, "bhi260", 4096, NULL, 5, NULL);
 
-    /* GNSS control task. GNSS is powered on at startup and left on (always-on
-     * mode); the GPS screen switch or 'gnsson/gnssoff' toggle it. */
+    /* GNSS control task. GNSS is off at startup unless the GPS screen switch
+     * is on (default off); enabling it starts one long-lived power-on session
+     * that survives sleep (see lvgl_gps_enabled()). */
     if (s_gps_ctrl_task == NULL) {
         xTaskCreate(gps_ctrl_task, "gps_ctrl", 8192, NULL,
                     ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, &s_gps_ctrl_task);
     }
-    gps_power(gps_load_enabled());
-    gps_refresh();
+    s_gps_enabled = gps_load_enabled();
+    gps_power(s_gps_enabled);
+    if (s_gps_enabled) {
+        /* One-shot boot-time position check to refresh the aided-start seed
+         * (last-known position in NVS) so the next power-on fixes fast. */
+        gps_refresh();
+    }
 
     /* Step-gated distance tracking (lifetime distance + steps). No-op while
      * TRACKING_ENABLED is 0. */

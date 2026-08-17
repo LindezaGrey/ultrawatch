@@ -38,6 +38,12 @@ esp_err_t bhi260ap_ap_suspend(void);
 /* Host awake: leave AP-suspend mode and resume the normal sensor streams. */
 esp_err_t bhi260ap_ap_resume(void);
 
+/* Consume pending wake-up FIFO events until the INT line de-asserts high.
+ * Call at wake-arm time (after AP-suspend) so a leftover WU event - e.g. a
+ * real gesture that landed during the power-down window - doesn't hold the
+ * level-wake line low and get mistaken for a stuck sensor. */
+esp_err_t bhi260ap_drain_wakeup_fifo(void);
+
 /* Reset the driver to the uninitialized state after the sensor rail was
  * power-cycled (e.g. auto-sleep), so it can be brought up again. */
 void bhi260ap_deinit(void);
@@ -83,6 +89,18 @@ esp_err_t bhi260ap_get_activity(uint8_t *activity);
  * true if that gesture occurred and then cleared. */
 esp_err_t bhi260ap_consume_gestures(bool *wrist_tilt, bool *wake_gesture, bool *glance,
                                     bool *pickup, bool *tilt);
+
+/* Wake-up FIFO sample tracer (debug): enable to tally WU-FIFO sample ids,
+ * then read per-id counts. Used to find the source of spurious wake events. */
+void bhi260ap_wu_trace_start(void);
+void bhi260ap_wu_trace_stop(void);
+uint32_t bhi260ap_wu_trace_get_count(uint8_t id);
+esp_err_t bhi260ap_set_sensor_rate(uint8_t id, float rate);
+void bhi260ap_meta_hist_start(void);
+void bhi260ap_meta_hist_stop(void);
+uint8_t bhi260ap_meta_hist_len_get(void);
+void bhi260ap_meta_hist_get(uint8_t idx, uint8_t *key, uint8_t *count);
+void bhi260ap_meta_print(uint32_t n);
 
 #ifdef __cplusplus
 }
