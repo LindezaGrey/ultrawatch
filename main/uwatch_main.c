@@ -577,6 +577,11 @@ static void debug_process_cmd(const char *cmd)
     } else if (strcmp(cmd, "bhishow") == 0) {
         lvgl_show_bhi_screen();
         printf("bhishow: done\n");
+    } else if (strncmp(cmd, "grate ", 6) == 0) {
+        float hz = strtof(cmd + 6, NULL);
+        esp_err_t e = bhi260ap_set_sensor_rate(BHY2_SENSOR_ID_GAMERV, hz);
+        printf("grate: gamerv @ %.1f Hz -> %s\n", (double)hz,
+               (e == ESP_OK) ? "accepted" : "rejected");
     } else if (strncmp(cmd, "pm night ", 9) == 0) {
         power_mgmt_set_night_mode_auto(atoi(cmd + 9) != 0);
         printf("pm: night_auto=%d\n", power_mgmt_get_night_mode_auto() ? 1 : 0);
