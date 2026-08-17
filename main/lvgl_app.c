@@ -902,7 +902,7 @@ static void lvgl_build_bhi_screen(void)
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -90);
 
     bhi_screen_update(NULL);
-    lv_timer_create(bhi_screen_update, 1000, NULL);
+    lv_timer_create(bhi_screen_update, 200, NULL);   /* 5 Hz: smooth orientation cube */
 }
 
 void lvgl_show_bhi_screen(void)
