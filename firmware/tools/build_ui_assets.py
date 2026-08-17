@@ -13,7 +13,8 @@ TILE_ORDER = (
     "launcher", "clock", "settings", "activity", "heart", "sleep",
     "wellness", "weather", "music", "messages", "rings",
     "ble_off", "ble_on", "battery_empty", "battery_low",
-    "battery_medium", "battery_full",
+    "battery_medium", "battery_full", "map",
+    "zoom_in", "zoom_out", "map_center",
 )
 ATLAS_SIZE = len(TILE_ORDER) * TILE_SIZE * TILE_SIZE * 2
 
@@ -26,7 +27,8 @@ def normalize(source: Path) -> Image.Image:
     if bounds is None:
         raise ValueError(f"{source}: no visible icon pixels")
     icon = image.crop(bounds)
-    icon.thumbnail((42, 42), Image.Resampling.LANCZOS)
+    maximum = 48 if source.stem in {"zoom_in", "zoom_out", "map_center"} else 42
+    icon.thumbnail((maximum, maximum), Image.Resampling.LANCZOS)
     tile = Image.new("RGBA", (TILE_SIZE, TILE_SIZE), (0, 0, 0, 0))
     tile.alpha_composite(icon, ((TILE_SIZE - icon.width) // 2,
                                 (TILE_SIZE - icon.height) // 2))

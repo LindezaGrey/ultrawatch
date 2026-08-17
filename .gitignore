@@ -4,3 +4,6 @@ firmware/build/
 firmware/managed_components/
 firmware/sdkconfig
 firmware/sdkconfig.old
+local-map-data/
+firmware/maps
+firmware/sdcard/ultrawatch/maps/*

@@ -77,10 +77,10 @@ seconds. NVS, PMIC measurement, haptics, BLE, and enabled sensor initialization
 follow. This keeps SD, IMU firmware loading, and GPS probing outside the
 first-Watch-frame path.
 
-The window manager has four internal states: Watch, Launcher, Settings, and
-Black. Watch is the boot/default app. The launcher clock and settings bubbles
-open their corresponding screens; the other app bubbles are visual placeholders
-and deliberately inert. Settings changes AMOLED brightness continuously while
+The window manager has Watch, Launcher, Settings, Alarm, Map, and Black states.
+Watch is the boot/default app. The launcher clock, settings, alarm, and map
+bubbles open their corresponding screens; the other app bubbles are visual
+placeholders and deliberately inert. Settings changes AMOLED brightness continuously while
 dragging and uses the same public advertising setter as the physical side
 button. After the 10-second inactivity interval, the active app resets to Watch
 and the display becomes completely black. The waking finger is consumed through
@@ -154,15 +154,18 @@ python3 firmware/tools/generate_cascadia_font.py \
 ## SD-card UI assets
 
 Copy the contents of `firmware/sdcard/` to the root of a FAT32 card. The watch
-expects `/ultrawatch/ui/icons.rgb565`, an exact 78,336-byte, row-major atlas of
-seventeen 48 x 48 RGB565 tiles in display byte order. The tile order is
+expects `/ultrawatch/ui/icons.rgb565`, an exact 96,768-byte, row-major atlas of
+twenty-one 48 x 48 RGB565 tiles in display byte order. The tile order is
 launcher, clock, settings, activity, heart, sleep, wellness, weather, music,
 messages, rings, BLE off, BLE on, and four battery states from empty to full.
+The final four tiles are Map, zoom in, zoom out, and map center. Wellness stays
+in the atlas for compatibility, but the launcher replaces it with Map.
 The ready-to-copy atlas, original generated/chroma-key PNGs,
 alpha-normalized source PNGs, 48 x 48 tiles, and QA contact sheet are retained
 under `firmware/`.
-Firmware also accepts the previous 50,688-byte, 11-tile atlas. In that case,
-it draws the new BLE and battery symbols with built-in procedural fallbacks.
+Firmware also accepts the previous 50,688-byte 11-tile, 78,336-byte 17-tile,
+and 82,944-byte 18-tile atlases. Missing status, map, and map-control symbols
+use procedural fallbacks.
 
 The BLE and battery variants are deterministic. Regenerate their transparent
 source PNGs before rebuilding the atlas:
@@ -188,6 +191,115 @@ size, and produces the labeled contact sheet. Firmware renders the first Watch
 frame before SD initialization, never formats media, caches a valid atlas in
 internal RAM, unmounts the card, and disables AXP2101 ALDO1. Missing or invalid
 media uses procedural launcher, clock, and settings symbols without rebooting.
+
+## Offline on-device map
+
+The Map bubble at the left side of the launcher opens an offline, north-up map.
+It uses the MIA-M10Q position but does not rotate with movement heading. Use the
+four arrow controls at the upper-left to move the view by half a map tile in a
+fixed direction.
+A drag applies one pan when the finger is released, so slow rendering cannot
+replay intermediate drag positions. Use the large zoom controls to change the
+available archive zoom, and use the target control to resume live following.
+The center launcher control returns to the app drawer. The app does not
+calculate routes or instructions. An interactive attribution view is
+intentionally not included in this iteration.
+
+### Minimal map build
+
+The map build uses the pinned basemap.de Hessen GeoPackage for map geometry and
+the official BKG GN250 dataset for place names. The current Hessen GeoPackage
+has an empty `name_punkt_bdlm` table, so it cannot supply city labels. The
+pipeline does not download WMS or WMTS tiles. Source files and generated map
+data stay under the ignored `local-map-data/` directory.
+
+Download the pinned Hessen Basis-DLM GeoPackage with resume support:
+
+```sh
+mkdir -p local-map-data
+curl --fail --location --continue-at - \
+  --output local-map-data/basisviews_bdlm_HE_EPSG4326_2026-08-17.gpkg \
+  https://basemap.de/dienste/opendata/basisviews/basisviews_bdlm_HE_EPSG4326_2026-08-17.gpkg
+
+curl --fail --location --continue-at - \
+  --output local-map-data/gn250.utm32s.shape.zip \
+  https://daten.gdz.bkg.bund.de/produkte/sonstige/gn250/aktuell/gn250.utm32s.shape.zip
+
+unzip -o local-map-data/gn250.utm32s.shape.zip \
+  'gn250/GN250_p.*' -d local-map-data
+```
+
+The official QGIS image is currently published for AMD64 only. On an
+Apple Silicon Mac, pull and run it through Docker's AMD64 emulation. Use the
+pinned QGIS version instead of the moving `stable` tag:
+
+```sh
+docker pull --platform linux/amd64 qgis/qgis:3.44.12
+```
+
+The repository contains the versioned `firmware/maps/hessen-debug.qgs`
+project. Its data-source path is relative to the project. Its minimal headless
+render command is:
+
+```sh
+docker run --rm --platform linux/amd64 \
+  -e QT_QPA_PLATFORM=offscreen \
+  -v "$PWD:/work" -w /work \
+  qgis/qgis:3.44.12 \
+  qgis_process run native:tilesxyzmbtiles \
+  --PROJECT_PATH=/work/firmware/maps/hessen-debug.qgs -- \
+  'EXTENT=7.609011,10.388817,49.359391,51.749253 [EPSG:4326]' \
+  ZOOM_MIN=6 ZOOM_MAX=15 DPI=96 TILE_FORMAT=1 QUALITY=75 \
+  METATILESIZE=4 \
+  OUTPUT_FILE=/work/local-map-data/hessen-raster.mbtiles
+```
+
+The checked-in QGIS project defines the source layers, draw order, and a
+minimal dark debug style. Regenerate it after a GeoPackage filename or layer
+change with:
+
+```sh
+docker run --rm --platform linux/amd64 \
+  -e QT_QPA_PLATFORM=offscreen \
+  -v "$PWD:/work" -w /work \
+  qgis/qgis:3.44.12 \
+  python3 firmware/tools/generate_hessen_qgis_project.py \
+  local-map-data/basisviews_bdlm_HE_EPSG4326_2026-08-17.gpkg \
+  firmware/maps/hessen-debug.qgs \
+  --labels local-map-data/gn250/GN250_p.shp
+```
+
+The project shows GN250 municipality names at overview scales. At detailed
+scales, it also shows locality names. Label collision handling and population
+filters keep the overview readable.
+
+The production pipeline will pin the QGIS image by digest and render separate
+resumable zoom stages. Attribution is outside the current renderer-debug
+iteration.
+
+Convert the rendered raster MBTiles to the current watch package:
+
+```sh
+python3 firmware/tools/build_offline_map.py \
+  local-map-data/hessen-raster.mbtiles \
+  firmware/sdcard/ultrawatch/maps \
+  --jpeg-quality 75 \
+  --attribution DEBUG
+```
+
+The temporary `DEBUG` value satisfies the current package-format validator. It
+is not production attribution. The tool accepts 256 x 256 PNG, JPEG, and WebP
+raster tiles, converts TMS rows to XYZ, and rejects vector archives. It
+produces `map.uwi`, `map.000`, optional additional `map.NNN` segments, and
+`map.sha256`. ESP-IDF on this target has a signed 32-bit file seek, so segment
+files split at that platform boundary before the larger FAT32 file limit.
+
+Copy the generated files to `/ultrawatch/maps/` on the FAT32 card. Map data is
+not included in this repository. The SD card and GPS are active only while Map
+is open. The temporary GPS request does not change the saved BLE sensor mask.
+Map keeps the screen active while it is open. Closing Map or an alarm unmounts
+the card, disables ALDO1, and restores the previous GPS state. The normal
+10-second screen timeout resumes after Map closes.
 
 Build with ESP-IDF 5.3:
 

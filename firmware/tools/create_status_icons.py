@@ -44,6 +44,42 @@ def draw_battery(level: int) -> Image.Image:
     return image
 
 
+def draw_map() -> Image.Image:
+    image, draw = new_icon()
+    cyan = (62, 220, 255, 255)
+    blue = (24, 99, 255, 255)
+    green = (82, 242, 178, 255)
+    draw.polygon([(34, 62), (100, 37), (151, 63), (218, 40),
+                  (218, 191), (151, 216), (100, 190), (34, 215)],
+                 fill=(5, 18, 31, 255), outline=cyan, width=13)
+    draw.line([(100, 37), (100, 190)], fill=blue, width=10)
+    draw.line([(151, 63), (151, 216)], fill=blue, width=10)
+    draw.ellipse((125, 89, 181, 145), fill=green)
+    draw.polygon([(135, 134), (171, 134), (153, 184)], fill=green)
+    return image
+
+
+def draw_zoom(plus: bool) -> Image.Image:
+    image, draw = new_icon()
+    white = (244, 249, 255, 255)
+    draw.rounded_rectangle((38, 111, 218, 145), radius=17, fill=white)
+    if plus:
+        draw.rounded_rectangle((111, 38, 145, 218), radius=17, fill=white)
+    return image
+
+
+def draw_map_center() -> Image.Image:
+    image, draw = new_icon()
+    white = (244, 249, 255, 255)
+    draw.ellipse((57, 57, 199, 199), outline=white, width=22)
+    draw.rounded_rectangle((116, 24, 140, 91), radius=12, fill=white)
+    draw.rounded_rectangle((116, 165, 140, 232), radius=12, fill=white)
+    draw.rounded_rectangle((24, 116, 91, 140), radius=12, fill=white)
+    draw.rounded_rectangle((165, 116, 232, 140), radius=12, fill=white)
+    draw.ellipse((111, 111, 145, 145), fill=white)
+    return image
+
+
 def main() -> None:
     parser = ArgumentParser()
     parser.add_argument("output_dir", type=Path)
@@ -55,6 +91,10 @@ def main() -> None:
                         ("full", 3)):
         draw_battery(level).save(args.output_dir / f"battery_{name}.png",
                                  optimize=True)
+    draw_map().save(args.output_dir / "map.png", optimize=True)
+    draw_zoom(True).save(args.output_dir / "zoom_in.png", optimize=True)
+    draw_zoom(False).save(args.output_dir / "zoom_out.png", optimize=True)
+    draw_map_center().save(args.output_dir / "map_center.png", optimize=True)
 
 
 if __name__ == "__main__":

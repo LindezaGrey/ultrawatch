@@ -249,6 +249,7 @@ static uint8_t haptic_device_id;
 static uint8_t haptic_last_effect;
 static uint8_t haptic_last_repeats;
 static volatile uint8_t requested_sensor_mask = SENSOR_DEFAULT_MASK;
+static volatile bool temporary_gps_lease;
 static TaskHandle_t imu_control_task_handle;
 static TaskHandle_t gps_control_task_handle;
 static TaskHandle_t touch_control_task_handle;
@@ -861,6 +862,26 @@ static uint8_t sensor_ready_mask(void)
         mask |= SENSOR_TOUCH_BIT;
     }
     return mask;
+}
+
+esp_err_t ble_rtc_acquire_gps_lease(void)
+{
+    temporary_gps_lease = true;
+    if (gps_control_task_handle != NULL) {
+        xTaskNotifyGive(gps_control_task_handle);
+    }
+    return ESP_OK;
+}
+
+void ble_rtc_release_gps_lease(void)
+{
+    temporary_gps_lease = false;
+    if ((requested_sensor_mask & SENSOR_GPS_BIT) == 0) {
+        gps_cancel_initialize();
+    }
+    if (gps_control_task_handle != NULL) {
+        xTaskNotifyGive(gps_control_task_handle);
+    }
 }
 
 static void sensor_control_get_payload(
@@ -2691,7 +2712,8 @@ static void gps_control_task(void *parameter)
 {
     (void)parameter;
     for (;;) {
-        bool enabled = (requested_sensor_mask & SENSOR_GPS_BIT) != 0;
+        bool enabled = (requested_sensor_mask & SENSOR_GPS_BIT) != 0 ||
+                       temporary_gps_lease;
         gps_status_t status;
         bool ready = gps_get_status(&status) && status.ready;
         if (enabled && !ready) {
@@ -2706,7 +2728,8 @@ static void gps_control_task(void *parameter)
                 gps_deinitialize();
                 sensor_rail_set(BOARD_AXP2101_BLDO1_VOLTAGE, 28,
                                 BOARD_AXP2101_BLDO1_BIT, false);
-                if ((requested_sensor_mask & SENSOR_GPS_BIT) != 0) {
+                if ((requested_sensor_mask & SENSOR_GPS_BIT) != 0 ||
+                    temporary_gps_lease) {
                     ESP_LOGW(TAG, "GPS enable failed: %s",
                              esp_err_to_name(result));
                 }

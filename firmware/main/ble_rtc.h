@@ -45,6 +45,10 @@ esp_err_t ble_rtc_set_advertising_enabled(bool enabled);
 /* Play one short DRV2605 click for an on-watch UI control. */
 esp_err_t ble_haptic_click(void);
 
+/* Temporarily keep GPS active without changing its stored sensor setting. */
+esp_err_t ble_rtc_acquire_gps_lease(void);
+void ble_rtc_release_gps_lease(void);
+
 /* Read or set the one daily RTC alarm. Sound and vibration are always used. */
 void ble_alarm_get_config(alarm_config_t *config);
 esp_err_t ble_alarm_set(uint8_t hour, uint8_t minute, bool enabled);

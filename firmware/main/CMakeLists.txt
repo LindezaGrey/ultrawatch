@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "app_main.c" "ble_rtc.c" "gps.c"
+    SRCS "app_main.c" "ble_rtc.c" "gps.c" "offline_map.c"
          "vendor/bhy2/bhy2.c" "vendor/bhy2/bhy2_hif.c"
          "vendor/bhy2/bhy2_parse.c"
     INCLUDE_DIRS "." "vendor/bhy2"

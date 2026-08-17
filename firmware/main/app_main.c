@@ -22,6 +22,7 @@
 #include "ble_rtc.h"
 #include "board.h"
 #include "cascadia_code_72.h"
+#include "offline_map.h"
 #include "screen_control.h"
 
 #ifndef CONFIG_SPIRAM
@@ -42,9 +43,13 @@
 #define UI_EVENT_ASSETS_READY (1U << 2)
 #define ICON_SIZE 48
 #define LEGACY_ICON_COUNT 11
-#define ICON_COUNT 17
+#define PREVIOUS_ICON_COUNT 17
+#define MAP_ICON_COUNT 18
+#define ICON_COUNT 21
 #define ICON_TILE_BYTES (ICON_SIZE * ICON_SIZE * 2)
 #define LEGACY_ICON_ATLAS_BYTES (LEGACY_ICON_COUNT * ICON_TILE_BYTES)
+#define PREVIOUS_ICON_ATLAS_BYTES (PREVIOUS_ICON_COUNT * ICON_TILE_BYTES)
+#define MAP_ICON_ATLAS_BYTES (MAP_ICON_COUNT * ICON_TILE_BYTES)
 #define ICON_ATLAS_BYTES (ICON_COUNT * ICON_TILE_BYTES)
 #define ICON_ATLAS_PATH "/sdcard/ultrawatch/ui/icons.rgb565"
 #define ALARM_ROLL_STEP_PIXELS 60
@@ -56,6 +61,7 @@ typedef enum {
     UI_LAUNCHER,
     UI_SETTINGS,
     UI_ALARM,
+    UI_MAP,
     UI_BLACK,
 } ui_screen_t;
 
@@ -77,6 +83,10 @@ typedef enum {
     ICON_BATTERY_LOW,
     ICON_BATTERY_MEDIUM,
     ICON_BATTERY_FULL,
+    ICON_MAP,
+    ICON_ZOOM_IN,
+    ICON_ZOOM_OUT,
+    ICON_MAP_CENTER,
 } icon_id_t;
 
 typedef struct {
@@ -126,6 +136,7 @@ static uint16_t *watch_frame;
 static uint16_t *launcher_frame;
 static uint16_t *settings_frame;
 static uint16_t *alarm_frame;
+static uint16_t *map_frame;
 static volatile uint8_t display_brightness_percentage = 50;
 static volatile uint32_t theme_rgb = 0x1863FF;
 static bool panel_hidden = true;
@@ -140,6 +151,9 @@ static bool alarm_controls_dirty;
 static bool alarm_swipe_active;
 static bool alarm_swipe_hours;
 static bool alarm_swipe_changed;
+static bool map_drag_active;
+static int map_drag_x;
+static int map_drag_y;
 static int alarm_swipe_y;
 static alarm_config_t alarm_edit = {.hour = 7, .minute = 0,
                                     .enabled = false};
@@ -171,7 +185,7 @@ static const display_init_command_t display_init_commands[] = {
 
 static const bubble_t launcher_bubbles[] = {
     {205, 92, 42, ICON_ACTIVITY}, {110, 143, 42, ICON_HEART},
-    {300, 143, 42, ICON_SLEEP}, {73, 241, 42, ICON_WELLNESS},
+    {300, 143, 42, ICON_SLEEP}, {73, 241, 42, ICON_MAP},
     {337, 241, 42, ICON_WEATHER}, {111, 340, 42, ICON_MUSIC},
     {299, 340, 42, ICON_MESSAGES}, {205, 385, 42, ICON_SETTINGS},
     {205, 235, 70, ICON_CLOCK},
@@ -393,7 +407,8 @@ static bool touch_is_button(ui_screen_t screen, uint16_t x, uint16_t y)
            (screen == UI_LAUNCHER &&
             (point_in_circle(x, y, 205, 235, 70) ||
              point_in_circle(x, y, 205, 385, 42) ||
-             point_in_circle(x, y, 300, 143, 42))) ||
+             point_in_circle(x, y, 300, 143, 42) ||
+             point_in_circle(x, y, 73, 241, 42))) ||
            (screen == UI_SETTINGS &&
             (point_in_circle(x, y, 205, 425, 44) ||
              (x >= 42 && x <= 368 && y >= 245 && y <= 355))) ||
@@ -401,7 +416,16 @@ static bool touch_is_button(ui_screen_t screen, uint16_t x, uint16_t y)
             (ble_alarm_is_ringing()
                  ? (x >= 55 && x <= 355 && y >= 292 && y <= 378)
                  : (point_in_circle(x, y, 205, 430, 40) ||
-                    (x >= 70 && x <= 340 && y >= 295 && y <= 365))));
+                    (x >= 70 && x <= 340 && y >= 295 && y <= 365)))) ||
+           (screen == UI_MAP &&
+            (point_in_circle(x, y, 350, 74, 28) ||
+             point_in_circle(x, y, 350, 142, 28) ||
+             point_in_circle(x, y, 350, 210, 28) ||
+             point_in_circle(x, y, 94, 68, 22) ||
+             point_in_circle(x, y, 94, 172, 22) ||
+             point_in_circle(x, y, 42, 120, 22) ||
+             point_in_circle(x, y, 146, 120, 22) ||
+             point_in_circle(x, y, 205, 445, 36)));
 }
 
 static bool process_touch_event(screen_touch_event_t event, uint16_t x,
@@ -463,6 +487,34 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
             return false;
         }
     }
+    if (active_screen == UI_MAP) {
+        const bool control = point_in_circle(x, y, 350, 74, 34) ||
+            point_in_circle(x, y, 350, 142, 34) ||
+            point_in_circle(x, y, 350, 210, 34) ||
+            point_in_circle(x, y, 94, 68, 28) ||
+            point_in_circle(x, y, 94, 172, 28) ||
+            point_in_circle(x, y, 42, 120, 28) ||
+            point_in_circle(x, y, 146, 120, 28) ||
+            point_in_circle(x, y, 205, 445, 42);
+        if (event == SCREEN_TOUCH_DOWN && !control) {
+            map_drag_active = true;
+            map_drag_x = x;
+            map_drag_y = y;
+            return false;
+        }
+        if (event == SCREEN_TOUCH_MOVE && map_drag_active) {
+            return false;
+        }
+        if (event == SCREEN_TOUCH_UP && map_drag_active) {
+            map_drag_active = false;
+            int delta_x = (int)x - map_drag_x;
+            int delta_y = (int)y - map_drag_y;
+            if (delta_x != 0 || delta_y != 0) {
+                offline_map_pan(delta_x, delta_y);
+            }
+            return false;
+        }
+    }
     if (event != SCREEN_TOUCH_UP) {
         return false;
     }
@@ -501,6 +553,14 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
         ble_alarm_get_config(&alarm_edit);
         active_screen = UI_ALARM;
         changed = true;
+    } else if (active_screen == UI_LAUNCHER &&
+               point_in_circle(x, y, 73, 241, 42)) {
+        esp_err_t result = offline_map_start();
+        if (result != ESP_OK) {
+            ESP_LOGW(TAG, "map start failed: %s", esp_err_to_name(result));
+        }
+        active_screen = UI_MAP;
+        changed = true;
     } else if (active_screen == UI_SETTINGS &&
                point_in_circle(x, y, 205, 425, 44)) {
         active_screen = UI_LAUNCHER;
@@ -530,6 +590,32 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
         } else {
             alarm_controls_dirty = true;
         }
+    } else if (active_screen == UI_MAP &&
+               point_in_circle(x, y, 350, 74, 34)) {
+        offline_map_zoom(1);
+    } else if (active_screen == UI_MAP &&
+               point_in_circle(x, y, 350, 142, 34)) {
+        offline_map_zoom(-1);
+    } else if (active_screen == UI_MAP &&
+               point_in_circle(x, y, 350, 210, 34)) {
+        offline_map_recenter();
+    } else if (active_screen == UI_MAP &&
+               point_in_circle(x, y, 94, 68, 28)) {
+        offline_map_pan_step(0, -1);
+    } else if (active_screen == UI_MAP &&
+               point_in_circle(x, y, 94, 172, 28)) {
+        offline_map_pan_step(0, 1);
+    } else if (active_screen == UI_MAP &&
+               point_in_circle(x, y, 42, 120, 28)) {
+        offline_map_pan_step(-1, 0);
+    } else if (active_screen == UI_MAP &&
+               point_in_circle(x, y, 146, 120, 28)) {
+        offline_map_pan_step(1, 0);
+    } else if (active_screen == UI_MAP &&
+               point_in_circle(x, y, 205, 445, 42)) {
+        offline_map_stop();
+        active_screen = UI_LAUNCHER;
+        changed = true;
     }
     return changed;
 }
@@ -544,6 +630,9 @@ static bool process_ui_input(void)
     portEXIT_CRITICAL(&ui_input_lock);
 
     if (input.alarm_ring) {
+        if (active_screen == UI_MAP) {
+            offline_map_stop();
+        }
         ble_alarm_get_config(&alarm_edit);
         active_screen = UI_ALARM;
         consume_touch_until_up = false;
@@ -889,6 +978,32 @@ static uint16_t icon_pixel(icon_id_t icon, int center_x, int center_y,
             return wire_rgb565(level == 0 ? 238 : 79,
                                level == 0 ? 92 : 226,
                                level == 0 ? 99 : 157);
+        }
+    } else if (icon == ICON_MAP) {
+        const bool left_edge = abs(dx + 15) <= 2 && abs(dy) <= 15;
+        const bool right_edge = abs(dx - 15) <= 2 && abs(dy) <= 15;
+        const bool fold_left = abs(dx + 5) <= 2 && abs(dy) <= 15;
+        const bool fold_right = abs(dx - 5) <= 2 && abs(dy) <= 15;
+        const bool top_bottom = abs(abs(dy) - 15) <= 2 && abs(dx) <= 15;
+        const bool pin = (dx - 5) * (dx - 5) + (dy + 3) * (dy + 3) <= 30 ||
+                         (dy >= 1 && dy <= 10 && abs(dx - 5) <= 5 - dy / 2);
+        if (left_edge || right_edge || fold_left || fold_right ||
+            top_bottom || pin) {
+            return theme_wire_tinted(56);
+        }
+    } else if (icon == ICON_ZOOM_IN || icon == ICON_ZOOM_OUT) {
+        if (abs(dy) <= 3 && abs(dx) <= 16) {
+            return theme_wire_tinted(72);
+        }
+        if (icon == ICON_ZOOM_IN && abs(dx) <= 3 && abs(dy) <= 16) {
+            return theme_wire_tinted(72);
+        }
+    } else if (icon == ICON_MAP_CENTER) {
+        int d2 = dx * dx + dy * dy;
+        if ((d2 >= 196 && d2 <= 324) ||
+            (abs(dx) <= 2 && abs(dy) <= 18) ||
+            (abs(dy) <= 2 && abs(dx) <= 18) || d2 <= 25) {
+            return theme_wire_tinted(72);
         }
     }
     return 0;
@@ -1387,6 +1502,133 @@ static void compose_alarm_frame(uint16_t *frame)
     draw_contour(frame);
 }
 
+static void draw_map_round_control(uint16_t *frame, int center_x, int center_y,
+                                   int radius, bool enabled)
+{
+    const uint16_t edge = enabled ? theme_wire_color()
+                                  : wire_rgb565(70, 78, 92);
+    const uint16_t fill = enabled ? theme_wire_scaled(44)
+                                  : wire_rgb565(10, 13, 19);
+    for (int y = center_y - radius; y <= center_y + radius; y++) {
+        for (int x = center_x - radius; x <= center_x + radius; x++) {
+            int dx = x - center_x;
+            int dy = y - center_y;
+            int distance = dx * dx + dy * dy;
+            if (distance <= radius * radius) {
+                frame_set_content(frame, x, y,
+                                  distance >= (radius - 4) * (radius - 4)
+                                      ? edge : fill);
+            }
+        }
+    }
+}
+
+static void draw_map_marker(uint16_t *frame, int center_x, int center_y)
+{
+    for (int y = center_y - 15; y <= center_y + 15; y++) {
+        for (int x = center_x - 15; x <= center_x + 15; x++) {
+            int dx = x - center_x;
+            int dy = y - center_y;
+            int distance = dx * dx + dy * dy;
+            if ((distance >= 100 && distance <= 196) ||
+                (abs(dx) <= 2 && dy >= -10 && dy <= 10) ||
+                (abs(dy) <= 2 && dx >= -10 && dx <= 10)) {
+                frame_set_content(frame, x, y, theme_wire_tinted(48));
+            }
+        }
+    }
+}
+
+static void draw_map_control_icon(uint16_t *frame, icon_id_t icon,
+                                  int center_x, int center_y, bool enabled)
+{
+    const uint16_t color = enabled ? theme_wire_tinted(72)
+                                   : wire_rgb565(90, 96, 108);
+    const int size = 52;
+    for (int y = center_y - size / 2; y < center_y + size / 2; y++) {
+        for (int x = center_x - size / 2; x < center_x + size / 2; x++) {
+            if (icon_pixel_sized(icon, center_x, center_y, size, x, y) != 0) {
+                frame_set_content(frame, x, y, color);
+            }
+        }
+    }
+}
+
+static void draw_map_pan_control(uint16_t *frame, int center_x, int center_y,
+                                 int direction_x, int direction_y)
+{
+    draw_map_round_control(frame, center_x, center_y, 22, true);
+    const uint16_t color = theme_wire_tinted(72);
+    for (int y = center_y - 11; y <= center_y + 11; y++) {
+        for (int x = center_x - 11; x <= center_x + 11; x++) {
+            const int dx = x - center_x;
+            const int dy = y - center_y;
+            const int forward = dx * direction_x + dy * direction_y;
+            const int side = -dx * direction_y + dy * direction_x;
+            const bool shaft = forward >= -10 && forward <= 2 &&
+                               abs(side) <= 2;
+            const bool head = forward >= 2 && forward <= 11 &&
+                              abs(side) <= 11 - forward;
+            if (shaft || head) {
+                frame_set_content(frame, x, y, color);
+            }
+        }
+    }
+}
+
+static void compose_map_frame(uint16_t *frame)
+{
+    offline_map_snapshot_t snapshot = {.state = OFFLINE_MAP_LOADING,
+                                       .following = true};
+    if (!offline_map_copy_frame(frame, &snapshot)) {
+        memset(frame, 0, DISPLAY_FRAME_BYTES);
+    }
+    for (int y = 0; y < BOARD_DISPLAY_HEIGHT; y++) {
+        for (int x = 0; x < BOARD_DISPLAY_WIDTH; x++) {
+            if (!pixel_is_safe_content(x, y)) {
+                frame[y * BOARD_DISPLAY_WIDTH + x] = 0;
+            }
+        }
+    }
+
+    if (snapshot.state == OFFLINE_MAP_LOADING ||
+        snapshot.state == OFFLINE_MAP_GPS_SEARCH ||
+        snapshot.state == OFFLINE_MAP_ERROR) {
+        clear_content_rect(frame, 105, 20, 200, 42);
+        const char *status = snapshot.state == OFFLINE_MAP_LOADING
+                                 ? "KARTE"
+                                 : snapshot.state == OFFLINE_MAP_GPS_SEARCH
+                                       ? "GPS SUCHE" : snapshot.error;
+        draw_text(frame, status, centered_text_x(status, 5), 29, 5,
+                  snapshot.state == OFFLINE_MAP_ERROR
+                      ? wire_rgb565(255, 98, 108)
+                      : theme_wire_tinted(64));
+    }
+
+    draw_map_round_control(frame, 350, 74, 28, snapshot.can_zoom_in);
+    draw_map_control_icon(frame, ICON_ZOOM_IN, 350, 74,
+                          snapshot.can_zoom_in);
+    draw_map_round_control(frame, 350, 142, 28, snapshot.can_zoom_out);
+    draw_map_control_icon(frame, ICON_ZOOM_OUT, 350, 142,
+                          snapshot.can_zoom_out);
+    draw_map_round_control(frame, 350, 210, 28, true);
+    draw_map_control_icon(frame, ICON_MAP_CENTER, 350, 210, true);
+    draw_map_pan_control(frame, 94, 68, 0, -1);
+    draw_map_pan_control(frame, 94, 172, 0, 1);
+    draw_map_pan_control(frame, 42, 120, -1, 0);
+    draw_map_pan_control(frame, 146, 120, 1, 0);
+    if (snapshot.gps_fix && snapshot.marker_x >= 18 &&
+        snapshot.marker_x < BOARD_DISPLAY_WIDTH - 18 &&
+        snapshot.marker_y >= 18 && snapshot.marker_y < BOARD_DISPLAY_HEIGHT - 18) {
+        draw_map_marker(frame, snapshot.marker_x, snapshot.marker_y);
+    }
+    const bubble_t launcher = {205, 445, 36, ICON_LAUNCHER};
+    draw_bubble(frame, &launcher);
+    draw_icon(frame, ICON_LAUNCHER, 205, 445, 48);
+
+    draw_contour(frame);
+}
+
 static void display_frame_region(const uint16_t *frame, int x, int y,
                                  int width, int height, bool synchronize)
 {
@@ -1486,6 +1728,9 @@ static void rebuild_theme_frames(void)
     compose_launcher_frame(launcher_frame, &values);
     compose_settings_frame(settings_frame);
     compose_alarm_frame(alarm_frame);
+    if (active_screen == UI_MAP) {
+        compose_map_frame(map_frame);
+    }
     displayed_watch_values = values;
     displayed_watch_values_valid = true;
     strcpy(displayed_launcher_battery, values.battery);
@@ -1510,6 +1755,9 @@ static int64_t present_screen(ui_screen_t screen)
     } else if (screen == UI_ALARM) {
         compose_alarm_frame(alarm_frame);
         frame = alarm_frame;
+    } else if (screen == UI_MAP) {
+        compose_map_frame(map_frame);
+        frame = map_frame;
     }
     display_frame_region(frame, 0, 0, BOARD_DISPLAY_WIDTH,
                          BOARD_DISPLAY_HEIGHT, true);
@@ -1547,6 +1795,10 @@ static void refresh_active_screen(void)
         }
         compose_alarm_frame(alarm_frame);
         display_frame_region(alarm_frame, 0, 0, BOARD_DISPLAY_WIDTH,
+                             BOARD_DISPLAY_HEIGHT, false);
+    } else if (active_screen == UI_MAP) {
+        compose_map_frame(map_frame);
+        display_frame_region(map_frame, 0, 0, BOARD_DISPLAY_WIDTH,
                              BOARD_DISPLAY_HEIGHT, false);
     }
 }
@@ -1639,9 +1891,13 @@ static void ui_task(void *parameter)
 
         TickType_t now = xTaskGetTickCount();
         TickType_t elapsed = now - last_touch_tick;
-        if (active_screen != UI_BLACK && !ble_alarm_is_ringing() &&
+        if (active_screen != UI_BLACK && active_screen != UI_MAP &&
+            !ble_alarm_is_ringing() &&
             elapsed >= SCREEN_IDLE_TICKS) {
             ui_screen_t previous_screen = active_screen;
+            if (previous_screen == UI_MAP) {
+                offline_map_stop();
+            }
             ESP_ERROR_CHECK(display_apply_brightness(0));
             panel_hidden = true;
             update_watch_cache(previous_screen == UI_WATCH);
@@ -1660,8 +1916,11 @@ static void ui_task(void *parameter)
         }
         now = xTaskGetTickCount();
         elapsed = now - last_touch_tick;
-        TickType_t idle_wait = elapsed >= SCREEN_IDLE_TICKS
-                                   ? 0 : SCREEN_IDLE_TICKS - elapsed;
+        TickType_t idle_wait = active_screen == UI_MAP
+                                   ? portMAX_DELAY
+                                   : (elapsed >= SCREEN_IDLE_TICKS
+                                          ? 0
+                                          : SCREEN_IDLE_TICKS - elapsed);
         TickType_t minute_wait = minute_wait_ticks();
         TickType_t wait = minute_wait < idle_wait ? minute_wait : idle_wait;
         uint32_t events = 0;
@@ -1778,9 +2037,12 @@ static void load_icon_atlas_from_sd(void)
             ESP_LOGW(TAG, "cannot determine atlas size: errno=%d (%s)",
                      errno, strerror(errno));
         } else if (file_size != ICON_ATLAS_BYTES &&
+                   file_size != MAP_ICON_ATLAS_BYTES &&
+                   file_size != PREVIOUS_ICON_ATLAS_BYTES &&
                    file_size != LEGACY_ICON_ATLAS_BYTES) {
-            ESP_LOGW(TAG, "atlas is %ld bytes; expected %u or legacy %u",
-                     file_size, ICON_ATLAS_BYTES, LEGACY_ICON_ATLAS_BYTES);
+            ESP_LOGW(TAG, "atlas is %ld bytes; expected %u, %u, %u, or %u",
+                     file_size, ICON_ATLAS_BYTES, MAP_ICON_ATLAS_BYTES,
+                     PREVIOUS_ICON_ATLAS_BYTES, LEGACY_ICON_ATLAS_BYTES);
         } else {
             uint8_t *candidate = heap_caps_malloc(
                 (size_t)file_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -1839,8 +2101,11 @@ void app_main(void)
                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     alarm_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    map_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
+                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     ESP_ERROR_CHECK(watch_frame == NULL || launcher_frame == NULL ||
-                            settings_frame == NULL || alarm_frame == NULL
+                            settings_frame == NULL || alarm_frame == NULL ||
+                            map_frame == NULL
                         ? ESP_ERR_NO_MEM : ESP_OK);
 
     bootstrap_task_handle = xTaskGetCurrentTaskHandle();
