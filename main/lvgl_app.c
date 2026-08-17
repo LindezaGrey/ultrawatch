@@ -374,7 +374,7 @@ static void lvgl_build_watch_face(void)
     lv_label_set_text(s_date_label, "");
     lv_obj_set_style_text_font(s_date_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_date_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_date_label, LV_ALIGN_CENTER, 0, -110);
+    lv_obj_align(s_date_label, LV_ALIGN_CENTER, 0, -100);
 
     /* GNSS satellite status icon: grey = receiver off, red = on/no fix,
      * green = 3D fix. Uses the built-in symbol font for the satellite glyph
@@ -410,18 +410,18 @@ static void lvgl_build_watch_face(void)
     lv_obj_set_style_text_color(s_time_label, lv_color_hex(0xFFFFFF), 0);
     /* Tighten the monospace cells so the full-width colons don't sprawl. */
     lv_obj_set_style_text_letter_space(s_time_label, -6, 0);
-    lv_obj_align(s_time_label, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_align(s_time_label, LV_ALIGN_CENTER, 0, -10);
 
     s_sec_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_sec_label, "UTC --:--");
     lv_obj_set_style_text_font(s_sec_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_sec_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_sec_label, LV_ALIGN_CENTER, 0, 70);
+    lv_obj_align(s_sec_label, LV_ALIGN_CENTER, 0, 65);
 
     /* Battery bar. */
     lv_obj_t *bar = lv_obj_create(lv_screen_active());
     lv_obj_set_size(bar, 140, 12);
-    lv_obj_align(bar, LV_ALIGN_CENTER, 0, 240);
+    lv_obj_align(bar, LV_ALIGN_CENTER, 0, 185);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(bar, lv_color_hex(0x111111), 0);
     lv_obj_set_style_border_color(bar, lv_color_hex(0x666666), 0);
@@ -441,13 +441,13 @@ static void lvgl_build_watch_face(void)
     lv_label_set_text(s_batt_label, "--");
     lv_obj_set_style_text_font(s_batt_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_batt_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_batt_label, LV_ALIGN_CENTER, 0, 280);
+    lv_obj_align(s_batt_label, LV_ALIGN_CENTER, 0, 208);
 
     s_steps_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_steps_label, "Steps: --");
     lv_obj_set_style_text_font(s_steps_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_steps_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_steps_label, LV_ALIGN_CENTER, 0, 200);
+    lv_obj_align(s_steps_label, LV_ALIGN_CENTER, 0, 150);
 
     watch_face_update(NULL);
     lv_timer_create(watch_face_update, 1000, NULL);
@@ -666,10 +666,10 @@ static void lvgl_build_power_screen(void)
     lv_label_set_text(usb_lbl, "No sleep on USB");
     lv_obj_set_style_text_font(usb_lbl, s_font_small, 0);
     lv_obj_set_style_text_color(usb_lbl, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(usb_lbl, LV_ALIGN_TOP_LEFT, 40, 430);
+    lv_obj_align(usb_lbl, LV_ALIGN_TOP_LEFT, 40, 416);
 
     s_pw_usb_switch = lv_switch_create(s_power_screen);
-    lv_obj_align(s_pw_usb_switch, LV_ALIGN_TOP_RIGHT, -40, 430);
+    lv_obj_align(s_pw_usb_switch, LV_ALIGN_TOP_RIGHT, -40, 416);
     lv_obj_add_event_cb(s_pw_usb_switch, power_usb_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     /* Hint. */
@@ -677,7 +677,7 @@ static void lvgl_build_power_screen(void)
     lv_label_set_text(hint, "swipe down to go back");
     lv_obj_set_style_text_font(hint, s_font_small, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -6);
 
     lv_timer_create(power_screen_update, 1000, NULL);
     power_screen_update(NULL);   /* populate instantly from the cached snapshot */
