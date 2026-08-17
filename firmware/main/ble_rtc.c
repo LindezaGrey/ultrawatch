@@ -2182,6 +2182,15 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         if (event->connect.status == 0) {
             connection_handle = event->connect.conn_handle;
             ESP_LOGI(TAG, "BLE client connected");
+            if (!advertising_enabled) {
+                int result = ble_gap_terminate(event->connect.conn_handle,
+                                               BLE_ERR_REM_USER_CONN_TERM);
+                if (result != 0) {
+                    ESP_LOGW(TAG,
+                             "late BLE connection termination failed: %d",
+                             result);
+                }
+            }
         } else {
             start_advertising();
         }
@@ -2273,11 +2282,28 @@ esp_err_t ble_rtc_set_advertising_enabled(bool enabled)
             !ble_gap_adv_active()) {
             return ESP_FAIL;
         }
-    } else if (ble_gap_adv_active()) {
-        int result = ble_gap_adv_stop();
-        if (result != 0) {
-            ESP_LOGW(TAG, "advertising stop failed: %d", result);
-            return ESP_FAIL;
+    } else {
+        esp_err_t status = ESP_OK;
+        if (ble_gap_adv_active()) {
+            int result = ble_gap_adv_stop();
+            if (result != 0) {
+                ESP_LOGW(TAG, "advertising stop failed: %d", result);
+                status = ESP_FAIL;
+            }
+        }
+        uint16_t handle = connection_handle;
+        if (handle != BLE_HS_CONN_HANDLE_NONE) {
+            int result = ble_gap_terminate(handle,
+                                           BLE_ERR_REM_USER_CONN_TERM);
+            if (result != 0 && result != BLE_HS_ENOTCONN) {
+                ESP_LOGW(TAG, "BLE disconnect request failed: %d", result);
+                status = ESP_FAIL;
+            } else {
+                ESP_LOGI(TAG, "BLE disconnect requested");
+            }
+        }
+        if (status != ESP_OK) {
+            return status;
         }
     }
     ESP_LOGI(TAG, "BLE advertising %s", enabled ? "enabled" : "disabled");
