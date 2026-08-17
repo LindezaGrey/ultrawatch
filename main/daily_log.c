@@ -105,17 +105,25 @@ static void daily_log_task(void *arg)
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(2000));   /* let boot settle */
 
-    int last_day = 0;
     bool have_last = false;
+    uint32_t last_ymd = 0;
 
     for (;;) {
         pcf85063a_time_t rtc;
         if (sensor_cache_get_rtc(&rtc)) {
-            if (have_last && rtc.day != last_day) {
-                /* New calendar day: reset daily counter + activity tallies. */
-                if (bhi260ap_daily_set_day_start() == ESP_OK) {
-                    ESP_LOGI(TAG, "midnight rollover, daily counter reset");
-                }
+            uint32_t ymd = (uint32_t)rtc.year * 10000u + (uint32_t)rtc.month * 100
+                           + (uint32_t)rtc.day;
+
+            /* Get the lifetime total first: it drives the daily counter and
+             * the CSV row alike. */
+            uint32_t lifetime = 0;
+            bhi260ap_get_step_count(&lifetime);
+
+            if (have_last && ymd != last_ymd) {
+                /* New calendar day: reset activity tallies + CSV separator.
+                 * The daily step counter resets itself inside daily_sample. */
+                ESP_LOGI(TAG, "new day %lu, activity tallies reset",
+                         (unsigned long)ymd);
                 xSemaphoreTake(s_mux, pdMS_TO_TICKS(100));
                 for (int i = 0; i < DAILY_ACT_COUNT; i++) {
                     s_act_min[i] = 0;
@@ -130,11 +138,15 @@ static void daily_log_task(void *arg)
                     }
                 }
             }
-            last_day = rtc.day;
+            last_ymd = ymd;
             have_last = true;
 
-            /* Sample today's steps + credit one minute to current activity. */
+            /* Feed lifetime + day id into the daily counter (reboot-safe),
+             * then cache today's total for display/logging. */
+            bhi260ap_daily_sample(lifetime, ymd);
             bhi260ap_get_daily_steps(&s_steps);
+
+            /* Credit one minute to the current activity class. */
             uint8_t act = BHI260AP_ACTIVITY_UNKNOWN;
             bhi260ap_get_activity(&act);
             daily_activity_t c = activity_class(act);
@@ -148,8 +160,6 @@ static void daily_log_task(void *arg)
                 ensure_header();
                 s_log_ready = true;
             }
-            uint32_t lifetime = 0;
-            bhi260ap_get_step_count(&lifetime);
             append_lines(&rtc, lifetime);
         }
         vTaskDelay(pdMS_TO_TICKS(LOG_INTERVAL_MS));

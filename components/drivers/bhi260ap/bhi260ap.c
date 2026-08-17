@@ -74,12 +74,18 @@ static volatile bool s_tilt_detector;
 #define STEP_NVS_NS     "bhi260ap"
 #define STEP_NVS_KEY    "step_base"
 #define STEP_NVS_DAY    "day_start"
+#define STEP_NVS_DAYLST "day_last"   /* lifetime at last daily sample */
+#define STEP_NVS_DAYTOT "day_total"  /* accumulated daily steps */
+#define STEP_NVS_DAYID  "day_id"     /* yyyymmdd the daily total applies to */
 #define STEP_FOLD_STEP  1000  /* fold chip steps into the base every ~1000 */
 
-/* Lifetime step total at the start of the current day (00:00). Daily steps =
- * current lifetime total - this snapshot. Persisted so the daily count survives
- * reboots; reset by bhi260ap_daily_set_day_start() at each midnight. */
-static uint32_t s_day_start_total;
+/* Daily step counter (steps since midnight). Tracks the *increment* of the
+ * monotonic lifetime total, so it is immune to on-chip counter resets and
+ * reboots: the last-sampled lifetime, today's total and the day-id are all
+ * persisted. A new calendar day (different day-id) resets the total to 0. */
+static uint32_t s_daily_total;
+static uint32_t s_daily_last_lifetime;
+static uint32_t s_daily_id;
 
 static uint32_t s_step_at_base;
 static SemaphoreHandle_t s_step_mux;   /* guards step fold/total arithmetic */
@@ -90,20 +96,27 @@ static void step_base_load(void)
     uint32_t v = 0;
     if (nvs_open(STEP_NVS_NS, NVS_READONLY, &h) != ESP_OK) {
         s_step_base = 0;
-        s_day_start_total = 0;
+        s_daily_total = 0;
+        s_daily_last_lifetime = 0;
+        s_daily_id = 0;
         return;
     }
     if (nvs_get_u32(h, STEP_NVS_KEY, &v) != ESP_OK) {
         v = 0;
     }
     s_step_base = v;
-    /* Load the persisted day-start snapshot (fall back to base on first use). */
-    uint32_t d = 0;
-    if (nvs_get_u32(h, STEP_NVS_DAY, &d) != ESP_OK) {
-        d = s_step_base;
+    /* Load persisted daily-step state. First use: seed the baseline to the
+     * current lifetime so the counter starts at 0 and counts forward. */
+    if (nvs_get_u32(h, STEP_NVS_DAYID, &s_daily_id) != ESP_OK) {
+        s_daily_id = 0;
+    }
+    if (nvs_get_u32(h, STEP_NVS_DAYTOT, &s_daily_total) != ESP_OK) {
+        s_daily_total = 0;
+    }
+    if (nvs_get_u32(h, STEP_NVS_DAYLST, &s_daily_last_lifetime) != ESP_OK) {
+        s_daily_last_lifetime = s_step_base;
     }
     nvs_close(h);
-    s_day_start_total = d;
 }
 
 static void step_base_save(void)
@@ -665,33 +678,44 @@ esp_err_t bhi260ap_get_daily_steps(uint32_t *steps)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
-    uint32_t daily = 0;
     if (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
-        uint32_t total = s_step_base + (s_step_count - s_step_at_base);
-        daily = (total > s_day_start_total) ? (total - s_day_start_total) : 0;
+        *steps = s_daily_total;
         xSemaphoreGive(s_step_mux);
     }
-    *steps = daily;
     return ESP_OK;
 }
 
-esp_err_t bhi260ap_daily_set_day_start(void)
+/* Feed the current lifetime step total into the daily counter. Called once per
+ * minute (daily_log). `ymd` is the current calendar day (year*10000+month*100+day):
+ * a change of day resets the daily total. Persists the running total + the
+ * last-sampled lifetime so the count survives reboots without drift. */
+void bhi260ap_daily_sample(uint32_t lifetime, uint32_t ymd)
 {
-    if (!s_initialized) {
-        return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return;
     }
-    if (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
-        s_day_start_total = s_step_base + (s_step_count - s_step_at_base);
-        xSemaphoreGive(s_step_mux);
+    if (s_daily_id != ymd) {
+        s_daily_id = ymd;
+        s_daily_total = 0;
+        s_daily_last_lifetime = lifetime;
+        ESP_LOGI(TAG, "daily reset, day=%lu", (unsigned long)ymd);
+    } else if (lifetime > s_daily_last_lifetime) {
+        s_daily_total += (lifetime - s_daily_last_lifetime);
+        s_daily_last_lifetime = lifetime;
     }
+    uint32_t total = s_daily_total;
+    uint32_t last = s_daily_last_lifetime;
+    uint32_t id = s_daily_id;
+    xSemaphoreGive(s_step_mux);
+
     nvs_handle_t h;
-    if (nvs_open(STEP_NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
-        return ESP_FAIL;
+    if (nvs_open(STEP_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u32(h, STEP_NVS_DAYID, id);
+        nvs_set_u32(h, STEP_NVS_DAYTOT, total);
+        nvs_set_u32(h, STEP_NVS_DAYLST, last);
+        nvs_commit(h);
+        nvs_close(h);
     }
-    nvs_set_u32(h, STEP_NVS_DAY, s_day_start_total);
-    nvs_commit(h);
-    nvs_close(h);
-    return ESP_OK;
 }
 
 esp_err_t bhi260ap_get_status(bool *ready, uint32_t *steps)

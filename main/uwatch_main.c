@@ -556,12 +556,15 @@ static void debug_process_cmd(const char *cmd)
         printf("disppwr: display power cycled\n");
     } else if (strcmp(cmd, "dailylog") == 0) {
         uint32_t steps = 0;
+        uint32_t lifetime = 0;
         daily_log_get_steps(&steps);
+        esp_err_t lr = bhi260ap_get_step_count(&lifetime);
         const uint16_t *min[DAILY_ACT_COUNT];
         daily_log_get_activity_minutes(min);
         static const char *names[DAILY_ACT_COUNT] = {
             "still", "walking", "running", "cycling", "vehicle", "tilting", "unknown" };
-        printf("dailylog: day_steps=%lu\n", (unsigned long)steps);
+        printf("dailylog: day_steps=%lu lifetime=%lu lt_rc=%d\n",
+               (unsigned long)steps, (unsigned long)lifetime, (int)lr);
         for (int i = 0; i < DAILY_ACT_COUNT; i++) {
             printf("dailylog: %-8s %u min\n", names[i], (unsigned)*min[i]);
         }
