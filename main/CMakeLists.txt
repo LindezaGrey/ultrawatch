@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "uwatch_main.c" "lvgl_app.c" "power_mgmt.c" "crash_dump.c" "tracking.c" "sensor_cache.c" "ble_debug.c" "alarm.c"
+    SRCS "uwatch_main.c" "lvgl_app.c" "power_mgmt.c" "crash_dump.c" "tracking.c" "sensor_cache.c" "ble_debug.c" "alarm.c" "cascadia_72.c" "cascadia_36.c" "cascadia_22.c" "cascadia_18.c"
     INCLUDE_DIRS "."
     REQUIRES
         twatch_board
@@ -47,5 +47,5 @@ if(NOT UPROJECT_GIT_HASH)
 endif()
 target_compile_definitions(${COMPONENT_LIB} PUBLIC "UWATCH_GIT_HASH=\"${UPROJECT_GIT_HASH}\"")
 
-# Pack the assets/ folder (Roboto TTF, UI overlay) into the SPIFFS partition.
+# Pack the assets/ folder (UI overlay, BHI firmware) into the SPIFFS partition.
 spiffs_create_partition_image(assets ../assets FLASH_IN_PROJECT)

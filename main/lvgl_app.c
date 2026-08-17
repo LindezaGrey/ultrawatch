@@ -4,7 +4,7 @@
  * The adapter runs LVGL in its own FreeRTOS task (tick + locking included).
  *   - RGB565_SWAPPED: the CO5300 samples big-endian RGB565.
  *   - Even-coordinate areas rounded BEFORE rendering (SH8601 requirement).
- *   - High-DPI vector fonts (Roboto) via LVGL FreeType from SPIFFS.
+ *   - High-DPI vector fonts (Cascadia Code) via LVGL FreeType from SPIFFS.
  *   - Boot screen -> watch face (time from the RTC-synced system clock).
  */
 #include "lvgl_app.h"
@@ -21,7 +21,7 @@
 #include "driver/usb_serial_jtag.h"
 #include "esp_lv_adapter.h"
 #include "lvgl.h"
-#include "libs/freetype/lv_freetype.h"
+#include "cascadia_fonts.h"
 #include "co5300.h"
 #include "cst9217.h"
 #include "bhi260ap.h"
@@ -37,10 +37,11 @@
 
 static const char *TAG = "lvgl_app";
 
-/* Fonts. */
-static const lv_font_t *s_font_time = NULL;   /* 96 px  HH:MM:SS */
-static const lv_font_t *s_font_sec  = NULL;   /* 40 px  UTC time */
-static const lv_font_t *s_font_small = NULL;  /* 28 px  date/battery */
+/* Fonts (embedded Cascadia Code bitmaps, see cascadia_fonts.h). */
+static const lv_font_t *s_font_time = &cascadia_72;   /* HH:MM:SS */
+static const lv_font_t *s_font_sec  = &cascadia_36;   /* UTC time */
+static const lv_font_t *s_font_small = &cascadia_22;  /* body text */
+static const lv_font_t *s_font_micro = &cascadia_18;  /* GPS diag line */
 
 /* Watch face objects. */
 static lv_obj_t *s_time_label;
@@ -48,6 +49,7 @@ static lv_obj_t *s_sec_label;
 static lv_obj_t *s_date_label;
 static lv_obj_t *s_batt_label;
 static lv_obj_t *s_batt_fill;
+static lv_obj_t *s_steps_label; /* step count on the watch face */
 static lv_obj_t *s_gps_icon;   /* satellite status icon (grey/red/green) */
 static lv_obj_t *s_track_dot;  /* solid red dot: tracking session active */
 static lv_obj_t *s_snooze_icon; /* "Zz" shown while snoozing */
@@ -67,11 +69,11 @@ static lv_obj_t *s_pw_cur_400;
 /* BHI260AP status screen. */
 static lv_obj_t *s_bhi_screen;
 static lv_obj_t *s_bhi_status_label;
-static lv_obj_t *s_bhi_steps_label;
 static lv_obj_t *s_bhi_accel_label;
 static lv_obj_t *s_bhi_gyro_label;
 static lv_obj_t *s_bhi_ori_label;
 static lv_obj_t *s_bhi_rv_label;
+static lv_obj_t *s_bhi_rv_acc_label;
 static lv_obj_t *s_bhi_activity_label;
 static lv_obj_t *s_bhi_gesture_label;
 
@@ -317,6 +319,17 @@ static void watch_face_update(lv_timer_t *timer)
         lv_obj_set_width(s_batt_fill, (lv_coord_t)(140 * pct / 100));
     }
 
+    /* Step count from the BHI260AP (cached in the driver, no I2C here). */
+    if (s_steps_label) {
+        uint32_t steps = 0;
+        if (bhi260ap_get_status(NULL, &steps) == ESP_OK) {
+            snprintf(buf, sizeof(buf), "Steps: %lu", (unsigned long)steps);
+        } else {
+            snprintf(buf, sizeof(buf), "Steps: --");
+        }
+        lv_label_set_text(s_steps_label, buf);
+    }
+
     /* Satellite status: green = 3D fix, red = on/no fix, grey = off. */
     if (s_gps_icon) {
         m10q_state_t st = m10q_get_state();
@@ -395,6 +408,8 @@ static void lvgl_build_watch_face(void)
     lv_label_set_text(s_time_label, "--:--:--");
     lv_obj_set_style_text_font(s_time_label, s_font_time, 0);
     lv_obj_set_style_text_color(s_time_label, lv_color_hex(0xFFFFFF), 0);
+    /* Tighten the monospace cells so the full-width colons don't sprawl. */
+    lv_obj_set_style_text_letter_space(s_time_label, -6, 0);
     lv_obj_align(s_time_label, LV_ALIGN_CENTER, 0, -20);
 
     s_sec_label = lv_label_create(lv_screen_active());
@@ -406,7 +421,7 @@ static void lvgl_build_watch_face(void)
     /* Battery bar. */
     lv_obj_t *bar = lv_obj_create(lv_screen_active());
     lv_obj_set_size(bar, 140, 12);
-    lv_obj_align(bar, LV_ALIGN_CENTER, 0, 160);
+    lv_obj_align(bar, LV_ALIGN_CENTER, 0, 240);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(bar, lv_color_hex(0x111111), 0);
     lv_obj_set_style_border_color(bar, lv_color_hex(0x666666), 0);
@@ -426,7 +441,13 @@ static void lvgl_build_watch_face(void)
     lv_label_set_text(s_batt_label, "--");
     lv_obj_set_style_text_font(s_batt_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_batt_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_batt_label, LV_ALIGN_CENTER, 0, 200);
+    lv_obj_align(s_batt_label, LV_ALIGN_CENTER, 0, 280);
+
+    s_steps_label = lv_label_create(lv_screen_active());
+    lv_label_set_text(s_steps_label, "Steps: --");
+    lv_obj_set_style_text_font(s_steps_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_steps_label, lv_color_hex(0x80D8FF), 0);
+    lv_obj_align(s_steps_label, LV_ALIGN_CENTER, 0, 200);
 
     watch_face_update(NULL);
     lv_timer_create(watch_face_update, 1000, NULL);
@@ -491,16 +512,6 @@ static void power_screen_update(lv_timer_t *timer)
                 snprintf(buf, sizeof(buf), "Runtime: --");
             }
             lv_label_set_text(s_pw_runtime_label, buf);
-        }
-        /* Append charge-time to the charge line when actively charging. */
-        if (est.estimate_valid && est.charge_h > 0 &&
-                (cache.chg_state == AXP2101_CHG_CC || cache.chg_state == AXP2101_CHG_CV ||
-                 cache.chg_state == AXP2101_CHG_TRI || cache.chg_state == AXP2101_CHG_PRE)) {
-            uint32_t mins = (uint32_t)(est.charge_h * 60.0f);
-            snprintf(buf, sizeof(buf), "%s%s  %umA  full in ~%uh %02um",
-                     s, cache.chg_enabled ? "" : " (disabled)", cache.chg_ma,
-                     (unsigned)(mins / 60), (unsigned)(mins % 60));
-            lv_label_set_text(s_pw_chg_label, buf);
         }
 
         int16_t tc = cache.batt_temp_c10;
@@ -701,11 +712,8 @@ static void bhi_screen_update(lv_timer_t *timer)
     char buf[64];
 
     bool ready = false;
-    uint32_t steps = 0;
-    bhi260ap_get_status(&ready, &steps);
+    bhi260ap_get_status(&ready, NULL);
     lv_label_set_text(s_bhi_status_label, ready ? "BHI260AP: ready" : "BHI260AP: not ready");
-    snprintf(buf, sizeof(buf), "Steps: %lu", (unsigned long)steps);
-    lv_label_set_text(s_bhi_steps_label, buf);
 
     int16_t ax = 0, ay = 0, az = 0;
     bhi260ap_get_accel(&ax, &ay, &az);
@@ -725,8 +733,10 @@ static void bhi_screen_update(lv_timer_t *timer)
     int16_t rx = 0, ry = 0, rz = 0, rw = 0;
     uint16_t racc = 0;
     bhi260ap_get_rotation(&rx, &ry, &rz, &rw, &racc);
-    snprintf(buf, sizeof(buf), "RV: %d %d %d %d acc%d", rx, ry, rz, rw, (int)racc);
+    snprintf(buf, sizeof(buf), "RV: %d %d %d %d", rx, ry, rz, rw);
     lv_label_set_text(s_bhi_rv_label, buf);
+    snprintf(buf, sizeof(buf), "RV acc: %u", (unsigned)racc);
+    lv_label_set_text(s_bhi_rv_acc_label, buf);
 
     uint8_t activity = BHI260AP_ACTIVITY_UNKNOWN;
     bhi260ap_get_activity(&activity);
@@ -772,19 +782,19 @@ static void lvgl_build_bhi_screen(void)
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_status_label);
     lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 50);
 
-    l = bhi_text_row(s_bhi_screen, "", &s_bhi_steps_label);
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_accel_label);
     lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 80);
 
-    l = bhi_text_row(s_bhi_screen, "", &s_bhi_accel_label);
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_gyro_label);
     lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 110);
 
-    l = bhi_text_row(s_bhi_screen, "", &s_bhi_gyro_label);
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_ori_label);
     lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 140);
 
-    l = bhi_text_row(s_bhi_screen, "", &s_bhi_ori_label);
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_rv_label);
     lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 170);
 
-    l = bhi_text_row(s_bhi_screen, "", &s_bhi_rv_label);
+    l = bhi_text_row(s_bhi_screen, "", &s_bhi_rv_acc_label);
     lv_obj_align(l, LV_ALIGN_TOP_LEFT, 44, 200);
 
     l = bhi_text_row(s_bhi_screen, "", &s_bhi_activity_label);
@@ -885,9 +895,9 @@ static void gps_screen_update(lv_timer_t *timer)
                  (unsigned)fix.speed_kmh, (unsigned)fix.course_deg);
         lv_label_set_text(s_gps_speed_label, buf);
 
-        snprintf(buf, sizeof(buf), "%02u:%02u:%02u UTC  (%u in view)  GPS-RTC %+ld s",
+        snprintf(buf, sizeof(buf), "%02u:%02u:%02u UTC  (%u in view)",
                  (unsigned)fix.hour, (unsigned)fix.minute, (unsigned)fix.second,
-                 (unsigned)fix.sat_in_view, (long)fix.rtc_offset_s);
+                 (unsigned)fix.sat_in_view);
         lv_label_set_text(s_gps_sats_label, buf);
     } else if (st == M10Q_STATE_ACQUIRING) {
         uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
@@ -908,22 +918,20 @@ static void gps_screen_update(lv_timer_t *timer)
     if (s_gps_diag_label) {
         uint32_t rx = 0, lines = 0;
         m10q_get_dbg(&rx, &lines);
-        uint16_t agc = 0;
-        m10q_get_agc(&agc);
+        (void)lines;
         m10q_stats_t stats;
         if (m10q_get_stats(&stats) == ESP_OK) {
             snprintf(buf, sizeof(buf),
-                     "st=%d rx=%lu ln=%lu gsv=%lu | fixes=%lu ttf=%lu/%lums agc=%u",
-                     (int)m10q_get_state(), (unsigned long)rx, (unsigned long)lines,
+                     "st=%d rx=%lu gsv=%lu fix=%lu ttf=%lums",
+                     (int)m10q_get_state(), (unsigned long)rx,
                      (unsigned long)m10q_get_gsv_count(),
                      (unsigned long)stats.total_fixes,
-                     (unsigned long)stats.ttf_avg_ms, (unsigned long)stats.ttf_best_ms,
-                     (unsigned)agc);
+                     (unsigned long)stats.ttf_avg_ms);
         } else {
             snprintf(buf, sizeof(buf),
-                     "st=%d rx=%lu ln=%lu gsv=%lu | agc=%u",
-                     (int)m10q_get_state(), (unsigned long)rx, (unsigned long)lines,
-                     (unsigned long)m10q_get_gsv_count(), (unsigned)agc);
+                     "st=%d rx=%lu gsv=%lu",
+                     (int)m10q_get_state(), (unsigned long)rx,
+                     (unsigned long)m10q_get_gsv_count());
         }
         lv_label_set_text(s_gps_diag_label, buf);
     }
@@ -971,20 +979,12 @@ static void gps_screen_update(lv_timer_t *timer)
         bool active = tracking_is_active();
         tracking_totals_t t;
         tracking_get_totals(&t);
-        uint32_t session_steps = tracking_get_session_steps();
-        uint32_t avg = tracking_get_avg_step_cm();
-        const char *gate = "paused";
-        if (tracking_is_gated_active()) {
-            gate = "walking";
-        }
         if (active) {
-            snprintf(buf, sizeof(buf), "Track: %.2f km  %lu steps  avg %.2f m  (%s)",
-                     t.dist_cm / 100000.0, (unsigned long)t.steps,
-                     avg / 100.0, gate);
+            snprintf(buf, sizeof(buf), "Track %.2fkm  %lu steps",
+                     t.dist_cm / 100000.0, (unsigned long)t.steps);
         } else {
-            snprintf(buf, sizeof(buf), "Tracked: %.2f km  %lu steps  avg %.2f m",
-                     t.dist_cm / 100000.0, (unsigned long)t.steps,
-                     avg / 100.0);
+            snprintf(buf, sizeof(buf), "Tracked %.2fkm  %lu steps",
+                     t.dist_cm / 100000.0, (unsigned long)t.steps);
         }
         lv_label_set_text(s_gps_track_label, buf);
         lv_obj_t *bl = lv_obj_get_child(s_gps_track_btn, 0);
@@ -993,7 +993,6 @@ static void gps_screen_update(lv_timer_t *timer)
         }
         lv_obj_set_style_bg_color(s_gps_track_btn,
                                   active ? lv_color_hex(0x8B0000) : lv_color_hex(0x1B5E20), 0);
-        (void)session_steps;
 #else
         lv_label_set_text(s_gps_track_label, "Tracking disabled");
         lv_obj_t *bl = lv_obj_get_child(s_gps_track_btn, 0);
@@ -1098,7 +1097,7 @@ static void lvgl_build_gps_screen(void)
 
     s_gps_diag_label = lv_label_create(s_gps_screen);
     lv_label_set_text(s_gps_diag_label, "");
-    lv_obj_set_style_text_font(s_gps_diag_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_gps_diag_label, s_font_micro, 0);
     lv_obj_set_style_text_color(s_gps_diag_label, lv_color_hex(0x8A9BA8), 0);
     lv_obj_align(s_gps_diag_label, LV_ALIGN_TOP_MID, 0, 56);
 
@@ -1754,13 +1753,6 @@ static void mount_assets(void)
     }
 }
 
-static const lv_font_t *load_font(int size)
-{
-    return lv_freetype_font_create("/assets/fonts/Roboto-Regular.ttf",
-                                   LV_FREETYPE_FONT_RENDER_MODE_BITMAP, size,
-                                   LV_FREETYPE_FONT_STYLE_NORMAL);
-}
-
 esp_err_t lvgl_app_start(void)
 {
     mount_assets();
@@ -1828,9 +1820,6 @@ esp_err_t lvgl_app_start(void)
     power_mgmt_register_night_mode_cb(night_mode_changed);
 
     if (esp_lv_adapter_lock(-1) == ESP_OK) {
-        s_font_time  = load_font(96);
-        s_font_sec   = load_font(40);
-        s_font_small = load_font(28);
         lvgl_build_boot_screen();
         lv_timer_create(boot_to_watch_face, 3000, NULL);
         esp_lv_adapter_unlock();

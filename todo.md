@@ -99,3 +99,38 @@ Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
 
 ## Process / Validation (blocked)
 - **Wrist-tilt wake must be validated on battery**, not USB: sleep is skipped while VBUS present (`power_mgmt_enter_sleep` returns ESP_ERR_NOT_SUPPORTED). Steps: `sdclear` → unplug USB → wait ~5s for sleep → wrist-tilt → reconnect → `sdin`, look for `entering sleep` + `AP suspend ... gpio8=1` then `wake: gpio=8` + `Auto sleep exited`. SD log currently shows zero sleep entries (29x `Auto sleep enter callback failed`).
+
+---
+
+# Code Review Findings (17. Aug full re-review)
+
+Full read-only review of main/, components/ (Bosch vendor lib at integration points only). Verified closed: `ring_task` buffer free (alarm.c:279-284), coredump erase-on-CRC (crash_dump.c:184-194, confirmed live on watch), m10q UART driver delete + ttfs persistence, tracking mutex.
+
+## Medium
+1. `[pending]` **GNSS rail (BLDO1) never turns off when GPS is disabled** — axp2101.c:181 enables BLDO1 at boot; power_mgmt.c:480 re-enables it unconditionally on every wake; the only cut path `m10q_power(false)` early-returns when `s_powered == false` (m10q.c:603), which is always the case with the GPS switch off. Net: MIA-M10Q draws ~25-30 mA forever. Currently masked because the GPS switch is left on.
+   **Fix:** cut BLDO1 directly in `power_mgmt_enter_sleep()` when `!lvgl_gps_enabled()`; restore it in `exit_sleep()` only when GPS is enabled.
+2. `[pending]` **Battery runtime estimate diverges after the first 5 min** — sensor_cache.c:78-85: when the gauge window fills, `first_ms` is re-based forward but `first_pct` keeps the original window-start sample, so rate = (total % change since first sample) / ~5 min and grows wronger with uptime.
+   **Fix:** keep a small sample history (or at least re-pair first_pct with the new first_ms).
+3. `[pending]` **BLE vprintf hook recurses infinitely (dead-code landmine)** — ble_debug.c:364: `ESP_LOGI` inside `ble_debug_vprintf` while `s_capturing` routes through the same hook again → unbounded recursion → stack overflow the moment BLE is re-enabled and a command runs. `ble_debug_init()` is currently commented out (uwatch_main.c:914).
+   **Fix:** remove that ESP_LOGI or emit via the chained `s_prev_vprintf`.
+
+## Low
+4. `[pending]` **DST inconsistency** — twatch_board.c:136 uses `struct tm tm = {0}` (tm_isdst=0) while lvgl_app.c:292 and m10q.c:165 use tm_isdst=-1; system clock ends up 1 h off during CEST (crash timestamps, time()).
+5. `[pending]` **parse_nav_sat() writes s_fix without s_data_mux** (m10q.c:418, via nav_sat_cb) — inconsistent with pos_cb/nav_status_cb; torn satellite list reads possible.
+6. `[pending]` **m10q_get_stats() reads s_stats unlocked** (m10q.c:787) while pos_cb mutates it.
+7. `[pending]` **Night-mode red filter off-by-one** — lvgl_app.c:198: draw-bitmap coords are inclusive, count should be (x_end-x_start+1)*(y_end-y_start+1); last row/col of each flushed band stays unfiltered (faint fringe).
+8. `[pending]` **alarm ring_start() resets s_ring_mode_pending unconditionally** (alarm.c:287-292) — a snooze-timer fire landing on a dismiss press eats the dismiss and re-rings. Guard with `if (s_ringing) return;`.
+9. `[pending]` **Watch-face month index unguarded** — lvgl_app.c:307: `mon[t.month - 1]` with a garbled RTC month 0 reads out of bounds (weekday is range-checked, month isn't).
+10. `[pending]` **sd_log_flush() drops ring content when fopen fails** (sd_log.c:354-359) — transient SD/MMC errors silently lose log lines; keep s_ring_len on open failure.
+11. `[pending]` **Alarm auto-snooze has no retry cap** — observed 15 auto-snoozes over 2.5 h (SD log, 17. Aug). Consider a max-snooze count or escalating volume.
+
+## Trivial
+- uwatch_main.c:798 comment says `alarm HH:MM`, parser wants `alarm <hh> <mm>`.
+- `crashread` has no `../` sanitization (debug-only interface).
+- uwatch_main.c:107: a >255-char line without newline wedges the console buffer.
+- lvgl_app.c:111: back-to-back GNSS requests can collapse (single volatile int, no queue).
+- lvgl_app.c:1890-1903: duplicated/stale screenshot comment block.
+- alarm.c:305-310: semaphore/task creation unchecked.
+- co5300_deinit() leaks s_panel_io (dead code path).
+- Boot DISP_PWR pulse is 50 ms vs 200 ms in `disppwr` (twatch_board.c:198-203 vs uwatch_main.c:547-550) — match margins if a stuck panel ever survives the boot pulse.
+- `disppwr` sends only SLPOUT+brightness after a real power cut; works only if the CO5300 reloads OTP config on power-up — otherwise it needs the full s_init_cmds sequence.
