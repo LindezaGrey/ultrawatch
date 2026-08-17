@@ -2,7 +2,7 @@ name: Deploy Web to Pages
 
 on:
   push:
-    branches: ["main", "ble_sensors"]
+    branches: ["main", "frontend_playing"]
   workflow_dispatch:
 
 permissions:
