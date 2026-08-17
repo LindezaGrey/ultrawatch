@@ -66,6 +66,9 @@
     .brightness-control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 1rem; margin: 1.4rem 0 1rem; }
     .brightness-control input { padding: 0; accent-color: #4ade80; }
     .brightness-value { min-width: 4ch; font: 600 2rem ui-monospace, monospace; text-align: right; }
+    .theme-color-control { display: flex; align-items: center; gap: 1rem; margin: 1.4rem 0; }
+    .theme-color-control input[type="color"] { width: 4.5rem; height: 3.25rem; padding: .2rem; cursor: pointer; }
+    .theme-color-value { font: 600 1.15rem ui-monospace, monospace; text-transform: uppercase; }
     .haptic-controls { display: grid; grid-template-columns: 2fr 1fr; gap: .8rem; margin-top: 1rem; }
     .haptic-state.playing { color: #4ade80; }
     .touch-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(12rem, .8fr); gap: 1rem; margin-top: 1rem; }
@@ -290,7 +293,14 @@
     </section>
 
     <section id="screen" class="sensor">
-      <header><h2>Screen</h2><span class="tag">read · write</span></header>
+      <header><h2>Screen</h2><span class="tag">theme · brightness</span></header>
+      <label for="themeColor">Main interface color</label>
+      <div class="theme-color-control">
+        <input id="themeColor" type="color" value="#1863ff"
+               aria-label="Main interface color" data-connected disabled>
+        <output id="themeColorValue" class="theme-color-value" for="themeColor">#1863FF</output>
+      </div>
+      <p>The watch applies and saves the selected color automatically.</p>
       <div class="brightness-control">
         <input id="brightness" type="range" min="0" max="100" value="100"
                aria-label="Screen brightness" data-connected disabled>
@@ -456,7 +466,8 @@
       haptic: '7a1e0009-7a1e-4b6c-8d9e-001122334455',
       sensorControl: '7a1e000a-7a1e-4b6c-8d9e-001122334455',
       systemPower: '7a1e000b-7a1e-4b6c-8d9e-001122334455',
-      alarm: '7a1e000c-7a1e-4b6c-8d9e-001122334455'
+      alarm: '7a1e000c-7a1e-4b6c-8d9e-001122334455',
+      theme: '7a1e000d-7a1e-4b6c-8d9e-001122334455'
     };
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -466,7 +477,8 @@
       'externalPower', 'readPower', 'chargeCurrent', 'inputCurrent',
       'chargeVoltage', 'chargerEnabled', 'readPowerConfig', 'writePowerConfig',
       'imuX', 'imuY', 'imuZ', 'imuW', 'imuAccuracy', 'readImu',
-      'brightness', 'brightnessValue', 'readScreen', 'writeScreen',
+      'brightness', 'brightnessValue', 'themeColor', 'themeColorValue',
+      'readScreen', 'writeScreen',
       'touchState', 'touchEvent', 'touchX', 'touchY', 'touchCount', 'readTouch',
       'gpsFix', 'gpsSatellites', 'gpsLatitude', 'gpsLongitude', 'gpsAltitude',
       'gpsAccuracy', 'gpsSpeed', 'gpsHeading', 'gpsAgc', 'readGps',
@@ -487,6 +499,8 @@
     let sensorWriteInProgress = false;
     let systemPowerWriteInProgress = false;
     let alarmWriteInProgress = false;
+    let themeWriteInProgress = false;
+    let pendingThemeColor = null;
 
     function setConnected(connected) {
       ui.dot.classList.toggle('connected', connected);
@@ -620,6 +634,15 @@
       ui.brightnessValue.value = `${percentage}%`;
     }
 
+    function showTheme(dataView) {
+      if (dataView.byteLength !== 3) throw new Error('Unexpected theme payload');
+      const hex = `#${[0, 1, 2].map(index =>
+        dataView.getUint8(index).toString(16).padStart(2, '0')).join('')}`;
+      ui.themeColor.value = hex;
+      ui.themeColorValue.value = hex.toUpperCase();
+      ui.themeColorValue.style.color = hex;
+    }
+
     function showTouch(dataView, countEvent = true) {
       if (dataView.byteLength !== 6) throw new Error('Unexpected touch payload length');
       const pressed = dataView.getUint8(0);
@@ -739,6 +762,7 @@
         characteristics.sensorControl = await service.getCharacteristic(CHAR_UUID.sensorControl);
         characteristics.systemPower = await service.getCharacteristic(CHAR_UUID.systemPower);
         characteristics.alarm = await service.getCharacteristic(CHAR_UUID.alarm);
+        characteristics.theme = await service.getCharacteristic(CHAR_UUID.theme);
         characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
         characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
         characteristics.imu.addEventListener('characteristicvaluechanged', notificationHandler(showImu));
@@ -760,15 +784,16 @@
         const sensorControlReady = await readSensorControl(false);
         const systemPowerReady = await readSystemPower(false);
         const alarmReady = await readAlarm(false);
+        const themeReady = await readTheme(false);
         const imuReady = !(sensorEnabledMask & 0x01) || !(sensorReadyMask & 0x01) || await readImu(false);
         const screenReady = await readScreen(false);
         const touchReady = !(sensorEnabledMask & 0x04) || !(sensorReadyMask & 0x04) || await readTouch(false);
         const gpsReady = !(sensorEnabledMask & 0x02) || !(sensorReadyMask & 0x02) || await readGps(false);
         const hapticReady = await readHaptic(false);
         const sensorsStarting = Boolean(sensorEnabledMask & ~sensorReadyMask);
-        if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && alarmReady && imuReady && screenReady && touchReady && gpsReady && hapticReady && sensorsStarting) {
+        if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && alarmReady && themeReady && imuReady && screenReady && touchReady && gpsReady && hapticReady && sensorsStarting) {
           ui.message.textContent = 'Core controls ready. Enabled sensors are starting.';
-        } else if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && alarmReady && imuReady && screenReady && touchReady && gpsReady && hapticReady) {
+        } else if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && alarmReady && themeReady && imuReady && screenReady && touchReady && gpsReady && hapticReady) {
           ui.message.textContent = 'Live sensor updates enabled.';
         } else if (!rtcReady) {
           ui.message.textContent = 'RTC unavailable. Set the browser time first.';
@@ -782,6 +807,8 @@
           ui.message.textContent = 'ESP32 power settings are currently unavailable.';
         } else if (!alarmReady) {
           ui.message.textContent = 'Alarm settings are currently unavailable.';
+        } else if (!themeReady) {
+          ui.message.textContent = 'Theme color is currently unavailable.';
         } else if (!imuReady) {
           ui.message.textContent = 'IMU data is currently unavailable.';
         } else if (!screenReady) {
@@ -882,6 +909,16 @@
         return true;
       } catch (error) {
         if (reportError) ui.message.textContent = `Alarm read failed: ${error.message}`;
+        return false;
+      }
+    }
+
+    async function readTheme(reportError = true) {
+      try {
+        showTheme(await characteristics.theme.readValue());
+        return true;
+      } catch (error) {
+        if (reportError) ui.message.textContent = `Theme color read failed: ${error.message}`;
         return false;
       }
     }
@@ -1034,6 +1071,33 @@
       }
     }
 
+    async function writeThemeColor(hex = ui.themeColor.value) {
+      pendingThemeColor = hex;
+      if (themeWriteInProgress) return;
+      themeWriteInProgress = true;
+      try {
+        while (pendingThemeColor && device?.gatt?.connected) {
+          const nextColor = pendingThemeColor;
+          pendingThemeColor = null;
+          const payload = Uint8Array.from(nextColor.slice(1).match(/.{2}/g),
+                                           value => Number.parseInt(value, 16));
+          if (characteristics.theme.writeValueWithResponse) {
+            await characteristics.theme.writeValueWithResponse(payload);
+          } else {
+            await characteristics.theme.writeValue(payload);
+          }
+          ui.message.textContent = `Watch theme saved as ${nextColor.toUpperCase()}.`;
+        }
+        if (device?.gatt?.connected) await readTheme(false);
+      } catch (error) {
+        pendingThemeColor = null;
+        ui.message.textContent = `Theme color write failed: ${error.message}`;
+        if (device?.gatt?.connected) await readTheme(false);
+      } finally {
+        themeWriteInProgress = false;
+      }
+    }
+
     async function writePowerConfig() {
       const chargeCurrent = Number(ui.chargeCurrent.value);
       const inputCurrent = Number(ui.inputCurrent.value);
@@ -1108,6 +1172,11 @@
     ui.brightness.addEventListener('input', () => {
       ui.brightnessValue.value = `${ui.brightness.value}%`;
     });
+    ui.themeColor.addEventListener('input', () => {
+      ui.themeColorValue.value = ui.themeColor.value.toUpperCase();
+      ui.themeColorValue.style.color = ui.themeColor.value;
+    });
+    ui.themeColor.addEventListener('change', () => writeThemeColor());
     ui.browserTime.addEventListener('click', () => setTime(localDateTime(new Date())));
     ui.writeTime.addEventListener('click', () => setTime(ui.dateTime.value));
     setConnected(false);

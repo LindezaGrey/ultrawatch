@@ -16,6 +16,12 @@ esp_err_t screen_set_brightness(uint8_t percentage);
 /* Return the last brightness level successfully sent to the AMOLED. */
 uint8_t screen_get_brightness(void);
 
+/* Set the RGB color used for contours, rings, and highlighted text. */
+esp_err_t screen_set_theme_color(uint8_t red, uint8_t green, uint8_t blue);
+
+/* Return the current RGB theme color. */
+void screen_get_theme_color(uint8_t *red, uint8_t *green, uint8_t *blue);
+
 /* Ask the display task to redraw time, battery, and BLE state immediately. */
 void screen_request_refresh(void);
 

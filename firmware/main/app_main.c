@@ -127,11 +127,13 @@ static uint16_t *launcher_frame;
 static uint16_t *settings_frame;
 static uint16_t *alarm_frame;
 static volatile uint8_t display_brightness_percentage = 50;
+static volatile uint32_t theme_rgb = 0x1863FF;
 static bool panel_hidden = true;
 static volatile ui_screen_t active_screen = UI_WATCH;
 static bool consume_touch_until_up;
 static bool wake_restore_pending;
 static bool assets_refresh_pending;
+static volatile bool theme_refresh_pending;
 static bool settings_slider_dirty;
 static bool settings_ble_dirty;
 static bool alarm_controls_dirty;
@@ -302,6 +304,28 @@ esp_err_t screen_set_brightness(uint8_t percentage)
 uint8_t screen_get_brightness(void)
 {
     return display_brightness_percentage;
+}
+
+esp_err_t screen_set_theme_color(uint8_t red, uint8_t green, uint8_t blue)
+{
+    theme_rgb = ((uint32_t)red << 16) | ((uint32_t)green << 8) | blue;
+    theme_refresh_pending = true;
+    screen_request_refresh();
+    return ESP_OK;
+}
+
+void screen_get_theme_color(uint8_t *red, uint8_t *green, uint8_t *blue)
+{
+    const uint32_t color = theme_rgb;
+    if (red != NULL) {
+        *red = (uint8_t)(color >> 16);
+    }
+    if (green != NULL) {
+        *green = (uint8_t)(color >> 8);
+    }
+    if (blue != NULL) {
+        *blue = (uint8_t)color;
+    }
 }
 
 void screen_request_refresh(void)
@@ -693,6 +717,32 @@ static uint16_t wire_rgb565(uint8_t red, uint8_t green, uint8_t blue)
     return (uint16_t)((value >> 8) | (value << 8));
 }
 
+static uint16_t theme_wire_color(void)
+{
+    const uint32_t color = theme_rgb;
+    return wire_rgb565((uint8_t)(color >> 16), (uint8_t)(color >> 8),
+                       (uint8_t)color);
+}
+
+static uint16_t theme_wire_scaled(uint8_t scale)
+{
+    const uint32_t color = theme_rgb;
+    return wire_rgb565((uint8_t)(((color >> 16) & 0xFF) * scale / 255),
+                       (uint8_t)(((color >> 8) & 0xFF) * scale / 255),
+                       (uint8_t)((color & 0xFF) * scale / 255));
+}
+
+static uint16_t theme_wire_tinted(uint8_t white)
+{
+    const uint32_t color = theme_rgb;
+    return wire_rgb565(
+        (uint8_t)((((color >> 16) & 0xFF) * (255 - white) + 255 * white) /
+                  255),
+        (uint8_t)((((color >> 8) & 0xFF) * (255 - white) + 255 * white) /
+                  255),
+        (uint8_t)(((color & 0xFF) * (255 - white) + 255 * white) / 255));
+}
+
 static void wait_for_te_edge(void)
 {
     const int initial_level = gpio_get_level(BOARD_DISPLAY_TE);
@@ -805,20 +855,20 @@ static uint16_t icon_pixel(icon_id_t icon, int center_x, int center_y,
         if (abs(dx) <= 15 && abs(dy) <= 15 &&
             ((abs(dx + 10) <= 3 || abs(dx) <= 3 || abs(dx - 10) <= 3) &&
              (abs(dy + 10) <= 3 || abs(dy) <= 3 || abs(dy - 10) <= 3))) {
-            return wire_rgb565(36, 132, 255);
+            return theme_wire_color();
         }
     } else if (icon == ICON_CLOCK) {
         int d2 = dx * dx + dy * dy;
         if ((d2 >= 225 && d2 <= 324) ||
             (abs(dx) <= 2 && dy <= 2 && dy >= -12) ||
             (abs(dy - dx / 2) <= 2 && dx >= 0 && dx <= 11)) {
-            return wire_rgb565(90, 164, 255);
+            return theme_wire_tinted(64);
         }
     } else if (icon == ICON_SETTINGS) {
         int d2 = dx * dx + dy * dy;
         if ((d2 >= 90 && d2 <= 200) ||
             ((abs(dx) <= 3 || abs(dy) <= 3) && d2 <= 300 && d2 >= 180)) {
-            return wire_rgb565(95, 150, 255);
+            return theme_wire_tinted(64);
         }
     } else if (icon == ICON_BLE_OFF || icon == ICON_BLE_ON) {
         const bool stem = abs(dx) <= 2 && abs(dy) <= 17;
@@ -826,9 +876,8 @@ static uint16_t icon_pixel(icon_id_t icon, int center_x, int center_y,
         const bool lower = abs(dy + dx - 2) <= 2 && dy >= -1 && dx >= -1;
         const bool slash = icon == ICON_BLE_OFF && abs(dy - dx) <= 2;
         if (stem || upper || lower || slash) {
-            return wire_rgb565(icon == ICON_BLE_ON ? 68 : 112,
-                               icon == ICON_BLE_ON ? 180 : 126,
-                               icon == ICON_BLE_ON ? 255 : 146);
+            return icon == ICON_BLE_ON ? theme_wire_tinted(48)
+                                       : wire_rgb565(112, 126, 146);
         }
     } else if (icon >= ICON_BATTERY_EMPTY && icon <= ICON_BATTERY_FULL) {
         const bool outline = abs(dx) >= 14 || abs(dy) >= 10;
@@ -870,13 +919,13 @@ static uint16_t glass_bubble_pixel(const bubble_t *bubble, int x, int y)
         return 0;
     }
     if (d2 >= (bubble->radius - 2) * (bubble->radius - 2)) {
-        return wire_rgb565(45, 102, 190);
+        return theme_wire_scaled(190);
     }
     if (d2 <= r2) {
-        uint8_t blue = (uint8_t)(12 + (r2 - d2) * 18 / r2);
-        return wire_rgb565(3, 8, blue);
+        uint8_t scale = (uint8_t)(12 + (r2 - d2) * 18 / r2);
+        return theme_wire_scaled(scale);
     }
-    return wire_rgb565(5, 30, 75);
+    return theme_wire_scaled(75);
 }
 
 static void read_watch_values(watch_values_t *values)
@@ -1011,7 +1060,7 @@ static icon_id_t battery_icon_for(const char *battery)
 
 static void draw_contour(uint16_t *frame)
 {
-    const uint16_t color = wire_rgb565(24, 99, 255);
+    const uint16_t color = theme_wire_color();
     for (int y = 0; y < BOARD_DISPLAY_HEIGHT; y++) {
         for (int x = contour_left[y]; x <= contour_right[y]; x++) {
             if (!pixel_is_safe_content(x, y)) {
@@ -1062,7 +1111,7 @@ static void draw_watch_date(uint16_t *frame, const watch_values_t *values)
 {
     clear_content_rect(frame, 70, 45, 270, 42);
     draw_text(frame, values->date, centered_text_x(values->date, 2), 53, 2,
-              wire_rgb565(74, 137, 255));
+              theme_wire_tinted(50));
 }
 
 static void draw_watch_alarm(uint16_t *frame, const watch_values_t *values)
@@ -1073,7 +1122,7 @@ static void draw_watch_alarm(uint16_t *frame, const watch_values_t *values)
     }
     const int center_x = 205;
     const int center_y = 250;
-    const uint16_t color = wire_rgb565(104, 174, 255);
+    const uint16_t color = theme_wire_tinted(90);
     for (int y = center_y - 14; y <= center_y + 14; y++) {
         for (int x = center_x - 14; x <= center_x + 14; x++) {
             const int dx = x - center_x;
@@ -1109,7 +1158,7 @@ static void draw_watch_status(uint16_t *frame, const watch_values_t *values)
               70, 410, 36);
     draw_icon(frame, battery_icon_for(values->battery), 315, 410, 36);
     draw_text(frame, values->battery, 338, 403, 5,
-              wire_rgb565(170, 196, 230));
+              theme_wire_tinted(150));
 }
 
 static void compose_watch_frame(uint16_t *frame,
@@ -1133,7 +1182,7 @@ static void draw_launcher_background_region(uint16_t *frame, int start_x,
             if (pixel_is_safe_content(x, y)) {
                 frame[y * BOARD_DISPLAY_WIDTH + x] =
                     ((x * x + y * 7 + (x - y) * (x - y) / 8) % 43) < 2
-                        ? wire_rgb565(2, 10, 24) : 0;
+                        ? theme_wire_scaled(24) : 0;
             }
         }
     }
@@ -1178,7 +1227,7 @@ static void draw_settings_slider(uint16_t *frame)
     for (int y = 164; y <= 180; y++) {
         for (int x = 42; x <= 368; x++) {
             frame_set_content(frame, x, y,
-                              x <= position ? wire_rgb565(50, 133, 255)
+                              x <= position ? theme_wire_color()
                                             : wire_rgb565(34, 42, 58));
         }
     }
@@ -1187,7 +1236,7 @@ static void draw_settings_slider(uint16_t *frame)
             const int dx = x - position;
             const int dy = y - 172;
             if (dx * dx + dy * dy <= 324) {
-                frame_set_content(frame, x, y, wire_rgb565(144, 196, 255));
+                frame_set_content(frame, x, y, theme_wire_tinted(120));
             }
         }
     }
@@ -1201,9 +1250,10 @@ static void draw_settings_ble(uint16_t *frame)
         for (int x = 42; x <= 368; x++) {
             const bool edge = x < 46 || x > 364 || y < 249 || y > 351;
             frame_set_content(frame, x, y,
-                              edge ? (on ? wire_rgb565(55, 151, 255)
+                              edge ? (on ? theme_wire_color()
                                          : wire_rgb565(70, 78, 92))
-                                   : wire_rgb565(3, 18, on ? 48 : 22));
+                                   : (on ? theme_wire_scaled(48)
+                                         : wire_rgb565(3, 18, 22)));
         }
     }
     draw_icon(frame, on ? ICON_BLE_ON : ICON_BLE_OFF, 94, 300, 52);
@@ -1217,9 +1267,9 @@ static void compose_settings_frame(uint16_t *frame)
     memset(frame, 0, BOARD_DISPLAY_WIDTH * BOARD_DISPLAY_HEIGHT *
                      sizeof(*frame));
     draw_text(frame, "EINSTELLUNGEN", centered_text_x("EINSTELLUNGEN", 3),
-              48, 3, wire_rgb565(105, 160, 255));
+              48, 3, theme_wire_tinted(72));
     draw_text(frame, "HELLIGKEIT", 42, 104, 4,
-              wire_rgb565(105, 160, 255));
+              theme_wire_tinted(72));
     draw_settings_slider(frame);
     draw_settings_ble(frame);
     const bubble_t launcher = {205, 425, 44, ICON_LAUNCHER};
@@ -1231,10 +1281,10 @@ static void compose_settings_frame(uint16_t *frame)
 static void draw_alarm_toggle(uint16_t *frame)
 {
     const uint16_t edge = alarm_edit.enabled
-                              ? wire_rgb565(55, 151, 255)
+                              ? theme_wire_color()
                               : wire_rgb565(70, 78, 92);
     const uint16_t fill = alarm_edit.enabled
-                              ? wire_rgb565(3, 24, 58)
+                              ? theme_wire_scaled(58)
                               : wire_rgb565(8, 12, 20);
     for (int y = 295; y <= 365; y++) {
         for (int x = 70; x <= 340; x++) {
@@ -1253,7 +1303,7 @@ static void draw_alarm_toggle(uint16_t *frame)
             if (track) {
                 frame_set_content(frame, x, y,
                                   alarm_edit.enabled
-                                      ? wire_rgb565(38, 126, 255)
+                                      ? theme_wire_color()
                                       : wire_rgb565(45, 52, 66));
             }
             if ((x - switch_center) * (x - switch_center) +
@@ -1287,18 +1337,18 @@ static void draw_alarm_rolling_time(uint16_t *frame)
     for (int y = 112; y <= 188; y++) {
         for (int x = 55; x <= 355; x++) {
             if (y < 115 || y > 185) {
-                frame_set_content(frame, x, y, wire_rgb565(36, 92, 170));
+                frame_set_content(frame, x, y, theme_wire_scaled(170));
             } else if (x == 205) {
-                frame_set_content(frame, x, y, wire_rgb565(16, 47, 94));
+                frame_set_content(frame, x, y, theme_wire_scaled(94));
             }
         }
     }
-    const uint16_t adjacent = wire_rgb565(71, 105, 158);
+    const uint16_t adjacent = theme_wire_scaled(158);
     draw_text(frame, previous_hour, 109, 65, 2, adjacent);
     draw_text(frame, previous_minute, 259, 65, 2, adjacent);
     draw_text(frame, current_hour, 88, 125, 1,
               wire_rgb565(246, 249, 255));
-    draw_text(frame, ":", 184, 125, 1, wire_rgb565(81, 151, 255));
+    draw_text(frame, ":", 184, 125, 1, theme_wire_tinted(60));
     draw_text(frame, current_minute, 238, 125, 1,
               wire_rgb565(246, 249, 255));
     draw_text(frame, next_hour, 109, 218, 2, adjacent);
@@ -1428,6 +1478,20 @@ static void update_launcher_cache(bool transfer_change)
     }
 }
 
+static void rebuild_theme_frames(void)
+{
+    watch_values_t values;
+    read_watch_values(&values);
+    compose_watch_frame(watch_frame, &values);
+    compose_launcher_frame(launcher_frame, &values);
+    compose_settings_frame(settings_frame);
+    compose_alarm_frame(alarm_frame);
+    displayed_watch_values = values;
+    displayed_watch_values_valid = true;
+    strcpy(displayed_launcher_battery, values.battery);
+    displayed_launcher_ble_enabled = values.ble_enabled;
+}
+
 static int64_t present_screen(ui_screen_t screen)
 {
     const int64_t started_us = esp_timer_get_time();
@@ -1520,6 +1584,15 @@ static void ui_task(void *parameter)
     bool refresh_pending = true;
     for (;;) {
         bool navigation_pending = process_ui_input();
+        if (theme_refresh_pending) {
+            theme_refresh_pending = false;
+            rebuild_theme_frames();
+            if (!panel_hidden && active_screen != UI_BLACK) {
+                present_screen(active_screen);
+            }
+            refresh_pending = false;
+            ESP_LOGI(TAG, "theme color applied");
+        }
         if (wake_restore_pending) {
             update_watch_cache(true);
             ESP_ERROR_CHECK(display_apply_brightness(

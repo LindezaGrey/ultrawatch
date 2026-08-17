@@ -66,6 +66,7 @@
 #define SENSOR_CONTROL_PAYLOAD_LENGTH 2
 #define SYSTEM_POWER_PAYLOAD_LENGTH 3
 #define ALARM_PAYLOAD_LENGTH 3
+#define THEME_PAYLOAD_LENGTH 3
 
 #define SENSOR_IMU_BIT   (1U << 0)
 #define SENSOR_GPS_BIT   (1U << 1)
@@ -89,6 +90,10 @@
 #define ALARM_BEEPS_PER_CYCLE 3
 #define ALARM_CYCLE_PAUSE_MS 1100
 #define ALARM_HAPTIC_EFFECT 47
+
+#define THEME_NVS_NAMESPACE "theme"
+#define THEME_NVS_KEY "main_rgb"
+#define THEME_DEFAULT_RGB 0x1863FFU
 
 #define DRV2605_STATUS_REGISTER       0x00
 #define DRV2605_MODE_REGISTER         0x01
@@ -198,6 +203,11 @@ static const ble_uuid128_t system_power_characteristic_uuid =
 static const ble_uuid128_t alarm_characteristic_uuid = BLE_UUID128_INIT(
     0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
     0x6c, 0x4b, 0x1e, 0x7a, 0x0c, 0x00, 0x1e, 0x7a);
+
+/* 7a1e000d-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t theme_characteristic_uuid = BLE_UUID128_INIT(
+    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+    0x6c, 0x4b, 0x1e, 0x7a, 0x0d, 0x00, 0x1e, 0x7a);
 
 typedef struct {
     unsigned charge_current_ma;
@@ -455,6 +465,48 @@ static esp_err_t sensor_rail_set(uint8_t voltage_register,
     }
     return i2c_write_registers(BOARD_AXP2101_ADDR,
                                BOARD_AXP2101_LDO_ENABLE, &ldo_enable, 1);
+}
+
+static esp_err_t theme_color_apply(uint32_t rgb)
+{
+    return screen_set_theme_color((uint8_t)(rgb >> 16),
+                                  (uint8_t)(rgb >> 8), (uint8_t)rgb);
+}
+
+static esp_err_t theme_color_load(void)
+{
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(THEME_NVS_NAMESPACE, NVS_READWRITE, &handle),
+                        TAG, "theme preference open failed");
+    uint32_t rgb = THEME_DEFAULT_RGB;
+    esp_err_t result = nvs_get_u32(handle, THEME_NVS_KEY, &rgb);
+    nvs_close(handle);
+    if (result != ESP_OK && result != ESP_ERR_NVS_NOT_FOUND) {
+        return result;
+    }
+    if (rgb > 0xFFFFFFU) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return theme_color_apply(rgb);
+}
+
+static esp_err_t theme_color_store(uint32_t rgb)
+{
+    if (rgb > 0xFFFFFFU) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(THEME_NVS_NAMESPACE, NVS_READWRITE, &handle),
+                        TAG, "theme preference open failed");
+    esp_err_t result = nvs_set_u32(handle, THEME_NVS_KEY, rgb);
+    if (result == ESP_OK) {
+        result = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    if (result != ESP_OK) {
+        return result;
+    }
+    return theme_color_apply(rgb);
 }
 
 static esp_err_t alarm_config_store(void)
@@ -2093,6 +2145,35 @@ static int alarm_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+static int theme_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
+                             struct ble_gatt_access_ctxt *context, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+
+    if (context->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t payload[THEME_PAYLOAD_LENGTH];
+        screen_get_theme_color(&payload[0], &payload[1], &payload[2]);
+        return os_mbuf_append(context->om, payload, sizeof(payload)) == 0
+                   ? 0
+                   : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (context->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t payload[THEME_PAYLOAD_LENGTH];
+        uint16_t length = 0;
+        int result = ble_hs_mbuf_to_flat(context->om, payload,
+                                         sizeof(payload), &length);
+        if (result != 0 || length != sizeof(payload)) {
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        }
+        const uint32_t rgb = ((uint32_t)payload[0] << 16) |
+                             ((uint32_t)payload[1] << 8) | payload[2];
+        return theme_color_store(rgb) == ESP_OK ? 0 : BLE_ATT_ERR_UNLIKELY;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
 static const struct ble_gatt_svc_def rtc_gatt_services[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -2159,6 +2240,11 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
             {
                 .uuid = &alarm_characteristic_uuid.u,
                 .access_cb = alarm_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
+            },
+            {
+                .uuid = &theme_characteristic_uuid.u,
+                .access_cb = theme_gatt_access,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
             },
             {0},
@@ -2696,6 +2782,8 @@ esp_err_t ble_rtc_start(void)
         result = nvs_flash_init();
     }
     ESP_RETURN_ON_ERROR(result, TAG, "NVS init failed");
+    ESP_RETURN_ON_ERROR(theme_color_load(), TAG,
+                        "theme preference load failed");
     ESP_RETURN_ON_ERROR(sensor_control_load(), TAG,
                         "sensor preference load failed");
     esp_err_t system_power_result = system_power_load();
