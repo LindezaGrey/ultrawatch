@@ -39,7 +39,7 @@ esp_err_t ble_power_get_payload(char *output, size_t output_size);
 /* Return whether new BLE connections are currently being advertised. */
 bool ble_rtc_advertising_enabled(void);
 
-/* Enable or disable connectable advertising without dropping a connection. */
+/* Enable advertising, or disable it and terminate an active connection. */
 esp_err_t ble_rtc_set_advertising_enabled(bool enabled);
 
 /* Play one short DRV2605 click for an on-watch UI control. */

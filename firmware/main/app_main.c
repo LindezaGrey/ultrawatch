@@ -25,6 +25,8 @@
 #include "cascadia_time_120.h"
 #include "offline_map.h"
 #include "screen_control.h"
+#include "sd_storage.h"
+#include "wifi_manager.h"
 
 #ifndef CONFIG_SPIRAM
 #error "The cached window manager requires CONFIG_SPIRAM"
@@ -51,11 +53,13 @@
 #define LEGACY_ICON_COUNT 11
 #define PREVIOUS_ICON_COUNT 17
 #define MAP_ICON_COUNT 18
-#define ICON_COUNT 21
+#define CURRENT_ICON_COUNT 21
+#define ICON_COUNT 25
 #define ICON_TILE_BYTES (ICON_SIZE * ICON_SIZE * 2)
 #define LEGACY_ICON_ATLAS_BYTES (LEGACY_ICON_COUNT * ICON_TILE_BYTES)
 #define PREVIOUS_ICON_ATLAS_BYTES (PREVIOUS_ICON_COUNT * ICON_TILE_BYTES)
 #define MAP_ICON_ATLAS_BYTES (MAP_ICON_COUNT * ICON_TILE_BYTES)
+#define CURRENT_ICON_ATLAS_BYTES (CURRENT_ICON_COUNT * ICON_TILE_BYTES)
 #define ICON_ATLAS_BYTES (ICON_COUNT * ICON_TILE_BYTES)
 #define ICON_ATLAS_PATH "/sdcard/ultrawatch/ui/icons.rgb565"
 #define ALARM_ROLL_STEP_PIXELS 60
@@ -93,6 +97,10 @@ typedef enum {
     ICON_ZOOM_IN,
     ICON_ZOOM_OUT,
     ICON_MAP_CENTER,
+    ICON_WIFI_OFF,
+    ICON_WIFI_CONNECTING,
+    ICON_WIFI_CONNECTED,
+    ICON_WIFI_ERROR,
 } icon_id_t;
 
 typedef struct {
@@ -121,6 +129,7 @@ typedef struct {
     char date[12];
     char battery[5];
     bool ble_enabled;
+    watch_wifi_state_t wifi_state;
     bool alarm_enabled;
 } watch_values_t;
 
@@ -175,6 +184,7 @@ static watch_values_t displayed_watch_values;
 static bool displayed_watch_values_valid;
 static char displayed_launcher_battery[5];
 static bool displayed_launcher_ble_enabled;
+static watch_wifi_state_t displayed_launcher_wifi_state;
 static uint8_t glyph_indices[128];
 
 static bool touch_is_button(ui_screen_t screen, uint16_t x, uint16_t y);
@@ -940,6 +950,11 @@ static uint16_t icon_pixel(icon_id_t icon, int center_x, int center_y,
         if (icon_atlas[offset] == 0 && icon_atlas[offset + 1] == 0) {
             return 0;
         }
+        if (icon == ICON_WIFI_OFF) return wire_rgb565(112, 126, 146);
+        if (icon == ICON_WIFI_CONNECTING || icon == ICON_WIFI_CONNECTED) {
+            return theme_wire_tinted(icon == ICON_WIFI_CONNECTED ? 100 : 62);
+        }
+        if (icon == ICON_WIFI_ERROR) return wire_rgb565(238, 92, 99);
         return (uint16_t)icon_atlas[offset] |
                ((uint16_t)icon_atlas[offset + 1] << 8);
     }
@@ -1011,6 +1026,23 @@ static uint16_t icon_pixel(icon_id_t icon, int center_x, int center_y,
             (abs(dy) <= 2 && abs(dx) <= 18) || d2 <= 25) {
             return theme_wire_tinted(72);
         }
+    } else if (icon >= ICON_WIFI_OFF && icon <= ICON_WIFI_ERROR) {
+        const int adx = abs(dx);
+        const int ady = abs(dy);
+        const bool outer = ady <= 2 && adx <= 2;
+        const int radius2 = dx * dx + dy * dy;
+        const bool lower_arc = radius2 >= 36 && radius2 <= 70 && dy >= 0;
+        const bool middle_arc = radius2 >= 120 && radius2 <= 180 && dy >= -2;
+        const bool upper_arc = radius2 >= 260 && radius2 <= 350 && dy >= -4;
+        const bool slash = icon == ICON_WIFI_OFF && abs(dy - dx) <= 2;
+        const bool alert = icon == ICON_WIFI_ERROR &&
+                           ((abs(dx) <= 2 && dy >= -8 && dy <= 5) ||
+                            (radius2 <= 7 && dy >= 9));
+        if (outer || lower_arc || middle_arc || upper_arc || slash || alert) {
+            if (icon == ICON_WIFI_OFF) return wire_rgb565(112, 126, 146);
+            if (icon == ICON_WIFI_ERROR) return wire_rgb565(238, 92, 99);
+            return theme_wire_tinted(icon == ICON_WIFI_CONNECTED ? 100 : 62);
+        }
     }
     return 0;
 }
@@ -1061,6 +1093,9 @@ static void read_watch_values(watch_values_t *values)
     strcpy(values->date, "-- -- ---");
     strcpy(values->battery, "--%");
     values->ble_enabled = ble_rtc_advertising_enabled();
+    watch_wifi_status_t wifi;
+    watch_wifi_get_status(&wifi);
+    values->wifi_state = wifi.state;
     alarm_config_t alarm;
     ble_alarm_get_config(&alarm);
     values->alarm_enabled = alarm.enabled;
@@ -1177,6 +1212,16 @@ static icon_id_t battery_icon_for(const char *battery)
     return ICON_BATTERY_EMPTY;
 }
 
+static icon_id_t wifi_icon_for(watch_wifi_state_t state)
+{
+    if (state == WATCH_WIFI_OFF) return ICON_WIFI_OFF;
+    if (state == WATCH_WIFI_LOADING || state == WATCH_WIFI_CONNECTING) {
+        return ICON_WIFI_CONNECTING;
+    }
+    if (state == WATCH_WIFI_CONNECTED) return ICON_WIFI_CONNECTED;
+    return ICON_WIFI_ERROR;
+}
+
 static void draw_contour(uint16_t *frame)
 {
     const uint16_t color = theme_wire_color();
@@ -1273,10 +1318,11 @@ static void draw_watch_launcher(uint16_t *frame)
 
 static void draw_watch_status(uint16_t *frame, const watch_values_t *values)
 {
-    clear_content_rect(frame, 40, 390, 100, 40);
+    clear_content_rect(frame, 40, 390, 120, 40);
     clear_content_rect(frame, 270, 390, 100, 40);
     draw_icon(frame, values->ble_enabled ? ICON_BLE_ON : ICON_BLE_OFF,
               70, 410, 36);
+    draw_icon(frame, wifi_icon_for(values->wifi_state), 115, 410, 36);
     draw_icon(frame, battery_icon_for(values->battery), 315, 410, 36);
     draw_text(frame, values->battery, 338, 403, 5,
               theme_wire_tinted(150));
@@ -1315,6 +1361,12 @@ static void draw_launcher_ble(uint16_t *frame, bool enabled)
     draw_icon(frame, enabled ? ICON_BLE_ON : ICON_BLE_OFF, 70, 450, 36);
 }
 
+static void draw_launcher_wifi(uint16_t *frame, watch_wifi_state_t state)
+{
+    draw_launcher_background_region(frame, 92, 430, 46, 40);
+    draw_icon(frame, wifi_icon_for(state), 115, 450, 36);
+}
+
 static void draw_launcher_battery(uint16_t *frame, const char *battery)
 {
     draw_launcher_background_region(frame, 295, 430, 95, 40);
@@ -1337,6 +1389,7 @@ static void compose_launcher_frame(uint16_t *frame,
                   launcher_bubbles[index].icon == ICON_CLOCK ? 72 : ICON_SIZE);
     }
     draw_launcher_ble(frame, values->ble_enabled);
+    draw_launcher_wifi(frame, values->wifi_state);
     draw_launcher_battery(frame, values->battery);
     draw_contour(frame);
 }
@@ -1672,7 +1725,8 @@ static void update_watch_cache(bool transfer_changes)
         values.alarm_enabled != displayed_watch_values.alarm_enabled;
     const bool status_changed = !displayed_watch_values_valid ||
         strcmp(values.battery, displayed_watch_values.battery) != 0 ||
-        values.ble_enabled != displayed_watch_values.ble_enabled;
+        values.ble_enabled != displayed_watch_values.ble_enabled ||
+        values.wifi_state != displayed_watch_values.wifi_state;
 
     if (time_changed) {
         draw_watch_time(watch_frame, &values);
@@ -1711,6 +1765,8 @@ static void update_launcher_cache(bool transfer_change)
     read_watch_values(&values);
     const bool ble_changed =
         values.ble_enabled != displayed_launcher_ble_enabled;
+    const bool wifi_changed =
+        values.wifi_state != displayed_launcher_wifi_state;
     const bool battery_changed =
         strcmp(values.battery, displayed_launcher_battery) != 0;
     if (ble_changed) {
@@ -1718,6 +1774,13 @@ static void update_launcher_cache(bool transfer_change)
         displayed_launcher_ble_enabled = values.ble_enabled;
         if (transfer_change) {
             display_frame_region(launcher_frame, 42, 430, 56, 40, false);
+        }
+    }
+    if (wifi_changed) {
+        draw_launcher_wifi(launcher_frame, values.wifi_state);
+        displayed_launcher_wifi_state = values.wifi_state;
+        if (transfer_change) {
+            display_frame_region(launcher_frame, 92, 430, 46, 40, false);
         }
     }
     if (battery_changed) {
@@ -1744,6 +1807,7 @@ static void rebuild_theme_frames(void)
     displayed_watch_values_valid = true;
     strcpy(displayed_launcher_battery, values.battery);
     displayed_launcher_ble_enabled = values.ble_enabled;
+    displayed_launcher_wifi_state = values.wifi_state;
 }
 
 static int64_t present_screen(ui_screen_t screen)
@@ -1940,101 +2004,15 @@ static void ui_task(void *parameter)
     }
 }
 
-static esp_err_t sd_power(bool enabled)
-{
-    uint8_t value;
-    ESP_RETURN_ON_ERROR(i2c_read_register(BOARD_AXP2101_ADDR,
-                                          BOARD_AXP2101_LDO_ENABLE, &value),
-                        TAG, "ALDO1 state read failed");
-    if (enabled) {
-        uint8_t voltage;
-        ESP_RETURN_ON_ERROR(i2c_read_register(BOARD_AXP2101_ADDR,
-                                              BOARD_AXP2101_ALDO1_VOLTAGE,
-                                              &voltage),
-                            TAG, "ALDO1 voltage read failed");
-        voltage = (voltage & 0xE0) | 28;
-        ESP_RETURN_ON_ERROR(i2c_write_register(BOARD_AXP2101_ADDR,
-                                               BOARD_AXP2101_ALDO1_VOLTAGE,
-                                               voltage),
-                            TAG, "ALDO1 voltage write failed");
-        value |= 1U << BOARD_AXP2101_ALDO1_BIT;
-    } else {
-        value &= ~(1U << BOARD_AXP2101_ALDO1_BIT);
-    }
-    return i2c_write_register(BOARD_AXP2101_ADDR,
-                              BOARD_AXP2101_LDO_ENABLE, value);
-}
-
-static bool sd_card_present(void)
-{
-    uint8_t config;
-    uint8_t input;
-    if (i2c_read_register(BOARD_XL9555_ADDR, BOARD_XL9555_CONFIG1,
-                          &config) != ESP_OK) {
-        return false;
-    }
-    config |= 1U << BOARD_XL9555_SD_DETECT_BIT;
-    if (i2c_write_register(BOARD_XL9555_ADDR, BOARD_XL9555_CONFIG1,
-                           config) != ESP_OK ||
-        i2c_read_register(BOARD_XL9555_ADDR, BOARD_XL9555_INPUT1,
-                          &input) != ESP_OK) {
-        return false;
-    }
-    return (input & (1U << BOARD_XL9555_SD_DETECT_BIT)) == 0;
-}
-
 static void load_icon_atlas_from_sd(void)
 {
-    gpio_config_t outputs = {
-        .pin_bit_mask = (1ULL << BOARD_NFC_CS) | (1ULL << BOARD_LORA_CS) |
-                        (1ULL << BOARD_LORA_RESET),
-        .mode = GPIO_MODE_OUTPUT,
-    };
-    ESP_ERROR_CHECK(gpio_config(&outputs));
-    ESP_ERROR_CHECK(gpio_set_level(BOARD_NFC_CS, 1));
-    ESP_ERROR_CHECK(gpio_set_level(BOARD_LORA_CS, 1));
-    ESP_ERROR_CHECK(gpio_set_level(BOARD_LORA_RESET, 1));
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(sd_power(false));
-    vTaskDelay(pdMS_TO_TICKS(250));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(sd_power(true));
-    vTaskDelay(pdMS_TO_TICKS(250));
-    if (!sd_card_present()) {
-        ESP_LOGI(TAG, "no SD card; using procedural UI symbols");
-        ESP_ERROR_CHECK_WITHOUT_ABORT(sd_power(false));
+    esp_err_t result = sd_storage_acquire();
+    if (result != ESP_OK) {
+        ESP_LOGI(TAG, "SD unavailable; using procedural UI symbols: %s",
+                 esp_err_to_name(result));
         return;
     }
-
-    const spi_bus_config_t bus = {
-        .mosi_io_num = BOARD_SD_MOSI,
-        .miso_io_num = BOARD_SD_MISO,
-        .sclk_io_num = BOARD_SD_SCK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 4096,
-    };
-    esp_err_t result = spi_bus_initialize(BOARD_SD_SPI_HOST, &bus,
-                                           SPI_DMA_CH_AUTO);
-    bool bus_ready = result == ESP_OK;
-    bool mounted = false;
-    sdmmc_card_t *card = NULL;
-    if (result == ESP_OK) {
-        sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-        host.slot = BOARD_SD_SPI_HOST;
-        host.max_freq_khz = BOARD_SD_SPI_HZ / 1000;
-        sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();
-        slot.host_id = BOARD_SD_SPI_HOST;
-        slot.gpio_cs = BOARD_SD_CS;
-        const esp_vfs_fat_mount_config_t mount_config = {
-            .format_if_mount_failed = false,
-            .max_files = 1,
-            .allocation_unit_size = 0,
-        };
-        result = esp_vfs_fat_sdspi_mount("/sdcard", &host, &slot,
-                                         &mount_config, &card);
-        mounted = result == ESP_OK;
-    }
-    if (mounted) {
+    {
         FILE *file = fopen(ICON_ATLAS_PATH, "rb");
         long file_size = -1;
         if (file == NULL) {
@@ -2046,15 +2024,18 @@ static void load_icon_atlas_from_sd(void)
             ESP_LOGW(TAG, "cannot determine atlas size: errno=%d (%s)",
                      errno, strerror(errno));
         } else if (file_size != ICON_ATLAS_BYTES &&
+                   file_size != CURRENT_ICON_ATLAS_BYTES &&
                    file_size != MAP_ICON_ATLAS_BYTES &&
                    file_size != PREVIOUS_ICON_ATLAS_BYTES &&
                    file_size != LEGACY_ICON_ATLAS_BYTES) {
-            ESP_LOGW(TAG, "atlas is %ld bytes; expected %u, %u, %u, or %u",
-                     file_size, ICON_ATLAS_BYTES, MAP_ICON_ATLAS_BYTES,
+            ESP_LOGW(TAG,
+                     "atlas is %ld bytes; expected %u, %u, %u, %u, or %u",
+                     file_size, ICON_ATLAS_BYTES, CURRENT_ICON_ATLAS_BYTES,
+                     MAP_ICON_ATLAS_BYTES,
                      PREVIOUS_ICON_ATLAS_BYTES, LEGACY_ICON_ATLAS_BYTES);
         } else {
             uint8_t *candidate = heap_caps_malloc(
-                (size_t)file_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+                (size_t)file_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (candidate != NULL &&
                 fread(candidate, 1, (size_t)file_size, file) ==
                     (size_t)file_size) {
@@ -2070,20 +2051,8 @@ static void load_icon_atlas_from_sd(void)
         if (file != NULL) {
             fclose(file);
         }
-        esp_err_t unmount = esp_vfs_fat_sdcard_unmount("/sdcard", card);
-        if (unmount != ESP_OK) {
-            ESP_LOGW(TAG, "SD unmount failed: %s", esp_err_to_name(unmount));
-            free(icon_atlas);
-            icon_atlas = NULL;
-            icon_atlas_tile_count = 0;
-        }
-    } else {
-        ESP_LOGW(TAG, "SD mount skipped/failed: %s", esp_err_to_name(result));
     }
-    if (bus_ready) {
-        ESP_ERROR_CHECK_WITHOUT_ABORT(spi_bus_free(BOARD_SD_SPI_HOST));
-    }
-    ESP_ERROR_CHECK_WITHOUT_ABORT(sd_power(false));
+    sd_storage_release();
     ESP_LOGI(TAG, "SD power disabled after asset load attempt");
 }
 
@@ -2129,6 +2098,7 @@ void app_main(void)
     compose_launcher_frame(launcher_frame, &cached_values);
     strcpy(displayed_launcher_battery, cached_values.battery);
     displayed_launcher_ble_enabled = cached_values.ble_enabled;
+    displayed_launcher_wifi_state = cached_values.wifi_state;
     compose_settings_frame(settings_frame);
     compose_alarm_frame(alarm_frame);
     assets_refresh_pending = icon_atlas != NULL;

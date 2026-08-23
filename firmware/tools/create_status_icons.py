@@ -80,6 +80,25 @@ def draw_map_center() -> Image.Image:
     return image
 
 
+def draw_wifi(state: str) -> Image.Image:
+    image, draw = new_icon()
+    color = MUTED if state == "off" else RED if state == "error" else BLUE
+    center = (128, 184)
+    for radius, width in ((34, 17), (70, 18), (108, 19)):
+        box = (center[0] - radius, center[1] - radius,
+               center[0] + radius, center[1] + radius)
+        draw.arc(box, 215, 325, fill=color, width=width)
+    draw.ellipse((115, 177, 141, 203), fill=color)
+    if state == "off":
+        draw.line((48, 48, 208, 208), fill=RED, width=22)
+    elif state == "connecting":
+        draw.ellipse((181, 42, 215, 76), fill=color)
+    elif state == "error":
+        draw.rounded_rectangle((184, 39, 208, 116), radius=12, fill=color)
+        draw.ellipse((184, 129, 208, 153), fill=color)
+    return image
+
+
 def main() -> None:
     parser = ArgumentParser()
     parser.add_argument("output_dir", type=Path)
@@ -95,6 +114,9 @@ def main() -> None:
     draw_zoom(True).save(args.output_dir / "zoom_in.png", optimize=True)
     draw_zoom(False).save(args.output_dir / "zoom_out.png", optimize=True)
     draw_map_center().save(args.output_dir / "map_center.png", optimize=True)
+    for state in ("off", "connecting", "connected", "error"):
+        draw_wifi(state).save(args.output_dir / f"wifi_{state}.png",
+                              optimize=True)
 
 
 if __name__ == "__main__":

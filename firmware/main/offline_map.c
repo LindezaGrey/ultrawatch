@@ -6,24 +6,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "driver/gpio.h"
-#include "driver/i2c.h"
-#include "driver/sdspi_host.h"
 #include "esp_heap_caps.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "sdmmc_cmd.h"
 
 #include "ble_rtc.h"
 #include "board.h"
 #include "gps.h"
 #include "jpeg_decoder.h"
 #include "screen_control.h"
+#include "sd_storage.h"
 
 #define MAP_INDEX_PATH "/sdcard/ultrawatch/maps/map.uwi"
 #define MAP_MAGIC "UWMAP001"
@@ -65,9 +61,7 @@ static offline_map_snapshot_t public_snapshot;
 static FILE *index_file;
 static FILE *segment_file;
 static uint32_t open_segment = UINT32_MAX;
-static sdmmc_card_t *mounted_card;
-static bool sd_bus_ready;
-static bool sd_mounted;
+static bool sd_acquired;
 static uint32_t tile_count;
 static uint32_t index_entries_offset;
 static uint8_t min_zoom;
@@ -100,43 +94,6 @@ static uint32_t read_u32(const uint8_t *data)
 static uint64_t read_u64(const uint8_t *data)
 {
     return (uint64_t)read_u32(data) | (uint64_t)read_u32(data + 4) << 32;
-}
-
-static esp_err_t i2c_read(uint8_t address, uint8_t reg, uint8_t *value)
-{
-    return i2c_master_write_read_device(BOARD_I2C_PORT, address, &reg, 1,
-                                        value, 1, portMAX_DELAY);
-}
-
-static esp_err_t i2c_write(uint8_t address, uint8_t reg, uint8_t value)
-{
-    const uint8_t data[] = {reg, value};
-    return i2c_master_write_to_device(BOARD_I2C_PORT, address, data,
-                                      sizeof(data), portMAX_DELAY);
-}
-
-static esp_err_t sd_power(bool enabled)
-{
-    uint8_t value;
-    if (i2c_read(BOARD_AXP2101_ADDR, BOARD_AXP2101_LDO_ENABLE, &value) != ESP_OK) {
-        return ESP_FAIL;
-    }
-    if (enabled) {
-        uint8_t voltage;
-        if (i2c_read(BOARD_AXP2101_ADDR, BOARD_AXP2101_ALDO1_VOLTAGE,
-                     &voltage) != ESP_OK) {
-            return ESP_FAIL;
-        }
-        voltage = (voltage & 0xe0) | 28;
-        if (i2c_write(BOARD_AXP2101_ADDR, BOARD_AXP2101_ALDO1_VOLTAGE,
-                      voltage) != ESP_OK) {
-            return ESP_FAIL;
-        }
-        value |= 1U << BOARD_AXP2101_ALDO1_BIT;
-    } else {
-        value &= ~(1U << BOARD_AXP2101_ALDO1_BIT);
-    }
-    return i2c_write(BOARD_AXP2101_ADDR, BOARD_AXP2101_LDO_ENABLE, value);
 }
 
 static void set_error(const char *message)
@@ -388,45 +345,9 @@ static void render_map(void)
 
 static esp_err_t open_package(void)
 {
-    gpio_config_t outputs = {
-        .pin_bit_mask = (1ULL << BOARD_NFC_CS) | (1ULL << BOARD_LORA_CS) |
-                        (1ULL << BOARD_LORA_RESET),
-        .mode = GPIO_MODE_OUTPUT,
-    };
-    gpio_config(&outputs);
-    gpio_set_level(BOARD_NFC_CS, 1);
-    gpio_set_level(BOARD_LORA_CS, 1);
-    gpio_set_level(BOARD_LORA_RESET, 1);
-    sd_power(false);
-    vTaskDelay(pdMS_TO_TICKS(250));
+    ESP_RETURN_ON_ERROR(sd_storage_acquire(), TAG, "SD mount failed");
+    sd_acquired = true;
     if (stop_requested) return ESP_ERR_INVALID_STATE;
-    ESP_RETURN_ON_ERROR(sd_power(true), TAG, "SD power failed");
-    vTaskDelay(pdMS_TO_TICKS(250));
-    if (stop_requested) return ESP_ERR_INVALID_STATE;
-
-    const spi_bus_config_t bus = {
-        .mosi_io_num = BOARD_SD_MOSI, .miso_io_num = BOARD_SD_MISO,
-        .sclk_io_num = BOARD_SD_SCK, .quadwp_io_num = -1,
-        .quadhd_io_num = -1, .max_transfer_sz = 4096,
-    };
-    ESP_RETURN_ON_ERROR(spi_bus_initialize(BOARD_SD_SPI_HOST, &bus,
-                                           SPI_DMA_CH_AUTO), TAG,
-                        "SD SPI initialization failed");
-    sd_bus_ready = true;
-    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-    host.slot = BOARD_SD_SPI_HOST;
-    host.max_freq_khz = BOARD_SD_SPI_HZ / 1000;
-    sdspi_device_config_t slot = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot.host_id = BOARD_SD_SPI_HOST;
-    slot.gpio_cs = BOARD_SD_CS;
-    const esp_vfs_fat_mount_config_t mount_config = {
-        .format_if_mount_failed = false, .max_files = 2,
-        .allocation_unit_size = 0,
-    };
-    ESP_RETURN_ON_ERROR(esp_vfs_fat_sdspi_mount("/sdcard", &host, &slot,
-                                                 &mount_config, &mounted_card),
-                        TAG, "SD mount failed");
-    sd_mounted = true;
     index_file = fopen(MAP_INDEX_PATH, "rb");
     if (index_file == NULL) return ESP_ERR_NOT_FOUND;
     uint8_t header[MAP_HEADER_BYTES];
@@ -477,12 +398,8 @@ static void close_package(void)
         free(cache[index].pixels);
         memset(&cache[index], 0, sizeof(cache[index]));
     }
-    if (sd_mounted) esp_vfs_fat_sdcard_unmount("/sdcard", mounted_card);
-    sd_mounted = false;
-    mounted_card = NULL;
-    if (sd_bus_ready) spi_bus_free(BOARD_SD_SPI_HOST);
-    sd_bus_ready = false;
-    sd_power(false);
+    if (sd_acquired) sd_storage_release();
+    sd_acquired = false;
 }
 
 static void map_task(void *parameter)

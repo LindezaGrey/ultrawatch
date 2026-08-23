@@ -1,6 +1,7 @@
 .DS_Store
 .venv/
 firmware/build/
+firmware/build-wifi/
 firmware/managed_components/
 firmware/sdkconfig
 firmware/sdkconfig.old

@@ -1,7 +1,7 @@
 # T-Watch Ultra sensors over BLE
 
 Runs a small Watch/Launcher/Settings window manager in Cascadia Code inside the
-validated blue safe-area contour, and exposes the clock, power management, the
+validated safe-area contour. It exposes the clock, power management, Wi-Fi,
 BHI260AP orientation, and MIA-M10Q GPS data over Bluetooth Low Energy.
 
 - Device name: `UltraWatch`
@@ -55,6 +55,15 @@ BHI260AP orientation, and MIA-M10Q GPS data over Bluetooth Low Energy.
   and 240 MHz; the idle frequency is the ESP32-S3 crystal frequency of 40 MHz.
   Settings are stored in NVS. The first boot defaults to 160 MHz with automatic
   light sleep enabled.
+- Wi-Fi status: `7a1e000e-7a1e-4b6c-8d9e-001122334455`, read/write/notify. A
+  one-byte write uses `0` for Stop and `1` for Start or Retry. The 12-byte value
+  is `requested,state,error,rssi,ipv4[4],active_profile_u32_le`. Unknown RSSI is
+  `127`; no active profile is `0xffffffff`.
+- Wi-Fi profiles: `7a1e000f-7a1e-4b6c-8d9e-001122334455`, write/indicate. Each
+  20-byte frame is `operation,request_id,result_or_flags,data_length,`
+  `profile_index_u32_le,data_offset_u16_le,data[10]`. Operations are Count `1`,
+  Get `2`, Put `3`, Delete `4`, and Move `5`. The browser waits for each
+  indication before it sends the next frame.
 
 Power direction values are `0` standby, `1` charging, `2` discharging, and `3`
 reserved/unknown. `vbus` and `present` are `0` or `1`.
@@ -99,9 +108,79 @@ The physical side button is the AXP2101 PWRON key, not a direct ESP32 GPIO.
 Its events arrive through the PMIC interrupt line on GPIO 7. A completed button
 click toggles BLE advertising on the AXP2101 PWRON release event and redraws the
 display as `BLE AN` or `BLE AUS`; the separate long-press event suppresses that
-toggle so the AXP2101's hardware power-key behavior is retained. An established
-connection is not forcibly disconnected. With advertising disabled, disconnect
-and advertising-complete events do not restart advertising.
+toggle so the AXP2101's hardware power-key behavior is retained. Disabling
+advertising also terminates an established connection. With advertising
+disabled, disconnect and advertising-complete events do not restart advertising.
+
+## Wi-Fi profiles
+
+Wi-Fi uses station mode and is off after each restart. Select **Connect** in the
+web page, then use the Wi-Fi section to add networks and start Wi-Fi. The watch
+loads profiles in their saved order and stops when one connection succeeds. If
+one complete pass fails, use **Retry** to start a new pass.
+
+Profiles are UTF-8 JSON in `/ultrawatch/config.txt` on the SD card:
+
+```json
+{
+  "version": 1,
+  "networks": [
+    {
+      "ssid": "Example",
+      "password": "example-password"
+    }
+  ]
+}
+```
+
+An SSID is 1 through 32 UTF-8 bytes. A password is empty for an open network,
+8 through 63 UTF-8 bytes, or one 64-character hexadecimal key. Duplicate SSIDs
+and unsupported file versions are rejected. Updates use `config.tmp` and
+`config.bak`; a valid backup is recovered if the main file is missing or
+invalid. The firmware does not format the card.
+
+This development interface stores passwords as plain text and transfers them
+through an unauthenticated BLE connection. Do not use production credentials.
+Wi-Fi uses RAM-only ESP-IDF station configuration and modem power saving. A
+Stop command disconnects, stops, and deinitializes the Wi-Fi driver.
+
+## Storage inventory
+
+NVS application data:
+
+- `sensor_control/enabled`: `u8`, default `0x04`.
+- `system_power/max_mhz`: `u16`, default `160`.
+- `system_power/light_sleep`: `u8`, default `1`.
+- `alarm/cfg_minimal`: alarm hour, minute, and enabled state. Default is
+  `07:00`, disabled.
+- `theme/main_rgb`: `u32`, default `0x1863FF`.
+
+NVS system data:
+
+- ESP-IDF PHY calibration data can exist because PHY calibration storage is
+  enabled.
+- Wi-Fi credentials and station configuration do not use NVS.
+- Current NVS recovery can erase the full NVS partition when it is full or has
+  an incompatible version. Application preferences then return to defaults.
+
+SD data:
+
+- UI atlas.
+- Offline map package.
+- Plain-text `/ultrawatch/config.txt` Wi-Fi profiles.
+
+Hardware registers:
+
+- PCF85063A calendar and active alarm registers.
+- AXP2101 charge settings. These settings do not survive a PMIC power-on reset.
+
+Volatile state:
+
+- Display brightness.
+- BLE advertising state and active BLE connection.
+- Wi-Fi state.
+- GPS lease.
+- Sensor-ready state and current runtime errors.
 
 Disabling IMU switches off AXP2101 ALDO4 after stopping its data path;
 disabling GPS stops its UART/parser and switches off BLDO1; disabling touch
@@ -154,21 +233,22 @@ python3 firmware/tools/generate_cascadia_font.py \
 ## SD-card UI assets
 
 Copy the contents of `firmware/sdcard/` to the root of a FAT32 card. The watch
-expects `/ultrawatch/ui/icons.rgb565`, an exact 96,768-byte, row-major atlas of
-twenty-one 48 x 48 RGB565 tiles in display byte order. The tile order is
+expects `/ultrawatch/ui/icons.rgb565`, an exact 115,200-byte, row-major atlas of
+twenty-five 48 x 48 RGB565 tiles in display byte order. The tile order is
 launcher, clock, settings, activity, heart, sleep, wellness, weather, music,
 messages, rings, BLE off, BLE on, and four battery states from empty to full.
-The final four tiles are Map, zoom in, zoom out, and map center. Wellness stays
-in the atlas for compatibility, but the launcher replaces it with Map.
+The next four tiles are Map, zoom in, zoom out, and map center. The final four
+tiles are Wi-Fi off, connecting, connected, and error. Wellness stays in the
+atlas for compatibility, but the launcher replaces it with Map.
 The ready-to-copy atlas, original generated/chroma-key PNGs,
 alpha-normalized source PNGs, 48 x 48 tiles, and QA contact sheet are retained
 under `firmware/`.
 Firmware also accepts the previous 50,688-byte 11-tile, 78,336-byte 17-tile,
-and 82,944-byte 18-tile atlases. Missing status, map, and map-control symbols
-use procedural fallbacks.
+82,944-byte 18-tile, and 96,768-byte 21-tile atlases. Missing status, map,
+map-control, and Wi-Fi symbols use procedural fallbacks.
 
-The BLE and battery variants are deterministic. Regenerate their transparent
-source PNGs before rebuilding the atlas:
+The BLE, battery, and Wi-Fi variants are deterministic. Regenerate their
+transparent source PNGs before rebuilding the atlas:
 
 ```sh
 python3 firmware/tools/create_status_icons.py firmware/assets/ui/sources

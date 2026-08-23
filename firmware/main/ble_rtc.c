@@ -21,6 +21,7 @@
 #include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 #include "gps.h"
 #include "hal/gpio_ll.h"
@@ -35,6 +36,7 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "screen_control.h"
+#include "wifi_manager.h"
 
 #ifndef CONFIG_PM_ENABLE
 #error "The BLE CPU-frequency and automatic light-sleep controls require CONFIG_PM_ENABLE"
@@ -67,6 +69,25 @@
 #define SYSTEM_POWER_PAYLOAD_LENGTH 3
 #define ALARM_PAYLOAD_LENGTH 3
 #define THEME_PAYLOAD_LENGTH 3
+#define WIFI_STATUS_PAYLOAD_LENGTH 12
+#define WIFI_PROFILE_PACKET_LENGTH 20
+#define WIFI_PROFILE_DATA_LENGTH 10
+#define WIFI_PROFILE_RECORD_LENGTH 98
+
+#define WIFI_PROFILE_OP_COUNT  0x01
+#define WIFI_PROFILE_OP_GET    0x02
+#define WIFI_PROFILE_OP_PUT    0x03
+#define WIFI_PROFILE_OP_DELETE 0x04
+#define WIFI_PROFILE_OP_MOVE   0x05
+#define WIFI_PROFILE_OK_LAST   0x00
+#define WIFI_PROFILE_OK_MORE   0x01
+#define WIFI_PROFILE_ERROR_INVALID 0x80
+#define WIFI_PROFILE_ERROR_NOT_FOUND 0x81
+#define WIFI_PROFILE_ERROR_SD 0x82
+#define WIFI_PROFILE_ERROR_CONFIG 0x83
+#define WIFI_PROFILE_ERROR_BUSY 0x84
+#define WIFI_PROFILE_PUT_FIRST 0x01
+#define WIFI_PROFILE_PUT_LAST  0x02
 
 #define SENSOR_IMU_BIT   (1U << 0)
 #define SENSOR_GPS_BIT   (1U << 1)
@@ -209,6 +230,16 @@ static const ble_uuid128_t theme_characteristic_uuid = BLE_UUID128_INIT(
     0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
     0x6c, 0x4b, 0x1e, 0x7a, 0x0d, 0x00, 0x1e, 0x7a);
 
+/* 7a1e000e-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t wifi_status_characteristic_uuid = BLE_UUID128_INIT(
+    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+    0x6c, 0x4b, 0x1e, 0x7a, 0x0e, 0x00, 0x1e, 0x7a);
+
+/* 7a1e000f-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t wifi_profiles_characteristic_uuid = BLE_UUID128_INIT(
+    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+    0x6c, 0x4b, 0x1e, 0x7a, 0x0f, 0x00, 0x1e, 0x7a);
+
 typedef struct {
     unsigned charge_current_ma;
     unsigned input_current_ma;
@@ -224,6 +255,8 @@ static uint16_t imu_value_handle;
 static uint16_t touch_value_handle;
 static uint16_t gps_value_handle;
 static uint16_t sensor_control_value_handle;
+static uint16_t wifi_status_value_handle;
+static uint16_t wifi_profiles_value_handle;
 static volatile uint16_t connection_handle = BLE_HS_CONN_HANDLE_NONE;
 static volatile bool rtc_notifications_enabled;
 static volatile bool power_notifications_enabled;
@@ -231,6 +264,8 @@ static volatile bool imu_notifications_enabled;
 static volatile bool touch_notifications_enabled;
 static volatile bool gps_notifications_enabled;
 static volatile bool sensor_control_notifications_enabled;
+static volatile bool wifi_status_notifications_enabled;
+static volatile bool wifi_profiles_indications_enabled;
 static volatile bool imu_ready;
 static volatile bool imu_sample_available;
 static bool imu_first_sample_logged;
@@ -263,6 +298,15 @@ static alarm_config_t alarm_config = {.hour = 7, .minute = 0, .enabled = false};
 static volatile bool alarm_ringing;
 static i2s_chan_handle_t alarm_audio_tx;
 static bool alarm_audio_ready;
+static QueueHandle_t wifi_profile_queue;
+static uint8_t wifi_profile_response[WIFI_PROFILE_PACKET_LENGTH];
+static portMUX_TYPE wifi_profile_response_lock = portMUX_INITIALIZER_UNLOCKED;
+static volatile uint32_t wifi_profile_session;
+
+typedef struct {
+    uint8_t packet[WIFI_PROFILE_PACKET_LENGTH];
+    uint32_t session;
+} wifi_profile_command_t;
 
 extern const uint8_t
     bhi260_firmware_start[] asm("_binary_BHI260AP_fw_start");
@@ -2195,6 +2239,247 @@ static int theme_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
     return BLE_ATT_ERR_UNLIKELY;
 }
 
+static uint32_t wifi_packet_u32(const uint8_t *packet)
+{
+    return (uint32_t)packet[4] | (uint32_t)packet[5] << 8 |
+           (uint32_t)packet[6] << 16 | (uint32_t)packet[7] << 24;
+}
+
+static uint16_t wifi_packet_u16(const uint8_t *packet)
+{
+    return (uint16_t)packet[8] | (uint16_t)packet[9] << 8;
+}
+
+static void wifi_packet_set_u32(uint8_t *packet, uint32_t value)
+{
+    packet[4] = value & 0xff;
+    packet[5] = (value >> 8) & 0xff;
+    packet[6] = (value >> 16) & 0xff;
+    packet[7] = (value >> 24) & 0xff;
+}
+
+static uint8_t wifi_profile_result(esp_err_t result)
+{
+    if (result == ESP_OK) return WIFI_PROFILE_OK_LAST;
+    if (result == ESP_ERR_NOT_FOUND) return WIFI_PROFILE_ERROR_NOT_FOUND;
+    if (result == ESP_ERR_INVALID_ARG || result == ESP_ERR_INVALID_SIZE) {
+        return WIFI_PROFILE_ERROR_INVALID;
+    }
+    if (result == ESP_ERR_INVALID_RESPONSE) return WIFI_PROFILE_ERROR_CONFIG;
+    return WIFI_PROFILE_ERROR_SD;
+}
+
+static void wifi_status_changed(void)
+{
+    uint16_t handle = connection_handle;
+    if (handle == BLE_HS_CONN_HANDLE_NONE ||
+        !wifi_status_notifications_enabled) return;
+    int result = ble_gatts_notify(handle, wifi_status_value_handle);
+    if (result != 0 && result != BLE_HS_ENOTCONN) {
+        ESP_LOGD(TAG, "Wi-Fi status notification skipped: %d", result);
+    }
+}
+
+static int wifi_status_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
+                                   struct ble_gatt_access_ctxt *context,
+                                   void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (context->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        watch_wifi_status_t status;
+        watch_wifi_get_status(&status);
+        uint8_t payload[WIFI_STATUS_PAYLOAD_LENGTH] = {
+            status.requested ? 1 : 0,
+            status.state,
+            status.error,
+            (uint8_t)status.rssi,
+            status.ipv4[0], status.ipv4[1], status.ipv4[2], status.ipv4[3],
+            status.active_profile & 0xff,
+            (status.active_profile >> 8) & 0xff,
+            (status.active_profile >> 16) & 0xff,
+            (status.active_profile >> 24) & 0xff,
+        };
+        return os_mbuf_append(context->om, payload, sizeof(payload)) == 0
+                   ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (context->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        uint8_t enabled;
+        uint16_t length = 0;
+        int result = ble_hs_mbuf_to_flat(context->om, &enabled, 1, &length);
+        if (result != 0 || length != 1) {
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        }
+        if (enabled > 1) return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+        return watch_wifi_set_enabled(enabled != 0) == ESP_OK
+                   ? 0 : BLE_ATT_ERR_UNLIKELY;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+static int wifi_profiles_gatt_access(
+    uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *context, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (context->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t response[WIFI_PROFILE_PACKET_LENGTH];
+        portENTER_CRITICAL(&wifi_profile_response_lock);
+        memcpy(response, wifi_profile_response, sizeof(response));
+        portEXIT_CRITICAL(&wifi_profile_response_lock);
+        return os_mbuf_append(context->om, response, sizeof(response)) == 0
+                   ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (context->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        wifi_profile_command_t command;
+        uint16_t length = 0;
+        int result = ble_hs_mbuf_to_flat(context->om, command.packet,
+                                         sizeof(command.packet), &length);
+        if (result != 0 || length != sizeof(command.packet)) {
+            return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+        }
+        if (command.packet[3] > WIFI_PROFILE_DATA_LENGTH ||
+            command.packet[0] < WIFI_PROFILE_OP_COUNT ||
+            command.packet[0] > WIFI_PROFILE_OP_MOVE) {
+            return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+        }
+        command.session = wifi_profile_session;
+        return xQueueSend(wifi_profile_queue, &command, 0) == pdTRUE
+                   ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    return BLE_ATT_ERR_UNLIKELY;
+}
+
+static void wifi_profile_task(void *parameter)
+{
+    (void)parameter;
+    uint8_t staged[WIFI_PROFILE_RECORD_LENGTH];
+    size_t staged_length = 0;
+    uint32_t staged_index = UINT32_MAX;
+    bool staging = false;
+    uint32_t staged_session = UINT32_MAX;
+    for (;;) {
+        wifi_profile_command_t command;
+        xQueueReceive(wifi_profile_queue, &command, portMAX_DELAY);
+        if (command.session != wifi_profile_session) {
+            memset(staged, 0, sizeof(staged));
+            staged_length = 0;
+            staged_index = UINT32_MAX;
+            staged_session = UINT32_MAX;
+            staging = false;
+            continue;
+        }
+        if (staged_session != command.session) {
+            memset(staged, 0, sizeof(staged));
+            staged_length = 0;
+            staged_index = UINT32_MAX;
+            staged_session = command.session;
+            staging = false;
+        }
+        const uint8_t *request = command.packet;
+        uint8_t response[WIFI_PROFILE_PACKET_LENGTH] = {0};
+        response[0] = request[0];
+        response[1] = request[1];
+        uint32_t index = wifi_packet_u32(request);
+        uint16_t offset = wifi_packet_u16(request);
+        wifi_packet_set_u32(response, index);
+
+        esp_err_t result = ESP_OK;
+        if (request[0] == WIFI_PROFILE_OP_COUNT) {
+            uint32_t count = 0;
+            result = watch_wifi_profile_count(&count);
+            wifi_packet_set_u32(response, count);
+        } else if (request[0] == WIFI_PROFILE_OP_GET) {
+            watch_wifi_profile_t profile;
+            result = watch_wifi_profile_get(index, &profile);
+            if (result == ESP_OK) {
+                uint8_t record[WIFI_PROFILE_RECORD_LENGTH] = {0};
+                size_t ssid_length = strlen(profile.ssid);
+                size_t password_length = strlen(profile.password);
+                size_t record_length = 2 + ssid_length + password_length;
+                record[0] = ssid_length;
+                record[1] = password_length;
+                memcpy(record + 2, profile.ssid, ssid_length);
+                memcpy(record + 2 + ssid_length, profile.password,
+                       password_length);
+                if (offset >= record_length) {
+                    result = ESP_ERR_INVALID_ARG;
+                } else {
+                    size_t remaining = record_length - offset;
+                    size_t length = remaining > WIFI_PROFILE_DATA_LENGTH
+                                        ? WIFI_PROFILE_DATA_LENGTH : remaining;
+                    response[3] = length;
+                    response[8] = offset & 0xff;
+                    response[9] = offset >> 8;
+                    memcpy(response + 10, record + offset, length);
+                    response[2] = remaining > length
+                                      ? WIFI_PROFILE_OK_MORE
+                                      : WIFI_PROFILE_OK_LAST;
+                }
+                memset(&profile, 0, sizeof(profile));
+                memset(record, 0, sizeof(record));
+            }
+        } else if (request[0] == WIFI_PROFILE_OP_PUT) {
+            uint8_t flags = request[2];
+            uint8_t length = request[3];
+            if (flags & WIFI_PROFILE_PUT_FIRST) {
+                memset(staged, 0, sizeof(staged));
+                staged_length = 0;
+                staged_index = index;
+                staging = true;
+            }
+            if (!staging || staged_index != index || offset != staged_length ||
+                staged_length + length > sizeof(staged)) {
+                result = ESP_ERR_INVALID_ARG;
+            } else {
+                memcpy(staged + staged_length, request + 10, length);
+                staged_length += length;
+            }
+            if (result == ESP_OK && (flags & WIFI_PROFILE_PUT_LAST)) {
+                if (staged_length < 2 ||
+                    staged[0] + staged[1] + 2 != staged_length ||
+                    staged[0] == 0 || staged[0] > 32 || staged[1] > 64) {
+                    result = ESP_ERR_INVALID_ARG;
+                } else {
+                    watch_wifi_profile_t profile = {0};
+                    memcpy(profile.ssid, staged + 2, staged[0]);
+                    memcpy(profile.password, staged + 2 + staged[0], staged[1]);
+                    result = watch_wifi_profile_put(
+                        index, index == UINT32_MAX, &profile);
+                    memset(&profile, 0, sizeof(profile));
+                }
+                memset(staged, 0, sizeof(staged));
+                staged_length = 0;
+                staging = false;
+            }
+        } else if (request[0] == WIFI_PROFILE_OP_DELETE) {
+            result = watch_wifi_profile_delete(index);
+        } else if (request[0] == WIFI_PROFILE_OP_MOVE) {
+            result = watch_wifi_profile_move(index, offset);
+        }
+
+        if (request[0] != WIFI_PROFILE_OP_GET || result != ESP_OK) {
+            response[2] = wifi_profile_result(result);
+        }
+        portENTER_CRITICAL(&wifi_profile_response_lock);
+        memcpy(wifi_profile_response, response, sizeof(response));
+        portEXIT_CRITICAL(&wifi_profile_response_lock);
+        uint16_t handle = connection_handle;
+        if (handle != BLE_HS_CONN_HANDLE_NONE &&
+            wifi_profiles_indications_enabled) {
+            int indicate = ble_gatts_indicate(handle,
+                                               wifi_profiles_value_handle);
+            if (indicate != 0 && indicate != BLE_HS_ENOTCONN) {
+                ESP_LOGD(TAG, "Wi-Fi profile indication skipped: %d",
+                         indicate);
+            }
+        }
+    }
+}
+
 static const struct ble_gatt_svc_def rtc_gatt_services[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -2268,6 +2553,20 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
                 .access_cb = theme_gatt_access,
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
             },
+            {
+                .uuid = &wifi_status_characteristic_uuid.u,
+                .access_cb = wifi_status_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE |
+                         BLE_GATT_CHR_F_NOTIFY,
+                .val_handle = &wifi_status_value_handle,
+            },
+            {
+                .uuid = &wifi_profiles_characteristic_uuid.u,
+                .access_cb = wifi_profiles_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE |
+                         BLE_GATT_CHR_F_INDICATE,
+                .val_handle = &wifi_profiles_value_handle,
+            },
             {0},
         },
     },
@@ -2287,6 +2586,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
+            wifi_profile_session++;
             connection_handle = event->connect.conn_handle;
             ESP_LOGI(TAG, "BLE client connected");
             if (!advertising_enabled) {
@@ -2303,6 +2603,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         }
         return 0;
     case BLE_GAP_EVENT_DISCONNECT:
+        wifi_profile_session++;
         connection_handle = BLE_HS_CONN_HANDLE_NONE;
         rtc_notifications_enabled = false;
         power_notifications_enabled = false;
@@ -2310,6 +2611,8 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         touch_notifications_enabled = false;
         gps_notifications_enabled = false;
         sensor_control_notifications_enabled = false;
+        wifi_status_notifications_enabled = false;
+        wifi_profiles_indications_enabled = false;
         ESP_LOGI(TAG, "BLE client disconnected");
         start_advertising();
         return 0;
@@ -2328,6 +2631,10 @@ static int gap_event(struct ble_gap_event *event, void *arg)
                    sensor_control_value_handle) {
             sensor_control_notifications_enabled =
                 event->subscribe.cur_notify;
+        } else if (event->subscribe.attr_handle == wifi_status_value_handle) {
+            wifi_status_notifications_enabled = event->subscribe.cur_notify;
+        } else if (event->subscribe.attr_handle == wifi_profiles_value_handle) {
+            wifi_profiles_indications_enabled = event->subscribe.cur_indicate;
         }
         return 0;
     case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -2852,6 +3159,14 @@ esp_err_t ble_rtc_start(void)
     if (ble_result != 0) {
         return ESP_FAIL;
     }
+
+    wifi_profile_queue = xQueueCreate(1, sizeof(wifi_profile_command_t));
+    if (wifi_profile_queue == NULL) return ESP_ERR_NO_MEM;
+    if (xTaskCreate(wifi_profile_task, "wifi_profiles", 6144, NULL, 4,
+                    NULL) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    watch_wifi_set_status_callback(wifi_status_changed);
 
     ble_hs_cfg.sync_cb = host_sync;
     nimble_port_freertos_init(host_task);

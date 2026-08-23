@@ -69,6 +69,17 @@
     .theme-color-control { display: flex; align-items: center; gap: 1rem; margin: 1.4rem 0; }
     .theme-color-control input[type="color"] { width: 4.5rem; height: 3.25rem; padding: .2rem; cursor: pointer; }
     .theme-color-value { font: 600 1.15rem ui-monospace, monospace; text-transform: uppercase; }
+    .wifi-warning { padding: .75rem; border: 1px solid #8b5e20; border-radius: .55rem; background: #2a2013; color: #ffd28a; }
+    .wifi-toolbar { display: flex; flex-wrap: wrap; gap: .7rem; align-items: center; margin: 1rem 0; }
+    .wifi-master { font-size: 1.1rem; font-weight: 650; }
+    .wifi-profiles { display: grid; gap: .55rem; margin: 1rem 0; }
+    .wifi-profile { display: flex; gap: .55rem; align-items: center; padding: .7rem; border: 1px solid #333; border-radius: .55rem; }
+    .wifi-profile strong { flex: 1; overflow-wrap: anywhere; }
+    .wifi-profile button { padding: .45rem .6rem; }
+    .wifi-editor { display: grid; gap: .75rem; margin-top: 1rem; padding: 1rem; border: 1px solid #3b3b3b; border-radius: .6rem; }
+    .wifi-editor[hidden] { display: none; }
+    .password-row { display: flex; gap: .7rem; align-items: center; }
+    .password-row input[type="password"], .password-row input[type="text"] { flex: 1; }
     .haptic-controls { display: grid; grid-template-columns: 2fr 1fr; gap: .8rem; margin-top: 1rem; }
     .haptic-state.playing { color: #4ade80; }
     .touch-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(12rem, .8fr); gap: 1rem; margin-top: 1rem; }
@@ -107,6 +118,7 @@
         <a href="#flasher">Firmware</a>
         <a href="#sensorControl">Sensor power</a>
         <a href="#systemPower">ESP32 power</a>
+        <a href="#wifi">Wi-Fi</a>
         <a href="#rtc">RTC</a>
         <a href="#alarm">Alarm</a>
         <a href="#power">Battery &amp; power</a>
@@ -128,6 +140,42 @@
       <div class="connection-buttons">
         <button id="connect">Connect</button>
         <button id="disconnect" disabled>Disconnect</button>
+      </div>
+    </section>
+
+    <section id="wifi" class="sensor">
+      <header><h2>Wi-Fi</h2><span class="tag">SD profiles · station mode</span></header>
+      <p class="wifi-warning">Development build: the watch stores passwords as plain text on the SD card and sends them over unauthenticated BLE.</p>
+      <div class="wifi-toolbar">
+        <label class="toggle wifi-master"><input id="wifiEnabled" type="checkbox" data-connected disabled> Wi-Fi enabled</label>
+        <button id="wifiRetry" data-connected disabled>Retry</button>
+        <button id="wifiReload" data-connected disabled>Reload profiles</button>
+      </div>
+      <div class="metrics">
+        <div class="metric"><span>Status</span><strong id="wifiState">Off</strong></div>
+        <div class="metric"><span>Connected SSID</span><strong id="wifiSsid">--</strong></div>
+        <div class="metric"><span>IPv4 address</span><strong id="wifiIp">--</strong></div>
+        <div class="metric"><span>Signal</span><strong id="wifiRssi">--</strong></div>
+        <div class="metric"><span>Last error</span><strong id="wifiError">None</strong></div>
+      </div>
+      <div class="configuration">
+        <h3>Saved networks</h3>
+        <div id="wifiProfiles" class="wifi-profiles" aria-live="polite"></div>
+        <button id="wifiAdd" data-connected disabled>Add network</button>
+        <form id="wifiEditor" class="wifi-editor" hidden>
+          <input id="wifiEditIndex" type="hidden" value="-1">
+          <label for="wifiEditSsid">SSID</label>
+          <input id="wifiEditSsid" maxlength="32" autocomplete="off" required>
+          <label for="wifiEditPassword">Password</label>
+          <div class="password-row">
+            <input id="wifiEditPassword" type="password" maxlength="64" autocomplete="new-password">
+            <label class="toggle"><input id="wifiRevealPassword" type="checkbox"> Reveal</label>
+          </div>
+          <div class="buttons">
+            <button id="wifiSave" type="submit">Save network</button>
+            <button id="wifiCancel" type="button">Cancel</button>
+          </div>
+        </form>
       </div>
     </section>
 
@@ -467,7 +515,9 @@
       sensorControl: '7a1e000a-7a1e-4b6c-8d9e-001122334455',
       systemPower: '7a1e000b-7a1e-4b6c-8d9e-001122334455',
       alarm: '7a1e000c-7a1e-4b6c-8d9e-001122334455',
-      theme: '7a1e000d-7a1e-4b6c-8d9e-001122334455'
+      theme: '7a1e000d-7a1e-4b6c-8d9e-001122334455',
+      wifiStatus: '7a1e000e-7a1e-4b6c-8d9e-001122334455',
+      wifiProfiles: '7a1e000f-7a1e-4b6c-8d9e-001122334455'
     };
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -488,7 +538,10 @@
       'sensorGpsState', 'sensorTouchState', 'readSensorControl',
       'cpuFrequency', 'automaticLightSleep', 'readSystemPower',
       'writeSystemPower', 'alarmTime', 'alarmEnabled', 'readAlarm',
-      'writeAlarm'];
+      'writeAlarm', 'wifiEnabled', 'wifiRetry', 'wifiReload', 'wifiState',
+      'wifiSsid', 'wifiIp', 'wifiRssi', 'wifiError', 'wifiProfiles',
+      'wifiAdd', 'wifiEditor', 'wifiEditIndex', 'wifiEditSsid',
+      'wifiEditPassword', 'wifiRevealPassword', 'wifiSave', 'wifiCancel'];
     const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
     let device = null;
@@ -501,6 +554,37 @@
     let alarmWriteInProgress = false;
     let themeWriteInProgress = false;
     let pendingThemeColor = null;
+    let gattTail = Promise.resolve();
+    let wifiProfileRequestId = 0;
+    let wifiProfilePending = null;
+    let wifiProfiles = [];
+    let wifiActiveProfile = 0xffffffff;
+    let wifiActualState = 0;
+
+    function queueGatt(operation) {
+      const queued = gattTail.catch(() => {}).then(operation);
+      gattTail = queued.catch(() => {});
+      return queued;
+    }
+
+    function serialCharacteristic(characteristic) {
+      return {
+        addEventListener: characteristic.addEventListener.bind(characteristic),
+        removeEventListener: characteristic.removeEventListener.bind(characteristic),
+        readValue: () => queueGatt(() => characteristic.readValue()),
+        writeValue: value => queueGatt(() => characteristic.writeValue(value)),
+        writeValueWithResponse: value => queueGatt(() =>
+          characteristic.writeValueWithResponse
+            ? characteristic.writeValueWithResponse(value)
+            : characteristic.writeValue(value)),
+        startNotifications: () => queueGatt(() => characteristic.startNotifications()),
+        stopNotifications: () => queueGatt(() => characteristic.stopNotifications())
+      };
+    }
+
+    async function getSerialCharacteristic(service, uuid) {
+      return serialCharacteristic(await service.getCharacteristic(uuid));
+    }
 
     function setConnected(connected) {
       ui.dot.classList.toggle('connected', connected);
@@ -606,6 +690,235 @@
       }
       ui.alarmTime.value = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
       ui.alarmEnabled.checked = Boolean(enabled);
+    }
+
+    function showWifiStatus(dataView) {
+      if (dataView.byteLength !== 12) throw new Error('Unexpected Wi-Fi status payload');
+      const requested = dataView.getUint8(0);
+      const state = dataView.getUint8(1);
+      const error = dataView.getUint8(2);
+      const rssi = dataView.getInt8(3);
+      if (requested > 1 || state > 7 || error > 6) {
+        throw new Error('Wi-Fi status outside valid range');
+      }
+      wifiActiveProfile = dataView.getUint32(8, true);
+      wifiActualState = state;
+      const states = ['Off', 'Loading profiles', 'Connecting', 'Connected',
+        'Disconnected', 'SD error', 'Configuration error', 'Driver error'];
+      const errors = ['None', 'No SD card', 'Configuration file missing',
+        'Invalid configuration', 'No saved profiles',
+        'All connection attempts failed', 'Wi-Fi driver failure'];
+      const ip = [...Array(4)].map((_, index) => dataView.getUint8(4 + index));
+      ui.wifiEnabled.checked = Boolean(requested);
+      ui.wifiState.textContent = states[state];
+      ui.wifiError.textContent = errors[error];
+      ui.wifiIp.textContent = state === 3 ? ip.join('.') : '--';
+      ui.wifiRssi.textContent = state === 3 && rssi !== 127 ? `${rssi} dBm` : '--';
+      ui.wifiSsid.textContent = state === 3 && wifiProfiles[wifiActiveProfile]
+        ? wifiProfiles[wifiActiveProfile].ssid : '--';
+      ui.wifiRetry.disabled = !device?.gatt?.connected || !requested || state === 3;
+    }
+
+    function wifiProfileIndication(event) {
+      const value = event.target.value;
+      if (!wifiProfilePending || value.byteLength !== 20) return;
+      const operation = value.getUint8(0);
+      const requestId = value.getUint8(1);
+      if (operation !== wifiProfilePending.operation ||
+          requestId !== wifiProfilePending.requestId) return;
+      const pending = wifiProfilePending;
+      wifiProfilePending = null;
+      pending.resolve(new DataView(value.buffer.slice(value.byteOffset,
+        value.byteOffset + value.byteLength)));
+    }
+
+    async function wifiProfileCommand(packet) {
+      if (wifiProfilePending) throw new Error('A Wi-Fi profile command is still active');
+      wifiProfileRequestId = (wifiProfileRequestId + 1) & 0xff;
+      if (!wifiProfileRequestId) wifiProfileRequestId = 1;
+      packet[1] = wifiProfileRequestId;
+      const response = new Promise((resolve, reject) => {
+        wifiProfilePending = {
+          operation: packet[0], requestId: wifiProfileRequestId, resolve, reject
+        };
+      });
+      try {
+        await characteristics.wifiProfiles.writeValueWithResponse(packet);
+      } catch (error) {
+        const pending = wifiProfilePending;
+        wifiProfilePending = null;
+        pending?.reject(error);
+        throw error;
+      }
+      return response;
+    }
+
+    function wifiPacket(operation, index = 0, offset = 0) {
+      const packet = new Uint8Array(20);
+      const view = new DataView(packet.buffer);
+      packet[0] = operation;
+      view.setUint32(4, index, true);
+      view.setUint16(8, offset, true);
+      return packet;
+    }
+
+    function wifiResult(response) {
+      const code = response.getUint8(2);
+      const names = {
+        0x80: 'Invalid profile command', 0x81: 'Profile not found',
+        0x82: 'SD operation failed', 0x83: 'Configuration is invalid',
+        0x84: 'Wi-Fi profile service is busy'
+      };
+      if (code >= 0x80) throw new Error(names[code] || `Profile error ${code}`);
+      return code;
+    }
+
+    async function getWifiProfileCount() {
+      const response = await wifiProfileCommand(wifiPacket(0x01));
+      wifiResult(response);
+      return response.getUint32(4, true);
+    }
+
+    async function getWifiProfile(index) {
+      const chunks = [];
+      let offset = 0;
+      while (true) {
+        const response = await wifiProfileCommand(wifiPacket(0x02, index, offset));
+        const result = wifiResult(response);
+        const length = response.getUint8(3);
+        chunks.push(new Uint8Array(response.buffer, response.byteOffset + 10, length));
+        offset += length;
+        if (result === 0) break;
+      }
+      const record = new Uint8Array(offset);
+      let position = 0;
+      chunks.forEach(chunk => { record.set(chunk, position); position += chunk.length; });
+      if (record.length < 2 || record[0] + record[1] + 2 !== record.length) {
+        throw new Error('Invalid Wi-Fi profile record');
+      }
+      return {
+        ssid: decoder.decode(record.slice(2, 2 + record[0])),
+        password: decoder.decode(record.slice(2 + record[0]))
+      };
+    }
+
+    async function putWifiProfile(index, profile) {
+      const ssid = encoder.encode(profile.ssid);
+      const password = encoder.encode(profile.password);
+      const record = new Uint8Array(2 + ssid.length + password.length);
+      record[0] = ssid.length;
+      record[1] = password.length;
+      record.set(ssid, 2);
+      record.set(password, 2 + ssid.length);
+      for (let offset = 0; offset < record.length; offset += 10) {
+        const length = Math.min(10, record.length - offset);
+        const packet = wifiPacket(0x03, index, offset);
+        packet[2] = (offset === 0 ? 0x01 : 0) |
+                    (offset + length === record.length ? 0x02 : 0);
+        packet[3] = length;
+        packet.set(record.slice(offset, offset + length), 10);
+        wifiResult(await wifiProfileCommand(packet));
+      }
+    }
+
+    async function deleteWifiProfile(index) {
+      wifiResult(await wifiProfileCommand(wifiPacket(0x04, index)));
+    }
+
+    async function moveWifiProfile(index, destination) {
+      wifiResult(await wifiProfileCommand(wifiPacket(0x05, index, destination)));
+    }
+
+    function setWifiControlsBusy(busy) {
+      [ui.wifiEnabled, ui.wifiRetry, ui.wifiReload, ui.wifiAdd,
+       ui.wifiSave, ui.wifiCancel].forEach(control => {
+        control.disabled = busy || !device?.gatt?.connected;
+      });
+      ui.wifiProfiles.querySelectorAll('button').forEach(button => {
+        button.disabled = busy || button.dataset.fixedDisabled === 'true';
+      });
+      if (!busy) {
+        ui.wifiRetry.disabled = !device?.gatt?.connected ||
+          !ui.wifiEnabled.checked || wifiActualState === 3;
+      }
+    }
+
+    function renderWifiProfiles() {
+      ui.wifiProfiles.replaceChildren();
+      if (!wifiProfiles.length) {
+        const empty = document.createElement('p');
+        empty.textContent = 'No saved networks.';
+        ui.wifiProfiles.append(empty);
+      }
+      wifiProfiles.forEach((profile, index) => {
+        const row = document.createElement('div');
+        row.className = 'wifi-profile';
+        const name = document.createElement('strong');
+        name.textContent = profile.ssid;
+        row.append(name);
+        const actions = [
+          ['Edit', () => openWifiEditor(index)],
+          ['Up', () => runWifiProfileAction(async () => {
+            await moveWifiProfile(index, index - 1); await loadWifiProfiles();
+          }), index === 0],
+          ['Down', () => runWifiProfileAction(async () => {
+            await moveWifiProfile(index, index + 1); await loadWifiProfiles();
+          }), index === wifiProfiles.length - 1],
+          ['Delete', () => runWifiProfileAction(async () => {
+            await deleteWifiProfile(index); await loadWifiProfiles();
+          })]
+        ];
+        actions.forEach(([label, action, disabled]) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = label;
+          button.disabled = Boolean(disabled);
+          button.dataset.fixedDisabled = disabled ? 'true' : 'false';
+          button.addEventListener('click', action);
+          row.append(button);
+        });
+        ui.wifiProfiles.append(row);
+      });
+      ui.wifiSsid.textContent = wifiActiveProfile !== 0xffffffff &&
+        wifiProfiles[wifiActiveProfile] ? wifiProfiles[wifiActiveProfile].ssid : '--';
+    }
+
+    function openWifiEditor(index = -1) {
+      const profile = index >= 0 ? wifiProfiles[index] : { ssid: '', password: '' };
+      ui.wifiEditIndex.value = String(index);
+      ui.wifiEditSsid.value = profile.ssid;
+      ui.wifiEditPassword.value = profile.password;
+      ui.wifiRevealPassword.checked = false;
+      ui.wifiEditPassword.type = 'password';
+      ui.wifiEditor.hidden = false;
+      ui.wifiEditSsid.focus();
+    }
+
+    function closeWifiEditor() {
+      ui.wifiEditor.hidden = true;
+      ui.wifiEditPassword.value = '';
+    }
+
+    async function loadWifiProfiles() {
+      const count = await getWifiProfileCount();
+      const profiles = [];
+      for (let index = 0; index < count; index++) {
+        profiles.push(await getWifiProfile(index));
+      }
+      wifiProfiles = profiles;
+      renderWifiProfiles();
+    }
+
+    async function runWifiProfileAction(action) {
+      setWifiControlsBusy(true);
+      try {
+        await action();
+        ui.message.textContent = 'Wi-Fi profiles saved.';
+      } catch (error) {
+        ui.message.textContent = `Wi-Fi profile operation failed: ${error.message}`;
+      } finally {
+        setWifiControlsBusy(false);
+      }
     }
 
     function showImu(dataView) {
@@ -735,7 +1048,15 @@
     }
 
     function onDisconnected() {
+      if (wifiProfilePending) {
+        wifiProfilePending.reject(new Error('Watch disconnected'));
+        wifiProfilePending = null;
+      }
       characteristics = {};
+      wifiProfiles = [];
+      wifiActiveProfile = 0xffffffff;
+      renderWifiProfiles();
+      closeWifiEditor();
       setConnected(false);
       ui.message.textContent = 'Watch disconnected.';
     }
@@ -751,18 +1072,18 @@
         device.addEventListener('gattserverdisconnected', onDisconnected);
         const server = await device.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
-        characteristics.rtc = await service.getCharacteristic(CHAR_UUID.rtc);
-        characteristics.power = await service.getCharacteristic(CHAR_UUID.power);
-        characteristics.powerConfig = await service.getCharacteristic(CHAR_UUID.powerConfig);
-        characteristics.imu = await service.getCharacteristic(CHAR_UUID.imu);
-        characteristics.screen = await service.getCharacteristic(CHAR_UUID.screen);
-        characteristics.touch = await service.getCharacteristic(CHAR_UUID.touch);
-        characteristics.gps = await service.getCharacteristic(CHAR_UUID.gps);
-        characteristics.haptic = await service.getCharacteristic(CHAR_UUID.haptic);
-        characteristics.sensorControl = await service.getCharacteristic(CHAR_UUID.sensorControl);
-        characteristics.systemPower = await service.getCharacteristic(CHAR_UUID.systemPower);
-        characteristics.alarm = await service.getCharacteristic(CHAR_UUID.alarm);
-        characteristics.theme = await service.getCharacteristic(CHAR_UUID.theme);
+        characteristics.rtc = await getSerialCharacteristic(service, CHAR_UUID.rtc);
+        characteristics.power = await getSerialCharacteristic(service, CHAR_UUID.power);
+        characteristics.powerConfig = await getSerialCharacteristic(service, CHAR_UUID.powerConfig);
+        characteristics.imu = await getSerialCharacteristic(service, CHAR_UUID.imu);
+        characteristics.screen = await getSerialCharacteristic(service, CHAR_UUID.screen);
+        characteristics.touch = await getSerialCharacteristic(service, CHAR_UUID.touch);
+        characteristics.gps = await getSerialCharacteristic(service, CHAR_UUID.gps);
+        characteristics.haptic = await getSerialCharacteristic(service, CHAR_UUID.haptic);
+        characteristics.sensorControl = await getSerialCharacteristic(service, CHAR_UUID.sensorControl);
+        characteristics.systemPower = await getSerialCharacteristic(service, CHAR_UUID.systemPower);
+        characteristics.alarm = await getSerialCharacteristic(service, CHAR_UUID.alarm);
+        characteristics.theme = await getSerialCharacteristic(service, CHAR_UUID.theme);
         characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
         characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
         characteristics.imu.addEventListener('characteristicvaluechanged', notificationHandler(showImu));
@@ -790,6 +1111,17 @@
         const touchReady = !(sensorEnabledMask & 0x04) || !(sensorReadyMask & 0x04) || await readTouch(false);
         const gpsReady = !(sensorEnabledMask & 0x02) || !(sensorReadyMask & 0x02) || await readGps(false);
         const hapticReady = await readHaptic(false);
+        characteristics.wifiStatus = await getSerialCharacteristic(service, CHAR_UUID.wifiStatus);
+        characteristics.wifiProfiles = await getSerialCharacteristic(service, CHAR_UUID.wifiProfiles);
+        characteristics.wifiStatus.addEventListener('characteristicvaluechanged', notificationHandler(showWifiStatus));
+        characteristics.wifiProfiles.addEventListener('characteristicvaluechanged', wifiProfileIndication);
+        await characteristics.wifiStatus.startNotifications();
+        await characteristics.wifiProfiles.startNotifications();
+        const wifiReady = await readWifiStatus(false);
+        if (wifiReady) {
+          try { await loadWifiProfiles(); }
+          catch (error) { ui.message.textContent = `Wi-Fi profiles unavailable: ${error.message}`; }
+        }
         const sensorsStarting = Boolean(sensorEnabledMask & ~sensorReadyMask);
         if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && alarmReady && themeReady && imuReady && screenReady && touchReady && gpsReady && hapticReady && sensorsStarting) {
           ui.message.textContent = 'Core controls ready. Enabled sensors are starting.';
@@ -833,6 +1165,16 @@
         return true;
       } catch (error) {
         if (reportError) ui.message.textContent = `RTC read failed: ${error.message}. Set the browser time first.`;
+        return false;
+      }
+    }
+
+    async function readWifiStatus(reportError = true) {
+      try {
+        showWifiStatus(await characteristics.wifiStatus.readValue());
+        return true;
+      } catch (error) {
+        if (reportError) ui.message.textContent = `Wi-Fi status read failed: ${error.message}`;
         return false;
       }
     }
@@ -1177,8 +1519,74 @@
       ui.themeColorValue.style.color = ui.themeColor.value;
     });
     ui.themeColor.addEventListener('change', () => writeThemeColor());
+    ui.wifiEnabled.addEventListener('change', async () => {
+      const requested = ui.wifiEnabled.checked;
+      setWifiControlsBusy(true);
+      try {
+        await characteristics.wifiStatus.writeValueWithResponse(
+          Uint8Array.of(requested ? 1 : 0));
+        await readWifiStatus(false);
+        ui.message.textContent = `Wi-Fi ${requested ? 'started' : 'stopped'}.`;
+      } catch (error) {
+        await readWifiStatus(false);
+        ui.message.textContent = `Wi-Fi control failed: ${error.message}`;
+      } finally {
+        setWifiControlsBusy(false);
+      }
+    });
+    ui.wifiRetry.addEventListener('click', async () => {
+      setWifiControlsBusy(true);
+      try {
+        await characteristics.wifiStatus.writeValueWithResponse(Uint8Array.of(1));
+        await readWifiStatus(false);
+        ui.message.textContent = 'Wi-Fi retry started.';
+      } catch (error) {
+        ui.message.textContent = `Wi-Fi retry failed: ${error.message}`;
+      } finally {
+        setWifiControlsBusy(false);
+      }
+    });
+    ui.wifiReload.addEventListener('click', () =>
+      runWifiProfileAction(loadWifiProfiles));
+    ui.wifiAdd.addEventListener('click', () => openWifiEditor());
+    ui.wifiCancel.addEventListener('click', closeWifiEditor);
+    ui.wifiRevealPassword.addEventListener('change', () => {
+      ui.wifiEditPassword.type = ui.wifiRevealPassword.checked ? 'text' : 'password';
+    });
+    ui.wifiEditor.addEventListener('submit', event => {
+      event.preventDefault();
+      const ssid = ui.wifiEditSsid.value;
+      const password = ui.wifiEditPassword.value;
+      const ssidLength = encoder.encode(ssid).length;
+      const passwordLength = encoder.encode(password).length;
+      const validPassword = passwordLength === 0 ||
+        (passwordLength >= 8 && passwordLength <= 63) ||
+        (passwordLength === 64 && /^[0-9a-f]+$/i.test(password));
+      if (ssidLength < 1 || ssidLength > 32) {
+        ui.message.textContent = 'SSID length must be 1 through 32 UTF-8 bytes.';
+        return;
+      }
+      if (!validPassword) {
+        ui.message.textContent = 'Use no password, 8 through 63 bytes, or a 64-character hexadecimal key.';
+        return;
+      }
+      const editIndex = Number(ui.wifiEditIndex.value);
+      const duplicate = wifiProfiles.some((profile, index) =>
+        index !== editIndex && profile.ssid === ssid);
+      if (duplicate) {
+        ui.message.textContent = 'This SSID already exists. Edit the existing network.';
+        return;
+      }
+      runWifiProfileAction(async () => {
+        await putWifiProfile(editIndex < 0 ? 0xffffffff : editIndex,
+                             { ssid, password });
+        closeWifiEditor();
+        await loadWifiProfiles();
+      });
+    });
     ui.browserTime.addEventListener('click', () => setTime(localDateTime(new Date())));
     ui.writeTime.addEventListener('click', () => setTime(ui.dateTime.value));
+    renderWifiProfiles();
     setConnected(false);
   </script>
   <script>
