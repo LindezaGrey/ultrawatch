@@ -7,7 +7,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 
-FONT_SIZE = 72
+UI_FONT_SIZE = 72
+TIME_FONT_SIZE = 120
 UI_STATIC_STRINGS = (
     " 0123456789:%+-?",
     "SO MO DI MI DO FR SA",
@@ -16,7 +17,8 @@ UI_STATIC_STRINGS = (
     "GPS SUCHE KARTE FEHLT SD FEHLER ZOOM",
     "(C) GEOBASIS-DE / BKG 2026 CC BY 4.0 I",
 )
-CHARACTERS = "".join(dict.fromkeys("".join(UI_STATIC_STRINGS)))
+UI_CHARACTERS = "".join(dict.fromkeys("".join(UI_STATIC_STRINGS)))
+TIME_CHARACTERS = "0123456789:"
 THRESHOLD = 128
 
 
@@ -35,14 +37,10 @@ def packed_rows(font: ImageFont.FreeTypeFont, character: str,
     return rows
 
 
-def main() -> None:
-    parser = ArgumentParser()
-    parser.add_argument("font", type=Path)
-    parser.add_argument("output", type=Path)
-    args = parser.parse_args()
-
-    font = ImageFont.truetype(str(args.font), FONT_SIZE)
-    boxes = [font.getbbox(character) for character in CHARACTERS]
+def write_header(font_path: Path, output: Path, font_size: int,
+                 characters: str, prefix: str, array_prefix: str) -> None:
+    font = ImageFont.truetype(str(font_path), font_size)
+    boxes = [font.getbbox(character) for character in characters]
     width = round(font.getlength("0"))
     top = min(box[1] for box in boxes)
     bottom = max(box[3] for box in boxes)
@@ -54,22 +52,22 @@ def main() -> None:
         "",
         "#include <stdint.h>",
         "",
-        "/* Generated from CascadiaCode-Regular.otf at 72 px.",
+        f"/* Generated from CascadiaCode-Regular.otf at {font_size} px.",
         " * Copyright (c) 2019 - Present, Microsoft Corporation.",
         " * Cascadia Code is licensed under the SIL Open Font License 1.1.",
         " */",
-        f"#define CASCADIA_CODE_CELL_WIDTH {width}",
-        f"#define CASCADIA_CODE_GLYPH_HEIGHT {height}",
-        f"#define CASCADIA_CODE_BYTES_PER_ROW {bytes_per_row}",
-        f"#define CASCADIA_CODE_GLYPH_COUNT {len(CHARACTERS)}",
+        f"#define {prefix}_CELL_WIDTH {width}",
+        f"#define {prefix}_GLYPH_HEIGHT {height}",
+        f"#define {prefix}_BYTES_PER_ROW {bytes_per_row}",
+        f"#define {prefix}_GLYPH_COUNT {len(characters)}",
         "",
-        f'static const char cascadia_code_characters[] = "{CHARACTERS}";',
-        "static const uint8_t cascadia_code_glyphs",
-        "    [CASCADIA_CODE_GLYPH_COUNT][CASCADIA_CODE_GLYPH_HEIGHT]",
-        "    [CASCADIA_CODE_BYTES_PER_ROW] = {",
+        f'static const char {array_prefix}_characters[] = "{characters}";',
+        f"static const uint8_t {array_prefix}_glyphs",
+        f"    [{prefix}_GLYPH_COUNT][{prefix}_GLYPH_HEIGHT]",
+        f"    [{prefix}_BYTES_PER_ROW] = {{",
     ]
 
-    for character in CHARACTERS:
+    for character in characters:
         lines.append(f"    /* {character} */ {{")
         for row in packed_rows(font, character, width, top, height):
             values = ", ".join(f"0x{value:02x}" for value in row)
@@ -77,8 +75,22 @@ def main() -> None:
         lines.append("    },")
     lines.extend(["};", ""])
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text("\n".join(lines))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("\n".join(lines))
+
+
+def main() -> None:
+    parser = ArgumentParser()
+    parser.add_argument("font", type=Path)
+    parser.add_argument("output", type=Path)
+    parser.add_argument("--time-output", type=Path)
+    args = parser.parse_args()
+
+    write_header(args.font, args.output, UI_FONT_SIZE, UI_CHARACTERS,
+                 "CASCADIA_CODE", "cascadia_code")
+    if args.time_output is not None:
+        write_header(args.font, args.time_output, TIME_FONT_SIZE,
+                     TIME_CHARACTERS, "CASCADIA_TIME", "cascadia_time")
 
 
 if __name__ == "__main__":

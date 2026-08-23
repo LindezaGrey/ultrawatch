@@ -22,6 +22,7 @@
 #include "ble_rtc.h"
 #include "board.h"
 #include "cascadia_code_72.h"
+#include "cascadia_time_120.h"
 #include "offline_map.h"
 #include "screen_control.h"
 
@@ -30,6 +31,11 @@
 #endif
 
 #define DISPLAY_BAND_ROWS 32
+#define WATCH_TIME_REGION_X 0
+#define WATCH_TIME_DRAW_Y 144
+#define WATCH_TIME_REGION_Y (3 * DISPLAY_BAND_ROWS)
+#define WATCH_TIME_REGION_WIDTH BOARD_DISPLAY_WIDTH
+#define WATCH_TIME_REGION_HEIGHT (6 * DISPLAY_BAND_ROWS)
 #define DISPLAY_BUFFER_COUNT 2
 #define DISPLAY_TE_WAIT_US 50000
 #define CONTOUR_OUTER_INSET_PIXELS 13
@@ -1119,35 +1125,33 @@ static void draw_text(uint16_t *frame, const char *text, int start_x,
     }
 }
 
-static int scaled_text_width(const char *text, int numerator, int denominator)
+static int time_glyph_index(char character)
 {
-    const int cell_width =
-        (CASCADIA_CODE_CELL_WIDTH * numerator + denominator - 1) / denominator;
-    return (int)strlen(text) * cell_width;
+    if (character >= '0' && character <= '9') {
+        return character - '0';
+    }
+    return character == ':' ? 10 : 0;
 }
 
-static void draw_text_scaled(uint16_t *frame, const char *text, int start_x,
-                             int start_y, int numerator, int denominator,
-                             uint16_t color)
+static int time_text_width(const char *text)
 {
-    const int cell_width =
-        (CASCADIA_CODE_CELL_WIDTH * numerator + denominator - 1) / denominator;
-    const int height =
-        (CASCADIA_CODE_GLYPH_HEIGHT * numerator + denominator - 1) /
-        denominator;
+    return (int)strlen(text) * CASCADIA_TIME_CELL_WIDTH;
+}
+
+static void draw_time_text(uint16_t *frame, const char *text, int start_x,
+                           int start_y, uint16_t color)
+{
     for (size_t character = 0; text[character] != '\0'; character++) {
-        const uint8_t (*glyph)[(CASCADIA_CODE_CELL_WIDTH + 7) / 8] =
-            cascadia_code_glyphs[glyph_index(text[character])];
-        for (int py = 0; py < height; py++) {
-            const int source_y = py * denominator / numerator;
-            for (int px = 0; px < cell_width; px++) {
-                const int source_x = px * denominator / numerator;
-                if (source_x < CASCADIA_CODE_CELL_WIDTH &&
-                    source_y < CASCADIA_CODE_GLYPH_HEIGHT &&
-                    (glyph[source_y][source_x / 8] &
-                     (1U << (7 - source_x % 8))) != 0) {
+        const uint8_t (*glyph)[CASCADIA_TIME_BYTES_PER_ROW] =
+            cascadia_time_glyphs[time_glyph_index(text[character])];
+        for (int py = 0; py < CASCADIA_TIME_GLYPH_HEIGHT; py++) {
+            for (int px = 0; px < CASCADIA_TIME_CELL_WIDTH; px++) {
+                if ((glyph[py][px / 8] & (1U << (7 - px % 8))) != 0) {
                     frame_set_content(frame,
-                                      start_x + (int)character * cell_width + px,
+                                      start_x +
+                                          (int)character *
+                                              CASCADIA_TIME_CELL_WIDTH +
+                                          px,
                                       start_y + py, color);
                 }
             }
@@ -1216,10 +1220,12 @@ static void draw_icon(uint16_t *frame, icon_id_t icon, int center_x,
 
 static void draw_watch_time(uint16_t *frame, const watch_values_t *values)
 {
-    clear_content_rect(frame, 20, 125, 370, 96);
-    const int width = scaled_text_width(values->time, 5, 3);
-    draw_text_scaled(frame, values->time, (BOARD_DISPLAY_WIDTH - width) / 2,
-                     132, 5, 3, wire_rgb565(244, 248, 255));
+    clear_content_rect(
+        frame, WATCH_TIME_REGION_X, WATCH_TIME_REGION_Y,
+        WATCH_TIME_REGION_WIDTH, WATCH_TIME_REGION_HEIGHT);
+    const int width = time_text_width(values->time);
+    draw_time_text(frame, values->time, (BOARD_DISPLAY_WIDTH - width) / 2,
+                   WATCH_TIME_DRAW_Y, wire_rgb565(244, 248, 255));
 }
 
 static void draw_watch_date(uint16_t *frame, const watch_values_t *values)
@@ -1479,9 +1485,9 @@ static void compose_alarm_frame(uint16_t *frame)
                  alarm_edit.minute);
         draw_text(frame, "ALARM", centered_text_x("ALARM", 2), 62, 2,
                   wire_rgb565(255, 98, 108));
-        const int width = scaled_text_width(time, 5, 3);
-        draw_text_scaled(frame, time, (BOARD_DISPLAY_WIDTH - width) / 2,
-                         135, 5, 3, wire_rgb565(250, 250, 255));
+        const int width = time_text_width(time);
+        draw_time_text(frame, time, (BOARD_DISPLAY_WIDTH - width) / 2,
+                       147, wire_rgb565(250, 250, 255));
         for (int y = 292; y <= 378; y++) {
             for (int x = 55; x <= 355; x++) {
                 const bool border = x < 60 || x > 350 || y < 297 || y > 373;
@@ -1670,8 +1676,11 @@ static void update_watch_cache(bool transfer_changes)
 
     if (time_changed) {
         draw_watch_time(watch_frame, &values);
+        draw_watch_alarm(watch_frame, &values);
         if (transfer_changes) {
-            display_frame_region(watch_frame, 20, 125, 370, 96, false);
+            display_frame_region(
+                watch_frame, WATCH_TIME_REGION_X, WATCH_TIME_REGION_Y,
+                WATCH_TIME_REGION_WIDTH, WATCH_TIME_REGION_HEIGHT, true);
         }
     }
     if (date_changed) {
