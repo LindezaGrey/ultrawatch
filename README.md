@@ -86,9 +86,9 @@ seconds. NVS, PMIC measurement, haptics, BLE, and enabled sensor initialization
 follow. This keeps SD, IMU firmware loading, and GPS probing outside the
 first-Watch-frame path.
 
-The window manager has Watch, Launcher, Settings, Alarm, Map, and Black states.
-Watch is the boot/default app. The launcher clock, settings, alarm, and map
-bubbles open their corresponding screens; the other app bubbles are visual
+The window manager has Watch, Launcher, Settings, Alarm, Map, Weather, and Black
+states. Watch is the boot/default app. The launcher clock, settings, alarm, map,
+and weather bubbles open their corresponding screens; the other app bubbles are visual
 placeholders and deliberately inert. Settings changes AMOLED brightness continuously while
 dragging and uses the same public advertising setter as the physical side
 button. After the 10-second inactivity interval, the active app resets to Watch
@@ -124,6 +124,7 @@ Profiles are UTF-8 JSON in `/ultrawatch/config.txt` on the SD card:
 ```json
 {
   "version": 1,
+  "openweathermap_api_key": "",
   "networks": [
     {
       "ssid": "Example",
@@ -143,6 +144,29 @@ This development interface stores passwords as plain text and transfers them
 through an unauthenticated BLE connection. Do not use production credentials.
 Wi-Fi uses RAM-only ESP-IDF station configuration and modem power saving. A
 Stop command disconnects, stops, and deinitializes the Wi-Fi driver.
+The on-watch Settings screen has a Wi-Fi switch. Opening Weather also starts
+Wi-Fi when it is off; it does not restart an active connection.
+
+## Weather
+
+The Weather bubble opens a seven-day on-device forecast. Weather requires a
+current GPS fix or a position that the watch saved from an earlier fix. The
+watch stores a consumed live position in NVS. It uses that position until GPS
+supplies a newer fix.
+
+Add an OpenWeather One Call API 4.0 key to
+`/ultrawatch/config.txt` on the SD card:
+
+```json
+"openweathermap_api_key": "YOUR_KEY"
+```
+
+Do not commit a real key. One Call API 4.0 requires its separate One Call by
+Call subscription. When Wi-Fi is connected, the watch requests metric daily
+data for the selected latitude and longitude. It shows the first seven daily
+records. With Wi-Fi off, it uses
+`/ultrawatch/weather/cache.json` only when that cache matches the selected
+position. A failed or missing cache does not restart the watch.
 
 ## Storage inventory
 
@@ -154,6 +178,8 @@ NVS application data:
 - `alarm/cfg_minimal`: alarm hour, minute, and enabled state. Default is
   `07:00`, disabled.
 - `theme/main_rgb`: `u32`, default `0x1863FF`.
+- `gps/last_pos`: versioned latitude and longitude from the last live fix that
+  Weather consumed. No value exists until a valid fix is available.
 
 NVS system data:
 
@@ -168,6 +194,8 @@ SD data:
 - UI atlas.
 - Offline map package.
 - Plain-text `/ultrawatch/config.txt` Wi-Fi profiles.
+- `/ultrawatch/config.txt` OpenWeather API key and
+  `/ultrawatch/weather/cache.json` weather cache.
 
 Hardware registers:
 
@@ -271,6 +299,23 @@ size, and produces the labeled contact sheet. Firmware renders the first Watch
 frame before SD initialization, never formats media, caches a valid atlas in
 internal RAM, unmounts the card, and disables AXP2101 ALDO1. Missing or invalid
 media uses procedural launcher, clock, and settings symbols without rebooting.
+
+The Weather app uses a separate 294,912-byte atlas at
+`/ultrawatch/weather/images.rgb565`. It contains nine 128 x 128 pictures in the
+OpenWeather order clear, few clouds, scattered clouds, broken clouds, shower
+rain, rain, thunderstorm, snow, and mist. Build it with Pillow:
+
+```sh
+python3 firmware/tools/build_weather_assets.py \
+  firmware/assets/weather/sources \
+  firmware/sdcard/ultrawatch/weather/images.rgb565 \
+  firmware/assets/weather/contact-sheet.png \
+  --tile-dir firmware/assets/weather/tiles
+```
+
+The watch maps OpenWeather condition IDs to these nine documented icon groups.
+If the weather atlas is absent or invalid, the Weather app uses its procedural
+fallback symbols.
 
 ## Offline on-device map
 

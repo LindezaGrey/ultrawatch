@@ -30,11 +30,13 @@
 #define WIFI_EVENT_DISCONNECTED (1U << 1)
 #define WIFI_COMMAND_RETRY (1U << 2)
 #define WIFI_COMMAND_STOP (1U << 3)
+#define WIFI_STATUS_CHANGED (1U << 0)
 
 static const char *TAG = "watch_wifi";
 static SemaphoreHandle_t state_lock;
 static SemaphoreHandle_t profile_lock;
 static EventGroupHandle_t wifi_events;
+static EventGroupHandle_t wifi_status_events;
 static TaskHandle_t wifi_task_handle;
 static watch_wifi_status_t public_status = {
     .state = WATCH_WIFI_OFF,
@@ -52,6 +54,7 @@ static void ensure_locks(void)
     if (state_lock == NULL) state_lock = xSemaphoreCreateMutex();
     if (profile_lock == NULL) profile_lock = xSemaphoreCreateMutex();
     if (wifi_events == NULL) wifi_events = xEventGroupCreate();
+    if (wifi_status_events == NULL) wifi_status_events = xEventGroupCreate();
 }
 
 static void publish_status(watch_wifi_state_t state,
@@ -68,8 +71,20 @@ static void publish_status(watch_wifi_state_t state,
     }
     watch_wifi_status_callback_t callback = status_callback;
     xSemaphoreGive(state_lock);
+    if (wifi_status_events != NULL) {
+        xEventGroupSetBits(wifi_status_events, WIFI_STATUS_CHANGED);
+    }
     screen_request_refresh();
     if (callback != NULL) callback();
+}
+
+void watch_wifi_wait_for_status_change(void)
+{
+    ensure_locks();
+    if (wifi_status_events != NULL) {
+        xEventGroupWaitBits(wifi_status_events, WIFI_STATUS_CHANGED,
+                            pdTRUE, pdFALSE, portMAX_DELAY);
+    }
 }
 
 void watch_wifi_get_status(watch_wifi_status_t *status)
@@ -744,4 +759,28 @@ esp_err_t watch_wifi_set_enabled(bool enabled)
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
+}
+
+esp_err_t watch_wifi_ensure_enabled(void)
+{
+    watch_wifi_status_t status;
+    watch_wifi_get_status(&status);
+    return status.requested ? ESP_OK : watch_wifi_set_enabled(true);
+}
+
+esp_err_t watch_wifi_set_transfer_active(bool active)
+{
+    if (!driver_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    wifi_ps_type_t mode = active ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM;
+    esp_err_t result = esp_wifi_set_ps(mode);
+    if (result == ESP_OK) {
+        ESP_LOGI(TAG, "Wi-Fi transfer mode %s",
+                 active ? "active" : "power-save");
+    } else {
+        ESP_LOGE(TAG, "cannot set Wi-Fi transfer mode: %s",
+                 esp_err_to_name(result));
+    }
+    return result;
 }

@@ -30,3 +30,10 @@ esp_err_t gps_deinitialize(void);
 
 /* Copy the latest receiver/fix status. Returns false until the driver starts. */
 bool gps_get_status(gps_status_t *status);
+
+/* Return a live fix when available, otherwise the last fix saved in NVS. */
+bool gps_get_best_position(int32_t *latitude_e7, int32_t *longitude_e7,
+                           bool *is_live);
+
+/* Save the current live fix. Weather calls this when it consumes that fix. */
+esp_err_t gps_save_current_position(void);

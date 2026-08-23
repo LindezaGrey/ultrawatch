@@ -10,16 +10,35 @@ from PIL import Image, ImageDraw, ImageFont
 UI_FONT_SIZE = 72
 TIME_FONT_SIZE = 120
 UI_STATIC_STRINGS = (
-    " 0123456789:%+-?",
+    " 0123456789:%+-?°",
     "SO MO DI MI DO FR SA",
     "JAN FEB MRZ APR MAI JUN JUL AUG SEP OKT NOV DEZ",
     "EINSTELLUNGEN HELLIGKEIT BLUETOOTH AN AUS",
     "GPS SUCHE KARTE FEHLT SD FEHLER ZOOM",
+    "WLAN WETTER HEUTE MIN MAX AKTUELL CACHE WIRD GELADEN POSITION API KEY",
+    "KEIN NICHT ERREICHBAR WETTERDATEN ONE CALL AKTIV",
     "(C) GEOBASIS-DE / BKG 2026 CC BY 4.0 I",
 )
 UI_CHARACTERS = "".join(dict.fromkeys("".join(UI_STATIC_STRINGS)))
 TIME_CHARACTERS = "0123456789:"
 THRESHOLD = 128
+
+
+def c_byte_string(value: str) -> str:
+    """Encode the font lookup table as one byte per rendered character."""
+    encoded = []
+    for character in value:
+        codepoint = ord(character)
+        if character in ('"', "\\"):
+            encoded.append("\\" + character)
+        elif 0x20 <= codepoint <= 0x7E:
+            encoded.append(character)
+        elif codepoint <= 0xFF:
+            encoded.append(f"\\{codepoint:03o}")
+        else:
+            raise ValueError(
+                f"character {character!r} cannot use the byte renderer")
+    return "".join(encoded)
 
 
 def packed_rows(font: ImageFont.FreeTypeFont, character: str,
@@ -61,7 +80,8 @@ def write_header(font_path: Path, output: Path, font_size: int,
         f"#define {prefix}_BYTES_PER_ROW {bytes_per_row}",
         f"#define {prefix}_GLYPH_COUNT {len(characters)}",
         "",
-        f'static const char {array_prefix}_characters[] = "{characters}";',
+        (f'static const char {array_prefix}_characters[] = '
+         f'"{c_byte_string(characters)}";'),
         f"static const uint8_t {array_prefix}_glyphs",
         f"    [{prefix}_GLYPH_COUNT][{prefix}_GLYPH_HEIGHT]",
         f"    [{prefix}_BYTES_PER_ROW] = {{",

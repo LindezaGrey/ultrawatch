@@ -1,9 +1,11 @@
 #include <errno.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "driver/gpio.h"
 #include "driver/i2c.h"
@@ -23,10 +25,12 @@
 #include "board.h"
 #include "cascadia_code_72.h"
 #include "cascadia_time_120.h"
+#include "cJSON.h"
 #include "offline_map.h"
 #include "screen_control.h"
 #include "sd_storage.h"
 #include "wifi_manager.h"
+#include "weather.h"
 
 #ifndef CONFIG_SPIRAM
 #error "The cached window manager requires CONFIG_SPIRAM"
@@ -62,6 +66,12 @@
 #define CURRENT_ICON_ATLAS_BYTES (CURRENT_ICON_COUNT * ICON_TILE_BYTES)
 #define ICON_ATLAS_BYTES (ICON_COUNT * ICON_TILE_BYTES)
 #define ICON_ATLAS_PATH "/sdcard/ultrawatch/ui/icons.rgb565"
+#define WEATHER_PICTURE_SIZE 128
+#define WEATHER_PICTURE_COUNT 9
+#define WEATHER_PICTURE_BYTES \
+    (WEATHER_PICTURE_SIZE * WEATHER_PICTURE_SIZE * 2)
+#define WEATHER_ATLAS_BYTES (WEATHER_PICTURE_COUNT * WEATHER_PICTURE_BYTES)
+#define WEATHER_ATLAS_PATH "/sdcard/ultrawatch/weather/images.rgb565"
 #define ALARM_ROLL_STEP_PIXELS 60
 #define DISPLAY_FRAME_BYTES \
     (BOARD_DISPLAY_WIDTH * BOARD_DISPLAY_HEIGHT * sizeof(uint16_t))
@@ -72,8 +82,15 @@ typedef enum {
     UI_SETTINGS,
     UI_ALARM,
     UI_MAP,
+    UI_WEATHER,
     UI_BLACK,
 } ui_screen_t;
+
+static bool screen_keeps_display_awake(ui_screen_t screen)
+{
+    return screen == UI_SETTINGS || screen == UI_ALARM ||
+           screen == UI_MAP || screen == UI_WEATHER;
+}
 
 typedef enum {
     ICON_LAUNCHER,
@@ -103,6 +120,15 @@ typedef enum {
     ICON_WIFI_ERROR,
 } icon_id_t;
 
+typedef enum {
+    LAUNCHER_ACTION_NONE,
+    LAUNCHER_ACTION_WATCH,
+    LAUNCHER_ACTION_SETTINGS,
+    LAUNCHER_ACTION_ALARM,
+    LAUNCHER_ACTION_MAP,
+    LAUNCHER_ACTION_WEATHER,
+} launcher_action_t;
+
 typedef struct {
     uint8_t command;
     uint8_t parameters[4];
@@ -114,6 +140,7 @@ typedef struct {
     int y;
     int radius;
     icon_id_t icon;
+    launcher_action_t action;
 } bubble_t;
 
 typedef struct {
@@ -147,11 +174,13 @@ static uint16_t *band_pixels[DISPLAY_BUFFER_COUNT];
 static display_transfer_t display_transfer;
 static uint8_t *icon_atlas;
 static size_t icon_atlas_tile_count;
+static uint8_t *weather_atlas;
 static uint16_t *watch_frame;
 static uint16_t *launcher_frame;
 static uint16_t *settings_frame;
 static uint16_t *alarm_frame;
 static uint16_t *map_frame;
+static uint16_t *weather_frame;
 static volatile uint8_t display_brightness_percentage = 50;
 static volatile uint32_t theme_rgb = 0x1863FF;
 static bool panel_hidden = true;
@@ -162,11 +191,13 @@ static bool assets_refresh_pending;
 static volatile bool theme_refresh_pending;
 static bool settings_slider_dirty;
 static bool settings_ble_dirty;
+static bool settings_wifi_dirty;
 static bool alarm_controls_dirty;
 static bool alarm_swipe_active;
 static bool alarm_swipe_hours;
 static bool alarm_swipe_changed;
 static bool map_drag_active;
+static uint8_t weather_selected_day;
 static int map_drag_x;
 static int map_drag_y;
 static int alarm_swipe_y;
@@ -185,7 +216,7 @@ static bool displayed_watch_values_valid;
 static char displayed_launcher_battery[5];
 static bool displayed_launcher_ble_enabled;
 static watch_wifi_state_t displayed_launcher_wifi_state;
-static uint8_t glyph_indices[128];
+static uint8_t glyph_indices[256];
 
 static bool touch_is_button(ui_screen_t screen, uint16_t x, uint16_t y);
 
@@ -200,12 +231,35 @@ static const display_init_command_t display_init_commands[] = {
 };
 
 static const bubble_t launcher_bubbles[] = {
-    {205, 92, 42, ICON_ACTIVITY}, {110, 143, 42, ICON_HEART},
-    {300, 143, 42, ICON_SLEEP}, {73, 241, 42, ICON_MAP},
-    {337, 241, 42, ICON_WEATHER}, {111, 340, 42, ICON_MUSIC},
-    {299, 340, 42, ICON_MESSAGES}, {205, 385, 42, ICON_SETTINGS},
-    {205, 235, 70, ICON_CLOCK},
+    {205, 92, 42, ICON_ACTIVITY, LAUNCHER_ACTION_NONE},
+    {110, 143, 42, ICON_HEART, LAUNCHER_ACTION_NONE},
+    {300, 143, 42, ICON_SLEEP, LAUNCHER_ACTION_ALARM},
+    {73, 241, 42, ICON_MAP, LAUNCHER_ACTION_MAP},
+    {337, 241, 42, ICON_WEATHER, LAUNCHER_ACTION_WEATHER},
+    {111, 340, 42, ICON_MUSIC, LAUNCHER_ACTION_NONE},
+    {299, 340, 42, ICON_MESSAGES, LAUNCHER_ACTION_NONE},
+    {205, 385, 42, ICON_SETTINGS, LAUNCHER_ACTION_SETTINGS},
+    {205, 235, 70, ICON_CLOCK, LAUNCHER_ACTION_WATCH},
 };
+
+static void *cjson_psram_malloc(size_t size)
+{
+    return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+
+static void cjson_psram_free(void *pointer)
+{
+    heap_caps_free(pointer);
+}
+
+static void initialize_cjson_allocator(void)
+{
+    cJSON_Hooks hooks = {
+        .malloc_fn = cjson_psram_malloc,
+        .free_fn = cjson_psram_free,
+    };
+    cJSON_InitHooks(&hooks);
+}
 
 static esp_err_t i2c_read_register(uint8_t address, uint8_t reg, uint8_t *value)
 {
@@ -392,6 +446,19 @@ static bool point_in_circle(int x, int y, int center_x, int center_y, int radius
     return dx * dx + dy * dy <= radius * radius;
 }
 
+static launcher_action_t launcher_action_at(int x, int y)
+{
+    for (size_t index = 0;
+         index < sizeof(launcher_bubbles) / sizeof(launcher_bubbles[0]);
+         index++) {
+        const bubble_t *bubble = &launcher_bubbles[index];
+        if (point_in_circle(x, y, bubble->x, bubble->y, bubble->radius)) {
+            return bubble->action;
+        }
+    }
+    return LAUNCHER_ACTION_NONE;
+}
+
 void screen_handle_touch(screen_touch_event_t event, uint16_t x, uint16_t y)
 {
     if (event < SCREEN_TOUCH_DOWN || event > SCREEN_TOUCH_UP) {
@@ -402,9 +469,18 @@ void screen_handle_touch(screen_touch_event_t event, uint16_t x, uint16_t y)
     ui_input.x[event] = x;
     ui_input.y[event] = y;
     portEXIT_CRITICAL(&ui_input_lock);
+    bool valid_button = touch_is_button(active_screen, x, y);
+    if (valid_button && active_screen == UI_WEATHER &&
+        (point_in_circle(x, y, 70, 420, 38) ||
+         point_in_circle(x, y, 340, 420, 38))) {
+        weather_snapshot_t weather;
+        weather_get_snapshot(&weather);
+        valid_button = point_in_circle(x, y, 70, 420, 38)
+                           ? weather_selected_day > 0
+                           : weather_selected_day + 1 < weather.day_count;
+    }
     if (event == SCREEN_TOUCH_DOWN && active_screen != UI_BLACK &&
-        !consume_touch_until_up &&
-        touch_is_button(active_screen, x, y)) {
+        !consume_touch_until_up && valid_button) {
         button_down_us = esp_timer_get_time();
         esp_err_t result = ble_haptic_click();
         if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
@@ -421,13 +497,11 @@ static bool touch_is_button(ui_screen_t screen, uint16_t x, uint16_t y)
 {
     return (screen == UI_WATCH && point_in_circle(x, y, 205, 410, 34)) ||
            (screen == UI_LAUNCHER &&
-            (point_in_circle(x, y, 205, 235, 70) ||
-             point_in_circle(x, y, 205, 385, 42) ||
-             point_in_circle(x, y, 300, 143, 42) ||
-             point_in_circle(x, y, 73, 241, 42))) ||
+            launcher_action_at(x, y) != LAUNCHER_ACTION_NONE) ||
            (screen == UI_SETTINGS &&
-            (point_in_circle(x, y, 205, 425, 44) ||
-             (x >= 42 && x <= 368 && y >= 245 && y <= 355))) ||
+            (point_in_circle(x, y, 205, 435, 38) ||
+             (x >= 42 && x <= 368 && y >= 232 && y <= 294) ||
+             (x >= 42 && x <= 368 && y >= 305 && y <= 367))) ||
            (screen == UI_ALARM &&
             (ble_alarm_is_ringing()
                  ? (x >= 55 && x <= 355 && y >= 292 && y <= 378)
@@ -441,7 +515,52 @@ static bool touch_is_button(ui_screen_t screen, uint16_t x, uint16_t y)
              point_in_circle(x, y, 94, 172, 22) ||
              point_in_circle(x, y, 42, 120, 22) ||
              point_in_circle(x, y, 146, 120, 22) ||
-             point_in_circle(x, y, 205, 445, 36)));
+             point_in_circle(x, y, 205, 445, 36))) ||
+           (screen == UI_WEATHER &&
+            (point_in_circle(x, y, 205, 435, 38) ||
+             point_in_circle(x, y, 70, 420, 38) ||
+             point_in_circle(x, y, 340, 420, 38)));
+}
+
+static bool activate_launcher_action(launcher_action_t action)
+{
+    switch (action) {
+    case LAUNCHER_ACTION_WATCH:
+        active_screen = UI_WATCH;
+        return true;
+    case LAUNCHER_ACTION_SETTINGS:
+        active_screen = UI_SETTINGS;
+        return true;
+    case LAUNCHER_ACTION_ALARM:
+        ble_alarm_get_config(&alarm_edit);
+        active_screen = UI_ALARM;
+        return true;
+    case LAUNCHER_ACTION_MAP: {
+        esp_err_t result = offline_map_start();
+        if (result != ESP_OK) {
+            ESP_LOGW(TAG, "map start failed: %s", esp_err_to_name(result));
+        }
+        active_screen = UI_MAP;
+        return true;
+    }
+    case LAUNCHER_ACTION_WEATHER: {
+        weather_selected_day = 0;
+        esp_err_t result = watch_wifi_ensure_enabled();
+        if (result != ESP_OK) {
+            ESP_LOGW(TAG, "automatic Wi-Fi start failed: %s",
+                     esp_err_to_name(result));
+        }
+        result = weather_start();
+        if (result != ESP_OK) {
+            ESP_LOGW(TAG, "weather start failed: %s", esp_err_to_name(result));
+        }
+        active_screen = UI_WEATHER;
+        return true;
+    }
+    case LAUNCHER_ACTION_NONE:
+    default:
+        return false;
+    }
 }
 
 static bool process_touch_event(screen_touch_event_t event, uint16_t x,
@@ -556,33 +675,14 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
     if (active_screen == UI_WATCH && point_in_circle(x, y, 205, 410, 34)) {
         active_screen = UI_LAUNCHER;
         changed = true;
-    } else if (active_screen == UI_LAUNCHER &&
-               point_in_circle(x, y, 205, 235, 70)) {
-        active_screen = UI_WATCH;
-        changed = true;
-    } else if (active_screen == UI_LAUNCHER &&
-               point_in_circle(x, y, 205, 385, 42)) {
-        active_screen = UI_SETTINGS;
-        changed = true;
-    } else if (active_screen == UI_LAUNCHER &&
-               point_in_circle(x, y, 300, 143, 42)) {
-        ble_alarm_get_config(&alarm_edit);
-        active_screen = UI_ALARM;
-        changed = true;
-    } else if (active_screen == UI_LAUNCHER &&
-               point_in_circle(x, y, 73, 241, 42)) {
-        esp_err_t result = offline_map_start();
-        if (result != ESP_OK) {
-            ESP_LOGW(TAG, "map start failed: %s", esp_err_to_name(result));
-        }
-        active_screen = UI_MAP;
-        changed = true;
+    } else if (active_screen == UI_LAUNCHER) {
+        changed = activate_launcher_action(launcher_action_at(x, y));
     } else if (active_screen == UI_SETTINGS &&
-               point_in_circle(x, y, 205, 425, 44)) {
+               point_in_circle(x, y, 205, 435, 42)) {
         active_screen = UI_LAUNCHER;
         changed = true;
     } else if (active_screen == UI_SETTINGS &&
-               x >= 42 && x <= 368 && y >= 245 && y <= 355) {
+               x >= 42 && x <= 368 && y >= 232 && y <= 294) {
         esp_err_t result = ble_rtc_set_advertising_enabled(
             !ble_rtc_advertising_enabled());
         if (result != ESP_OK) {
@@ -590,6 +690,16 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
                      esp_err_to_name(result));
         } else {
             settings_ble_dirty = true;
+        }
+    } else if (active_screen == UI_SETTINGS &&
+               x >= 42 && x <= 368 && y >= 305 && y <= 367) {
+        watch_wifi_status_t wifi;
+        watch_wifi_get_status(&wifi);
+        esp_err_t result = watch_wifi_set_enabled(!wifi.requested);
+        if (result != ESP_OK) {
+            ESP_LOGW(TAG, "Wi-Fi update failed: %s", esp_err_to_name(result));
+        } else {
+            settings_wifi_dirty = true;
         }
     } else if (active_screen == UI_ALARM &&
                point_in_circle(x, y, 205, 430, 40)) {
@@ -632,6 +742,24 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
         offline_map_stop();
         active_screen = UI_LAUNCHER;
         changed = true;
+    } else if (active_screen == UI_WEATHER &&
+               point_in_circle(x, y, 205, 435, 44)) {
+        active_screen = UI_LAUNCHER;
+        changed = true;
+    } else if (active_screen == UI_WEATHER &&
+               point_in_circle(x, y, 70, 420, 44)) {
+        if (weather_selected_day > 0) {
+            weather_selected_day--;
+            changed = true;
+        }
+    } else if (active_screen == UI_WEATHER &&
+               point_in_circle(x, y, 340, 420, 44)) {
+        weather_snapshot_t weather;
+        weather_get_snapshot(&weather);
+        if (weather_selected_day + 1 < weather.day_count) {
+            weather_selected_day++;
+            changed = true;
+        }
     }
     return changed;
 }
@@ -889,7 +1017,7 @@ static void display_wait_for_transfer(void)
     display_transfer.pending = false;
 }
 
-static void display_queue_color_band(const uint16_t *pixels, size_t count)
+static bool display_queue_color_band(const uint16_t *pixels, size_t count)
 {
     static const uint8_t wrapper[] = {0x32, 0x00, 0x2C, 0x00};
     memset(&display_transfer.command, 0, sizeof(display_transfer.command));
@@ -900,14 +1028,37 @@ static void display_queue_color_band(const uint16_t *pixels, size_t count)
     display_transfer.color.flags = SPI_TRANS_MODE_QIO;
     display_transfer.color.length = count * 16;
     display_transfer.color.tx_buffer = pixels;
-    ESP_ERROR_CHECK(spi_device_acquire_bus(display_spi, portMAX_DELAY));
-    ESP_ERROR_CHECK(spi_device_queue_trans(display_spi,
-                                           &display_transfer.command,
-                                           portMAX_DELAY));
-    ESP_ERROR_CHECK(spi_device_queue_trans(display_spi,
-                                           &display_transfer.color,
-                                           portMAX_DELAY));
+    esp_err_t result = spi_device_acquire_bus(display_spi, portMAX_DELAY);
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "display bus acquire failed: %s",
+                 esp_err_to_name(result));
+        return false;
+    }
+    result = spi_device_queue_trans(display_spi, &display_transfer.command,
+                                    portMAX_DELAY);
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "display command queue failed: %s",
+                 esp_err_to_name(result));
+        spi_device_release_bus(display_spi);
+        return false;
+    }
+    result = spi_device_queue_trans(display_spi, &display_transfer.color,
+                                    portMAX_DELAY);
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "display color queue failed: %s",
+                 esp_err_to_name(result));
+        spi_transaction_t *completed;
+        esp_err_t wait_result = spi_device_get_trans_result(
+            display_spi, &completed, portMAX_DELAY);
+        if (wait_result != ESP_OK) {
+            ESP_LOGE(TAG, "display command completion failed: %s",
+                     esp_err_to_name(wait_result));
+        }
+        spi_device_release_bus(display_spi);
+        return false;
+    }
     display_transfer.pending = true;
+    return true;
 }
 
 static int glyph_index(char character)
@@ -1311,7 +1462,8 @@ static void draw_watch_alarm(uint16_t *frame, const watch_values_t *values)
 static void draw_watch_launcher(uint16_t *frame)
 {
     clear_content_rect(frame, 165, 370, 80, 80);
-    const bubble_t launcher = {205, 410, 34, ICON_LAUNCHER};
+    const bubble_t launcher = {
+        205, 410, 34, ICON_LAUNCHER, LAUNCHER_ACTION_NONE};
     draw_bubble(frame, &launcher);
     draw_icon(frame, ICON_LAUNCHER, 205, 410, ICON_SIZE);
 }
@@ -1418,11 +1570,11 @@ static void draw_settings_slider(uint16_t *frame)
 
 static void draw_settings_ble(uint16_t *frame)
 {
-    clear_content_rect(frame, 40, 243, 330, 114);
+    clear_content_rect(frame, 40, 230, 330, 67);
     const bool on = ble_rtc_advertising_enabled();
-    for (int y = 245; y <= 355; y++) {
+    for (int y = 232; y <= 294; y++) {
         for (int x = 42; x <= 368; x++) {
-            const bool edge = x < 46 || x > 364 || y < 249 || y > 351;
+            const bool edge = x < 46 || x > 364 || y < 236 || y > 290;
             frame_set_content(frame, x, y,
                               edge ? (on ? theme_wire_color()
                                          : wire_rgb565(70, 78, 92))
@@ -1430,9 +1582,31 @@ static void draw_settings_ble(uint16_t *frame)
                                          : wire_rgb565(3, 18, 22)));
         }
     }
-    draw_icon(frame, on ? ICON_BLE_ON : ICON_BLE_OFF, 94, 300, 52);
+    draw_icon(frame, on ? ICON_BLE_ON : ICON_BLE_OFF, 78, 263, 40);
     const char *label = on ? "BLUETOOTH AN" : "BLUETOOTH AUS";
-    draw_text(frame, label, 137, 286, 3,
+    draw_text(frame, label, 116, 248, 4,
+              wire_rgb565(240, 246, 255));
+}
+
+static void draw_settings_wifi(uint16_t *frame)
+{
+    clear_content_rect(frame, 40, 303, 330, 67);
+    watch_wifi_status_t wifi;
+    watch_wifi_get_status(&wifi);
+    const bool on = wifi.requested;
+    for (int y = 305; y <= 367; y++) {
+        for (int x = 42; x <= 368; x++) {
+            const bool edge = x < 46 || x > 364 || y < 309 || y > 363;
+            frame_set_content(frame, x, y,
+                              edge ? (on ? theme_wire_color()
+                                         : wire_rgb565(70, 78, 92))
+                                   : (on ? theme_wire_scaled(48)
+                                         : wire_rgb565(3, 18, 22)));
+        }
+    }
+    draw_icon(frame, wifi_icon_for(wifi.state), 78, 336, 40);
+    const char *label = on ? "WLAN AN" : "WLAN AUS";
+    draw_text(frame, label, 116, 321, 4,
               wire_rgb565(240, 246, 255));
 }
 
@@ -1446,9 +1620,11 @@ static void compose_settings_frame(uint16_t *frame)
               theme_wire_tinted(72));
     draw_settings_slider(frame);
     draw_settings_ble(frame);
-    const bubble_t launcher = {205, 425, 44, ICON_LAUNCHER};
+    draw_settings_wifi(frame);
+    const bubble_t launcher = {
+        205, 435, 38, ICON_LAUNCHER, LAUNCHER_ACTION_NONE};
     draw_bubble(frame, &launcher);
-    draw_icon(frame, ICON_LAUNCHER, 205, 425, 58);
+    draw_icon(frame, ICON_LAUNCHER, 205, 435, 50);
     draw_contour(frame);
 }
 
@@ -1554,10 +1730,271 @@ static void compose_alarm_frame(uint16_t *frame)
     } else {
         draw_alarm_rolling_time(frame);
         draw_alarm_toggle(frame);
-        const bubble_t launcher = {205, 430, 40, ICON_LAUNCHER};
+        const bubble_t launcher = {
+            205, 430, 40, ICON_LAUNCHER, LAUNCHER_ACTION_NONE};
         draw_bubble(frame, &launcher);
         draw_icon(frame, ICON_LAUNCHER, 205, 430, 52);
     }
+    draw_contour(frame);
+}
+
+static void draw_weather_line(uint16_t *frame, int x0, int y0, int x1, int y1,
+                              int width, uint16_t color)
+{
+    int dx = abs(x1 - x0);
+    int sx = x0 < x1 ? 1 : -1;
+    int dy = -abs(y1 - y0);
+    int sy = y0 < y1 ? 1 : -1;
+    int error = dx + dy;
+    for (;;) {
+        for (int y = y0 - width; y <= y0 + width; y++) {
+            for (int x = x0 - width; x <= x0 + width; x++) {
+                frame_set_content(frame, x, y, color);
+            }
+        }
+        if (x0 == x1 && y0 == y1) break;
+        int doubled = 2 * error;
+        if (doubled >= dy) {
+            error += dy;
+            x0 += sx;
+        }
+        if (doubled <= dx) {
+            error += dx;
+            y0 += sy;
+        }
+    }
+}
+
+static void draw_weather_disc(uint16_t *frame, int center_x, int center_y,
+                              int radius, uint16_t color)
+{
+    for (int y = center_y - radius; y <= center_y + radius; y++) {
+        for (int x = center_x - radius; x <= center_x + radius; x++) {
+            int dx = x - center_x;
+            int dy = y - center_y;
+            if (dx * dx + dy * dy <= radius * radius) {
+                frame_set_content(frame, x, y, color);
+            }
+        }
+    }
+}
+
+static void draw_weather_cloud(uint16_t *frame, int center_x, int center_y,
+                               uint16_t color)
+{
+    draw_weather_disc(frame, center_x - 28, center_y + 4, 22, color);
+    draw_weather_disc(frame, center_x, center_y - 9, 30, color);
+    draw_weather_disc(frame, center_x + 32, center_y + 5, 21, color);
+    for (int y = center_y; y <= center_y + 25; y++) {
+        for (int x = center_x - 48; x <= center_x + 50; x++) {
+            frame_set_content(frame, x, y, color);
+        }
+    }
+}
+
+static void draw_weather_symbol_fallback(uint16_t *frame,
+                                         uint16_t condition_id)
+{
+    const int center_x = 205;
+    const int center_y = 154;
+    const uint16_t primary = theme_wire_tinted(85);
+    const uint16_t white = wire_rgb565(235, 242, 250);
+    if (condition_id == 800) {
+        draw_weather_disc(frame, center_x, center_y, 32, primary);
+        for (int ray = 0; ray < 8; ray++) {
+            double angle = ray * 3.141592653589793 / 4.0;
+            draw_weather_line(frame,
+                center_x + (int)(cos(angle) * 43),
+                center_y + (int)(sin(angle) * 43),
+                center_x + (int)(cos(angle) * 61),
+                center_y + (int)(sin(angle) * 61), 2, primary);
+        }
+        return;
+    }
+    if (condition_id >= 700 && condition_id < 800) {
+        for (int offset = -32; offset <= 32; offset += 16) {
+            draw_weather_line(frame, center_x - 58, center_y + offset,
+                              center_x + 58, center_y + offset, 3, primary);
+        }
+        return;
+    }
+    if (condition_id >= 600 && condition_id < 700) {
+        for (int arm = 0; arm < 3; arm++) {
+            double angle = arm * 3.141592653589793 / 3.0;
+            int dx = (int)(cos(angle) * 54);
+            int dy = (int)(sin(angle) * 54);
+            draw_weather_line(frame, center_x - dx, center_y - dy,
+                              center_x + dx, center_y + dy, 2, white);
+        }
+        return;
+    }
+    draw_weather_cloud(frame, center_x, center_y - 8, white);
+    if (condition_id >= 200 && condition_id < 300) {
+        draw_weather_line(frame, center_x + 8, center_y + 12,
+                          center_x - 8, center_y + 44, 5, primary);
+        draw_weather_line(frame, center_x - 8, center_y + 44,
+                          center_x + 6, center_y + 41, 5, primary);
+    } else if (condition_id >= 300 && condition_id < 600) {
+        for (int x = center_x - 30; x <= center_x + 30; x += 30) {
+            draw_weather_line(frame, x + 8, center_y + 32,
+                              x - 3, center_y + 55, 3, primary);
+        }
+    }
+}
+
+static int weather_picture_index(uint16_t condition_id)
+{
+    if (condition_id >= 200 && condition_id < 300) return 6;
+    if (condition_id >= 300 && condition_id < 400) return 4;
+    if (condition_id == 511) return 7;
+    if (condition_id >= 500 && condition_id <= 504) return 5;
+    if (condition_id >= 520 && condition_id < 600) return 4;
+    if (condition_id >= 600 && condition_id < 700) return 7;
+    if (condition_id >= 700 && condition_id < 800) return 8;
+    if (condition_id == 800) return 0;
+    if (condition_id == 801) return 1;
+    if (condition_id == 802) return 2;
+    if (condition_id == 803 || condition_id == 804) return 3;
+    return 3;
+}
+
+static void draw_weather_picture(uint16_t *frame, uint16_t condition_id)
+{
+    if (weather_atlas == NULL) {
+        draw_weather_symbol_fallback(frame, condition_id);
+        return;
+    }
+    const int picture = weather_picture_index(condition_id);
+    const int left = (BOARD_DISPLAY_WIDTH - WEATHER_PICTURE_SIZE) / 2;
+    const int top = 96;
+    const size_t picture_offset = (size_t)picture * WEATHER_PICTURE_BYTES;
+    for (int y = 0; y < WEATHER_PICTURE_SIZE; y++) {
+        for (int x = 0; x < WEATHER_PICTURE_SIZE; x++) {
+            size_t offset = picture_offset +
+                ((size_t)y * WEATHER_PICTURE_SIZE + x) * 2;
+            uint16_t pixel = (uint16_t)weather_atlas[offset] |
+                             ((uint16_t)weather_atlas[offset + 1] << 8);
+            frame_set_content(frame, left + x, top + y, pixel);
+        }
+    }
+}
+
+static void draw_weather_control(uint16_t *frame, int center_x, int center_y,
+                                 bool points_right, bool enabled)
+{
+    const uint16_t edge = enabled ? theme_wire_color()
+                                  : wire_rgb565(52, 58, 68);
+    const uint16_t fill = enabled ? theme_wire_scaled(38)
+                                  : wire_rgb565(7, 10, 15);
+    draw_weather_disc(frame, center_x, center_y, 34, edge);
+    draw_weather_disc(frame, center_x, center_y, 29, fill);
+    int direction = points_right ? 1 : -1;
+    draw_weather_line(frame, center_x - 8 * direction, center_y - 13,
+                      center_x + 8 * direction, center_y, 3, edge);
+    draw_weather_line(frame, center_x + 8 * direction, center_y,
+                      center_x - 8 * direction, center_y + 13, 3, edge);
+}
+
+static void compose_weather_frame(uint16_t *frame)
+{
+    memset(frame, 0, DISPLAY_FRAME_BYTES);
+    weather_snapshot_t snapshot;
+    weather_get_snapshot(&snapshot);
+    draw_text(frame, "WETTER", centered_text_x("WETTER", 3), 44, 3,
+              theme_wire_tinted(72));
+
+    const bool ready = snapshot.state == WEATHER_READY_ONLINE ||
+                       snapshot.state == WEATHER_READY_CACHE;
+    if (ready && snapshot.day_count != 0) {
+        if (weather_selected_day >= snapshot.day_count) {
+            weather_selected_day = snapshot.day_count - 1;
+        }
+        weather_day_t *day = &snapshot.days[weather_selected_day];
+        time_t local_time = (time_t)(day->timestamp +
+                                     snapshot.timezone_offset_seconds);
+        struct tm calendar;
+        gmtime_r(&local_time, &calendar);
+        static const char *weekdays[] = {
+            "SO", "MO", "DI", "MI", "DO", "FR", "SA"};
+        char heading[32];
+        unsigned month_day = (unsigned)calendar.tm_mday;
+        unsigned month = (unsigned)(calendar.tm_mon + 1);
+        if (weather_selected_day == 0) {
+            snprintf(heading, sizeof(heading), "HEUTE  %02u.%02u.",
+                     month_day, month);
+        } else {
+            snprintf(heading, sizeof(heading), "%s  %02u.%02u.",
+                     weekdays[calendar.tm_wday], month_day, month);
+        }
+        draw_text(frame, heading, centered_text_x(heading, 4), 82, 4,
+                  theme_wire_tinted(120));
+        draw_weather_picture(frame, day->condition_id);
+
+        char temperature[10];
+        int rounded = day->temperature_tenths >= 0
+                          ? (day->temperature_tenths + 5) / 10
+                          : (day->temperature_tenths - 5) / 10;
+        snprintf(temperature, sizeof(temperature), "%d\260", rounded);
+        draw_text(frame, temperature, centered_text_x(temperature, 1),
+                  245, 1, wire_rgb565(246, 249, 255));
+        char range[24];
+        snprintf(range, sizeof(range), "MIN %d\260  MAX %d\260",
+                 day->minimum_tenths / 10, day->maximum_tenths / 10);
+        draw_text(frame, range, centered_text_x(range, 4), 322, 4,
+                  theme_wire_tinted(125));
+        char source[24];
+        if (snapshot.cache_updated_at > 0) {
+            time_t cache_time = (time_t)(snapshot.cache_updated_at +
+                                         snapshot.timezone_offset_seconds);
+            struct tm cache_calendar;
+            gmtime_r(&cache_time, &cache_calendar);
+            snprintf(source, sizeof(source), "%s %02d:%02d",
+                     snapshot.state == WEATHER_READY_ONLINE
+                         ? "AKTUELL"
+                         : "CACHE",
+                     cache_calendar.tm_hour, cache_calendar.tm_min);
+        } else {
+            snprintf(source, sizeof(source), "%s",
+                     snapshot.state == WEATHER_READY_ONLINE
+                         ? "AKTUELL"
+                         : "SD CACHE");
+        }
+        draw_text(frame, source, centered_text_x(source, 6), 356, 6,
+                  snapshot.state == WEATHER_READY_ONLINE
+                      ? theme_wire_tinted(125)
+                      : wire_rgb565(150, 158, 172));
+    } else {
+        const char *message = "WIRD GELADEN";
+        if (snapshot.state == WEATHER_NO_POSITION) {
+            message = "GPS POSITION FEHLT";
+        } else if (snapshot.state == WEATHER_NO_API_KEY) {
+            message = "API KEY FEHLT";
+        } else if (snapshot.state == WEATHER_API_ACCESS_ERROR) {
+            message = "ONE CALL NICHT AKTIV";
+        } else if (snapshot.state == WEATHER_NO_CACHE) {
+            message = "WLAN AUS  KEIN CACHE";
+        } else if (snapshot.state == WEATHER_NETWORK_ERROR) {
+            message = "WETTER NICHT ERREICHBAR";
+        } else if (snapshot.state == WEATHER_DATA_ERROR) {
+            message = "WETTERDATEN FEHLER";
+        } else if (snapshot.state == WEATHER_SD_ERROR) {
+            message = "SD KARTE FEHLT";
+        }
+        draw_text(frame, message, centered_text_x(message, 4), 210, 4,
+                  snapshot.state == WEATHER_LOADING
+                      ? theme_wire_tinted(100)
+                      : wire_rgb565(255, 102, 112));
+    }
+
+    draw_weather_control(frame, 70, 420, false,
+                         ready && weather_selected_day > 0);
+    draw_weather_control(frame, 340, 420, true,
+                         ready && weather_selected_day + 1 <
+                                      snapshot.day_count);
+    const bubble_t launcher = {
+        205, 435, 38, ICON_LAUNCHER, LAUNCHER_ACTION_NONE};
+    draw_bubble(frame, &launcher);
+    draw_icon(frame, ICON_LAUNCHER, 205, 435, 50);
     draw_contour(frame);
 }
 
@@ -1681,7 +2118,8 @@ static void compose_map_frame(uint16_t *frame)
         snapshot.marker_y >= 18 && snapshot.marker_y < BOARD_DISPLAY_HEIGHT - 18) {
         draw_map_marker(frame, snapshot.marker_x, snapshot.marker_y);
     }
-    const bubble_t launcher = {205, 445, 36, ICON_LAUNCHER};
+    const bubble_t launcher = {
+        205, 445, 36, ICON_LAUNCHER, LAUNCHER_ACTION_NONE};
     draw_bubble(frame, &launcher);
     draw_icon(frame, ICON_LAUNCHER, 205, 445, 48);
 
@@ -1707,7 +2145,10 @@ static void display_frame_region(const uint16_t *frame, int x, int y,
         }
         display_wait_for_transfer();
         set_address_window(x, band_y, width, rows);
-        display_queue_color_band(band_pixels[buffer_index], width * rows);
+        if (!display_queue_color_band(band_pixels[buffer_index], width * rows)) {
+            ESP_LOGW(TAG, "display update stopped at row %d", band_y);
+            break;
+        }
         buffer_index = (buffer_index + 1) % DISPLAY_BUFFER_COUNT;
     }
     display_wait_for_transfer();
@@ -1802,6 +2243,8 @@ static void rebuild_theme_frames(void)
     compose_alarm_frame(alarm_frame);
     if (active_screen == UI_MAP) {
         compose_map_frame(map_frame);
+    } else if (active_screen == UI_WEATHER) {
+        compose_weather_frame(weather_frame);
     }
     displayed_watch_values = values;
     displayed_watch_values_valid = true;
@@ -1824,6 +2267,7 @@ static int64_t present_screen(ui_screen_t screen)
     } else if (screen == UI_SETTINGS) {
         draw_settings_slider(settings_frame);
         draw_settings_ble(settings_frame);
+        draw_settings_wifi(settings_frame);
         frame = settings_frame;
     } else if (screen == UI_ALARM) {
         compose_alarm_frame(alarm_frame);
@@ -1831,6 +2275,9 @@ static int64_t present_screen(ui_screen_t screen)
     } else if (screen == UI_MAP) {
         compose_map_frame(map_frame);
         frame = map_frame;
+    } else if (screen == UI_WEATHER) {
+        compose_weather_frame(weather_frame);
+        frame = weather_frame;
     }
     display_frame_region(frame, 0, 0, BOARD_DISPLAY_WIDTH,
                          BOARD_DISPLAY_HEIGHT, true);
@@ -1860,8 +2307,9 @@ static void refresh_active_screen(void)
     } else if (active_screen == UI_SETTINGS) {
         draw_settings_slider(settings_frame);
         draw_settings_ble(settings_frame);
+        draw_settings_wifi(settings_frame);
         display_frame_region(settings_frame, 35, 120, 340, 104, false);
-        display_frame_region(settings_frame, 40, 243, 330, 114, false);
+        display_frame_region(settings_frame, 40, 230, 330, 140, false);
     } else if (active_screen == UI_ALARM) {
         if (!alarm_swipe_active) {
             ble_alarm_get_config(&alarm_edit);
@@ -1872,6 +2320,10 @@ static void refresh_active_screen(void)
     } else if (active_screen == UI_MAP) {
         compose_map_frame(map_frame);
         display_frame_region(map_frame, 0, 0, BOARD_DISPLAY_WIDTH,
+                             BOARD_DISPLAY_HEIGHT, false);
+    } else if (active_screen == UI_WEATHER) {
+        compose_weather_frame(weather_frame);
+        display_frame_region(weather_frame, 0, 0, BOARD_DISPLAY_WIDTH,
                              BOARD_DISPLAY_HEIGHT, false);
     }
 }
@@ -1947,8 +2399,14 @@ static void ui_task(void *parameter)
         if (settings_ble_dirty && active_screen == UI_SETTINGS &&
             !panel_hidden) {
             draw_settings_ble(settings_frame);
-            display_frame_region(settings_frame, 40, 243, 330, 114, false);
+            display_frame_region(settings_frame, 40, 230, 330, 67, false);
             settings_ble_dirty = false;
+        }
+        if (settings_wifi_dirty && active_screen == UI_SETTINGS &&
+            !panel_hidden) {
+            draw_settings_wifi(settings_frame);
+            display_frame_region(settings_frame, 40, 303, 330, 67, false);
+            settings_wifi_dirty = false;
         }
         if (alarm_controls_dirty && active_screen == UI_ALARM &&
             !panel_hidden) {
@@ -1964,7 +2422,8 @@ static void ui_task(void *parameter)
 
         TickType_t now = xTaskGetTickCount();
         TickType_t elapsed = now - last_touch_tick;
-        if (active_screen != UI_BLACK && active_screen != UI_MAP &&
+        if (active_screen != UI_BLACK &&
+            !screen_keeps_display_awake(active_screen) &&
             !ble_alarm_is_ringing() &&
             elapsed >= SCREEN_IDLE_TICKS) {
             ui_screen_t previous_screen = active_screen;
@@ -1989,7 +2448,7 @@ static void ui_task(void *parameter)
         }
         now = xTaskGetTickCount();
         elapsed = now - last_touch_tick;
-        TickType_t idle_wait = active_screen == UI_MAP
+        TickType_t idle_wait = screen_keeps_display_awake(active_screen)
                                    ? portMAX_DELAY
                                    : (elapsed >= SCREEN_IDLE_TICKS
                                           ? 0
@@ -2052,12 +2511,46 @@ static void load_icon_atlas_from_sd(void)
             fclose(file);
         }
     }
+    {
+        FILE *file = fopen(WEATHER_ATLAS_PATH, "rb");
+        long file_size = -1;
+        if (file == NULL) {
+            ESP_LOGW(TAG, "cannot open %s: errno=%d (%s)",
+                     WEATHER_ATLAS_PATH, errno, strerror(errno));
+        } else if (fseek(file, 0, SEEK_END) != 0 ||
+                   (file_size = ftell(file)) < 0 ||
+                   fseek(file, 0, SEEK_SET) != 0) {
+            ESP_LOGW(TAG, "cannot determine weather atlas size: errno=%d (%s)",
+                     errno, strerror(errno));
+        } else if (file_size != WEATHER_ATLAS_BYTES) {
+            ESP_LOGW(TAG, "weather atlas is %ld bytes; expected %u",
+                     file_size, WEATHER_ATLAS_BYTES);
+        } else {
+            uint8_t *candidate = heap_caps_malloc(
+                WEATHER_ATLAS_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (candidate != NULL &&
+                fread(candidate, 1, WEATHER_ATLAS_BYTES, file) ==
+                    WEATHER_ATLAS_BYTES) {
+                weather_atlas = candidate;
+                ESP_LOGI(TAG, "loaded %u-byte weather picture atlas",
+                         WEATHER_ATLAS_BYTES);
+            } else {
+                free(candidate);
+                ESP_LOGW(TAG,
+                         "weather atlas read failed; using fallback symbols");
+            }
+        }
+        if (file != NULL) {
+            fclose(file);
+        }
+    }
     sd_storage_release();
     ESP_LOGI(TAG, "SD power disabled after asset load attempt");
 }
 
 void app_main(void)
 {
+    initialize_cjson_allocator();
     initialize_i2c();
     ESP_ERROR_CHECK(ble_rtc_initialize());
     enable_display_power();
@@ -2081,9 +2574,11 @@ void app_main(void)
                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     map_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    weather_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
+                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     ESP_ERROR_CHECK(watch_frame == NULL || launcher_frame == NULL ||
                             settings_frame == NULL || alarm_frame == NULL ||
-                            map_frame == NULL
+                            map_frame == NULL || weather_frame == NULL
                         ? ESP_ERR_NO_MEM : ESP_OK);
 
     bootstrap_task_handle = xTaskGetCurrentTaskHandle();
@@ -2101,7 +2596,7 @@ void app_main(void)
     displayed_launcher_wifi_state = cached_values.wifi_state;
     compose_settings_frame(settings_frame);
     compose_alarm_frame(alarm_frame);
-    assets_refresh_pending = icon_atlas != NULL;
+    assets_refresh_pending = icon_atlas != NULL || weather_atlas != NULL;
     xTaskNotify(ui_task_handle, UI_EVENT_ASSETS_READY, eSetBits);
     ESP_ERROR_CHECK(ble_rtc_start());
 }

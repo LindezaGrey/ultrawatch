@@ -2,6 +2,7 @@
 .venv/
 firmware/build/
 firmware/build-wifi/
+firmware/build-weather/
 firmware/managed_components/
 firmware/sdkconfig
 firmware/sdkconfig.old

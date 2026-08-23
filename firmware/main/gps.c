@@ -12,6 +12,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs.h"
 
 #define GPS_INITIAL_BAUD 38400
 #define GPS_RUN_BAUD 115200
@@ -67,6 +68,38 @@ static bool uart_installed;
 static volatile bool cancel_requested;
 static TaskHandle_t gps_task_handle;
 static esp_pm_lock_handle_t gps_sleep_lock;
+
+typedef struct {
+    uint8_t version;
+    uint8_t reserved[3];
+    int32_t latitude_e7;
+    int32_t longitude_e7;
+} saved_position_t;
+
+static bool position_valid(int32_t latitude_e7, int32_t longitude_e7)
+{
+    return latitude_e7 >= -900000000 && latitude_e7 <= 900000000 &&
+           longitude_e7 >= -1800000000 && longitude_e7 <= 1800000000;
+}
+
+static bool load_saved_position(int32_t *latitude_e7, int32_t *longitude_e7)
+{
+    nvs_handle_t handle;
+    if (nvs_open("gps", NVS_READONLY, &handle) != ESP_OK) {
+        return false;
+    }
+    saved_position_t saved = {0};
+    size_t size = sizeof(saved);
+    esp_err_t result = nvs_get_blob(handle, "last_pos", &saved, &size);
+    nvs_close(handle);
+    if (result != ESP_OK || size != sizeof(saved) || saved.version != 1 ||
+        !position_valid(saved.latitude_e7, saved.longitude_e7)) {
+        return false;
+    }
+    *latitude_e7 = saved.latitude_e7;
+    *longitude_e7 = saved.longitude_e7;
+    return true;
+}
 
 static void write_uint32_le(uint8_t *output, uint32_t value)
 {
@@ -485,6 +518,13 @@ void gps_cancel_initialize(void)
 esp_err_t gps_deinitialize(void)
 {
     cancel_requested = true;
+    if (driver_started) {
+        esp_err_t save_result = gps_save_current_position();
+        if (save_result != ESP_OK && save_result != ESP_ERR_NOT_FOUND) {
+            ESP_LOGW(TAG, "cannot save final position: %s",
+                     esp_err_to_name(save_result));
+        }
+    }
     driver_started = false;
     if (gps_task_handle != NULL) {
         vTaskDelete(gps_task_handle);
@@ -518,4 +558,59 @@ bool gps_get_status(gps_status_t *status)
     *status = current_status;
     portEXIT_CRITICAL(&status_lock);
     return true;
+}
+
+esp_err_t gps_save_current_position(void)
+{
+    gps_status_t status;
+    if (!gps_get_status(&status) || !status.fix_valid ||
+        !position_valid(status.latitude_e7, status.longitude_e7)) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    saved_position_t saved = {
+        .version = 1,
+        .latitude_e7 = status.latitude_e7,
+        .longitude_e7 = status.longitude_e7,
+    };
+    int32_t saved_latitude;
+    int32_t saved_longitude;
+    if (load_saved_position(&saved_latitude, &saved_longitude) &&
+        saved_latitude == saved.latitude_e7 &&
+        saved_longitude == saved.longitude_e7) {
+        return ESP_OK;
+    }
+    nvs_handle_t handle;
+    esp_err_t result = nvs_open("gps", NVS_READWRITE, &handle);
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = nvs_set_blob(handle, "last_pos", &saved, sizeof(saved));
+    if (result == ESP_OK) {
+        result = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return result;
+}
+
+bool gps_get_best_position(int32_t *latitude_e7, int32_t *longitude_e7,
+                           bool *is_live)
+{
+    if (latitude_e7 == NULL || longitude_e7 == NULL || is_live == NULL) {
+        return false;
+    }
+    gps_status_t status;
+    if (gps_get_status(&status) && status.fix_valid &&
+        position_valid(status.latitude_e7, status.longitude_e7)) {
+        *latitude_e7 = status.latitude_e7;
+        *longitude_e7 = status.longitude_e7;
+        *is_live = true;
+        esp_err_t result = gps_save_current_position();
+        if (result != ESP_OK) {
+            ESP_LOGW(TAG, "cannot save current position: %s",
+                     esp_err_to_name(result));
+        }
+        return true;
+    }
+    *is_live = false;
+    return load_saved_position(latitude_e7, longitude_e7);
 }
