@@ -272,9 +272,11 @@ u_add_test_source_dir(base ${UBXLIB_BASE}/example/utilities/c030_module_fw_updat
 # to compensate, we always add the path to the
 # GeographicLib header files to UBXLIB_PRIVATE_INC here.
 set(GEODESIC_DIR ${UBXLIB_BASE}/common/geofence/geographiclib)
-set(GEODESIC_INC ${GEODESIC_DIR}/include
-                 ${GEODESIC_DIR}/include/GeographicLib)
-list(APPEND UBXLIB_PRIVATE_INC ${GEODESIC_INC})
+if(EXISTS ${GEODESIC_DIR})
+  set(GEODESIC_INC ${GEODESIC_DIR}/include
+                   ${GEODESIC_DIR}/include/GeographicLib)
+  list(APPEND UBXLIB_PRIVATE_INC ${GEODESIC_INC})
+endif()
 
 if (geodesic IN_LIST UBXLIB_FEATURES)
   file(GLOB SRCS ${GEODESIC_DIR}/src/*.cpp)
