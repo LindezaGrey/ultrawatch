@@ -498,7 +498,14 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
 
     /* Restore rails. ALDO1 (SD) stays on across sleep; the rest are rearmed. */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, true);
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO1, true);
+    /* GNSS (BLDO1): mirror enter_sleep's condition. Restoring this
+     * unconditionally desyncs m10q's s_powered from the physical rail (the
+     * driver never learns it came back on), which makes every later
+     * m10q_power(false) in enter_sleep a silent no-op and leaves BLDO1
+     * permanently on (~25-30 mA) once GPS is switched off mid-session. */
+    if (lvgl_gps_enabled()) {
+        axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO1, true);
+    }
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, true);
 

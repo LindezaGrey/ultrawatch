@@ -108,8 +108,8 @@ Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
 Full read-only review of main/, components/ (Bosch vendor lib at integration points only). Verified closed: `ring_task` buffer free (alarm.c:279-284), coredump erase-on-CRC (crash_dump.c:184-194, confirmed live on watch), m10q UART driver delete + ttfs persistence, tracking mutex.
 
 ## Medium
-1. `[pending]` **GNSS rail (BLDO1) never turns off when GPS is disabled** — axp2101.c:181 enables BLDO1 at boot; power_mgmt.c:480 re-enables it unconditionally on every wake; the only cut path `m10q_power(false)` early-returns when `s_powered == false` (m10q.c:603), which is always the case with the GPS switch off. Net: MIA-M10Q draws ~25-30 mA forever. Currently masked because the GPS switch is left on.
-   **Fix:** cut BLDO1 directly in `power_mgmt_enter_sleep()` when `!lvgl_gps_enabled()`; restore it in `exit_sleep()` only when GPS is enabled.
+1. `[done]` **GNSS rail (BLDO1) never turns off when GPS is disabled** (2026-08-27) — `enter_sleep()` had since grown a `lvgl_gps_enabled()` check, but `exit_sleep()` still restored BLDO1 unconditionally on every wake, desyncing m10q's `s_powered` from the physical rail (`m10q_power(false)` then permanently no-ops) and leaving the rail stuck on (~25-30 mA) after the first wake with GPS off.
+   **Fix:** made `exit_sleep()`'s BLDO1 restore conditional on `lvgl_gps_enabled()`, symmetric with `enter_sleep()`.
 2. `[pending]` **Battery runtime estimate diverges after the first 5 min** — sensor_cache.c:78-85: when the gauge window fills, `first_ms` is re-based forward but `first_pct` keeps the original window-start sample, so rate = (total % change since first sample) / ~5 min and grows wronger with uptime.
    **Fix:** keep a small sample history (or at least re-pair first_pct with the new first_ms).
 3. `[pending]` **BLE vprintf hook recurses infinitely (dead-code landmine)** — ble_debug.c:364: `ESP_LOGI` inside `ble_debug_vprintf` while `s_capturing` routes through the same hook again → unbounded recursion → stack overflow the moment BLE is re-enabled and a command runs. `ble_debug_init()` is currently commented out (uwatch_main.c:914).
