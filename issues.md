@@ -8,19 +8,16 @@ Updated: 2026-08-16
 - **Tracking/GNSS shared-state races** — added mutex protection in `main/tracking.c` and `components/drivers/m10q/m10q.c` for `s_fix`, `s_nav_status`, and session state.
 - **`uwatch_main.c` command dispatcher** — re-indented `debug_process_cmd()` for readability.
 - **ESP-IDF version** — verified `espressif/idf:v6.0.2` is available locally; no Dockerfile change needed.
+- **Dead `firmware/` directory** — removed (2026-08-27). It duplicated `main/` with an older, simpler implementation and wasn't referenced by the root `CMakeLists.txt`; its field-tested fixes (60 MHz QSPI glitch fix, shared-SPI2 CS handling) were confirmed superseded by the current `main/`/`components/` code before deletion.
 
 ## Critical Issues (remaining)
 
-### 1. Dead `firmware/main/` directory
-- The top-level build uses `main/`; `firmware/main/` is an old duplicate not referenced by the root `CMakeLists.txt`.
-- **Action:** delete or archive it to avoid confusion (currently kept per project preference).
-
-### 2. Resource / concurrency issues
+### 1. Resource / concurrency issues
 - **`main/power_mgmt.c`** — `s_imu_wake_armed` is `volatile` but manipulated from ISR, wake task, and sleep path without atomic/critical-section guards on the dual-core S3.
 - **`components/drivers/m10q/m10q.c`** — `m10q_power()` ignores failures from `uGnssPwrOn()`, `U_GNSS_CFG_SET_VAL_RAM()`, and `uGnssPosGetStreamedStart()` after logging; consider retry/fail-fast paths.
 - **`main/crash_dump.c`** — `fwrite()` return value is unchecked when saving the raw ELF core dump; a full SD card can silently truncate it.
 
-### 3. Missing input validation
+### 2. Missing input validation
 - **`main/uwatch_main.c`** — `rec_task` uses global `s_rec_n` without validating it is non-zero before calling `t3902_read()`.
 - **`main/sensor_cache.c`** — gauge window sliding uses ad-hoc boundary logic (`first_ms = now_ms - GAUGE_WINDOW_MS + 1000`); rewrite with a small ring buffer for correctness.
 
