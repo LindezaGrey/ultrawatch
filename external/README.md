@@ -1,7 +1,37 @@
 # BHI260AP firmware package
 
-This folder holds the official Bosch BHI260AP firmware **v1.1.8.0**, downloaded
-from the Bosch Sensortec website (see "How to obtain" below).
+This folder documents the official Bosch BHI260AP firmware **v1.1.8.0** (see
+"How to obtain" below) — the licensed download, not currently present in this
+folder or checked in (login-gated, see `.gitignore`).
+
+## Currently deployed
+
+`assets/bhi260/BHI260AP.fw` (also gitignored, per-machine local file — see
+`bhi260ap_init()` in `components/drivers/bhi260ap/bhi260ap.c`) is presently
+the **public, no-login** build instead: `BHI2xy_SensorAPI`'s
+`firmware/bhi260ap/BHI260AP.fw`, SensorAPI v1.6.0 (2020-05-13), 103676 B,
+md5 `381bfee9f6d8f3b672b24453922b9df9` (see "Related public resources"
+below for the source). Confirmed working on hardware (2026-08-27 boot log):
+
+```
+bhi260ap: loaded firmware: 103676 bytes
+bhi260ap: product id: 0x89 (expected 0x89)
+bhi260ap: RAM firmware booted, kernel version 5991
+bhi260ap: BHI260AP ready (persisted steps 46986)
+```
+
+Step counter, GAMERV rotation vector, activity recognition and the gestures
+(wrist-tilt/wake/glance/pickup) all come from standard virtual sensors this
+build exposes — no need for the licensed v1.1.8.0 package unless something
+specifically requires it (e.g. PDR / pedestrian-position output, see
+"Findings" below, unconfirmed either way since that build's binary is
+encrypted). If the public firmware ever goes missing locally (it's
+gitignored, so a fresh clone/machine won't have it), re-fetch it:
+
+```bash
+curl -sL -o assets/bhi260/BHI260AP.fw \
+  https://raw.githubusercontent.com/boschsensortec/BHI2xy_SensorAPI/master/firmware/bhi260ap/BHI260AP.fw
+```
 
 ## Contents
 
