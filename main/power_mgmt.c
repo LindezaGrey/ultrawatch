@@ -35,6 +35,13 @@ static const char *TAG = "power_mgmt";
 #define PM_GPIO_IMU    8    /* BHI260AP INT (wake on wrist-raise/gesture) */
 #define PM_GPIO_RTC    1    /* PCF85063A INT (alarm / snooze timer) */
 
+/* Wake source bits for s_wake_sources, one per ISR-attributed GPIO above.
+ * Touch has no bit: it has no source-specific post-wake behavior. */
+#define PM_WAKE_PWRKEY (1u << PM_GPIO_PWRKEY)
+#define PM_WAKE_BOOT   (1u << PM_GPIO_BOOT)
+#define PM_WAKE_IMU    (1u << PM_GPIO_IMU)
+#define PM_WAKE_RTC    (1u << PM_GPIO_RTC)
+
 /* Night-mode clock check period while the watch is idle. */
 #define PM_NIGHT_CHECK_MS  60000
 
@@ -47,7 +54,8 @@ static bool s_night_mode_auto = true;    /* default: auto-enter night mode */
 static bool s_skip_sleep_on_usb = true;  /* default: never sleep on USB */
 
 /* RTC-capable GPIO wakeup for the touch line is armed here. */
-static volatile uint32_t s_wake_gpio;
+static volatile uint32_t s_wake_sources;   /* bitmask of PM_WAKE_*, ISR-writer/task-reader */
+static portMUX_TYPE s_wake_sources_lock = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_wake_task;
 static volatile bool s_night_mode;
 static volatile bool s_imu_wake_armed;   /* GPIO8 ISR only notifies while asleep */
@@ -192,7 +200,6 @@ static void pm_apply_night_mode(bool night)
 static void IRAM_ATTR button_isr(void *arg)
 {
     uint32_t gpio = (uint32_t)arg;
-    s_wake_gpio = gpio;
     /* The IMU INT pulses on every gesture/step while awake; only act on it
      * when the host is actually asleep (light-sleep wake). While awake, keep
      * the interrupt DISABLED so a busy INT line cannot storm the CPU; it is
@@ -203,6 +210,13 @@ static void IRAM_ATTR button_isr(void *arg)
         gpio_intr_disable(PM_GPIO_IMU);
         return;
     }
+    /* OR the source in rather than overwrite: two sources (e.g. alarm +
+     * gesture) can fire close together on either core, and both must survive
+     * to get their own handling in pm_wake_task instead of one silently
+     * losing to the other. */
+    portENTER_CRITICAL_ISR(&s_wake_sources_lock);
+    s_wake_sources |= (1u << gpio);
+    portEXIT_CRITICAL_ISR(&s_wake_sources_lock);
     gpio_intr_disable(PM_GPIO_PWRKEY);
     gpio_intr_disable(PM_GPIO_BOOT);
     gpio_intr_disable(PM_GPIO_IMU);
@@ -293,11 +307,14 @@ static void pm_wake_task(void *arg)
         }
 
         since_night_check = 0;
-        uint32_t gpio = s_wake_gpio;
-        ESP_LOGI(TAG, "wake: gpio=%u", (unsigned)gpio);
+        portENTER_CRITICAL(&s_wake_sources_lock);
+        uint32_t sources = s_wake_sources;
+        s_wake_sources = 0;
+        portEXIT_CRITICAL(&s_wake_sources_lock);
+        ESP_LOGI(TAG, "wake: sources=0x%x", (unsigned)sources);
 
         /* De-assert the latched AXP IRQ line. */
-        if (gpio == PM_GPIO_PWRKEY) {
+        if (sources & PM_WAKE_PWRKEY) {
             uint32_t irq = 0;
             axp2101_get_irq_status(twatch_pmu_dev, &irq);
             axp2101_clear_irq(twatch_pmu_dev);
@@ -314,18 +331,22 @@ static void pm_wake_task(void *arg)
         /* Only re-arm the IMU edge ISR if the wake actually came from it; the
          * ISR self-disables on every awake pulse, and re-enabling it here on
          * every wake-task run would leave a live edge on a busy line. */
-        if (gpio == PM_GPIO_IMU && s_imu_wake_armed) {
+        if ((sources & PM_WAKE_IMU) && s_imu_wake_armed) {
             gpio_set_intr_type(PM_GPIO_IMU, GPIO_INTR_NEGEDGE);
             gpio_intr_enable(PM_GPIO_IMU);
         }
 
         /* A BHI260AP INT is not proof of a gesture: scheduler meta events in
          * the WU FIFO assert the same line constantly. Only wake the display
-         * when a real gesture flag was latched; otherwise return to light
-         * sleep with the screen off. */
-        bool wake_user = (gpio != PM_GPIO_IMU);
-        if (gpio == PM_GPIO_IMU && s_imu_wake_armed) {
-            wake_user = pm_imu_wake_is_real();
+         * for it when a real gesture flag was latched; a non-IMU source
+         * always wakes the display regardless. pm_imu_wake_is_real() also
+         * drains the WU FIFO (de-asserts the INT line), so it must run
+         * whenever the IMU bit is set even if another source already
+         * justifies waking - it's not just a boolean check. */
+        bool wake_user = (sources & ~(uint32_t)PM_WAKE_IMU) != 0;
+        if ((sources & PM_WAKE_IMU) && s_imu_wake_armed) {
+            bool imu_real = pm_imu_wake_is_real();
+            wake_user = wake_user || imu_real;
         }
 
 /* RTC INT (GPIO1): the PCF85063A pulls the line LOW when the alarm
@@ -333,7 +354,7 @@ static void pm_wake_task(void *arg)
  * LOW_LEVEL sleep wake left it level) and re-arm the ISR, then let
  * the alarm module check the flags and start the ring. The ring task
  * clears the pending flag(s), which de-asserts the line. */
-if (gpio == PM_GPIO_RTC) {
+if (sources & PM_WAKE_RTC) {
     gpio_set_intr_type(PM_GPIO_RTC, GPIO_INTR_NEGEDGE);
     gpio_intr_enable(PM_GPIO_RTC);
     alarm_handle_wake();
@@ -349,7 +370,7 @@ if (gpio == PM_GPIO_RTC) {
 
 static void pm_arm_gpio_wakeup(void)
 {
-    s_wake_gpio = 0;
+    s_wake_sources = 0;
     /* Clear any previously-armed RTC level wakeups. gpio_wakeup_enable()
      * config persists across sleep cycles until explicitly disabled, so a
      * stale LOW_LEVEL from an earlier cycle could instantly re-wake the watch
@@ -473,7 +494,7 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     (void)ctx;
     s_imu_wake_armed = false;
     esp_sleep_wakeup_cause_t cause = (esp_sleep_wakeup_cause_t)esp_sleep_get_wakeup_causes();
-    ESP_LOGI(TAG, "waking: gpio=%u cause=0x%x", (unsigned)s_wake_gpio, (unsigned)cause);
+    ESP_LOGI(TAG, "waking: sources=0x%x cause=0x%x", (unsigned)s_wake_sources, (unsigned)cause);
 
     /* Restore rails. ALDO1 (SD) stays on across sleep; the rest are rearmed. */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, true);
