@@ -13,7 +13,6 @@ services:
     privileged: true
     ports:
       - "3333:3333"   # OpenOCD GDB server
-      - "5039:5039"   # idf.py monitor
     stdin_open: true
     tty: true
     command: tail -f /dev/null

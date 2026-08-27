@@ -1,6 +1,6 @@
 # UWatch
 
-FreeRTOS / ESP-IDF firmware platform for the **LilyGO T-Watch Ultra** (ESP32-S3). Built entirely on Espressif native APIs (`driver/*`, `esp_lcd`, `sdspi_host`, ...) with no Arduino dependency. Debugging is JTAG-first (OpenOCD + GDB over the on-chip USB-JTAG), and the whole ESP-IDF toolchain runs in Docker.
+FreeRTOS / ESP-IDF firmware platform for the **LilyGO T-Watch Ultra** (ESP32-S3). Built entirely on Espressif native APIs (`driver/*`, `esp_lcd`, `sdspi_host`, ...) with no Arduino dependency. Debugging is JTAG-first (OpenOCD + GDB over the on-chip USB-JTAG). ESP-IDF runs natively (`~/esp/esp-idf`); Docker is a fallback for a clean-room build.
 
 ## Hardware overview
 
@@ -50,33 +50,32 @@ UWatch/
 
 ## Prerequisites
 
-- Docker (the ESP-IDF toolchain, OpenOCD and the Xtensa GDB run in the `espressif/idf:v6.0.2` container)
+- ESP-IDF v6.0.2 installed natively (see [AGENT.md](AGENT.md) for the native setup); Docker (`espressif/idf:v6.0.2`) works as a fallback
 - A T-Watch Ultra (LoRa 868 MHz variant) connected via USB-C
-- `docker compose` plugin (or plain `docker run`)
 
 ## Build & flash
 
 ```bash
-docker compose up -d                                   # start esp-idf container
-docker compose exec esp-idf idf.py set-target esp32s3  # first time only
-docker compose exec esp-idf idf.py build
-docker compose exec esp-idf idf.py -p /dev/ttyACM0 flash
+source ~/esp/esp-idf/export.sh   # once per shell
+idf.py set-target esp32s3        # first time only
+idf.py build
+idf.py -p /dev/ttyACM0 flash
 ```
 
-The project directory is bind-mounted at `/project`; `~/.espressif` is cached for tool downloads. The USB port `/dev/ttyACM0` is passed into the container. If your board enumerates elsewhere, adjust the `devices:` entry in `docker-compose.yml`.
+Docker fallback (`docker compose up -d` then `docker compose exec esp-idf idf.py ...`) is documented in [AGENT.md](AGENT.md).
 
 ## JTAG debugging (primary workflow)
 
 The ESP32-S3 exposes its USB-JTAG over the same USB-C port, so no external probe is needed.
 
-1. Start OpenOCD inside the container (uses the on-chip USB-JTAG):
+1. Start OpenOCD (uses the on-chip USB-JTAG):
    ```bash
-   docker compose exec esp-idf openocd -f board/esp32s3-builtin.cfg
+   openocd -f board/esp32s3-builtin.cfg
    ```
-2. In another terminal, flash the app, then attach the Xtensa GDB (also inside the container, or on the host via published port `3333`):
+2. In another terminal, flash the app, then attach the Xtensa GDB:
    ```bash
-   docker compose exec esp-idf idf.py -p /dev/ttyACM0 flash
-   docker compose exec esp-idf xtensa-esp32s3-elf-gdb build/UWatch.elf -x .gdbinit
+   idf.py -p /dev/ttyACM0 flash
+   xtensa-esp32s3-elf-gdb build/UWatch.elf -x .gdbinit
    ```
 3. GDB connects to OpenOCD on `:3333`. FreeRTOS task awareness is available via `task list`, `task current`.
 
