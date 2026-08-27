@@ -17,6 +17,7 @@ static const char *TAG = "axp2101";
 #define AXP_REG_ADC_DATA_TEMP1  0x3D
 #define AXP_REG_CHG_GAUGE_WDT   0x18 /* charging + gauge + watchdog ctrl */
 #define AXP_REG_ICC_CHG_SET     0x62 /* constant charge current */
+#define AXP_REG_BTN_BATT_CHG_V  0x6A /* button battery charge termination voltage */
 #define AXP_REG_BAT_PERCENT     0xA4
 #define AXP_REG_STATUS1         0x00
 #define AXP_REG_STATUS2         0x01
@@ -27,8 +28,16 @@ static const char *TAG = "axp2101";
 
 #define AXP_INTEN2_PEK    0x0F   /* bits 0-3: press/release edge, long, short */
 
-/* 0x18 bit 1 = charging enabled (CHARGE_GAUGE_WDT_CTRL). */
+/* 0x18 bit 1 = main (Cell) battery charging enabled (CHARGE_GAUGE_WDT_CTRL). */
 #define AXP_CHG_CTRL_CHARGE  (1u << 1)
+/* 0x18 bit 2 = Button Battery (RTC backup) charging enabled. Defaults
+ * disabled and resets to disabled on every system reset. */
+#define AXP_CHG_CTRL_BTN_BATT (1u << 2)
+
+/* 0x6A bits 2:0 = button battery charge termination voltage, 2.6-3.3V in
+ * 100mV steps; 011b = 2.9V is also the chip's own reset default. */
+#define AXP_BTN_BATT_CHG_V_MASK  0x07
+#define AXP_BTN_BATT_CHG_V_2V9   0x03
 
 /* 0x62 charge current code (XPowers AXP2101 CHG_CUR encoding):
  * 0=0mA 4=100mA 5=125 6=150 7=175 8=200 9=300 10=400 11=500 ... 16=1000. */
@@ -147,7 +156,7 @@ esp_err_t axp2101_init(i2c_master_dev_handle_t dev)
     return ESP_OK;
 }
 
-esp_err_t axp2101_set_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, uint16_t mv)
+esp_err_t axp2101_init_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, uint16_t mv)
 {
     if (rail >= AXP2101_RAIL_MAX) {
         return ESP_ERR_INVALID_ARG;
@@ -170,24 +179,36 @@ esp_err_t axp2101_set_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, uin
 esp_err_t axp2101_set_default_power(i2c_master_dev_handle_t dev)
 {
     /* Power tree per LilyGO T-Watch Ultra (LilyGoWatchUltra::initPMU). */
-    esp_err_t ret = axp2101_set_rail(dev, AXP2101_ALDO1, 3300); /* SD card */
+    esp_err_t ret = axp2101_init_rail(dev, AXP2101_ALDO1, 3300); /* SD card */
     ESP_RETURN_ON_ERROR(ret, TAG, "aldo1");
-    ret = axp2101_set_rail(dev, AXP2101_ALDO2, 3300);           /* display */
+    ret = axp2101_init_rail(dev, AXP2101_ALDO2, 3300);           /* display */
     ESP_RETURN_ON_ERROR(ret, TAG, "aldo2");
-    ret = axp2101_set_rail(dev, AXP2101_ALDO3, 3300);           /* LoRa */
+    ret = axp2101_init_rail(dev, AXP2101_ALDO3, 3300);           /* LoRa */
     ESP_RETURN_ON_ERROR(ret, TAG, "aldo3");
-    ret = axp2101_set_rail(dev, AXP2101_ALDO4, 1800);           /* sensor */
+    ret = axp2101_init_rail(dev, AXP2101_ALDO4, 1800);           /* sensor */
     ESP_RETURN_ON_ERROR(ret, TAG, "aldo4");
-    ret = axp2101_set_rail(dev, AXP2101_BLDO1, 3300);           /* GNSS */
+    ret = axp2101_init_rail(dev, AXP2101_BLDO1, 3300);           /* GNSS */
     ESP_RETURN_ON_ERROR(ret, TAG, "bldo1");
-    ret = axp2101_set_rail(dev, AXP2101_BLDO2, 3300);           /* speaker */
+    ret = axp2101_init_rail(dev, AXP2101_BLDO2, 3300);           /* speaker */
     ESP_RETURN_ON_ERROR(ret, TAG, "bldo2");
-    ret = axp2101_set_rail(dev, AXP2101_DLDO1, 3300);           /* NFC */
+    ret = axp2101_init_rail(dev, AXP2101_DLDO1, 3300);           /* NFC */
     ESP_RETURN_ON_ERROR(ret, TAG, "dldo1");
 
     /* Unused channels: DC2-DC5, CPUSLDO. */
     ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_DC_ONOFF_DVM, 0x1E, false), TAG, "disable dc2-5");
     ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_LDO_ONOFF1, AXP_EN_CPUSLDO, false), TAG, "disable cpusldo");
+
+    /* RTC backup battery (Seiko MS621FE-FL11E, rechargeable, on VBACKUP per
+     * schematic): its charge-enable bit defaults disabled and resets to
+     * disabled on every system reset, so without this the coin cell that
+     * keeps the RTC/BHI260AP VBACKUP time alive across power loss is never
+     * charged. */
+    ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_CHG_GAUGE_WDT, AXP_CHG_CTRL_BTN_BATT, true),
+                         TAG, "enable button battery charge");
+    uint8_t btn_v = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_BTN_BATT_CHG_V, &btn_v), TAG, "read button batt chg v");
+    btn_v = (btn_v & ~AXP_BTN_BATT_CHG_V_MASK) | AXP_BTN_BATT_CHG_V_2V9;
+    ESP_RETURN_ON_ERROR(axp2101_write_reg(dev, AXP_REG_BTN_BATT_CHG_V, btn_v), TAG, "set button batt chg v");
 
     ESP_LOGI(TAG, "AXP2101 power tree configured");
     return ESP_OK;

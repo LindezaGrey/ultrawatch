@@ -17,3 +17,19 @@ _Avoid_: wake pin (when a Wake source is meant)
 **Armed** (of a wake source):
 A wake source is armed when it is currently configured to trigger a light-sleep wake — e.g. gesture wake is armed only outside night mode and only once the BHI260AP's wake-up FIFO is confirmed drained; alarm/snooze wake is armed only while an alarm is set (`alarm_is_armed()`).
 _Avoid_: enabled, active
+
+**Power rail**:
+One of the AXP2101 PMU's 7 switchable outputs (ALDO1-4, BLDO1-2, DLDO1), each dedicated to one device: ALDO1=SD card, ALDO2=display, ALDO3=LoRa, ALDO4=sensor, BLDO1=GNSS, BLDO2=speaker, DLDO1=NFC (`docs/hardware.md`'s AXP2101 power tree table is canonical). DLDO2 exists on the chip but isn't routed to anything on this board.
+_Avoid_: channel, LDO
+
+**Init a rail** (`axp2101_init_rail`):
+One-time bring-up: configure a rail's voltage and turn it on. Called once per rail at boot (`axp2101_set_default_power`); rewrites the voltage register every call, so it's not a cheap way to just toggle a rail.
+_Avoid_: set a rail
+
+**Enable a rail** (`axp2101_enable_rail`):
+Runtime on/off at whatever voltage a rail was last Init'd with — never touches the voltage register. The only rail operation used for sleep/wake gating.
+_Avoid_: set a rail, toggle a rail
+
+**RTC backup battery**:
+The Seiko MS621FE-FL11E rechargeable coin cell on the AXP2101's VBACKUP pin (per the T-Watch Ultra schematic), distinct from the main Li-ion Cell battery. Keeps the PCF85063A RTC and BHI260AP VBACKUP time alive across power loss. Its charge-enable bit (AXP2101 REG 0x18 bit 2) defaults disabled and resets to disabled on every system reset — `axp2101_set_default_power` explicitly enables it, since without that write it's silently never charged.
+_Avoid_: button battery (datasheet's term, kept here as a synonym since it names the same REG 0x18 bit; prefer "RTC backup battery" in prose since "button battery" reads as generic)

@@ -50,12 +50,17 @@ esp_err_t axp2101_is_battery_present(i2c_master_dev_handle_t dev, bool *present)
 esp_err_t axp2101_is_vbus_present(i2c_master_dev_handle_t dev, bool *present);
 
 esp_err_t axp2101_init(i2c_master_dev_handle_t dev);
-esp_err_t axp2101_set_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, uint16_t mv);
+/* One-time bring-up: configure a rail's voltage and turn it on. Always
+ * rewrites the voltage register, so it's not a cheap no-op if called again -
+ * use axp2101_enable_rail() for runtime on/off (e.g. sleep gating). */
+esp_err_t axp2101_init_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, uint16_t mv);
 esp_err_t axp2101_set_default_power(i2c_master_dev_handle_t dev);
 esp_err_t axp2101_get_battery_mv(i2c_master_dev_handle_t dev, uint16_t *mv);
 esp_err_t axp2101_get_battery_pct(i2c_master_dev_handle_t dev, uint8_t *pct);
 
-/* Enable/disable a power rail (used for sleep). */
+/* Runtime on/off at whatever voltage was last configured via
+ * axp2101_init_rail() - does not touch the voltage register. Used for
+ * sleep/wake rail gating. */
 esp_err_t axp2101_enable_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, bool enable);
 
 /* Interrupt handling (PEK power key etc.). */
