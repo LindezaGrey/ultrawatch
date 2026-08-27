@@ -470,6 +470,24 @@ esp_err_t bhi260ap_init(i2c_master_dev_handle_t dev)
     }
     ESP_LOGI(TAG, "RAM firmware booted, kernel version %u", kernel_version);
 
+    /* UNVERIFIED ON HARDWARE (2026-08-27): candidate fix for the rotation-
+     * sense mismatch previously worked around in lvgl_app.c's
+     * bhi_cube_update() by conjugating the GAMERV quaternion app-side (only
+     * fixed the cube widget, not gesture/activity detection, which also
+     * consume the fusion output). Hypothesis: the gyroscope's angular-rate
+     * sign convention is inverted relative to what the on-chip fusion
+     * expects, producing a globally rotation-inverted (conjugated)
+     * quaternion; negating all three gyro axes here, before fusion runs,
+     * should correct GAMERV at the source. Needs physical verification
+     * (rotate the watch on each axis, confirm the BHI screen's cube tracks
+     * correctly; confirm wrist-tilt-wake still triggers correctly) - see
+     * todo.md. If wrong, revert this and restore the app-side conjugate. */
+    struct bhy2_orient_matrix gyro_orient = { .c = { -1, 0, 0, 0, -1, 0, 0, 0, -1 } };
+    rslt = bhy2_set_orientation_matrix(BHY2_PHYS_SENSOR_ID_GYROSCOPE, gyro_orient, &s_bhy2);
+    if (rslt != BHY2_OK) {
+        ESP_LOGW(TAG, "set gyro orientation matrix failed: %d", rslt);
+    }
+
     /* Register FIFO parse callbacks. */
     bhy2_register_fifo_parse_callback(BHY2_SYS_ID_META_EVENT, parse_meta_event, NULL, &s_bhy2);
     bhy2_register_fifo_parse_callback(BHY2_SYS_ID_META_EVENT_WU, parse_meta_event, NULL, &s_bhy2);

@@ -100,6 +100,7 @@ Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
 
 ## Process / Validation (blocked)
 - **Wrist-tilt wake must be validated on battery**, not USB: sleep is skipped while VBUS present (`power_mgmt_enter_sleep` returns ESP_ERR_NOT_SUPPORTED). Steps: `sdclear` → unplug USB → wait ~5s for sleep → wrist-tilt → reconnect → `sdin`, look for `entering sleep` + `AP suspend ... gpio8=1` then `wake: gpio=8` + `Auto sleep exited`. SD log currently shows zero sleep entries (29x `Auto sleep enter callback failed`).
+- `[done]` **BHI260AP gyroscope orientation matrix** (2026-08-27) — `bhi260ap_init()` sets `BHY2_PHYS_SENSOR_ID_GYROSCOPE`'s orientation matrix to `diag(-1,-1,-1)` (`bhi260ap.c`), replacing the app-side quaternion-conjugate hack previously in `lvgl_app.c`'s `bhi_cube_update()`. Fixes the rotation-sense mismatch at the source (before on-chip fusion) instead of only patching the cube widget, so gesture/activity detection benefit too. **Confirmed working on hardware**: cube tracks physical rotation correctly on all axes.
 
 ---
 

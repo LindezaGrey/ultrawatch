@@ -718,12 +718,11 @@ static void bhi_cube_update(int16_t qx, int16_t qy, int16_t qz, int16_t qw)
         x /= n; y /= n; z /= n; w /= n;
     }
 
-    /* Use the conjugate (negate the vector part) so the cube rotates WITH the
-     * device instead of mirroring it: otherwise rotating the watch one way
-     * appears to counter-rotate the cube and it looks like it holds still. */
-    x = -x; y = -y; z = -z;
-
-    /* Rotation matrix from the quaternion (column-vector convention). */
+    /* Rotation matrix from the quaternion (column-vector convention). No
+     * app-side conjugate here (2026-08-27): the gyro's orientation matrix is
+     * now set at bhi260ap_init() so the fusion output is corrected at the
+     * source instead of patched here. If that turns out wrong on hardware,
+     * restore "x = -x; y = -y; z = -z;" here and revert bhi260ap_init(). */
     double r00 = 1 - 2 * (y * y + z * z), r01 = 2 * (x * y - w * z), r02 = 2 * (x * z + w * y);
     double r10 = 2 * (x * y + w * z), r11 = 1 - 2 * (x * x + z * z), r12 = 2 * (y * z - w * x);
     double r20 = 2 * (x * z - w * y), r21 = 2 * (y * z + w * x), r22 = 1 - 2 * (x * x + y * y);
