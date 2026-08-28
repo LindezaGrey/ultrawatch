@@ -39,6 +39,11 @@ void lvgl_tracking_stop(void);
 /* Load the BHI260AP status screen (with the GAMERV orientation cube). */
 void lvgl_show_bhi_screen(void);
 
+/* Jump to the Mesh screen and wake the display (called by mesh_log.c's
+ * always-on background listener when a new message arrives). Safe to call
+ * from any task. */
+void lvgl_mesh_screen_show(void);
+
 #ifdef __cplusplus
 }
 #endif

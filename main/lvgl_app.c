@@ -14,6 +14,7 @@
 #include <math.h>
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "esp_app_desc.h"
 #include "esp_spiffs.h"
@@ -35,6 +36,7 @@
 #include "m10q.h"
 #include "power_mgmt.h"
 #include "alarm.h"
+#include "mesh_log.h"
 
 static const char *TAG = "lvgl_app";
 
@@ -93,6 +95,11 @@ static lv_obj_t *s_gps_track_label;            /* tracking stats (distance/steps
 static lv_obj_t *s_gps_track_btn;              /* Start/Stop tracking button */
 static lv_obj_t *s_gps_pwr_switch;             /* GNSS on/off switch */
 static bool s_gps_enabled;                     /* persisted "GNSS on" choice */
+
+/* Mesh screen (Meshtastic message log, chained off GPS: swipe right again). */
+static lv_obj_t *s_mesh_screen;
+static lv_obj_t *s_mesh_empty_label;
+static lv_obj_t *s_mesh_row_label[MESH_LOG_COUNT];
 
 /* Alarm screen (set) + ringing screen. */
 static lv_obj_t *s_alarm_screen;
@@ -158,6 +165,7 @@ static void gps_pwr_switch_cb(lv_event_t *e);
 static void lvgl_build_power_screen(void);
 static void lvgl_build_bhi_screen(void);
 static void lvgl_build_gps_screen(void);
+static void lvgl_build_mesh_screen(void);
 static void gps_power(bool on);
 static void gps_refresh(void);
 static void gps_ctrl_task(void *arg);
@@ -1240,6 +1248,144 @@ static void lvgl_build_gps_screen(void)
     }
 }
 
+/* Mesh screen: last few received Meshtastic text messages (RAM ring buffer,
+ * mesh_log.c). The background listener task runs always-on, independent of
+ * whether this screen is open; this timer only pulls a snapshot to display. */
+static void mesh_screen_update(lv_timer_t *timer)
+{
+    (void)timer;
+    if (lv_screen_active() != s_mesh_screen) {
+        return;
+    }
+
+    mesh_msg_t msgs[MESH_LOG_COUNT];
+    size_t n = mesh_log_get_recent(msgs, MESH_LOG_COUNT);
+
+    if (n == 0) {
+        lv_obj_clear_flag(s_mesh_empty_label, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_mesh_empty_label, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    int64_t now_us = esp_timer_get_time();
+    for (size_t i = 0; i < MESH_LOG_COUNT; i++) {
+        if (i >= n) {
+            lv_label_set_text(s_mesh_row_label[i], "");
+            continue;
+        }
+        uint32_t age_s = (uint32_t)((now_us - msgs[i].received_at_us) / 1000000);
+        char buf[MESH_LOG_TEXT_MAX + 48];
+        /* Single line, no "\n": an explicit line break here previously made
+         * this a genuine two-line label in a one-line-tall box, and the
+         * overflow line drew straight into the row below's space (LVGL only
+         * clips CLIP-mode overflow horizontally within one line - it doesn't
+         * stop a *forced* second line from a literal newline). */
+        switch (msgs[i].kind) {
+        case MESH_MSG_TEXT:
+            snprintf(buf, sizeof(buf), "!%08lx %ddBm %lus: %s",
+                     (unsigned long)msgs[i].from, (int)msgs[i].rssi_dbm,
+                     (unsigned long)age_s, msgs[i].text);
+            lv_obj_set_style_text_color(s_mesh_row_label[i], lv_color_hex(0xE0E0E0), 0);
+            break;
+        case MESH_MSG_OTHER:
+            /* Known channel, decrypted fine, just not a text message (e.g.
+             * NodeInfo, telemetry) - a distinct blue-grey from both a real
+             * message (light) and an unknown channel (dim), since this one
+             * genuinely was decrypted successfully. */
+            snprintf(buf, sizeof(buf), "!%08lx %ddBm %lus %s",
+                     (unsigned long)msgs[i].from, (int)msgs[i].rssi_dbm,
+                     (unsigned long)age_s, msgs[i].text);
+            lv_obj_set_style_text_color(s_mesh_row_label[i], lv_color_hex(0x8FB0D0), 0);
+            break;
+        case MESH_MSG_UNKNOWN:
+        default:
+            /* channel_hash matched none of our known channels, or the
+             * decrypt didn't parse as a valid Data message - still shown
+             * (always show headers), dimmed to set it apart from content we
+             * actually got something out of. */
+            snprintf(buf, sizeof(buf), "!%08lx %ddBm %lus ch=0x%02x (unknown channel)",
+                     (unsigned long)msgs[i].from, (int)msgs[i].rssi_dbm,
+                     (unsigned long)age_s, (unsigned)msgs[i].channel_hash);
+            lv_obj_set_style_text_color(s_mesh_row_label[i], lv_color_hex(0x777766), 0);
+            break;
+        }
+        lv_label_set_text(s_mesh_row_label[i], buf);
+    }
+}
+
+static void lvgl_build_mesh_screen(void)
+{
+    s_mesh_screen = screen_new();
+    lv_obj_set_style_bg_color(s_mesh_screen, lv_color_hex(0x201810), 0);
+
+    lv_obj_t *title = lv_label_create(s_mesh_screen);
+    lv_label_set_text(title, "MESH");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    s_mesh_empty_label = lv_label_create(s_mesh_screen);
+    lv_label_set_text(s_mesh_empty_label, "No messages yet");
+    lv_obj_set_style_text_font(s_mesh_empty_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_mesh_empty_label, lv_color_hex(0x9E9E9E), 0);
+    lv_obj_align(s_mesh_empty_label, LV_ALIGN_CENTER, 0, 0);
+
+    /* One single-line label per ring-buffer slot, newest first, stacked top
+     * to bottom. Fixed size + CLIP long-mode so an over-length message is
+     * silently cropped within its own row instead of wrapping/spilling into
+     * the next one. LV_LABEL_LONG_DOT was tried first but hangs the software
+     * render thread forever (confirmed live via JTAG/GDB: CPU1 gets stuck
+     * permanently inside lv_draw_label_iterate_characters, looping the same
+     * line without progress) when a label is shorter than its content height
+     * and contains an explicit "\n" - the DOT ellipsis-placement math doesn't
+     * handle that combination. A 26px row (one cascadia_18 line, no forced
+     * "\n" in the formatted text - see mesh_screen_update()) avoids both the
+     * DOT hang and the two-line-in-a-one-line-box overlap that followed it. */
+    for (int i = 0; i < MESH_LOG_COUNT; i++) {
+        lv_obj_t *l = lv_label_create(s_mesh_screen);
+        lv_label_set_text(l, "");
+        lv_obj_set_style_text_font(l, s_font_micro, 0);
+        lv_obj_set_style_text_color(l, lv_color_hex(0xE0E0E0), 0);
+        lv_label_set_long_mode(l, LV_LABEL_LONG_CLIP);
+        lv_obj_set_size(l, 380, 26);
+        lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 56 + i * 30);
+        s_mesh_row_label[i] = l;
+    }
+
+    lv_obj_t *hint = lv_label_create(s_mesh_screen);
+    lv_label_set_text(hint, "< swipe left: GPS");
+    lv_obj_set_style_text_font(hint, s_font_micro, 0);
+    lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -12);
+
+    mesh_screen_update(NULL);
+    lv_timer_create(mesh_screen_update, 1000, NULL);
+}
+
+/* Runs on the mesh_log background task (not the LVGL task), so the LVGL lock
+ * is required around screen changes - same pattern as alarm_ring_cb(). Jumps
+ * to the Mesh screen from wherever the UI currently is and wakes the display,
+ * since the SX1262 listens continuously regardless of which screen is open
+ * or whether the watch is asleep. */
+void lvgl_mesh_screen_show(void)
+{
+    if (esp_lv_adapter_lock(-1) != ESP_OK) {
+        ESP_LOGW(TAG, "mesh screen show: LVGL lock timeout");
+        return;
+    }
+    if (!s_mesh_screen) {
+        lvgl_build_mesh_screen();
+    }
+    lv_scr_load(s_mesh_screen);
+    mesh_screen_update(NULL);
+    esp_lv_adapter_request_wake();
+    /* Give the freshly-shown screen its own inactivity window - otherwise
+     * menu_timeout_cb (last touch could be minutes old) bounces straight
+     * back to the watch face on its next 500 ms tick. */
+    s_last_touch_tick = lv_tick_get();
+    esp_lv_adapter_unlock();
+}
+
 /* Worker task that actually powers the GNSS receiver. m10q_power() blocks for
  * up to a few seconds (baud probe + configuration), so it must not run on the
  * LVGL task or the UI freezes. */
@@ -1782,6 +1928,15 @@ static void swipe_event_cb(lv_event_t *e)
     } else if (cur == s_gps_screen) {
         if (horiz && dx < 0) {   /* left -> clock */
             lvgl_show_watch_face();
+        } else if (horiz && dx > 0) {   /* right -> Mesh */
+            if (!s_mesh_screen) {
+                lvgl_build_mesh_screen();
+            }
+            lv_scr_load(s_mesh_screen);
+        }
+    } else if (cur == s_mesh_screen) {
+        if (horiz && dx < 0) {   /* left -> GPS */
+            lv_scr_load(s_gps_screen);
         }
     }
 }

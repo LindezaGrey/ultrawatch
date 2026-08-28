@@ -23,6 +23,7 @@
 #include "sd_log.h"
 #include "crash_dump.h"
 #include "daily_log.h"
+#include "mesh_log.h"
 #include "uwatch_main.h"
 #include "debug_audio.h"
 #include "debug_bhi.h"
@@ -243,6 +244,9 @@ void app_main(void)
 
     /* Per-minute steps + activity logging to the SD card (daily_log.h). */
     daily_log_init();
+
+    /* Always-on background Meshtastic listener (mesh_log.h). */
+    mesh_log_init();
 
     /* If the previous boot crashed, decode the flash core dump to the SD card
      * (report + raw ELF) before the UI starts. */

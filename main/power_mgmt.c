@@ -476,8 +476,12 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
      * ALDO1 (SD) is KEPT ON: the FAT is left mounted across sleep, and
      * power-cycling the rail without unmount leaves the card's SD registers
      * undefined, so the log flush after wake fails with resp/CRC errors and
-     * the battery log is lost. The card draws little at idle. */
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);  /* LoRa */
+     * the battery log is lost. The card draws little at idle.
+     * ALDO3 (LoRa) is also KEPT ON, unconditionally, same reasoning as
+     * ALDO4/sensor: mesh_log.c's background task keeps the SX1262 in RX
+     * Continuous mode for always-on Meshtastic listening, and a rail
+     * power-cycle would mean re-running the whole TCXO/RF-switch/frequency
+     * bring-up sequence on every wake instead of just continuing to listen. */
     /* GNSS (BLDO1): cut the rail only when GNSS is not deliberately enabled.
      * With the GPS-screen switch on, the receiver is kept alive across the
      * whole sleep session so wake-ups don't pay the ~4 s cold re-power + warm
@@ -502,8 +506,8 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     esp_sleep_wakeup_cause_t cause = (esp_sleep_wakeup_cause_t)esp_sleep_get_wakeup_causes();
     ESP_LOGI(TAG, "waking: sources=0x%x cause=0x%x", (unsigned)s_wake_sources, (unsigned)cause);
 
-    /* Restore rails. ALDO1 (SD) stays on across sleep; the rest are rearmed. */
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, true);
+    /* Restore rails. ALDO1 (SD) and ALDO3 (LoRa) stay on across sleep; the
+     * rest are rearmed. */
     /* GNSS (BLDO1): mirror enter_sleep's condition. Restoring this
      * unconditionally desyncs m10q's s_powered from the physical rail (the
      * driver never learns it came back on), which makes every later

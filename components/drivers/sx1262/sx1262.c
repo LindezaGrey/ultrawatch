@@ -462,7 +462,17 @@ esp_err_t sx1262_recv(uint8_t *buf, size_t buf_cap, size_t *out_len,
         if (pdTICKS_TO_MS(xTaskGetTickCount() - start) >= (uint32_t)timeout_ms) {
             return ESP_ERR_TIMEOUT;
         }
-        vTaskDelay(pdMS_TO_TICKS(5));
+        /* 100ms, not a tighter poll: this loop backs both the interactive
+         * meshdump console command and mesh_log.c's always-on background
+         * task. A short poll keeps the CPU waking constantly, which fights
+         * light-sleep power savings far more than keeping ALDO3 powered
+         * ever would. 100ms is a reasonable compromise, not the real fix -
+         * that would be wiring DIO1 into the GPIO-interrupt wake
+         * architecture power_mgmt.c already uses for PM_GPIO_IMU/RTC, so
+         * the CPU can actually light-sleep between packets instead of
+         * polling. Not done here; a real background-task battery-life
+         * concern to revisit if it matters in practice. */
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 

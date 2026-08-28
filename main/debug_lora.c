@@ -9,6 +9,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "meshtastic_radio.h"
+#include "meshtastic_packet.h"
+#include "meshtastic_data.h"
 #include "sx1262.h"
 #include "debug_lora.h"
 
@@ -24,7 +26,7 @@ void debug_lora_meshdump(const char *args)
         seconds = MESHDUMP_DEFAULT_S;
     }
 
-    printf("meshdump: listening on 869.525 MHz (SF11/BW250/CR4:5) for %ds...\n", seconds);
+    printf("meshdump: listening on 869.525 MHz (SF8/BW250/CR4:5, ShortSlow) for %ds...\n", seconds);
 
     uint16_t dev_errors = 0;
     if (sx1262_get_device_errors(&dev_errors) == ESP_OK && dev_errors != 0) {
@@ -72,6 +74,35 @@ void debug_lora_meshdump(const char *args)
         pkt_count++;
         printf("meshdump: pkt #%d len=%u rssi=%ddBm snr=%ddB crc=%s\n",
                pkt_count, (unsigned)len, (int)rssi, (int)snr, crc_ok ? "ok" : "FAIL");
+
+        meshtastic_packet_t pkt;
+        if (meshtastic_packet_decode(buf, len, &pkt)) {
+            if (pkt.channel_hash_matches) {
+                printf("  from=!%08lx to=!%08lx id=0x%08lx hop=%u ch=0x%02x (%s)\n",
+                       (unsigned long)pkt.from, (unsigned long)pkt.to, (unsigned long)pkt.id,
+                       (unsigned)pkt.hop_limit, (unsigned)pkt.channel_hash, pkt.channel_name);
+            } else {
+                printf("  from=!%08lx to=!%08lx id=0x%08lx hop=%u ch=0x%02x (unknown channel, not decoded)\n",
+                       (unsigned long)pkt.from, (unsigned long)pkt.to, (unsigned long)pkt.id,
+                       (unsigned)pkt.hop_limit, (unsigned)pkt.channel_hash);
+            }
+            if (pkt.data.payload) {
+                const char *name = meshtastic_portnum_name(pkt.data.portnum);
+                if (name) {
+                    printf("  portnum=%s(%lu)", name, (unsigned long)pkt.data.portnum);
+                } else {
+                    printf("  portnum=%lu", (unsigned long)pkt.data.portnum);
+                }
+                if (pkt.data.portnum == 1 /* TEXT_MESSAGE_APP */) {
+                    printf(" text=\"%.*s\"\n", (int)pkt.data.payload_len, pkt.data.payload);
+                } else {
+                    printf(" payload_len=%u\n", (unsigned)pkt.data.payload_len);
+                }
+            } else if (pkt.channel_hash_matches) {
+                printf("  (decrypted, but not a valid Data message)\n");
+            }
+        }
+
         for (size_t i = 0; i < len; i += 16) {
             printf("  ");
             for (size_t j = i; j < i + 16 && j < len; j++) {
