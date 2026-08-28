@@ -18,6 +18,7 @@
 #include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_spiffs.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "driver/gpio.h"
@@ -58,6 +59,12 @@ static struct bhy2_data_xyz s_accel;
 static struct bhy2_data_xyz s_gyro;
 static struct bhy2_data_quaternion s_rv;
 static bhi260ap_activity_t s_activity = BHI260AP_ACTIVITY_UNKNOWN;
+/* Event-driven per-activity duration tally (today), credited in parse_activity()
+ * as each transition is processed - see that function. Guarded by s_step_mux
+ * (already exists for the day-scoped step counters; reused rather than adding
+ * a second small mutex for the same "day-scoped BHI260AP counters" purpose). */
+static uint32_t s_activity_ms[BHI260AP_ACTIVITY_COUNT];
+static int64_t s_activity_since_us;
 static volatile bool s_wrist_tilt;
 static volatile bool s_wake_gesture;
 static volatile bool s_glance_gesture;
@@ -288,6 +295,12 @@ static void parse_rotation_vector(const struct bhy2_fifo_parse_data_info *callba
     }
 }
 
+/* Fires once per activity-change event found in the FIFO, in the order the
+ * chip recorded them - bhy2_get_and_process_fifo() can deliver several in one
+ * drain (e.g. Still->Walking->Still all between two polls of bhi260_task).
+ * Crediting duration here, per event, means none of those transitions are
+ * lost the way they would be if something instead just read "the current
+ * activity" once after the whole drain finished. */
 static void parse_activity(const struct bhy2_fifo_parse_data_info *callback_info, void *callback_ref)
 {
     (void)callback_ref;
@@ -295,18 +308,44 @@ static void parse_activity(const struct bhy2_fifo_parse_data_info *callback_info
         return;
     }
     uint16_t activity = BHY2_LE2U16(callback_info->data_ptr);
+    bhi260ap_activity_t new_activity = s_activity;
     if (activity & BHY2_STILL_ACTIVITY_STARTED) {
-        s_activity = BHI260AP_ACTIVITY_STILL;
+        new_activity = BHI260AP_ACTIVITY_STILL;
     } else if (activity & BHY2_WALKING_ACTIVITY_STARTED) {
-        s_activity = BHI260AP_ACTIVITY_WALKING;
+        new_activity = BHI260AP_ACTIVITY_WALKING;
     } else if (activity & BHY2_RUNNING_ACTIVITY_STARTED) {
-        s_activity = BHI260AP_ACTIVITY_RUNNING;
+        new_activity = BHI260AP_ACTIVITY_RUNNING;
     } else if (activity & BHY2_ON_BICYCLE_ACTIVITY_STARTED) {
-        s_activity = BHI260AP_ACTIVITY_ON_BICYCLE;
+        new_activity = BHI260AP_ACTIVITY_ON_BICYCLE;
     } else if (activity & BHY2_IN_VEHICLE_ACTIVITY_STARTED) {
-        s_activity = BHI260AP_ACTIVITY_IN_VEHICLE;
+        new_activity = BHI260AP_ACTIVITY_IN_VEHICLE;
     } else if (activity & BHY2_TILTING_ACTIVITY_STARTED) {
-        s_activity = BHI260AP_ACTIVITY_TILTING;
+        new_activity = BHI260AP_ACTIVITY_TILTING;
+    }
+
+    /* Blocking take (not a 0-timeout try): if this silently failed to take
+     * the mutex, s_activity would never advance to new_activity, corrupting
+     * every later comparison, not just losing one sample. Contention here is
+     * brief arithmetic in bhi260ap_get_activity_ms()/bhi260ap_daily_sample(),
+     * so this essentially always succeeds immediately. */
+    int64_t now = esp_timer_get_time();
+    if (s_step_mux != NULL && xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
+        int64_t elapsed_us = now - s_activity_since_us;
+        if (elapsed_us > 0) {
+            uint32_t elapsed_ms = (uint32_t)(elapsed_us / 1000);
+            if (s_activity_ms[s_activity] <= UINT32_MAX - elapsed_ms) {
+                s_activity_ms[s_activity] += elapsed_ms;
+            }
+        }
+        s_activity = new_activity;
+        s_activity_since_us = now;
+        xSemaphoreGive(s_step_mux);
+    } else {
+        /* Mutex unavailable (or not yet created): still advance activity
+         * state so recognition doesn't silently stick to a stale class, just
+         * without a duration credit for this segment. */
+        s_activity = new_activity;
+        s_activity_since_us = now;
     }
     ESP_LOGD(TAG, "activity: 0x%04x -> %d", activity, (int)s_activity);
 }
@@ -555,6 +594,11 @@ esp_err_t bhi260ap_init(i2c_master_dev_handle_t dev)
     step_base_load();
     s_step_at_base = 0;
     s_step_count = 0;
+    /* Start the activity-duration clock now too (deinit() also does this,
+     * for re-init after a sensor power-cycle, but the very first boot never
+     * calls deinit first). Without this the first parse_activity() call
+     * would credit the boot-to-here gap to whatever s_activity starts as. */
+    s_activity_since_us = esp_timer_get_time();
     s_initialized = true;
     ESP_LOGI(TAG, "BHI260AP ready (persisted steps %lu)",
              (unsigned long)s_step_base);
@@ -670,6 +714,13 @@ void bhi260ap_deinit(void)
     memset(&s_gyro, 0, sizeof(s_gyro));
     memset(&s_rv, 0, sizeof(s_rv));
     s_activity = BHI260AP_ACTIVITY_UNKNOWN;
+    /* Restart the "since" clock cleanly so the next parse_activity() doesn't
+     * credit whatever class is active with the entire power-cycle gap as
+     * elapsed time. s_activity_ms (today's totals) is NOT reset here - it's
+     * day-scoped, reset only on an actual calendar-day rollover in
+     * bhi260ap_daily_sample(), and should survive a mid-day sensor
+     * power-cycle. */
+    s_activity_since_us = esp_timer_get_time();
     s_wrist_tilt = false;
     s_wake_gesture = false;
     s_glance_gesture = false;
@@ -720,6 +771,10 @@ void bhi260ap_daily_sample(uint32_t lifetime, uint32_t ymd)
         s_daily_id = ymd;
         s_daily_total = 0;
         s_daily_last_lifetime = lifetime;
+        /* Same day-rollover trigger resets the activity-duration tally -
+         * one place tracking "is it a new day", shared by both day-scoped
+         * counters this driver owns. */
+        memset(s_activity_ms, 0, sizeof(s_activity_ms));
         ESP_LOGI(TAG, "daily reset, day=%lu", (unsigned long)ymd);
     } else if (lifetime > s_daily_last_lifetime) {
         s_daily_total += (lifetime - s_daily_last_lifetime);
@@ -850,6 +905,40 @@ esp_err_t bhi260ap_get_activity(uint8_t *activity)
         return ESP_ERR_INVALID_STATE;
     }
     *activity = (uint8_t)s_activity;
+    return ESP_OK;
+}
+
+esp_err_t bhi260ap_get_activity_ms(uint32_t out_ms[BHI260AP_ACTIVITY_COUNT])
+{
+    if (!out_ms) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_initialized) {
+        memset(out_ms, 0, BHI260AP_ACTIVITY_COUNT * sizeof(out_ms[0]));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_step_mux == NULL || xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
+        memset(out_ms, 0, BHI260AP_ACTIVITY_COUNT * sizeof(out_ms[0]));
+        return ESP_FAIL;
+    }
+    for (int i = 0; i < BHI260AP_ACTIVITY_COUNT; i++) {
+        out_ms[i] = s_activity_ms[i];
+    }
+    bhi260ap_activity_t cur = s_activity;
+    int64_t since = s_activity_since_us;
+    xSemaphoreGive(s_step_mux);
+
+    /* Add the live elapsed time for the currently-active class: it hasn't
+     * been credited to s_activity_ms yet, that only happens when it ends
+     * (the next parse_activity() transition). Same pattern as
+     * bhi260ap_get_step_count()'s base+live-delta combination. */
+    int64_t elapsed_us = esp_timer_get_time() - since;
+    if (elapsed_us > 0) {
+        uint32_t elapsed_ms = (uint32_t)(elapsed_us / 1000);
+        if (out_ms[cur] <= UINT32_MAX - elapsed_ms) {
+            out_ms[cur] += elapsed_ms;
+        }
+    }
     return ESP_OK;
 }
 

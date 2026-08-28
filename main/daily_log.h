@@ -2,9 +2,17 @@
  * daily_log.h - per-minute steps + activity logging to the SD card.
  *
  * A low-priority task wakes once per minute, samples the BHI260AP daily step
- * count and the (sticky) activity class, and appends one CSV row per sample.
- * At each calendar-day rollover it resets the daily step counter and the
- * per-activity minute tallies.
+ * count, and appends one CSV row per sample. At each calendar-day rollover it
+ * resets the daily step counter (bhi260ap_daily_sample()).
+ *
+ * Per-activity-class durations are NOT sampled here: bhi260ap.c tracks them
+ * event-driven (bhi260ap_get_activity_ms()), crediting exact elapsed time on
+ * every activity-change event the FIFO reports - including several in one
+ * FIFO drain, none skipped, unlike periodic sampling of "the current
+ * activity" would. daily_log_get_activity_seconds() just re-buckets that into
+ * daily_log's own enum and converts to seconds; the day-rollover reset for it
+ * lives in bhi260ap.c too (same ymd-change check that resets the step
+ * counter).
  *
  * All writes are no-ops when the SD card is not mounted, and the module keeps
  * running (in-RAM counters) regardless, so the data is still available for the
@@ -39,8 +47,8 @@ void daily_log_init(void);
 /* Today's step total (daily counter, resets at midnight). */
 esp_err_t daily_log_get_steps(uint32_t *steps);
 
-/* Minutes credited to each activity class today. */
-esp_err_t daily_log_get_activity_minutes(const uint16_t *out[DAILY_ACT_COUNT]);
+/* Seconds credited to each activity class today. */
+esp_err_t daily_log_get_activity_seconds(const uint32_t *out[DAILY_ACT_COUNT]);
 
 /* Flush any pending CSV writes now (also exposed via the dailylog command). */
 void daily_log_flush(void);

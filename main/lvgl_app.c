@@ -803,15 +803,27 @@ static void bhi_screen_update(lv_timer_t *timer)
     snprintf(buf, sizeof(buf), "Activity: %s", activity_name(activity));
     lv_label_set_text(s_bhi_activity_label, buf);
 
-    /* Per-activity minutes logged today (from daily_log). */
-    const uint16_t *mins[DAILY_ACT_COUNT];
+    /* Per-activity seconds logged today (from daily_log). Compact duration
+     * format so second-level precision is actually visible for an activity
+     * that just started, instead of showing "0" until a whole minute has
+     * passed: Xh Ym once it's been going over an hour, Xm Ys under that,
+     * Xs while it's still under a minute. */
+    const uint32_t *secs[DAILY_ACT_COUNT];
     static const char *act_names[DAILY_ACT_COUNT] = {
         "Still", "Walk", "Run", "Cycle", "Vehicle", "Tilt", "Other" };
-    if (daily_log_get_activity_minutes(mins) == ESP_OK) {
+    if (daily_log_get_activity_seconds(secs) == ESP_OK) {
         for (int i = 0; i < DAILY_ACT_COUNT; i++) {
             if (s_daily_act_label[i]) {
-                snprintf(buf, sizeof(buf), "%s %u min", act_names[i],
-                         (unsigned)*mins[i]);
+                uint32_t s = *secs[i];
+                char dur[16];
+                if (s >= 3600) {
+                    snprintf(dur, sizeof(dur), "%uh %um", (unsigned)(s / 3600), (unsigned)((s % 3600) / 60));
+                } else if (s >= 60) {
+                    snprintf(dur, sizeof(dur), "%um %us", (unsigned)(s / 60), (unsigned)(s % 60));
+                } else {
+                    snprintf(dur, sizeof(dur), "%us", (unsigned)s);
+                }
+                snprintf(buf, sizeof(buf), "%s %s", act_names[i], dur);
                 lv_label_set_text(s_daily_act_label[i], buf);
             }
         }

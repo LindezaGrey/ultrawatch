@@ -8,4 +8,5 @@ idf_component_register(
         esp_common
         log
         spiffs
+        esp_timer
 )

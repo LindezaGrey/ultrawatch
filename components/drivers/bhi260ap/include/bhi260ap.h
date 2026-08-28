@@ -20,6 +20,7 @@ typedef enum {
     BHI260AP_ACTIVITY_IN_VEHICLE,
     BHI260AP_ACTIVITY_TILTING,
     BHI260AP_ACTIVITY_UNKNOWN,
+    BHI260AP_ACTIVITY_COUNT,
 } bhi260ap_activity_t;
 
 /* Bring up the BHI260AP: upload the RAM firmware from the SPIFFS assets
@@ -93,6 +94,14 @@ esp_err_t bhi260ap_get_rotation(int16_t *x, int16_t *y, int16_t *z, int16_t *w,
 
 /* Latest activity-recognition class (bhi260ap_activity_t). */
 esp_err_t bhi260ap_get_activity(uint8_t *activity);
+
+/* Milliseconds credited to each activity class today (event-driven: exact
+ * elapsed time per class, not a periodic sample - every activity transition
+ * the FIFO reports is accounted for, even several in one bhi260ap_process_fifo()
+ * drain, not just whichever class happened to be active at a poll instant).
+ * Includes the live elapsed time for the currently-active class. Reset when
+ * bhi260ap_daily_sample() sees a new calendar day. */
+esp_err_t bhi260ap_get_activity_ms(uint32_t out_ms[BHI260AP_ACTIVITY_COUNT]);
 
 /* Consume latched gesture events since the last call (wrist tilt, wake
  * gesture, glance, pickup, tilt detector). Each non-NULL out-param is set to
