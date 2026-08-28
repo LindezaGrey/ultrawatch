@@ -73,6 +73,7 @@ Notes:
   (full 16 MB image; write address 0, not 0x1000). Factory bin: https://github.com/Xinyuan-LilyGO/LilyGoLib/blob/master/firmware/factory.watch.ultra.sx1262.20260424.bin
 - **Host-side esptool works** (installed at `/usr/bin/esptool.py`, v5.3.x) and is used for recovery/recovery writes; the ESP-IDF toolchain also runs natively (see Native setup above), Docker is only a fallback.
 - **Boot firmware must never `ESP_ERROR_CHECK` a peripheral init** — a failed sensor/PMU probe then becomes an infinite reboot loop (which destabilizes USB and flashing). Peripheral failures log-and-continue (see `twatch_board_init`).
+- **The LoRa antenna-select pin (`TWATCH_XL_GPIO_LORA_SEL`, XL9555 P11) must only be toggled while the SX1262 is powered down** — before ALDO3 (the LoRa rail) is enabled, or after it's disabled, never while the chip is actively driving RF through the switch it controls. `twatch_board_init()` currently sets it during the XL9555 setup step, before `axp2101_set_default_power()` turns ALDO3 on — keep that ordering if the init sequence is ever restructured. See `docs/hardware.md`'s XL9555/SX1262 sections for the full antenna-switch and TCXO story.
 
 ## Build / Flash / Debug workflow
 

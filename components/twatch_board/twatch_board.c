@@ -17,6 +17,7 @@
 #include "t3902.h"
 #include "m10q.h"
 #include "sx1262.h"
+#include "meshtastic_radio.h"
 #include "st25r3916.h"
 #include "driver/i2s_common.h"
 #include "driver/i2s_types.h"
@@ -179,6 +180,8 @@ esp_err_t twatch_board_init(void)
         if (err != ESP_OK) ESP_LOGE(TAG, "haptic mode: %s", esp_err_to_name(err));
         err = xl9555_pin_mode(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, true);
         if (err != ESP_OK) ESP_LOGE(TAG, "touch rst mode: %s", esp_err_to_name(err));
+        err = xl9555_pin_mode(twatch_xl9555_dev, TWATCH_XL_GPIO_LORA_SEL, true);
+        if (err != ESP_OK) ESP_LOGE(TAG, "lora sel mode: %s", esp_err_to_name(err));
         /* Pulse the display power low->high so the CO5300 always starts from a
          * clean power-on state: a panel stuck from an earlier sleep/wake or
          * low-battery power state survives ESP resets (ALDO2 never drops), and
@@ -188,6 +191,8 @@ esp_err_t twatch_board_init(void)
         xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, true);
         xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
         xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, true);
+        /* Route the SX1262 to the built-in antenna, not the USB-C SBU path. */
+        xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_LORA_SEL, true);
     }
 
     /* 2. PMU: verify chip, then bring up the power tree (display, SD, LoRa,
@@ -225,6 +230,7 @@ esp_err_t twatch_board_init(void)
     t3902_init(twatch_audio_rx);
     m10q_init(twatch_pmu_dev, twatch_rtc_dev);
     sx1262_init(twatch_lora_spi_dev);
+    meshtastic_radio_init();
     st25r3916_init(twatch_nfc_spi_dev);
 
     ESP_LOGI(TAG, "T-Watch Ultra board init finished");

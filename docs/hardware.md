@@ -108,6 +108,7 @@ The panel has rounded corners; `assets/ui/safe_area_transparent.png` is the tran
 | GPIO7 | Display power supply enable (VCI_EN) |
 | GPIO8 | Touchpad reset (TP_RST) |
 | GPIO10 | SD insert detect (SD_DET) |
+| GPIO11 | LoRa RF switch select (LORA_SEL / SKY13453 VCTL) |
 
 > Verified on hardware with the `verify_pins` diagnostic:
 > - **TP_RST = P8** — driving it low NACKs the CST9217 touch controller on I2C
@@ -117,6 +118,25 @@ The panel has rounded corners; `assets/ui/safe_area_transparent.png` is the tran
 > [arduino-esp32 variant](https://github.com/espressif/arduino-esp32/blob/master/variants/lilygo_twatch_ultra/pins_arduino.h)
 > (DRV_EN=6, DISP_EN=7, TOUCH_RST=8, SD_DET=10). The LilyGO hardware
 > doc/schematic listing TP_RST=P10, SD_DET=P12 is incorrect.
+>
+> **LORA_SEL = P11** — cross-verified against the schematic (net "LORA_SEL"
+> feeding the SKY13453 RF switch's VCTL pin) and LilyGO's own reference
+> firmware (`LilyGoLib`'s `LilyGoWatchUltra.h`: `EXPANDS_LORA_RF_SW = 11`).
+> HIGH selects the built-in LoRa antenna (the normal/only end-user path);
+> LOW instead routes the RF path out via the USB-C connector's SBU pins
+> (LilyGO's "USB LoRa interface" - not a real antenna path, not used here).
+> **Only toggle this pin while the SX1262 is powered down** (before ALDO3 is
+> enabled, or after it's disabled) - hot-switching an RF path while the
+> chip is actively driving it is not something this switch is meant to
+> handle. `twatch_board_init()` sets it during the XL9555 setup step,
+> before `axp2101_set_default_power()` enables ALDO3 - keep it there if the
+> init order is ever restructured.
+
+### SX1262 LoRa notes (verified on hardware)
+
+- The onboard LoRa module (schematic ref "HPB16B3") has **no external crystal** visible on the schematic (unlike the ESP32's own crystal or the RTC's 32.768kHz crystal, both drawn explicitly) - it uses an internal **TCXO at 3.0V**, powered via the SX1262's DIO3 pin (`SetDIO3AsTcxoCtrl`, voltage code `0x06`). Confirmed against LilyGO's own reference firmware (`LilyGoLib`'s `examples/radio/SX1262/SX126x_Receive.ino`: `radio.setTCXO(3.0)`). Without this, the chip has no working 32MHz reference for any frequency-dependent operation (PLL, RF frequency, RX/TX) - symptoms are a cold-boot `XOSC_START_ERR` device error and a receiver that reports a flat, pinned-at-minimum RSSI floor (no real RF energy ever reaches the demodulator).
+- **DIO2 drives the antenna TX/RX switch** (`SetDIO2AsRfSwitchCtrl(enable=true)`), separate from the SX1262's own antenna-path relative to the board-level `LORA_SEL` XL9555 pin above. Also confirmed against the same LilyGO reference firmware (`radio.setDio2AsRfSwitch()`) and the SKY13453 RF switch visible on the schematic next to the antenna connector.
+- Both are configured once, early, in `sx1262_configure_lora()` (`components/drivers/sx1262/sx1262.c`), before any packet-type/frequency/modulation setup.
 
 ## AXP2101 power tree
 

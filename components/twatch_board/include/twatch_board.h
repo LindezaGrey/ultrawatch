@@ -79,6 +79,14 @@ extern "C" {
 #define TWATCH_XL_GPIO_DISP_PWR    7
 #define TWATCH_XL_GPIO_TOUCH_RST   8
 #define TWATCH_XL_GPIO_SD_DETECT   10
+/* LoRa RF switch (SKY13453 VCTL, net "LORA_SEL"): HIGH selects the
+ * built-in LoRa antenna, LOW routes the RF path out via the USB-C
+ * connector's SBU pins instead (LORA_ANT net, schematic sheet 1) - not a
+ * normal end-user path. Cross-verified against the schematic (XL9555 pin
+ * P13) and LilyGO's own official reference firmware, which defines the
+ * same pin number and default (LilyGoLib's LilyGoWatchUltra.h:
+ * EXPANDS_LORA_RF_SW = 11; .cpp: HIGH = "Built-in LoRa Antenna"). */
+#define TWATCH_XL_GPIO_LORA_SEL    11
 
 /* ---- I2C addresses ----
  * No TWATCH_I2C_ADDR_TOUCH here: the touch chip's address is owned by
