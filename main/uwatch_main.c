@@ -122,7 +122,6 @@ typedef struct {
 
 static const debug_cmd_entry_t s_commands[] = {
     { "shot",           debug_cmd_shot },
-    { "sdin",           debug_cmd_sdin },
     { "sdls",           debug_cmd_sdls },
     { "sdclear",        debug_cmd_sdclear },
     { "heap",           debug_cmd_heap },
@@ -149,6 +148,8 @@ static const debug_cmd_entry_t s_commands[] = {
     { "motor",          debug_cmd_motor },
     { "crashinfo",      debug_cmd_crashinfo },
     { "pm",             debug_cmd_pm },
+    { "pwroff",         debug_cmd_pwroff },
+    { "rails",          debug_cmd_rails },
     { "bat",            debug_cmd_bat },
     { "dispchk",        debug_cmd_dispchk },
     { "disppwr",        debug_cmd_disppwr },
@@ -234,11 +235,9 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "UWatch boot complete");
 
-    /* SD card logging (best effort; serial-only if no card). Log is reset on
-     * each new firmware build (version change). */
-    sd_log_set_version(UWATCH_GIT_HASH);
+    /* Mount the SD card (best effort) for crash dumps, daily activity logs,
+     * and screenshots - see sd_log.h. */
     sd_log_mount();
-    sd_log_start();
 
     /* Per-minute steps + activity logging to the SD card (daily_log.h). */
     daily_log_init();

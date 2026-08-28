@@ -28,8 +28,15 @@ static const char *TAG = "axp2101";
 #define AXP_REG_INTSTS1    0x48
 #define AXP_REG_INTSTS2    0x49
 #define AXP_REG_INTSTS3    0x4A
+#define AXP_REG_COMMON_CFG 0x10 /* bit0 = Soft PWROFF (RWAC) */
+#define AXP_REG_PWROFF_EN  0x22 /* bit1 = PWRON>OFFLEVEL as POWEROFF source enable */
+#define AXP_REG_OFFLEVEL   0x27 /* bits3:2 = OFFLEVEL (long-press threshold) */
 
 #define AXP_INTEN2_PEK    0x0F   /* bits 0-3: press/release edge, long, short */
+#define AXP_PWROFF_EN_PWRON_OFFLEVEL  (1u << 1)
+#define AXP_COMMON_CFG_SOFT_PWROFF    (1u << 0)
+#define AXP_OFFLEVEL_MASK   0x0C   /* bits 3:2 */
+#define AXP_OFFLEVEL_4S     0x00   /* 00: 4s, 01: 6s (POR default), 10: 8s, 11: 10s */
 
 /* 0x18 bit 1 = main (Cell) battery charging enabled (CHARGE_GAUGE_WDT_CTRL). */
 #define AXP_CHG_CTRL_CHARGE  (1u << 1)
@@ -193,8 +200,22 @@ esp_err_t axp2101_set_default_power(i2c_master_dev_handle_t dev)
     ESP_RETURN_ON_ERROR(ret, TAG, "bldo1");
     ret = axp2101_init_rail(dev, AXP2101_BLDO2, 3300);           /* speaker */
     ESP_RETURN_ON_ERROR(ret, TAG, "bldo2");
+    /* BLDO2 (speaker amp): voltage configured, but left OFF - the amp draws
+     * current whenever powered regardless of whether anything is playing,
+     * and every real playback path (alarm.c's ring_set_outputs(),
+     * debug_audio.c's tone/playrec/tonerec/sweep) already enables it around
+     * the actual audio and disables it after, so there's no reason to keep
+     * it on the rest of the time. axp2101_init_rail() always leaves a rail
+     * enabled, so turn it back off right after configuring it. */
+    ESP_RETURN_ON_ERROR(axp2101_enable_rail(dev, AXP2101_BLDO2, false), TAG, "bldo2 off");
+    /* DLDO1 (NFC): voltage configured for whenever an st25r3916 driver
+     * exists to use it, but left OFF - there's no NFC driver yet
+     * (st25r3916.c is an unimplemented stub), so powering this rail on has
+     * been pure waste since day one. axp2101_init_rail() always leaves a
+     * rail enabled, so turn it back off right after configuring it. */
     ret = axp2101_init_rail(dev, AXP2101_DLDO1, 3300);           /* NFC */
     ESP_RETURN_ON_ERROR(ret, TAG, "dldo1");
+    ESP_RETURN_ON_ERROR(axp2101_enable_rail(dev, AXP2101_DLDO1, false), TAG, "dldo1 off");
 
     /* Unused channels: DC2-DC5, CPUSLDO. */
     ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_DC_ONOFF_DVM, 0x1E, false), TAG, "disable dc2-5");
@@ -251,6 +272,17 @@ esp_err_t axp2101_enable_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, 
     return axp2101_set_bit(dev, AXP_REG_LDO_ONOFF0, s_rail_map[rail].en_mask, enable);
 }
 
+esp_err_t axp2101_is_rail_enabled(i2c_master_dev_handle_t dev, axp2101_rail_t rail, bool *enabled)
+{
+    if (rail >= AXP2101_RAIL_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_LDO_ONOFF0, &val), TAG, "read ldo_onoff0");
+    *enabled = (val & s_rail_map[rail].en_mask) != 0;
+    return ESP_OK;
+}
+
 esp_err_t axp2101_enable_pek_irq(i2c_master_dev_handle_t dev)
 {
     /* Enable PEK interrupts (press/release edge, long/short press) in INTEN2. */
@@ -279,6 +311,26 @@ esp_err_t axp2101_get_irq_status(i2c_master_dev_handle_t dev, uint32_t *status)
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTSTS3, &s[2]), TAG, "intsts3");
     *status = ((uint32_t)s[2] << 16) | ((uint32_t)s[1] << 8) | s[0];
     return ESP_OK;
+}
+
+esp_err_t axp2101_configure_pwrkey_shutdown(i2c_master_dev_handle_t dev)
+{
+    /* OFFLEVEL threshold = 4s (REG27H bits 3:2). Leaves ONLEVEL (bits 1:0)
+     * and the reserved bits alone - read-modify-write, not a blind overwrite. */
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_OFFLEVEL, &val), TAG, "read offlevel");
+    val = (uint8_t)((val & (uint8_t)~AXP_OFFLEVEL_MASK) | AXP_OFFLEVEL_4S);
+    ESP_RETURN_ON_ERROR(axp2101_write_reg(dev, AXP_REG_OFFLEVEL, val), TAG, "write offlevel");
+
+    /* Disable the chip's own automatic power-off when PWRON is held past
+     * OFFLEVEL (REG22H bit1) - see this function's header comment. The PEK
+     * long-press IRQ still fires at the same threshold regardless. */
+    return axp2101_set_bit(dev, AXP_REG_PWROFF_EN, AXP_PWROFF_EN_PWRON_OFFLEVEL, false);
+}
+
+esp_err_t axp2101_soft_poweroff(i2c_master_dev_handle_t dev)
+{
+    return axp2101_set_bit(dev, AXP_REG_COMMON_CFG, AXP_COMMON_CFG_SOFT_PWROFF, true);
 }
 
 /* Charging state: STATUS2 bits 0-2. Values per XPowers AXP2101:

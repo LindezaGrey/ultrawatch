@@ -35,22 +35,6 @@ void debug_cmd_shot(const char *args)
     lvgl_app_dump_screenshot();
 }
 
-void debug_cmd_sdin(const char *args)
-{
-    (void)args;
-    /* Read back /sdcard/log/uwatch.log and dump it. */
-    FILE *f = fopen("/sdcard/log/uwatch.log", "r");
-    if (!f) {
-        printf("sdin: no log file\n");
-    } else {
-        char c;
-        while (fread(&c, 1, 1, f) == 1) {
-            putchar(c);
-        }
-        fclose(f);
-    }
-}
-
 void debug_cmd_sdls(const char *args)
 {
     (void)args;
@@ -70,7 +54,7 @@ void debug_cmd_sdls(const char *args)
 void debug_cmd_sdclear(const char *args)
 {
     (void)args;
-    /* Truncate the log and delete screenshots. */
+    /* Delete screenshots. */
     esp_err_t err = sd_log_clear();
     printf("sdclear: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
 }
@@ -215,6 +199,45 @@ void debug_cmd_pm(const char *args)
     } else {
         printf("unknown command: pm %s\n", args);
     }
+}
+
+void debug_cmd_pwroff(const char *args)
+{
+    (void)args;
+    /* Same path a real PWRKEY long-press (>4s) takes: blank the display,
+     * unmount the SD card, then hand off to the PMIC. Test hook - there's no
+     * way to simulate a 4s physical button hold otherwise. */
+    printf("pwroff: shutting down\n");
+    power_mgmt_shutdown();
+}
+
+void debug_cmd_rails(const char *args)
+{
+    (void)args;
+    /* Named per axp2101_set_default_power()'s power tree (LilyGoWatchUltra::
+     * initPMU) - which peripheral each rail actually feeds on this board. */
+    static const struct { axp2101_rail_t rail; const char *name; const char *what; } rails[] = {
+        { AXP2101_ALDO1, "ALDO1", "SD card" },
+        { AXP2101_ALDO2, "ALDO2", "display" },
+        { AXP2101_ALDO3, "ALDO3", "LoRa (SX1262)" },
+        { AXP2101_ALDO4, "ALDO4", "sensor (BHI260AP)" },
+        { AXP2101_BLDO1, "BLDO1", "GNSS (M10Q)" },
+        { AXP2101_BLDO2, "BLDO2", "speaker" },
+        { AXP2101_DLDO1, "DLDO1", "NFC" },
+    };
+    for (size_t i = 0; i < sizeof(rails) / sizeof(rails[0]); i++) {
+        bool on = false;
+        esp_err_t err = axp2101_is_rail_enabled(twatch_pmu_dev, rails[i].rail, &on);
+        if (err != ESP_OK) {
+            printf("%-6s %-20s read failed: %s\n", rails[i].name, rails[i].what, esp_err_to_name(err));
+        } else {
+            printf("%-6s %-20s %s\n", rails[i].name, rails[i].what, on ? "on" : "off");
+        }
+    }
+
+    bool vbus = false;
+    axp2101_is_vbus_present(twatch_pmu_dev, &vbus);
+    printf("VBUS (USB power)     %s\n", vbus ? "present" : "absent");
 }
 
 void debug_cmd_bat(const char *args)

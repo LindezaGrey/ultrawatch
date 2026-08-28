@@ -177,7 +177,6 @@ available (type them and press Enter):
 | Command | Effect |
 |---|---|
 | `shot` | Save the current screen as a PNG to the SD card (`/sdcard/shot/`); falls back to streaming raw RGB565 over USB if no card. |
-| `sdin` | Print the contents of `/sdcard/log/uwatch.log`. |
 | `sdls` | List screenshot files on the SD card. |
 | `bhi` | Dump all BHI260AP sensor values. |
 | `gnss` | Dump GNSS state, fix (position/speed/sats/accuracy) and per-satellite azimuth/elevation/SNR. |
@@ -205,10 +204,10 @@ available (type them and press Enter):
 
 ## Data storage (SD card)
 
-When an SD card is present it is mounted at `/sdcard`:
+The SD card is only mounted while the watch is awake (unmounted and powered
+off on sleep, remounted on wake - see power_mgmt.c). When present it is
+mounted at `/sdcard`:
 
-- **Logs** — all log output is buffered in RAM and flushed to
-  `/sdcard/log/uwatch.log` every 2 s.
 - **Screenshots** — `shot` saves PNG files to `/sdcard/shot/`.
 - **Crash dumps** — if the watch crashes, the ESP32 core dump is stored to a
   flash partition and, on the next boot with an SD card present, decoded to

@@ -76,7 +76,9 @@ static void play_and_record(const int16_t *buf, size_t n, const char *tag, const
     printf("%s", info_line);
     xTaskCreate(rec_task, tag, 2048, NULL, 5, NULL);
     vTaskDelay(pdMS_TO_TICKS(50));
+    axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);   /* amp */
     esp_err_t err = max98357a_write(buf, n);
+    axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
     printf("%s: playback %s\n", tag, (err == ESP_OK) ? "ok" : esp_err_to_name(err));
     if (xSemaphoreTake(s_rec_done, pdMS_TO_TICKS(n * 1000 / AUDIO_SAMPLE_RATE + 5000)) != pdTRUE) {
         printf("%s: rec timed out\n", tag);
@@ -178,6 +180,7 @@ void debug_audio_playrec(const char *args)
         printf("playrec: nothing recorded yet (use rec first)\n");
     } else {
         printf("playrec: playing %u samples x3\n", (unsigned)s_rec_n);
+        axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);   /* amp */
         for (int r = 0; r < 3; r++) {
             esp_err_t err = max98357a_write(s_rec_buf, s_rec_n);
             if (err != ESP_OK) {
@@ -185,6 +188,7 @@ void debug_audio_playrec(const char *args)
                 break;
             }
         }
+        axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
         printf("playrec: done\n");
     }
 }

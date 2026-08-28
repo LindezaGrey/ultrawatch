@@ -9,7 +9,6 @@ extern "C" {
 #endif
 
 void debug_cmd_shot(const char *args);
-void debug_cmd_sdin(const char *args);
 void debug_cmd_sdls(const char *args);
 void debug_cmd_sdclear(const char *args);
 void debug_cmd_heap(const char *args);
@@ -21,6 +20,8 @@ void debug_cmd_panictest(const char *args);
 void debug_cmd_dailylog(const char *args);
 void debug_cmd_motor(const char *args);
 void debug_cmd_pm(const char *args);
+void debug_cmd_pwroff(const char *args);
+void debug_cmd_rails(const char *args);
 void debug_cmd_bat(const char *args);
 void debug_cmd_dispchk(const char *args);
 void debug_cmd_disppwr(const char *args);

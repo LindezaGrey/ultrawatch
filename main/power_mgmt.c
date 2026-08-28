@@ -27,6 +27,7 @@
 #include "sensor_cache.h"
 #include "lvgl_app.h"
 #include "alarm.h"
+#include "sd_log.h"
 
 static const char *TAG = "power_mgmt";
 
@@ -42,6 +43,11 @@ static const char *TAG = "power_mgmt";
 #define PM_WAKE_BOOT   (1u << PM_GPIO_BOOT)
 #define PM_WAKE_IMU    (1u << PM_GPIO_IMU)
 #define PM_WAKE_RTC    (1u << PM_GPIO_RTC)
+
+/* AXP2101 combined 24-bit IRQ status (see axp2101_get_irq_status()):
+ * INTSTS2 occupies bits 8-15, so its bit 2 ("long press", per
+ * axp2101_configure_pwrkey_shutdown()'s OFFLEVEL threshold) is bit 10 here. */
+#define AXP_IRQ_PEK_LONG (1u << 10)
 
 /* Night-mode clock check period while the watch is idle. */
 #define PM_NIGHT_CHECK_MS  60000
@@ -256,6 +262,22 @@ static bool pm_imu_wake_is_real(void)
     return real;
 }
 
+/* PWRKEY held past OFFLEVEL (4s - see axp2101_configure_pwrkey_shutdown()).
+ * The PMIC's own instant hardware cutoff for this is disabled specifically so
+ * this can run first: blank the display for a clean visual finish, unmount
+ * the SD card (flushes + powers ALDO1 off - see sd_log_unmount()) so a card
+ * pull mid-write can't corrupt it, then hand off to the PMIC's own controlled
+ * power-off sequence. Does not return in the normal case - the watch loses
+ * power once the PMIC acknowledges the command. */
+void power_mgmt_shutdown(void)
+{
+    ESP_LOGI(TAG, "PWRKEY long-press: shutting down");
+    co5300_display_off();
+    co5300_blank();
+    sd_log_unmount();
+    axp2101_soft_poweroff(twatch_pmu_dev);
+}
+
 static void pm_wake_task(void *arg)
 {
     (void)arg;
@@ -326,6 +348,15 @@ static void pm_wake_task(void *arg)
             axp2101_clear_irq(twatch_pmu_dev);
             ESP_LOGI(TAG, "power key: irq=0x%06lx (bit8 press, bit10 long, bit11 short)",
                      (unsigned long)irq);
+            if (irq & AXP_IRQ_PEK_LONG) {
+                power_mgmt_shutdown();
+                /* Falls through (no continue/return) rather than skip the
+                 * rest of this wake cycle: if we're still running, the PMIC
+                 * didn't actually cut power (e.g. on USB, where poweroff
+                 * behavior can differ) - let the normal re-arm-buttons +
+                 * wake-display flow below run so the watch stays usable
+                 * instead of getting stuck mid-shutdown until a real reset. */
+            }
         }
 
         /* Restore edge triggering (gpio_wakeup_enable() left these level) and
@@ -473,15 +504,11 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
      * BHI260AP runs its wake-up sensors in AP-suspend mode (wrist-raise wake)
      * at ~0.1-0.3 mA, avoiding the firmware re-upload + data freeze after a
      * rail power-cycle. Keep ALDO2 (display/touch) for touch wake.
-     * ALDO1 (SD) is KEPT ON: the FAT is left mounted across sleep, and
-     * power-cycling the rail without unmount leaves the card's SD registers
-     * undefined, so the log flush after wake fails with resp/CRC errors and
-     * the battery log is lost. The card draws little at idle.
-     * ALDO3 (LoRa) is also KEPT ON, unconditionally, same reasoning as
-     * ALDO4/sensor: mesh_log.c's background task keeps the SX1262 in RX
-     * Continuous mode for always-on Meshtastic listening, and a rail
-     * power-cycle would mean re-running the whole TCXO/RF-switch/frequency
-     * bring-up sequence on every wake instead of just continuing to listen. */
+     * ALDO3 (LoRa) is KEPT ON, unconditionally: mesh_log.c's background task
+     * keeps the SX1262 in RX Continuous mode for always-on Meshtastic
+     * listening, and a rail power-cycle would mean re-running the whole
+     * TCXO/RF-switch/frequency bring-up sequence on every wake instead of
+     * just continuing to listen. */
     /* GNSS (BLDO1): cut the rail only when GNSS is not deliberately enabled.
      * With the GPS-screen switch on, the receiver is kept alive across the
      * whole sleep session so wake-ups don't pay the ~4 s cold re-power + warm
@@ -492,8 +519,20 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
     } else {
         m10q_power(false);                                       /* GNSS (tells the driver) */
     }
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);  /* speaker */
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, false);  /* NFC */
+    /* BLDO2 (speaker) and DLDO1 (NFC) aren't touched here - both are left
+     * off permanently at boot (see axp2101_set_default_power()): the amp is
+     * only ever powered around actual playback (alarm.c, debug_audio.c),
+     * and there's no NFC driver to use DLDO1, so there's nothing to cut for
+     * sleep. */
+
+    /* SD card (ALDO1): the card is only needed while awake. Unmount cleanly
+     * and cut the rail last, after everything above has had its chance to
+     * log - sd_log_unmount() flushes the RAM ring to disk before it unmounts,
+     * so anything logged during this function (including the "entering
+     * sleep" line above) is captured, not lost. A clean unmount-then-cut is
+     * what avoids the undefined-state/CRC-error remount failures that an
+     * unclean power pull causes - see sd_log_unmount()'s doc comment. */
+    sd_log_unmount();
 
     pm_arm_gpio_wakeup();
     return ESP_OK;
@@ -506,7 +545,7 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     esp_sleep_wakeup_cause_t cause = (esp_sleep_wakeup_cause_t)esp_sleep_get_wakeup_causes();
     ESP_LOGI(TAG, "waking: sources=0x%x cause=0x%x", (unsigned)s_wake_sources, (unsigned)cause);
 
-    /* Restore rails. ALDO1 (SD) and ALDO3 (LoRa) stay on across sleep; the
+    /* Restore rails. ALDO3 (LoRa) stayed on across sleep, untouched; the
      * rest are rearmed. */
     /* GNSS (BLDO1): mirror enter_sleep's condition. Restoring this
      * unconditionally desyncs m10q's s_powered from the physical rail (the
@@ -516,8 +555,12 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     if (lvgl_gps_enabled()) {
         axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO1, true);
     }
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, true);
+    /* BLDO2 (speaker) isn't restored here - it stays off across sleep and
+     * wake alike; see enter_sleep's comment. */
+
+    /* SD card (ALDO1): remount now the watch is awake again - sd_log_mount()
+     * owns powering ALDO1 back on itself (see its doc comment). */
+    sd_log_mount();
 
     /* Resume the IMU wake-up streams before waking the panel. */
     bhi260ap_ap_resume();
@@ -558,6 +601,15 @@ void power_mgmt_init(void)
     /* Enable the AXP2101 PEK (power key) interrupt -> GPIO7. */
     axp2101_enable_pek_irq(twatch_pmu_dev);
     axp2101_clear_irq(twatch_pmu_dev);
+
+    /* PWRKEY long-press (>4s) shuts the watch down, but in software: disable
+     * the PMIC's own instant hardware cutoff on a long press and instead
+     * unmount the SD card cleanly before calling axp2101_soft_poweroff() -
+     * see pm_wake_task()'s PWRKEY handling below. */
+    esp_err_t pwrkey_err = axp2101_configure_pwrkey_shutdown(twatch_pmu_dev);
+    if (pwrkey_err != ESP_OK) {
+        ESP_LOGW(TAG, "axp2101_configure_pwrkey_shutdown: %s", esp_err_to_name(pwrkey_err));
+    }
 
     /* Shared GPIO ISR service; the touch driver installs it first, so
      * "already installed" is fine. */

@@ -63,12 +63,32 @@ esp_err_t axp2101_get_battery_pct(i2c_master_dev_handle_t dev, uint8_t *pct);
  * sleep/wake rail gating. */
 esp_err_t axp2101_enable_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, bool enable);
 
+/* Current on/off state of a rail, read live from LDO_ONOFF0 (not cached). */
+esp_err_t axp2101_is_rail_enabled(i2c_master_dev_handle_t dev, axp2101_rail_t rail, bool *enabled);
+
 /* Interrupt handling (PEK power key etc.). */
 esp_err_t axp2101_enable_pek_irq(i2c_master_dev_handle_t dev);
 esp_err_t axp2101_clear_irq(i2c_master_dev_handle_t dev);
 /* 24-bit IRQ status: bits 0-7 = INTSTS1, 8-15 = INTSTS2, 16-23 = INTSTS3.
  * PEK: INTSTS2 bits 0=press edge, 1=release edge, 2=long, 3=short. */
 esp_err_t axp2101_get_irq_status(i2c_master_dev_handle_t dev, uint32_t *status);
+
+/* PWRKEY long-press shutdown (datasheet section 6.5.4.3 "Power Off" + REG22H
+ * PWROFF_EN + REG27H OFFLEVEL). By factory default the PMIC can cut all
+ * rails on its own the instant a press crosses OFFLEVEL (REG22H bit1), with
+ * no chance for software to react - that's what this disables. The PEK
+ * "long press" IRQ (already unmasked by axp2101_enable_pek_irq(), INTSTS2
+ * bit 2) still fires at the same OFFLEVEL threshold either way, so software
+ * keeps its notification; it just also keeps the power. Call once at boot,
+ * then handle the long-press IRQ by doing cleanup (e.g. sd_log_unmount())
+ * and calling axp2101_soft_poweroff() when ready - see power_mgmt.c. */
+esp_err_t axp2101_configure_pwrkey_shutdown(i2c_master_dev_handle_t dev);
+
+/* Cleanly power off all rails now via the PMIC's own controlled sequence
+ * (REG10H bit0, "Soft PWROFF"). Only call after any needed cleanup is
+ * done - the watch loses power essentially immediately after this command
+ * is acknowledged over I2C. */
+esp_err_t axp2101_soft_poweroff(i2c_master_dev_handle_t dev);
 
 /* Charging control / telemetry. */
 esp_err_t axp2101_get_charge_status(i2c_master_dev_handle_t dev, axp2101_charge_state_t *state);

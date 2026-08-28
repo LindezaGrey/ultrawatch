@@ -15,6 +15,14 @@ void power_mgmt_init(void);
 esp_err_t power_mgmt_enter_sleep(void *ctx);
 esp_err_t power_mgmt_exit_sleep(void *ctx);
 
+/* Clean software shutdown: blank the display, unmount the SD card, then hand
+ * off to the PMIC's own controlled power-off. Normally triggered by a
+ * PWRKEY long-press (>4s) - see power_mgmt.c's pm_wake_task(). Exposed
+ * publicly only so it can be triggered from the console for testing (no way
+ * to simulate a physical 4s button hold otherwise); not meant to be called
+ * from elsewhere in the app. */
+void power_mgmt_shutdown(void);
+
 /* Night mode: auto-entered between these local-time hours (inclusive start,
  * exclusive end, wraps midnight). Compile-time constants for now. */
 #define PM_NIGHT_START_HOUR  23
