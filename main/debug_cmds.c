@@ -361,6 +361,37 @@ void debug_cmd_rtctimer(const char *args)
     }
 }
 
+void debug_cmd_settime(const char *args)
+{
+    /* Manually set the RTC. Args are UTC (the RTC's own convention, see
+     * docs/adr/0003-rtc-stores-utc.md) - a fallback for when GNSS hasn't
+     * synced it yet (e.g. right after this firmware's RTC-UTC migration, or
+     * indoors with no fix). */
+    int y, mo, d, h, mi, s;
+    if (sscanf(args, "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) != 6) {
+        printf("settime: usage: settime <YYYY-MM-DD> <HH:MM:SS>  (UTC)\n");
+        return;
+    }
+    if (y < 2000 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31 ||
+        h > 23 || mi > 59 || s > 60) {
+        printf("settime: value out of range\n");
+        return;
+    }
+    pcf85063a_time_t t;
+    t.year = (uint16_t)y;
+    t.month = (uint8_t)mo;
+    t.day = (uint8_t)d;
+    t.hour = (uint8_t)h;
+    t.min = (uint8_t)mi;
+    t.sec = (uint8_t)s;
+    pcf85063a_epoch_to_time(pcf85063a_time_to_epoch(&t), &t);  /* fills weekday */
+    esp_err_t e = pcf85063a_set_time(twatch_rtc_dev, &t);
+    printf("settime: RTC set to %04u-%02u-%02u %02u:%02u:%02u UTC: %s\n",
+           t.year, t.month, t.day, t.hour, t.min, t.sec,
+           e == ESP_OK ? "ok" : esp_err_to_name(e));
+    twatch_board_sync_system_time();
+}
+
 void debug_cmd_ble(const char *args)
 {
     (void)args;

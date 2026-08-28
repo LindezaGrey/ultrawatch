@@ -154,6 +154,7 @@ static const debug_cmd_entry_t s_commands[] = {
     { "alarmsnooze",    debug_cmd_alarmsnooze },
     { "rtcdump",        debug_cmd_rtcdump },
     { "rtctimer",       debug_cmd_rtctimer },
+    { "settime",        debug_cmd_settime },
     { "ble",            debug_cmd_ble },
     { "bleadv",         debug_cmd_bleadv },
     { "bleadvoff",      debug_cmd_bleadvoff },

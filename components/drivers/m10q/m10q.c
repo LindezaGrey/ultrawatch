@@ -99,9 +99,10 @@ static void offset_load(void);
 static void mga_ini_seed(void);
 
 /* ---- RTC sync + PPS drift calibration ----
- * GNSS time is UTC (from UBX-NAV-PVT timeUtc); the RTC stores LOCAL wall
- * time. rtc_sync_from_utc() rewrites the RTC from GPS when they disagree by
- * >= 1 s. cal_run() then measures the RTC's rate against the MIA-M10Q 1PPS
+ * GNSS time is UTC (from UBX-NAV-PVT timeUtc); the RTC stores UTC too, so
+ * comparing them is a direct epoch diff. rtc_sync_from_utc() rewrites the
+ * RTC from GPS when they disagree by >= 1 s. cal_run() then measures the
+ * RTC's rate against the MIA-M10Q 1PPS
  * on GPIO 13 and maps the drift into the PCF85063A OFFSET register.
  *
  * Drift measurement: the PPS edge marks a GPS second boundary; the RTC
@@ -146,40 +147,21 @@ static void cal_task(void *arg)
 /* ubxlib init-once guard. */
 static bool s_ubxlib_init;
 
-/* Set the RTC from GPS UTC time. RTC holds LOCAL time (TZ set in app_main),
- * so we convert via localtime_r(). Updates s_fix.rtc_offset_s. */
+/* Set the RTC from GPS UTC time. The RTC stores UTC directly, so this is a
+ * plain epoch diff/write - no TZ conversion. Updates s_fix.rtc_offset_s. */
 static void rtc_sync_from_utc(time_t utc)
 {
     pcf85063a_time_t rt;
     if (pcf85063a_get_time(s_rtc, &rt) != ESP_OK) {
         return;
     }
-    struct tm rtm = {
-        .tm_sec  = rt.sec,
-        .tm_min  = rt.min,
-        .tm_hour = rt.hour,
-        .tm_mday = rt.day,
-        .tm_wday = rt.weekday - 1,
-        .tm_mon  = rt.month - 1,
-        .tm_year = rt.year - 1900,
-        .tm_isdst = -1,
-    };
-    time_t rtc_epoch = mktime(&rtm);   /* LOCAL -> epoch, TZ respected */
+    time_t rtc_epoch = pcf85063a_time_to_epoch(&rt);
     int32_t delta = (int32_t)(utc - rtc_epoch);
     s_fix.rtc_offset_s = delta;
 
     if (delta < -RTC_SYNC_MIN_DELTA_S || delta > RTC_SYNC_MIN_DELTA_S) {
-        struct tm gtm;
-        localtime_r(&utc, &gtm);       /* epoch -> LOCAL wall time */
-        pcf85063a_time_t nt = {
-            .sec     = (uint8_t)gtm.tm_sec,
-            .min     = (uint8_t)gtm.tm_min,
-            .hour    = (uint8_t)gtm.tm_hour,
-            .day     = (uint8_t)gtm.tm_mday,
-            .weekday = (uint8_t)(gtm.tm_wday + 1),
-            .month   = (uint8_t)(gtm.tm_mon + 1),
-            .year    = (uint16_t)(gtm.tm_year + 1900),
-        };
+        pcf85063a_time_t nt;
+        pcf85063a_epoch_to_time(utc, &nt);
         if (pcf85063a_set_time(s_rtc, &nt) == ESP_OK) {
             s_fix.rtc_offset_s = 0;    /* just applied; now in sync */
             ESP_LOGI(TAG, "RTC set from GPS: %04d-%02d-%02d %02d:%02d:%02d (was %+ld s)",
@@ -868,7 +850,7 @@ static bool rtc_fields_plausible(const pcf85063a_time_t *rt)
     return true;
 }
 
-/* Inject MGA-INI aiding from the RTC (local time -> UTC epoch via mktime) and
+/* Inject MGA-INI aiding from the RTC (UTC calendar fields -> UTC epoch) and
  * the NVS last-known position, but only when the module actually needs it:
  *
  *  - Time: the module keeps its own RTC on the VBACKUP rail. If that is alive
@@ -887,16 +869,7 @@ static void mga_ini_seed(void)
     pcf85063a_time_t rt;
     time_t epoch = 0;
     if (pcf85063a_get_time(s_rtc, &rt) == ESP_OK && rtc_fields_plausible(&rt)) {
-        struct tm rtm = {
-            .tm_sec   = rt.sec,
-            .tm_min   = rt.min,
-            .tm_hour  = rt.hour,
-            .tm_mday  = rt.day,
-            .tm_mon   = rt.month - 1,
-            .tm_year  = rt.year - 1900,
-            .tm_isdst = -1,
-        };
-        epoch = mktime(&rtm);   /* LOCAL -> epoch, TZ respected */
+        epoch = pcf85063a_time_to_epoch(&rt);
     }
 
     /* Check the module's own VBACKUP-backed time first. */

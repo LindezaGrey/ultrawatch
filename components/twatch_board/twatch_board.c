@@ -133,21 +133,13 @@ static void sync_system_time(void)
         ESP_LOGW(TAG, "RTC time invalid, system clock not synced");
         return;
     }
-    struct tm tm = { 0 };
-    tm.tm_sec  = t.sec;
-    tm.tm_min  = t.min;
-    tm.tm_hour = t.hour;
-    tm.tm_mday = t.day;
-    tm.tm_mon  = t.month - 1;
-    tm.tm_year = t.year - 1900;
-    time_t now = mktime(&tm);
-    if (now == (time_t)-1) {
-        ESP_LOGW(TAG, "RTC time out of range, system clock not synced");
-        return;
-    }
+    /* The RTC stores UTC directly, so this is a straight epoch conversion -
+     * no mktime()/TZ involved (system time()/mktime() is always UTC-epoch
+     * regardless of the process TZ used for display). */
+    time_t now = pcf85063a_time_to_epoch(&t);
     struct timeval tv = { .tv_sec = now, .tv_usec = 0 };
     settimeofday(&tv, NULL);
-    ESP_LOGI(TAG, "system clock synced from RTC");
+    ESP_LOGI(TAG, "system clock synced from RTC (UTC)");
 }
 
 /* Public wrapper: the sensor cache calls this periodically so the ESP32

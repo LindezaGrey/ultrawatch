@@ -30,6 +30,7 @@ void debug_cmd_alarmdismiss(const char *args);
 void debug_cmd_alarmsnooze(const char *args);
 void debug_cmd_rtcdump(const char *args);
 void debug_cmd_rtctimer(const char *args);
+void debug_cmd_settime(const char *args);
 void debug_cmd_ble(const char *args);
 void debug_cmd_bleadv(const char *args);
 void debug_cmd_bleadvoff(const char *args);

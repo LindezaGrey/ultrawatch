@@ -12,23 +12,13 @@
 #include <stdbool.h>
 #include "esp_err.h"
 #include "driver/i2c_master.h"
+#include "pcf85063a_time.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define PCF85063A_I2C_ADDR 0x51
-
-/* Weekday follows the RTC convention: 1=Sunday .. 7=Saturday. */
-typedef struct {
-    uint8_t  sec;
-    uint8_t  min;
-    uint8_t  hour;
-    uint8_t  day;
-    uint8_t  weekday;
-    uint8_t  month;   /* 1..12 */
-    uint16_t year;    /* full year, e.g. 2026 */
-} pcf85063a_time_t;
 
 typedef struct {
     bool  enabled;                 /* enable the alarm interrupt (AIE) */

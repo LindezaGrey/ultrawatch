@@ -9,6 +9,7 @@
  * On wake: rails + panel restored.
  */
 #include "power_mgmt.h"
+#include <time.h>
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "esp_sleep.h"
@@ -74,12 +75,17 @@ static bool pm_is_night_time(void)
         return false;
     }
     /* Use the RTC wall clock, not the ESP32 system clock, so night mode never
-     * drifts. The RTC is polled by the background telemetry cache task. */
+     * drifts. The RTC is polled by the background telemetry cache task. The
+     * RTC itself stores UTC, so convert to local before comparing against
+     * the (local) night-mode hour window. */
     pcf85063a_time_t t;
     if (!sensor_cache_get_rtc(&t)) {
         return false;
     }
-    int h = t.hour;
+    time_t epoch = pcf85063a_time_to_epoch(&t);
+    struct tm lt;
+    localtime_r(&epoch, &lt);
+    int h = lt.tm_hour;
     if (PM_NIGHT_START_HOUR <= PM_NIGHT_END_HOUR) {
         return h >= PM_NIGHT_START_HOUR && h < PM_NIGHT_END_HOUR;
     }

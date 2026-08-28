@@ -281,36 +281,25 @@ static void watch_face_update(lv_timer_t *timer)
         return;
     }
 
+    /* The RTC stores UTC directly; convert to local (process TZ) for the
+     * primary display, which stays DST-aware. */
+    time_t epoch = pcf85063a_time_to_epoch(&t);
+    struct tm lt;
+    localtime_r(&epoch, &lt);
+
     char buf[32];
-    snprintf(buf, sizeof(buf), "%02d:%02d:%02d", t.hour, t.min, t.sec);
+    snprintf(buf, sizeof(buf), "%02d:%02d:%02d", lt.tm_hour, lt.tm_min, lt.tm_sec);
     lv_label_set_text(s_time_label, buf);
 
-    /* UTC derived from the same RTC snapshot (which holds local time), so it
-     * stays DST-aware: local fields -> epoch via mktime -> gmtime. */
-    struct tm lt = {0};
-    lt.tm_sec   = t.sec;
-    lt.tm_min   = t.min;
-    lt.tm_hour  = t.hour;
-    lt.tm_mday  = t.day;
-    lt.tm_mon   = t.month - 1;
-    lt.tm_year  = (int)t.year - 1900;
-    lt.tm_isdst = -1;
-    time_t epoch = mktime(&lt);
-    if (epoch != (time_t)-1) {
-        struct tm utc;
-        gmtime_r(&epoch, &utc);
-        snprintf(buf, sizeof(buf), "UTC %02d:%02d", utc.tm_hour, utc.tm_min);
-    } else {
-        snprintf(buf, sizeof(buf), "UTC --:--");
-    }
+    /* UTC sub-display: the RTC snapshot is already UTC, no conversion. */
+    snprintf(buf, sizeof(buf), "UTC %02d:%02d", t.hour, t.min);
     lv_label_set_text(s_sec_label, buf);
 
     static const char *wday[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
     static const char *mon[] = { "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
                                  "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
-    int wd = (t.weekday >= 1 && t.weekday <= 7) ? t.weekday - 1 : 0;
     snprintf(buf, sizeof(buf), "%s  %02d %s %d",
-             wday[wd], t.day, mon[t.month - 1], t.year);
+             wday[lt.tm_wday], lt.tm_mday, mon[lt.tm_mon], lt.tm_year + 1900);
     lv_label_set_text(s_date_label, buf);
 
     sensor_cache_t cache;

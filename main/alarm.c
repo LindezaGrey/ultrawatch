@@ -29,6 +29,7 @@
 #include "esp_lv_adapter.h"
 #include <math.h>
 #include <string.h>
+#include <time.h>
 
 static const char *TAG = "alarm";
 
@@ -106,6 +107,32 @@ static void rtc_arm_alarm(void)
     /* Re-arming the daily alarm also cancels a pending snooze countdown. */
     pcf85063a_timer_stop(twatch_rtc_dev);
     s_snoozing = false;
+
+    /* s_cfg.hour/min are the user's LOCAL alarm time, but the RTC hardware
+     * match registers hold UTC. Convert using today's date (from the live
+     * RTC) so the DST offset in effect right now is the one baked into the
+     * match registers. Accepted edge case: since day/weekday are masked (the
+     * alarm fires at the same hh:mm UTC every day), a DST transition between
+     * arming and the alarm next firing shifts it by the DST delta until the
+     * alarm is re-armed (e.g. by changing the time, toggling it, or the
+     * dismiss/re-arm each ring already does) - not re-computed live. */
+    struct tm lt = {0};
+    pcf85063a_time_t rtc_now;
+    if (pcf85063a_get_time(twatch_rtc_dev, &rtc_now) == ESP_OK) {
+        time_t epoch_now = pcf85063a_time_to_epoch(&rtc_now);
+        localtime_r(&epoch_now, &lt);
+    } else {
+        time_t now = time(NULL);
+        localtime_r(&now, &lt);
+    }
+    lt.tm_hour = s_cfg.hour;
+    lt.tm_min = s_cfg.min;
+    lt.tm_sec = 0;
+    lt.tm_isdst = -1;
+    time_t alarm_epoch = mktime(&lt);
+    struct tm utc;
+    gmtime_r(&alarm_epoch, &utc);
+
     pcf85063a_alarm_t a;
     memset(&a, 0, sizeof(a));
     a.enabled = true;
@@ -116,9 +143,11 @@ static void rtc_arm_alarm(void)
     a.time.sec = 0;
     a.mask_day = true;
     a.mask_weekday = true;
-    a.time.hour = s_cfg.hour;
-    a.time.min = s_cfg.min;
+    a.time.hour = (uint8_t)utc.tm_hour;
+    a.time.min = (uint8_t)utc.tm_min;
     pcf85063a_set_alarm(twatch_rtc_dev, &a);
+    ESP_LOGI(TAG, "armed local %02u:%02u -> RTC UTC %02u:%02u",
+             (unsigned)s_cfg.hour, (unsigned)s_cfg.min, a.time.hour, a.time.min);
 }
 
 static void rtc_disarm_alarm(void)
