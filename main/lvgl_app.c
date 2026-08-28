@@ -664,15 +664,20 @@ static void lvgl_build_power_screen(void)
     lv_obj_align(s_pw_night_switch, LV_ALIGN_TOP_RIGHT, -40, 380);
     lv_obj_add_event_cb(s_pw_night_switch, power_night_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    /* Do-not-sleep-on-USB switch. */
+    /* Do-not-sleep-on-USB switch. Vertical offset 436, not 416: at 416 this
+     * switch's touch target sat only 6px below the night-mode switch's
+     * (rows 380-409 vs 416-445 measured in the sim), well inside a single
+     * fingertip's contact area on the real capacitive touchscreen and easy
+     * to mis-tap. 436 opens a ~26px gap, using margin that was previously
+     * just empty space above the hint text. */
     lv_obj_t *usb_lbl = lv_label_create(s_power_screen);
     lv_label_set_text(usb_lbl, "No sleep on USB");
     lv_obj_set_style_text_font(usb_lbl, s_font_small, 0);
     lv_obj_set_style_text_color(usb_lbl, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(usb_lbl, LV_ALIGN_TOP_LEFT, 40, 416);
+    lv_obj_align(usb_lbl, LV_ALIGN_TOP_LEFT, 40, 436);
 
     s_pw_usb_switch = lv_switch_create(s_power_screen);
-    lv_obj_align(s_pw_usb_switch, LV_ALIGN_TOP_RIGHT, -40, 416);
+    lv_obj_align(s_pw_usb_switch, LV_ALIGN_TOP_RIGHT, -40, 436);
     lv_obj_add_event_cb(s_pw_usb_switch, power_usb_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     /* Hint. */
