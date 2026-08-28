@@ -1447,35 +1447,34 @@ void lvgl_tracking_stop(void)
 
 /* ---- Alarm set + ringing screens ---- */
 
-static void alarm_edit_refresh(void)
+/* Every control on this screen commits immediately via alarm_set() - no
+ * separate "Set" confirm step. That matches every other switch/button on
+ * the power and GPS screens (flip it, it takes effect), and alarm_set()'s
+ * NVS + RTC-I2C write cost is trivial at human tap rates. s_alarm_edit is
+ * still the in-memory mirror of "what's currently shown/armed", updated by
+ * each control right before the commit. */
+static void alarm_commit(void)
 {
     char buf[8];
     snprintf(buf, sizeof(buf), "%02u:%02u", (unsigned)s_alarm_edit.hour,
              (unsigned)s_alarm_edit.min);
     lv_label_set_text(s_alarm_time_label, buf);
-}
-
-static void alarm_set_apply(lv_event_t *e)
-{
-    (void)e;
-    s_alarm_edit.enabled = lv_obj_has_state(s_alarm_en_switch, LV_STATE_CHECKED);
     alarm_set(s_alarm_edit.hour, s_alarm_edit.min, s_alarm_edit.enabled,
               s_alarm_edit.ring_mode);
-    lvgl_show_watch_face();
 }
 
 static void alarm_hour_btn_cb(lv_event_t *e)
 {
     int delta = (int)(intptr_t)lv_event_get_user_data(e);
     s_alarm_edit.hour = (uint8_t)((s_alarm_edit.hour + 24 + delta) % 24);
-    alarm_edit_refresh();
+    alarm_commit();
 }
 
 static void alarm_min_btn_cb(lv_event_t *e)
 {
     int delta = (int)(intptr_t)lv_event_get_user_data(e);
     s_alarm_edit.min = (uint8_t)((s_alarm_edit.min + 60 + delta) % 60);
-    alarm_edit_refresh();
+    alarm_commit();
 }
 
 static void alarm_mode_btn_cb(lv_event_t *e)
@@ -1489,6 +1488,14 @@ static void alarm_mode_btn_cb(lv_event_t *e)
     lv_obj_add_state((mode == ALARM_RING_BEEP) ? s_alarm_mode_beep :
                      (mode == ALARM_RING_VIB) ? s_alarm_mode_vib : s_alarm_mode_both,
                      LV_STATE_CHECKED);
+    alarm_commit();
+}
+
+static void alarm_en_switch_cb(lv_event_t *e)
+{
+    (void)e;
+    s_alarm_edit.enabled = lv_obj_has_state(s_alarm_en_switch, LV_STATE_CHECKED);
+    alarm_commit();
 }
 
 static void lvgl_build_alarm_screen(void)
@@ -1551,8 +1558,11 @@ static void lvgl_build_alarm_screen(void)
     lv_obj_set_style_text_color(mode_lbl, lv_color_hex(0xE0E0E0), 0);
     lv_obj_align(mode_lbl, LV_ALIGN_TOP_LEFT, 40, 305);
 
+    /* 110px wide with 15px gaps (was 120px with 0px gaps - the three
+     * buttons were exactly edge-to-edge, indistinguishable by touch when
+     * unchecked since they're the same color with no visible seam). */
     s_alarm_mode_beep = lv_button_create(s_alarm_screen);
-    lv_obj_set_size(s_alarm_mode_beep, 120, 72);
+    lv_obj_set_size(s_alarm_mode_beep, 110, 72);
     lv_obj_align(s_alarm_mode_beep, LV_ALIGN_TOP_LEFT, 25, 330);
     lv_obj_t *mb = lv_label_create(s_alarm_mode_beep);
     lv_label_set_text(mb, "Beep");
@@ -1563,8 +1573,8 @@ static void lvgl_build_alarm_screen(void)
                         (void *)(uintptr_t)ALARM_RING_BEEP);
 
     s_alarm_mode_vib = lv_button_create(s_alarm_screen);
-    lv_obj_set_size(s_alarm_mode_vib, 120, 72);
-    lv_obj_align(s_alarm_mode_vib, LV_ALIGN_TOP_MID, 0, 330);
+    lv_obj_set_size(s_alarm_mode_vib, 110, 72);
+    lv_obj_align(s_alarm_mode_vib, LV_ALIGN_TOP_LEFT, 150, 330);
     lv_obj_t *mv = lv_label_create(s_alarm_mode_vib);
     lv_label_set_text(mv, "Vib");
     lv_obj_set_style_text_font(mv, s_font_small, 0);
@@ -1574,8 +1584,8 @@ static void lvgl_build_alarm_screen(void)
                         (void *)(uintptr_t)ALARM_RING_VIB);
 
     s_alarm_mode_both = lv_button_create(s_alarm_screen);
-    lv_obj_set_size(s_alarm_mode_both, 120, 72);
-    lv_obj_align(s_alarm_mode_both, LV_ALIGN_TOP_RIGHT, -25, 330);
+    lv_obj_set_size(s_alarm_mode_both, 110, 72);
+    lv_obj_align(s_alarm_mode_both, LV_ALIGN_TOP_LEFT, 275, 330);
     lv_obj_t *mbt = lv_label_create(s_alarm_mode_both);
     lv_label_set_text(mbt, "Both");
     lv_obj_set_style_text_font(mbt, s_font_small, 0);
@@ -1584,30 +1594,36 @@ static void lvgl_build_alarm_screen(void)
     lv_obj_add_event_cb(s_alarm_mode_both, alarm_mode_btn_cb, LV_EVENT_CLICKED,
                         (void *)(uintptr_t)ALARM_RING_BOTH);
 
-    /* On/off switch. */
+    /* On/off switch - applies immediately (alarm_en_switch_cb), no Set
+     * button needed. Room freed by removing Set lets this have its own
+     * clean row instead of competing with a button for space. */
     lv_obj_t *en_lbl = lv_label_create(s_alarm_screen);
     lv_label_set_text(en_lbl, "Enabled");
     lv_obj_set_style_text_font(en_lbl, s_font_small, 0);
     lv_obj_set_style_text_color(en_lbl, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(en_lbl, LV_ALIGN_TOP_LEFT, 40, 415);
+    lv_obj_align(en_lbl, LV_ALIGN_TOP_LEFT, 40, 424);
 
     s_alarm_en_switch = lv_switch_create(s_alarm_screen);
-    lv_obj_align(s_alarm_en_switch, LV_ALIGN_TOP_RIGHT, -40, 410);
+    lv_obj_align(s_alarm_en_switch, LV_ALIGN_TOP_RIGHT, -40, 420);
     lv_obj_set_size(s_alarm_en_switch, 70, 40);
+    lv_obj_add_event_cb(s_alarm_en_switch, alarm_en_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    /* Set */
-    lv_obj_t *set_btn = lv_button_create(s_alarm_screen);
-    lv_obj_set_size(set_btn, 120, 52);
-    lv_obj_align(set_btn, LV_ALIGN_TOP_MID, 0, 414);
-    lv_obj_t *set_lbl = lv_label_create(set_btn);
-    lv_label_set_text(set_lbl, "Set");
-    lv_obj_set_style_text_font(set_lbl, s_font_small, 0);
-    lv_obj_center(set_lbl);
-    lv_obj_add_event_cb(set_btn, alarm_set_apply, LV_EVENT_CLICKED, NULL);
+    /* Hint, matching every other non-watch-face screen (this one didn't
+     * have one before). */
+    lv_obj_t *hint = lv_label_create(s_alarm_screen);
+    lv_label_set_text(hint, "swipe down to go back");
+    lv_obj_set_style_text_font(hint, s_font_small, 0);
+    lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -6);
 
-    /* Load current config into the edit buffer. */
+    /* Load current config into the edit buffer and reflect it (no commit -
+     * this is a read, alarm_set() shouldn't fire just from opening the
+     * screen). */
     alarm_get_config(&s_alarm_edit);
-    alarm_edit_refresh();
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%02u:%02u", (unsigned)s_alarm_edit.hour,
+             (unsigned)s_alarm_edit.min);
+    lv_label_set_text(s_alarm_time_label, buf);
     if (s_alarm_edit.enabled) {
         lv_obj_add_state(s_alarm_en_switch, LV_STATE_CHECKED);
     }
