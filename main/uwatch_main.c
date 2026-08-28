@@ -74,19 +74,35 @@ static void debug_task(void *arg)
             continue;
         }
         len += (size_t)n;
-        /* Process complete lines. */
-        char *nl;
-        while ((nl = memchr(line, '\n', len)) != NULL) {
-            size_t cmd_len = (size_t)(nl - line);
-            /* Strip trailing CR. */
-            while (cmd_len > 0 && (line[cmd_len - 1] == '\r' || line[cmd_len - 1] == ' ')) {
+        /* Process complete lines. Accept bare \r, bare \n, or \r\n as the
+         * line terminator - idf.py monitor's underlying miniterm sends \r
+         * only on Enter, not \n, so treating \n as the sole terminator left
+         * every typed command sitting unprocessed in the buffer forever
+         * (only flushed, garbled, once something else eventually sent a
+         * real \n). Stopping at the first \r or \n and skipping the empty
+         * line a \r\n pair produces handles all three cases correctly. */
+        for (;;) {
+            size_t term = len;
+            for (size_t i = 0; i < len; i++) {
+                if (line[i] == '\r' || line[i] == '\n') {
+                    term = i;
+                    break;
+                }
+            }
+            if (term == len) {
+                break;   /* no terminator yet, wait for more bytes */
+            }
+            size_t cmd_len = term;
+            while (cmd_len > 0 && line[cmd_len - 1] == ' ') {
                 cmd_len--;
             }
             line[cmd_len] = '\0';
-            debug_process_cmd(line);
+            if (cmd_len > 0) {
+                debug_process_cmd(line);
+            }
             /* Shift remaining bytes. */
-            size_t rest = len - (size_t)(nl - line) - 1;
-            memmove(line, nl + 1, rest);
+            size_t rest = len - term - 1;
+            memmove(line, line + term + 1, rest);
             len = rest;
         }
     }
