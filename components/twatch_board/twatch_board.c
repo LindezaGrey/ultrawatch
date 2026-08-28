@@ -25,7 +25,6 @@ static const char *TAG = "twatch_board";
 
 i2c_master_bus_handle_t twatch_i2c_bus;
 spi_host_device_t       twatch_spi_bus;
-spi_device_handle_t     twatch_sd_spi_dev;
 spi_device_handle_t     twatch_lora_spi_dev;
 spi_device_handle_t     twatch_nfc_spi_dev;
 
@@ -33,7 +32,6 @@ i2c_master_dev_handle_t twatch_pmu_dev;
 i2c_master_dev_handle_t twatch_rtc_dev;
 i2c_master_dev_handle_t twatch_imu_dev;
 i2c_master_dev_handle_t twatch_haptic_dev;
-i2c_master_dev_handle_t twatch_touch_dev;
 i2c_master_dev_handle_t twatch_xl9555_dev;
 
 /* I2S audio: separate controllers so each keeps its own mode.
@@ -86,9 +84,6 @@ static esp_err_t twatch_i2c_init(void)
     dev_cfg.device_address = TWATCH_I2C_ADDR_HAPTIC;
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(twatch_i2c_bus, &dev_cfg, &twatch_haptic_dev), TAG, "haptic add failed");
 
-    dev_cfg.device_address = TWATCH_I2C_ADDR_TOUCH;
-    ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(twatch_i2c_bus, &dev_cfg, &twatch_touch_dev), TAG, "touch add failed");
-
     dev_cfg.device_address = TWATCH_I2C_ADDR_XL9555;
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(twatch_i2c_bus, &dev_cfg, &twatch_xl9555_dev), TAG, "xl9555 add failed");
 
@@ -112,9 +107,6 @@ static esp_err_t twatch_spi_init(void)
         .clock_speed_hz = 10 * 1000 * 1000,
         .queue_size = 7,
     };
-
-    dev_cfg.spics_io_num = TWATCH_PIN_SD_CS;
-    ESP_RETURN_ON_ERROR(spi_bus_add_device(TWATCH_SPI_HOST, &dev_cfg, &twatch_sd_spi_dev), TAG, "sd spi dev failed");
 
     dev_cfg.spics_io_num = TWATCH_PIN_LORA_CS;
     ESP_RETURN_ON_ERROR(spi_bus_add_device(TWATCH_SPI_HOST, &dev_cfg, &twatch_lora_spi_dev), TAG, "lora spi dev failed");
