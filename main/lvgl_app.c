@@ -1280,10 +1280,15 @@ static void mesh_screen_update(lv_timer_t *timer)
          * overflow line drew straight into the row below's space (LVGL only
          * clips CLIP-mode overflow horizontally within one line - it doesn't
          * stop a *forced* second line from a literal newline). */
+        /* ch=0x%02x is shown for every kind, not just unknown-channel rows:
+         * with two decryptable channels now (default + "Mesh Hessen"), the
+         * hash is the one field that lets you tell messages on different
+         * channels apart at a glance. */
         switch (msgs[i].kind) {
         case MESH_MSG_TEXT:
-            snprintf(buf, sizeof(buf), "!%08lx %ddBm %lus: %s",
-                     (unsigned long)msgs[i].from, (int)msgs[i].rssi_dbm,
+            snprintf(buf, sizeof(buf), "!%08lx ch=0x%02x %ddBm %+ddB %lus: %s",
+                     (unsigned long)msgs[i].from, (unsigned)msgs[i].channel_hash,
+                     (int)msgs[i].rssi_dbm, (int)msgs[i].snr_db,
                      (unsigned long)age_s, msgs[i].text);
             lv_obj_set_style_text_color(s_mesh_row_label[i], lv_color_hex(0xE0E0E0), 0);
             break;
@@ -1292,8 +1297,9 @@ static void mesh_screen_update(lv_timer_t *timer)
              * NodeInfo, telemetry) - a distinct blue-grey from both a real
              * message (light) and an unknown channel (dim), since this one
              * genuinely was decrypted successfully. */
-            snprintf(buf, sizeof(buf), "!%08lx %ddBm %lus %s",
-                     (unsigned long)msgs[i].from, (int)msgs[i].rssi_dbm,
+            snprintf(buf, sizeof(buf), "!%08lx ch=0x%02x %ddBm %+ddB %lus %s",
+                     (unsigned long)msgs[i].from, (unsigned)msgs[i].channel_hash,
+                     (int)msgs[i].rssi_dbm, (int)msgs[i].snr_db,
                      (unsigned long)age_s, msgs[i].text);
             lv_obj_set_style_text_color(s_mesh_row_label[i], lv_color_hex(0x8FB0D0), 0);
             break;
@@ -1303,9 +1309,10 @@ static void mesh_screen_update(lv_timer_t *timer)
              * decrypt didn't parse as a valid Data message - still shown
              * (always show headers), dimmed to set it apart from content we
              * actually got something out of. */
-            snprintf(buf, sizeof(buf), "!%08lx %ddBm %lus ch=0x%02x (unknown channel)",
-                     (unsigned long)msgs[i].from, (int)msgs[i].rssi_dbm,
-                     (unsigned long)age_s, (unsigned)msgs[i].channel_hash);
+            snprintf(buf, sizeof(buf), "!%08lx ch=0x%02x %ddBm %+ddB %lus (unknown channel)",
+                     (unsigned long)msgs[i].from, (unsigned)msgs[i].channel_hash,
+                     (int)msgs[i].rssi_dbm, (int)msgs[i].snr_db,
+                     (unsigned long)age_s);
             lv_obj_set_style_text_color(s_mesh_row_label[i], lv_color_hex(0x777766), 0);
             break;
         }

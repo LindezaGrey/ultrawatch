@@ -29,7 +29,6 @@
 #include "debug_bhi.h"
 #include "debug_gnss.h"
 #include "debug_cmds.h"
-#include "debug_lora.h"
 #include <stdio.h>
 
 static const char *TAG = "uwatch";
@@ -147,7 +146,6 @@ static const debug_cmd_entry_t s_commands[] = {
     { "cachedump",      debug_gnss_cachedump },
     { "trackstat",      debug_gnss_trackstat },
     { "gnssraw",        debug_gnss_raw },
-    { "meshdump",       debug_lora_meshdump },
     { "motor",          debug_cmd_motor },
     { "crashinfo",      debug_cmd_crashinfo },
     { "pm",             debug_cmd_pm },

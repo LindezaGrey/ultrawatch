@@ -75,6 +75,18 @@ static const char *TAG = "sx1262";
 static spi_device_handle_t s_spi;
 static bool s_rx_active;
 
+/* Task to notify when DIO1 (RxDone) fires - set at the top of every
+ * sx1262_recv() call, read from ISR context. A single pointer-sized write/
+ * read is atomic on this target, and there is exactly one caller (mesh_log's
+ * background listener) for the lifetime of the process, so no lock is
+ * needed. NULL-checked in the ISR: DIO1 can only assert after SetRx, which
+ * the caller always issues before its first sx1262_recv() call, but a
+ * packet arriving in that narrow window would otherwise notify a NULL
+ * handle. Harmless either way - sx1262_recv() also checks the GPIO level
+ * directly on entry, and DIO1 stays asserted until ClearIrqStatus, so a
+ * missed notification there still gets caught by that level check. */
+static TaskHandle_t s_recv_task;
+
 /* ---- BUSY protocol + raw SPI transaction primitives ---- */
 
 /* Bounded attempt-loop, modeled on bhi260ap_drain_wakeup_fifo()'s shape. */
@@ -420,6 +432,21 @@ esp_err_t sx1262_rx_stop(void)
     return err;
 }
 
+/* DIO1 fires (rising edge) on RxDone - see set_dio_irq_params(). Just wakes
+ * whoever is blocked in sx1262_recv(); all the real work (GetIrqStatus,
+ * ClearIrqStatus, reading the packet) happens on that task, not here. */
+static void IRAM_ATTR sx1262_dio1_isr(void *arg)
+{
+    (void)arg;
+    if (s_recv_task) {
+        BaseType_t woken = pdFALSE;
+        vTaskNotifyGiveFromISR(s_recv_task, &woken);
+        if (woken == pdTRUE) {
+            portYIELD_FROM_ISR();
+        }
+    }
+}
+
 esp_err_t sx1262_recv(uint8_t *buf, size_t buf_cap, size_t *out_len,
                        int16_t *rssi_dbm, int8_t *snr_db, bool *crc_ok,
                        int timeout_ms)
@@ -427,7 +454,10 @@ esp_err_t sx1262_recv(uint8_t *buf, size_t buf_cap, size_t *out_len,
     if (!buf || !out_len || !rssi_dbm || !snr_db || !crc_ok) {
         return ESP_ERR_INVALID_ARG;
     }
+    s_recv_task = xTaskGetCurrentTaskHandle();
+
     TickType_t start = xTaskGetTickCount();
+    TickType_t deadline = start + pdMS_TO_TICKS(timeout_ms);
     for (;;) {
         if (gpio_get_level(SX1262_PIN_IRQ) != 0) {
             uint16_t irq = 0;
@@ -459,20 +489,17 @@ esp_err_t sx1262_recv(uint8_t *buf, size_t buf_cap, size_t *out_len,
                 clear_irq_status(irq);   /* clear whatever else fired (e.g. a lone CRC error) */
             }
         }
-        if (pdTICKS_TO_MS(xTaskGetTickCount() - start) >= (uint32_t)timeout_ms) {
+        TickType_t now = xTaskGetTickCount();
+        if ((now - start) >= (TickType_t)pdMS_TO_TICKS(timeout_ms)) {
             return ESP_ERR_TIMEOUT;
         }
-        /* 100ms, not a tighter poll: this loop backs both the interactive
-         * meshdump console command and mesh_log.c's always-on background
-         * task. A short poll keeps the CPU waking constantly, which fights
-         * light-sleep power savings far more than keeping ALDO3 powered
-         * ever would. 100ms is a reasonable compromise, not the real fix -
-         * that would be wiring DIO1 into the GPIO-interrupt wake
-         * architecture power_mgmt.c already uses for PM_GPIO_IMU/RTC, so
-         * the CPU can actually light-sleep between packets instead of
-         * polling. Not done here; a real background-task battery-life
-         * concern to revisit if it matters in practice. */
-        vTaskDelay(pdMS_TO_TICKS(100));
+        /* Block until DIO1's ISR wakes us or the deadline arrives - no
+         * polling. If a notification is already pending (DIO1 fired between
+         * the previous call's ClearIrqStatus and this call re-arming, or
+         * this is the very first call and it raced sx1262_rx_start()'s
+         * SetRx), this returns immediately and the level check above
+         * catches it on the next loop iteration. */
+        ulTaskNotifyTake(pdTRUE, deadline - now);
     }
 }
 
@@ -496,8 +523,21 @@ esp_err_t sx1262_init(spi_device_handle_t spi)
     gpio_config_t irq_io = {
         .pin_bit_mask = 1ULL << SX1262_PIN_IRQ,
         .mode = GPIO_MODE_INPUT,
+        .intr_type = GPIO_INTR_POSEDGE,   /* DIO1 idles low, pulses high on RxDone */
     };
     gpio_config(&irq_io);
+
+    /* The ISR service is shared across the whole app (touch/m10q/power_mgmt
+     * also install it) - ESP_ERR_INVALID_STATE just means someone beat us to
+     * it, which is fine; anything else means gpio_isr_handler_add() below
+     * will fail too, so log and continue (matches this driver's log-and-
+     * continue convention for every other init step). */
+    esp_err_t isr_err = gpio_install_isr_service(0);
+    if (isr_err != ESP_OK && isr_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "gpio_install_isr_service: %s", esp_err_to_name(isr_err));
+    } else {
+        gpio_isr_handler_add(SX1262_PIN_IRQ, sx1262_dio1_isr, NULL);
+    }
 
     reset_pulse();
 
