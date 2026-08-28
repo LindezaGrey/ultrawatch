@@ -22,6 +22,7 @@ void debug_cmd_motor(const char *args);
 void debug_cmd_pm(const char *args);
 void debug_cmd_pwroff(const char *args);
 void debug_cmd_rails(const char *args);
+void debug_cmd_nfcpoll(const char *args);
 void debug_cmd_bat(const char *args);
 void debug_cmd_dispchk(const char *args);
 void debug_cmd_disppwr(const char *args);

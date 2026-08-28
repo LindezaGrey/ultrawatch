@@ -112,7 +112,12 @@ static esp_err_t twatch_spi_init(void)
     dev_cfg.spics_io_num = TWATCH_PIN_LORA_CS;
     ESP_RETURN_ON_ERROR(spi_bus_add_device(TWATCH_SPI_HOST, &dev_cfg, &twatch_lora_spi_dev), TAG, "lora spi dev failed");
 
+    /* ST25R3916 datasheet SS4.3.3: "clock polarity of 0, a clock phase of 1"
+     * - SPI mode 1 (CPOL=0/CPHA=1), not mode 0 like the LoRa/SD devices on
+     * this same bus. Sampling MISO on the wrong edge reads back garbage
+     * (0xFF) even with correct wiring and CS. */
     dev_cfg.spics_io_num = TWATCH_PIN_NFC_CS;
+    dev_cfg.mode = 1;
     ESP_RETURN_ON_ERROR(spi_bus_add_device(TWATCH_SPI_HOST, &dev_cfg, &twatch_nfc_spi_dev), TAG, "nfc spi dev failed");
 
     return ESP_OK;
@@ -231,7 +236,7 @@ esp_err_t twatch_board_init(void)
     m10q_init(twatch_pmu_dev, twatch_rtc_dev);
     sx1262_init(twatch_lora_spi_dev);
     meshtastic_radio_init();
-    st25r3916_init(twatch_nfc_spi_dev);
+    st25r3916_init(twatch_nfc_spi_dev, twatch_pmu_dev);
 
     ESP_LOGI(TAG, "T-Watch Ultra board init finished");
     return ESP_OK;

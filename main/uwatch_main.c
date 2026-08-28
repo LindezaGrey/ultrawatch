@@ -150,6 +150,7 @@ static const debug_cmd_entry_t s_commands[] = {
     { "pm",             debug_cmd_pm },
     { "pwroff",         debug_cmd_pwroff },
     { "rails",          debug_cmd_rails },
+    { "nfcpoll",        debug_cmd_nfcpoll },
     { "bat",            debug_cmd_bat },
     { "dispchk",        debug_cmd_dispchk },
     { "disppwr",        debug_cmd_disppwr },

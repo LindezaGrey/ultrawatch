@@ -15,6 +15,7 @@ idf_component_register(
         sd_log
         pcf85063a
         sx1262
+        st25r3916
         esp_lvgl_adapter
         lvgl
         spiffs

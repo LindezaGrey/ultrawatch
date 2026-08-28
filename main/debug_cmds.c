@@ -27,6 +27,7 @@
 #include "daily_log.h"
 #include "bhi260ap.h"
 #include "pcf85063a.h"
+#include "st25r3916.h"
 #include "debug_cmds.h"
 
 void debug_cmd_shot(const char *args)
@@ -238,6 +239,53 @@ void debug_cmd_rails(const char *args)
     bool vbus = false;
     axp2101_is_vbus_present(twatch_pmu_dev, &vbus);
     printf("VBUS (USB power)     %s\n", vbus ? "present" : "absent");
+}
+
+void debug_cmd_nfcpoll(const char *args)
+{
+    /* A single REQA "pings" once, at t=0 of one bring-up - a tag placed a
+     * moment later never gets a chance if that's the whole poll. Open the
+     * chip ONCE (real bring-up cost, one rail power-on) and retry the cheap
+     * REQA/cascade exchange repeatedly within that session instead of
+     * power-cycling per attempt - matches LilyGo's own reference firmware,
+     * which enables the NFC rail once at boot and never cycles it (see
+     * st25r3916_open()'s doc comment). Usage: "nfcpoll" (8s) or
+     * "nfcpoll <seconds>". */
+    int secs = 8;
+    if (args[0] != '\0') {
+        secs = atoi(args);
+    }
+    if (secs <= 0) {
+        secs = 8;
+    }
+    printf("nfcpoll: polling for an ISO14443-A tag (%ds)...\n", secs);
+    esp_err_t err = st25r3916_open();
+    if (err != ESP_OK) {
+        st25r3916_close();
+        printf("nfcpoll: %s\n", esp_err_to_name(err));
+        return;
+    }
+    st25r3916_tag_t tag;
+    err = ESP_ERR_NOT_FOUND;
+    TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(secs * 1000);
+    while (xTaskGetTickCount() < deadline) {
+        err = st25r3916_try(&tag, 300);
+        if (err != ESP_ERR_NOT_FOUND) {
+            break;
+        }
+    }
+    st25r3916_close();
+    if (err == ESP_ERR_NOT_FOUND) {
+        printf("nfcpoll: no tag\n");
+    } else if (err != ESP_OK) {
+        printf("nfcpoll: %s\n", esp_err_to_name(err));
+    } else {
+        printf("nfcpoll: UID ");
+        for (uint8_t i = 0; i < tag.uid_len; i++) {
+            printf("%02X ", tag.uid[i]);
+        }
+        printf("(%u bytes)\n", tag.uid_len);
+    }
 }
 
 void debug_cmd_bat(const char *args)
