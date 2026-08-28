@@ -5,4 +5,6 @@ idf_component_register(
         esp_driver_i2c
         esp_common
         log
+    PRIV_REQUIRES
+        i2c_bus
 )

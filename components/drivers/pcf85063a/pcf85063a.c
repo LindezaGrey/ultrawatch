@@ -1,11 +1,13 @@
 #include "pcf85063a.h"
-#include <string.h>
 #include "esp_check.h"
 #include "esp_log.h"
+#include "i2c_bus.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "pcf85063a";
+
+#define PCF85063A_I2C_TIMEOUT_MS 100
 
 #define REG_CTRL1       0x00
 #define REG_CTRL2       0x01
@@ -41,18 +43,12 @@ static uint8_t bin_to_bcd(uint8_t v) { return (uint8_t)(((v / 10) << 4) | (v % 1
 
 static esp_err_t read_regs(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t *buf, size_t n)
 {
-    return i2c_master_transmit_receive(dev, &reg, 1, buf, n, 100);
+    return i2c_bus_read(dev, reg, buf, n, PCF85063A_I2C_TIMEOUT_MS);
 }
 
 static esp_err_t write_regs(i2c_master_dev_handle_t dev, uint8_t reg, const uint8_t *buf, size_t n)
 {
-    uint8_t data[1 + 8];
-    if (n > 8) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    data[0] = reg;
-    memcpy(&data[1], buf, n);
-    return i2c_master_transmit(dev, data, 1 + n, 100);
+    return i2c_bus_write(dev, reg, buf, n, PCF85063A_I2C_TIMEOUT_MS);
 }
 
 static esp_err_t write_byte(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t val)

@@ -24,12 +24,15 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "driver/i2c_master.h"
+#include "i2c_bus.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "drv2605";
+
+#define DRV2605_I2C_TIMEOUT_MS 100
 
 #define DRV2605_MODE_REG      0x01
 #define DRV2605_LIBRARY_REG   0x03
@@ -52,13 +55,12 @@ static const char *TAG = "drv2605";
 
 static esp_err_t drv2605_write_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t val)
 {
-    uint8_t buf[2] = { reg, val };
-    return i2c_master_transmit(dev, buf, sizeof(buf), 100);
+    return i2c_bus_write(dev, reg, &val, 1, DRV2605_I2C_TIMEOUT_MS);
 }
 
 static esp_err_t drv2605_read_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t *val)
 {
-    return i2c_master_transmit_receive(dev, &reg, 1, val, 1, 100);
+    return i2c_bus_read(dev, reg, val, 1, DRV2605_I2C_TIMEOUT_MS);
 }
 
 esp_err_t drv2605_set_waveform(i2c_master_dev_handle_t dev, uint8_t slot, uint8_t wave)

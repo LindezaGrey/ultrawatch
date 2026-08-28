@@ -2,8 +2,11 @@
 #include "axp2101.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "i2c_bus.h"
 
 static const char *TAG = "axp2101";
+
+#define AXP2101_I2C_TIMEOUT_MS 100
 
 #define AXP_REG_IC_TYPE         0x03
 #define AXP_REG_DC_ONOFF_DVM    0x80
@@ -88,13 +91,12 @@ static const axp_rail_map_t s_rail_map[AXP2101_RAIL_MAX] = {
 
 esp_err_t axp2101_read_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t *val)
 {
-    return i2c_master_transmit_receive(dev, &reg, 1, val, 1, 100);
+    return i2c_bus_read(dev, reg, val, 1, AXP2101_I2C_TIMEOUT_MS);
 }
 
 esp_err_t axp2101_write_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t val)
 {
-    uint8_t buf[2] = { reg, val };
-    return i2c_master_transmit(dev, buf, sizeof(buf), 100);
+    return i2c_bus_write(dev, reg, &val, 1, AXP2101_I2C_TIMEOUT_MS);
 }
 
 static esp_err_t axp2101_set_bit(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t mask, bool set)

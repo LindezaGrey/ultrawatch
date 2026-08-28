@@ -1,8 +1,11 @@
 #include "xl9555.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "i2c_bus.h"
 
 static const char *TAG = "xl9555";
+
+#define XL9555_I2C_TIMEOUT_MS 100
 
 #define XL_REG_INP0   0x00
 #define XL_REG_INP1   0x01
@@ -13,13 +16,12 @@ static const char *TAG = "xl9555";
 
 static esp_err_t xl9555_read_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t *val)
 {
-    return i2c_master_transmit_receive(dev, &reg, 1, val, 1, 100);
+    return i2c_bus_read(dev, reg, val, 1, XL9555_I2C_TIMEOUT_MS);
 }
 
 static esp_err_t xl9555_write_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t val)
 {
-    uint8_t buf[2] = { reg, val };
-    return i2c_master_transmit(dev, buf, sizeof(buf), 100);
+    return i2c_bus_write(dev, reg, &val, 1, XL9555_I2C_TIMEOUT_MS);
 }
 
 /* 1 = input, 0 = output (config register semantics). */

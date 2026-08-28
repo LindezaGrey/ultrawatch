@@ -17,6 +17,7 @@
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
+#include "i2c_bus.h"
 #include "esp_spiffs.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
@@ -161,21 +162,14 @@ static void step_fold(void)
 static int8_t bhi260ap_i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t length, void *intf_ptr)
 {
     i2c_master_dev_handle_t dev = (i2c_master_dev_handle_t)intf_ptr;
-    esp_err_t ret = i2c_master_transmit_receive(dev, &reg_addr, 1, reg_data, length, BHI260_I2C_TIMEOUT_MS);
+    esp_err_t ret = i2c_bus_read(dev, reg_addr, reg_data, length, BHI260_I2C_TIMEOUT_MS);
     return (ret == ESP_OK) ? BHY2_OK : BHY2_E_IO;
 }
 
 static int8_t bhi260ap_i2c_write(uint8_t reg_addr, const uint8_t *reg_data, uint32_t length, void *intf_ptr)
 {
     i2c_master_dev_handle_t dev = (i2c_master_dev_handle_t)intf_ptr;
-    uint8_t *buf = heap_caps_malloc(length + 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (!buf) {
-        return BHY2_E_IO;
-    }
-    buf[0] = reg_addr;
-    memcpy(buf + 1, reg_data, length);
-    esp_err_t ret = i2c_master_transmit(dev, buf, length + 1, BHI260_I2C_TIMEOUT_MS);
-    free(buf);
+    esp_err_t ret = i2c_bus_write(dev, reg_addr, reg_data, length, BHI260_I2C_TIMEOUT_MS);
     return (ret == ESP_OK) ? BHY2_OK : BHY2_E_IO;
 }
 

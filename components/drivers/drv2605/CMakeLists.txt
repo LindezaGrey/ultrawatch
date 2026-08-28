@@ -7,4 +7,5 @@ idf_component_register(
         log
     PRIV_REQUIRES
         nvs_flash
+        i2c_bus
 )

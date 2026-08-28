@@ -9,4 +9,6 @@ idf_component_register(
         log
         spiffs
         esp_timer
+    PRIV_REQUIRES
+        i2c_bus
 )
