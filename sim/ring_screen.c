@@ -1,0 +1,111 @@
+/*
+ * ring_screen.c - the real alarm-ringing screen from main/lvgl_app.c (lines
+ * ~1627-1662 as of the porting pass), copied verbatim
+ * (alarm_dismiss_btn_cb / alarm_snooze_btn_cb / lvgl_build_ring_screen,
+ * unmodified widget layout and logic) and run against mock_hw.c instead of
+ * real drivers.
+ *
+ * Reachability, sim-only: in the firmware this screen is only ever shown by
+ * alarm_ring_cb(), fired from the real alarm-firing/RTC-interrupt system
+ * (main/lvgl_app.c's alarm_ring_cb(), lines ~1666-1694), which the porting
+ * brief explicitly excludes (no RTC alarm interrupt exists on the host).
+ * alarm_ring_cb() itself is NOT ported here. Instead main.c wires the 'R'
+ * key (SDL_SCANCODE_R) directly to sim_ring_screen_build() below, purely so
+ * this screen's layout can be eyeballed - it does not exercise the real
+ * ring/dismiss/snooze state machine (alarm_is_ringing()) the way a real
+ * alarm firing would. Dismiss/Snooze still call the real
+ * alarm_dismiss()/alarm_snooze() mocks, same as the firmware.
+ *
+ * Deviations from the firmware original (mechanical only):
+ *   - screen_new() copied in here too, same as every non-watch-face screen.
+ *   - No esp_lv_adapter_lock()/unlock(): none was present in this range
+ *     anyway (that's only in the skipped alarm_ring_cb()).
+ *
+ * Keep this in sync with main/lvgl_app.c by hand: there's no build-time
+ * link between the two.
+ */
+#include <stdio.h>
+#include "lvgl.h"
+#include "cascadia_fonts.h"
+#include "mock_hw.h"
+#include "screens.h"
+
+static const lv_font_t *s_font_time = &cascadia_72;
+static const lv_font_t *s_font_small = &cascadia_22;
+
+/* Not static: declared extern in screens.h. */
+lv_obj_t *s_ring_screen;
+
+static lv_obj_t *s_ring_time_label;
+
+static lv_obj_t *screen_new(void)
+{
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
+    return scr;
+}
+
+static void alarm_dismiss_btn_cb(lv_event_t *e)
+{
+    (void)e;
+    alarm_dismiss();
+}
+
+static void alarm_snooze_btn_cb(lv_event_t *e)
+{
+    (void)e;
+    alarm_snooze();
+}
+
+static void lvgl_build_ring_screen(void)
+{
+    s_ring_screen = screen_new();
+    lv_obj_set_style_bg_color(s_ring_screen, lv_color_hex(0x300000), 0);
+
+    lv_obj_t *title = lv_label_create(s_ring_screen);
+    lv_label_set_text(title, "ALARM");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    s_ring_time_label = lv_label_create(s_ring_screen);
+    lv_obj_set_style_text_font(s_ring_time_label, s_font_time, 0);
+    lv_obj_set_style_text_color(s_ring_time_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(s_ring_time_label, LV_ALIGN_TOP_MID, 0, 60);
+
+    lv_obj_t *dismiss = lv_button_create(s_ring_screen);
+    lv_obj_set_size(dismiss, 330, 112);
+    lv_obj_align(dismiss, LV_ALIGN_TOP_MID, 0, 220);
+    lv_obj_t *dl = lv_label_create(dismiss);
+    lv_label_set_text(dl, "Dismiss");
+    lv_obj_set_style_text_font(dl, s_font_small, 0);
+    lv_obj_center(dl);
+    /* Fire on touch-down so the first tap acts immediately, regardless of
+     * click state or timing. */
+    lv_obj_add_event_cb(dismiss, alarm_dismiss_btn_cb, LV_EVENT_PRESSED, NULL);
+
+    lv_obj_t *snooze = lv_button_create(s_ring_screen);
+    lv_obj_set_size(snooze, 330, 112);
+    lv_obj_align(snooze, LV_ALIGN_TOP_MID, 0, 340);
+    lv_obj_t *sl = lv_label_create(snooze);
+    lv_label_set_text(sl, "Snooze 10 min");
+    lv_obj_set_style_text_font(sl, s_font_small, 0);
+    lv_obj_center(sl);
+    lv_obj_add_event_cb(snooze, alarm_snooze_btn_cb, LV_EVENT_PRESSED, NULL);
+}
+
+void sim_ring_screen_build(void)
+{
+    if (!s_ring_screen) {
+        lvgl_build_ring_screen();
+    }
+    /* Stamp the configured time on the ring screen (same as the firmware's
+     * alarm_ring_cb() does right before lv_scr_load()). */
+    alarm_config_t c;
+    alarm_get_config(&c);
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%02u:%02u", (unsigned)c.hour, (unsigned)c.min);
+    lv_label_set_text(s_ring_time_label, buf);
+    lv_scr_load(s_ring_screen);
+}

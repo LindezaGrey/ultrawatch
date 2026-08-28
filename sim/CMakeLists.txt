@@ -1,0 +1,36 @@
+# LVGL PC simulator scaffold. Host-only, separate from the ESP-IDF build
+# (build with plain cmake, not idf.py). Reuses the same LVGL checkout the
+# firmware build pulls in via the component manager, so run `idf.py build`
+# in the repo root at least once before building this if
+# managed_components/lvgl__lvgl doesn't exist yet.
+cmake_minimum_required(VERSION 3.12.4)
+project(uwatch_sim C)
+
+set(CMAKE_C_STANDARD 11)
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SDL2 REQUIRED sdl2)
+
+set(LV_BUILD_CONF_PATH ${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h CACHE PATH "" FORCE)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../managed_components/lvgl__lvgl lvgl)
+
+add_executable(uwatch_sim
+    main.c
+    nav.c
+    watch_face.c
+    power_screen.c
+    bhi_screen.c
+    gps_screen.c
+    mesh_screen.c
+    alarm_screen.c
+    ring_screen.c
+    mock_hw.c
+    ../main/cascadia_72.c
+    ../main/cascadia_36.c
+    ../main/cascadia_22.c
+    ../main/cascadia_18.c
+)
+target_link_libraries(uwatch_sim PRIVATE lvgl ${SDL2_LIBRARIES} m)
+target_include_directories(uwatch_sim PRIVATE ${SDL2_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/../main)
+target_compile_options(uwatch_sim PRIVATE ${SDL2_CFLAGS_OTHER})
+target_compile_definitions(uwatch_sim PRIVATE UWATCH_ASSETS_UI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../assets/ui")
