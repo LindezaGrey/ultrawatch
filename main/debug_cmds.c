@@ -288,6 +288,34 @@ void debug_cmd_nfcpoll(const char *args)
     }
 }
 
+void debug_cmd_nfcprobe(const char *args)
+{
+    /* "nfcprobe [off_ms]" - optionally power-cycle DLDO1 with the given off
+     * time first, then sweep SPI mode/clock combinations. */
+    int off_ms = (args[0] != '\0') ? atoi(args) : 0;
+    printf("nfcprobe: DLDO1 off for %dms, then sweeping SPI mode/clock...\n", off_ms);
+    st25r3916_probe_spi(TWATCH_SPI_HOST, TWATCH_PIN_NFC_CS, off_ms);
+    printf("nfcprobe: done\n");
+}
+
+void debug_cmd_i2cscan(const char *args)
+{
+    /* Full 7-bit I2C scan. Chasing the ST25R3916: it selects SPI or I2C from
+     * its I2C_EN pin, and in I2C mode it answers at 0x50 - so if SPI is
+     * silent, this says whether the chip is alive on the other interface or
+     * simply not there. */
+    (void)args;
+    printf("i2cscan:");
+    int found = 0;
+    for (uint8_t a = 0x08; a < 0x78; a++) {
+        if (i2c_master_probe(twatch_i2c_bus, a, 50) == ESP_OK) {
+            printf(" 0x%02x", a);
+            found++;
+        }
+    }
+    printf("\ni2cscan: %d device(s)\n", found);
+}
+
 void debug_cmd_bat(const char *args)
 {
     if (args[0] == '\0') {

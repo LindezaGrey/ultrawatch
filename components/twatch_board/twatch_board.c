@@ -103,22 +103,44 @@ static esp_err_t twatch_spi_init(void)
     };
     ESP_RETURN_ON_ERROR(spi_bus_initialize(TWATCH_SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO), TAG, "spi bus init failed");
 
-    spi_device_interface_config_t dev_cfg = {
+    spi_device_interface_config_t lora_cfg = {
         .mode = 0,
         .clock_speed_hz = 10 * 1000 * 1000,
         .queue_size = 7,
+        .spics_io_num = TWATCH_PIN_LORA_CS,
     };
+    ESP_RETURN_ON_ERROR(spi_bus_add_device(TWATCH_SPI_HOST, &lora_cfg, &twatch_lora_spi_dev), TAG, "lora spi dev failed");
 
-    dev_cfg.spics_io_num = TWATCH_PIN_LORA_CS;
-    ESP_RETURN_ON_ERROR(spi_bus_add_device(TWATCH_SPI_HOST, &dev_cfg, &twatch_lora_spi_dev), TAG, "lora spi dev failed");
-
-    /* ST25R3916 datasheet SS4.3.3: "clock polarity of 0, a clock phase of 1"
-     * - SPI mode 1 (CPOL=0/CPHA=1), not mode 0 like the LoRa/SD devices on
-     * this same bus. Sampling MISO on the wrong edge reads back garbage
-     * (0xFF) even with correct wiring and CS. */
-    dev_cfg.spics_io_num = TWATCH_PIN_NFC_CS;
-    dev_cfg.mode = 1;
-    ESP_RETURN_ON_ERROR(spi_bus_add_device(TWATCH_SPI_HOST, &dev_cfg, &twatch_nfc_spi_dev), TAG, "nfc spi dev failed");
+    /* The ST25R3916 needs its own config, not the LoRa one with the mode
+     * patched - the two differ in clock and input delay as well as mode.
+     *
+     * mode 1: datasheet SS4.3.3 specifies clock polarity 0, clock phase 1
+     * (CPOL=0/CPHA=1), unlike the LoRa/SD devices on this same bus. Sampling
+     * MISO on the wrong edge reads back garbage (0xFF) even with correct
+     * wiring and CS.
+     *
+     * 2MHz, not the bus's 10MHz: 10MHz is the chip's absolute max SCLK
+     * (Table 125, TSCLK min 100ns) but is out of spec for *reads*. In mode 1
+     * the chip launches MISO on the SCLK rising edge and the master samples
+     * on the falling edge - 50ns later at 10MHz, against a TDOD (data-out
+     * delay) of 55ns typ / 70ns max, before adding ESP32-S3 GPIO-matrix
+     * routing delay and three devices' worth of bus capacitance. That fails
+     * marginally rather than cleanly, which is the worst case here: the
+     * chip's interrupt status registers are read-once-and-clear
+     * (datasheet SS4.3.1), so a single corrupted read destroys the event
+     * permanently instead of being retried.
+     *
+     * input_delay_ns tells the driver how long after SCLK the slave's data
+     * is actually valid, so it can compensate and warn if the clock is too
+     * fast; 80ns covers TDOD max plus routing. */
+    spi_device_interface_config_t nfc_cfg = {
+        .mode = 1,
+        .clock_speed_hz = 2 * 1000 * 1000,
+        .input_delay_ns = 80,
+        .queue_size = 7,
+        .spics_io_num = TWATCH_PIN_NFC_CS,
+    };
+    ESP_RETURN_ON_ERROR(spi_bus_add_device(TWATCH_SPI_HOST, &nfc_cfg, &twatch_nfc_spi_dev), TAG, "nfc spi dev failed");
 
     return ESP_OK;
 }

@@ -47,6 +47,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -112,8 +113,14 @@ static const char *TAG = "st25r3916";
 #define OP_RX_EN  (1u << 6)
 #define OP_TX_EN  (1u << 3)
 #define OP_EN_FD_MASK        0x03   /* en_fd_c<1:0> */
+/* 01 is what reader mode wants and what it keeps: datasheet SS4.4.5 Note -
+ * "It is recommended to set to 01 bits en_fd_c<1:0> of Operation control
+ * register in Reader mode"; 10/11 are for NFCIP-1 active communication (AP2P)
+ * and passive target. This used to be flipped to 11 ("automatic") once
+ * field-on completed, which is wrong twice over: it is the AP2P setting, and
+ * Table 21 notes that en_fd_c != 0 with every other op_control bit clear puts
+ * the device into Low power initial NFC mode. */
 #define OP_EN_FD_MANUAL_CA   0x01   /* manual EFD, collision-avoidance threshold - required while using NFC field ON commands */
-#define OP_EN_FD_AUTO        0x03   /* automatic - this driver's steady-state default, matching RFAL's rfalInitialize() */
 
 /* ---- Mode definition register (0x03, Table 22/23): ISO14443A initiator
  * (reader) mode - targ=0 (initiator), om<3:0>=0001. ---- */
@@ -134,6 +141,13 @@ static const char *TAG = "st25r3916";
 #define REG_TIMER_NFC_IRQ 0x1B
 #define IRQ_TIMER_CAC (1u << 2)   /* collision during RF collision avoidance */
 #define IRQ_TIMER_CAT (1u << 1)   /* minimum guard time expired, no collision */
+
+/* ---- Error and wake-up interrupt register (0x1C, Table 64) ---- */
+#define REG_ERROR_IRQ 0x1C
+#define IRQ_ERR_CRC   (1u << 7)   /* CRC error */
+#define IRQ_ERR_PAR   (1u << 6)   /* parity error */
+#define IRQ_ERR_SOFT  (1u << 5)   /* soft framing error (Rx data still usable) */
+#define IRQ_ERR_HARD  (1u << 4)   /* hard framing error (Rx data corrupted) */
 
 /* ---- Passive target interrupt register (0x1D, Table 65) ---- */
 #define REG_PASSIVE_TARGET_IRQ 0x1D
@@ -342,7 +356,11 @@ static esp_err_t fifo_byte_count(size_t *n)
     uint8_t s1 = 0, s2 = 0;
     ESP_RETURN_ON_ERROR(reg_read1(REG_FIFO_STATUS1, &s1), TAG, "fifo status1");
     ESP_RETURN_ON_ERROR(reg_read1(REG_FIFO_STATUS2, &s2), TAG, "fifo status2");
-    *n = ((size_t)(s2 & 0x03) << 8) | s1;   /* fifo_b9:8 in status2 bits7:6, fifo_b7:0 in status1 */
+    /* Table 67: fifo_b<9:8> are status2 bits 7:6. Bits 1:0 are fifo_lb0 and
+     * np_lb (bits in the last byte / missing parity), so masking the low two
+     * bits instead added 256 or 512 to the count on any frame whose last byte
+     * was incomplete. */
+    *n = ((size_t)((s2 >> 6) & 0x03) << 8) | s1;
     return ESP_OK;
 }
 
@@ -373,15 +391,75 @@ static esp_err_t wait_reg_bit(uint8_t addr, uint8_t bit, TickType_t deadline)
     }
 }
 
-/* Wait for a Main-interrupt bit specifically - reading that register clears
- * it (datasheet SS4.3.1), so this is a single-shot wait for one bit per
- * call, not a level check. Used for RX-done during REQA/anticollision;
- * oscillator-stable is checked via the Auxiliary display register instead
- * (see wait_reg_bit(REG_AUX_DISPLAY, ...) in st25r3916_poll()) - the Main
- * interrupt register's I_osc bit proved unreliable on real hardware. */
-static esp_err_t wait_main_irq(uint8_t bit, TickType_t deadline)
+/* ---- interrupt status: sticky snapshots, never single-shot reads ----
+ *
+ * The four status registers are contiguous (0x1A Main, 0x1B Timer/NFC, 0x1C
+ * Error/wake-up, 0x1D Passive target), so one auto-incrementing read collects
+ * all of them in a single transaction.
+ *
+ * Reading a status register resets its content to 0 (datasheet SS4.3.1), and
+ * the same section notes that several bits can latch between two host reads.
+ * A caller that waits for one bit with a plain read therefore *destroys*
+ * every other event that arrived in the same window. That is not a corner
+ * case here: a REQA -> ATQA exchange at 106kbit/s finishes in a few hundred
+ * microseconds, far inside POLL_STEP_MS, so I_txe and I_rxe essentially
+ * always arrive together. Waiting for I_txe and then, separately, for I_rxe
+ * consumed I_rxe in the first wait and then blocked until timeout in the
+ * second - which reads exactly like "no tag answered".
+ *
+ * So each read is accumulated into a sticky 32-bit mask owned by the caller
+ * for the whole duration of a wait, and waits test the accumulator. Status
+ * bits are also cleared by Set default, Stop all activities and Clear FIFO
+ * (SS4.3.1), so a fresh mask must be started after those, not before. */
+#define IRQ_MAIN(bits)   ((uint32_t)(uint8_t)(bits) << 0)
+#define IRQ_TIMER(bits)  ((uint32_t)(uint8_t)(bits) << 8)
+#define IRQ_ERROR(bits)  ((uint32_t)(uint8_t)(bits) << 16)
+#define IRQ_TARGET(bits) ((uint32_t)(uint8_t)(bits) << 24)
+
+#define IRQ_ERROR_ANY IRQ_ERROR(IRQ_ERR_CRC | IRQ_ERR_PAR | IRQ_ERR_SOFT | IRQ_ERR_HARD)
+
+static esp_err_t irq_poll(uint32_t *sticky)
 {
-    return wait_reg_bit(REG_MAIN_IRQ, bit, deadline);
+    uint8_t regs[4] = { 0 };
+    ESP_RETURN_ON_ERROR(reg_read(REG_MAIN_IRQ, regs, sizeof(regs)), TAG, "irq snapshot");
+    *sticky |= IRQ_MAIN(regs[0]) | IRQ_TIMER(regs[1]) |
+               IRQ_ERROR(regs[2]) | IRQ_TARGET(regs[3]);
+    return ESP_OK;
+}
+
+static esp_err_t wait_irq(uint32_t want, uint32_t *sticky, TickType_t deadline)
+{
+    for (;;) {
+        ESP_RETURN_ON_ERROR(irq_poll(sticky), TAG, "irq poll");
+        if (*sticky & want) {
+            return ESP_OK;
+        }
+        if (xTaskGetTickCount() >= deadline) {
+            ESP_LOGW(TAG, "wait_irq(want=0x%08" PRIx32 ") timed out, seen=0x%08" PRIx32,
+                     want, *sticky);
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(pdMS_TO_TICKS(POLL_STEP_MS));
+    }
+}
+
+/* Wait for a reply frame after a transmit command. Only I_rxe is waited on;
+ * I_txe and the error bits are picked up into the same sticky mask along the
+ * way, so a timeout can say whether the transmission itself even completed -
+ * "TX never finished" and "TX fine, nothing answered" are very different
+ * failures and used to be indistinguishable. */
+static esp_err_t wait_response(uint32_t *sticky, TickType_t deadline)
+{
+    esp_err_t err = wait_irq(IRQ_MAIN(IRQ_MAIN_RXE), sticky, deadline);
+    if (err == ESP_ERR_TIMEOUT) {
+        ESP_LOGW(TAG, "no response: txe=%s, timer/nfc irq=0x%02x, error irq=0x%02x",
+                 (*sticky & IRQ_MAIN(IRQ_MAIN_TXE)) ? "yes" : "NO",
+                 (unsigned)((*sticky >> 8) & 0xFF), (unsigned)((*sticky >> 16) & 0xFF));
+    } else if (err == ESP_OK && (*sticky & IRQ_ERROR_ANY)) {
+        ESP_LOGW(TAG, "response had CRC/parity/framing errors (error irq=0x%02x)",
+                 (unsigned)((*sticky >> 16) & 0xFF));
+    }
+    return err;
 }
 
 /* ---- ISO14443-A anticollision/select cascade (SS6.4 of the ISO14443-A
@@ -411,8 +489,11 @@ static esp_err_t cascade_level(uint8_t level, uint8_t *uid4, uint8_t *sak, TickT
      * single-tag milestone doesn't attempt to resolve. */
     ESP_RETURN_ON_ERROR(reg_write1(REG_NUM_TX_BYTES1, 0x00), TAG, "ntx1 (anticoll)");
     ESP_RETURN_ON_ERROR(reg_write1(REG_NUM_TX_BYTES2, (uint8_t)(2u << 3)), TAG, "ntx2 (anticoll)");
+    /* Clear FIFO above already reset the interrupt status bits (SS4.3.1), so
+     * this mask starts clean and stays valid for the whole exchange. */
+    uint32_t irq = 0;
     ESP_RETURN_ON_ERROR(direct_cmd(DCMD_TX_WITHOUT_CRC), TAG, "tx anticoll");
-    esp_err_t err = wait_main_irq(IRQ_MAIN_RXE, deadline);
+    esp_err_t err = wait_response(&irq, deadline);
     if (err != ESP_OK) {
         return err;
     }
@@ -436,8 +517,9 @@ static esp_err_t cascade_level(uint8_t level, uint8_t *uid4, uint8_t *sak, TickT
     ESP_RETURN_ON_ERROR(fifo_load(select, sizeof(select)), TAG, "fifo load select");
     ESP_RETURN_ON_ERROR(reg_write1(REG_NUM_TX_BYTES1, 0x00), TAG, "ntx1 (select)");
     ESP_RETURN_ON_ERROR(reg_write1(REG_NUM_TX_BYTES2, (uint8_t)(7u << 3)), TAG, "ntx2 (select)");
+    irq = 0;
     ESP_RETURN_ON_ERROR(direct_cmd(DCMD_TX_WITH_CRC), TAG, "tx select");
-    err = wait_main_irq(IRQ_MAIN_RXE, deadline);
+    err = wait_response(&irq, deadline);
     if (err != ESP_OK) {
         return err;
     }
@@ -522,56 +604,49 @@ static esp_err_t calibrate_regulators(void)
  * first and measurably does NOT work: an RFI-amplitude diagnostic read 0
  * with tx_en poked directly (field off in practice, despite the bit
  * reading back set), vs. a consistent ~15-16/255 with this C8 path (field
- * genuinely on) - confirms the datasheet's own implication that tx_en
- * "is automatically set by NFC Field ON commands" and isn't meant to be
- * written directly.
+ * genuinely on) - confirms Table 21's own wording that tx_en "is
+ * automatically set by NFC Field ON commands" and isn't meant to be written
+ * directly.
  *
- * The expected completion signal (I_apon or I_cac, Passive target/Timer-NFC
- * interrupt registers) has never been observed to fire on this hardware,
- * even though the field demonstrably does turn on regardless - this
- * driver's IRQ-based completion check itself has an unresolved bug (wrong
- * bit, wrong register, or a read-timing issue), so it's treated as
- * non-fatal: log it and continue, since the field is on either way.
+ * 0xC8 needs operation mode en (Table 13) and needs the external field
+ * detector enabled (SS4.4.5), hence the en_fd_c write first. en_fd_c is then
+ * left at 01 - reader mode's recommended setting - rather than being flipped
+ * to 11 on the way out as it used to be.
  *
- * With the field confirmed on (amplitude test) and REQA confirmed
- * transmitting cleanly, a tag confirmed working under stock firmware still
- * never answers - the ~15-16/255 amplitude reading is low, so the leading
- * theory is field strength (this driver's antenna trim registers are
- * RFAL's generic defaults, not calibrated for this specific board's
- * antenna), not a further protocol bug, but this hasn't been confirmed. */
+ * If no external field is present the transmitter switches on and I_apon is
+ * signalled, followed by I_cat once the NFCIP-1 guard time has passed; an
+ * external field instead gives I_cac and the transmitter stays off. */
 static esp_err_t field_on(void)
 {
     ESP_RETURN_ON_ERROR(reg_change_bits(REG_OP_CONTROL, OP_EN_FD_MASK, OP_EN_FD_MANUAL_CA),
                          TAG, "en_fd manual/ca");
     ESP_RETURN_ON_ERROR(direct_cmd(DCMD_NFC_INITIAL_FIELD_ON), TAG, "nfc initial field on");
 
-    esp_err_t err = ESP_ERR_TIMEOUT;
-    TickType_t ca_deadline = xTaskGetTickCount() + pdMS_TO_TICKS(FIELD_ON_TIMEOUT_MS);
-    for (;;) {
-        uint8_t pt_irq = 0, timer_irq = 0;
-        reg_read1(REG_PASSIVE_TARGET_IRQ, &pt_irq);
-        reg_read1(REG_TIMER_NFC_IRQ, &timer_irq);
-        if (timer_irq & IRQ_TIMER_CAC) {
-            ESP_LOGW(TAG, "field_on: RF collision detected during collision avoidance");
-            err = ESP_ERR_INVALID_STATE;
-            break;
-        }
-        if (pt_irq & IRQ_PT_APON) {
-            err = wait_reg_bit(REG_TIMER_NFC_IRQ, IRQ_TIMER_CAT,
-                                xTaskGetTickCount() + pdMS_TO_TICKS(FIELD_ON_TIMEOUT_MS));
-            break;
-        }
-        if (xTaskGetTickCount() >= ca_deadline) {
-            /* Non-fatal: the field turns on regardless of this check ever
-             * completing (verified via RFI amplitude), so don't block the
-             * caller on a completion signal this driver can't currently see. */
-            err = ESP_OK;
-            break;
-        }
-        vTaskDelay(pdMS_TO_TICKS(POLL_STEP_MS));
+    /* I_apon and I_cat are only ~a guard time apart and can easily land
+     * between the same pair of polls, so both go into one sticky mask - the
+     * previous version read 0x1D and 0x1B as two separate transactions per
+     * iteration and threw away whichever bit it wasn't looking at, then
+     * waited for an I_cat it had already consumed. */
+    uint32_t irq = 0;
+    esp_err_t err = wait_irq(IRQ_TARGET(IRQ_PT_APON) | IRQ_TIMER(IRQ_TIMER_CAC), &irq,
+                             xTaskGetTickCount() + pdMS_TO_TICKS(FIELD_ON_TIMEOUT_MS));
+    if (err == ESP_OK && (irq & IRQ_TIMER(IRQ_TIMER_CAC))) {
+        ESP_LOGW(TAG, "field_on: external field detected during collision avoidance - transmitter stays off");
+        return ESP_ERR_INVALID_STATE;
     }
-
-    reg_change_bits(REG_OP_CONTROL, OP_EN_FD_MASK, OP_EN_FD_AUTO);
+    if (err == ESP_OK) {
+        err = wait_irq(IRQ_TIMER(IRQ_TIMER_CAT), &irq,
+                        xTaskGetTickCount() + pdMS_TO_TICKS(FIELD_ON_TIMEOUT_MS));
+    }
+    if (err != ESP_OK) {
+        /* Non-fatal while the reader is still being brought up: the field
+         * demonstrably comes on either way (RFI amplitude confirms it), and
+         * the REQA that follows is a far more informative failure than
+         * stopping here. */
+        ESP_LOGW(TAG, "field_on: no I_apon/I_cat within %dms (irq seen 0x%08" PRIx32 ") - continuing",
+                 FIELD_ON_TIMEOUT_MS, irq);
+        err = ESP_OK;
+    }
     return err;
 }
 
@@ -597,8 +672,34 @@ esp_err_t st25r3916_init(spi_device_handle_t spi, i2c_master_dev_handle_t pmu)
 
 esp_err_t st25r3916_open(void)
 {
+    /* What the PMU actually has programmed for DLDO1 (reg 0x99, low 5 bits
+     * = (mV - 500) / 100). Read over I2C from the PMU, so it is valid
+     * whether or not the NFC chip answers SPI - which makes it the number to
+     * trust about this rail. (The chip's own "Measure power supply" command
+     * is not: Table 13 lists it as requiring operation mode en, so any
+     * reading taken before the oscillator is enabled is just whatever the
+     * previous conversion left in register 0x25.) */
+    uint8_t dldo1_vol = 0;
+    if (axp2101_read_reg(s_pmu, 0x99, &dldo1_vol) == ESP_OK) {
+        ESP_LOGI(TAG, "PMU DLDO1 vol reg 0x99 = 0x%02x -> %umV programmed",
+                 dldo1_vol, (unsigned)(500 + (dldo1_vol & 0x1F) * 100));
+    }
+
     axp2101_enable_rail(s_pmu, AXP2101_DLDO1, true);
-    vTaskDelay(pdMS_TO_TICKS(5));   /* chip power-up settle before the first SPI transaction */
+    /* Power-up settle before the first SPI transaction. Normally a no-op,
+     * since the rail is left on across sessions (see st25r3916_close()), but
+     * on the first open after boot the LDO still has to ramp and the chip has
+     * to finish its power-on reset before it will answer SPI. */
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    /* Confirm the rail enable actually landed on DLDO1's bit (REG 0x90 bit7)
+     * rather than being silently dropped - the enable bit was wrong until
+     * just now, so this is worth verifying rather than assuming. */
+    uint8_t onoff0 = 0;
+    if (axp2101_read_reg(s_pmu, 0x90, &onoff0) == ESP_OK) {
+        ESP_LOGI(TAG, "PMU LDO on/off reg 0x90 = 0x%02x (DLDO1=bit7 -> %s)",
+                 onoff0, (onoff0 & (1u << 7)) ? "ON" : "OFF");
+    }
 
     /* Set default (0xC0) is accepted in any state - lands the chip in a
      * known power-up configuration regardless of what a previous session
@@ -664,27 +765,45 @@ esp_err_t st25r3916_open(void)
         return err;
     }
 
-    /* Diagnostic-only: measure the RFI input amplitude with the field on,
-     * independent of REQA/ATQA framing - separates "TX isn't radiating
-     * anything" from "TX radiates fine, something's wrong receiving/
-     * decoding a response". Not gated on any completion IRQ - "Measure
-     * amplitude" is a plain, fast (<1ms) A/D conversion. */
+    /* Table 21: tx_en "is automatically set by NFC Field ON commands", so
+     * op_control should read back en|rx_en|tx_en here with no help from us.
+     *
+     * It previously read back 0x03 - every enable clear, only en_fd_c set -
+     * which was taken to mean 0xC8 wipes op_control, and was worked around by
+     * force-writing the enables back. That theory does not survive the
+     * datasheet: 0x03 is exactly what field_on()'s own closing
+     * read-modify-write on en_fd_c produced when its *read* returned 0x00,
+     * i.e. (0x00 & ~0x03) | 0x03. Marginal SPI reads (the device ran at 10MHz
+     * against a 70ns max data-out delay) or a genuine power-on reset
+     * (op_control resets to 0x00) both explain it; a chip quirk does not.
+     * So: no force-write, just log what the chip actually reports. */
+    uint8_t op_after_field_on = 0;
+    reg_read1(REG_OP_CONTROL, &op_after_field_on);
+    ESP_LOGI(TAG, "op_control after field_on(): 0x%02x (want en|rx_en|tx_en = 0x%02x)",
+             op_after_field_on, (unsigned)(OP_EN | OP_RX_EN | OP_TX_EN));
+
+    /* Diagnostic-only: RFI input amplitude with the field on, independent of
+     * REQA/ATQA framing - separates "TX isn't radiating" from "TX radiates,
+     * something's wrong receiving". "Measure amplitude" is a plain <1ms A/D
+     * conversion (Table 13), so it needs no completion IRQ. */
     direct_cmd(DCMD_MEASURE_AMPLITUDE);
     vTaskDelay(pdMS_TO_TICKS(2));
     uint8_t amplitude = 0;
     if (reg_read1(REG_AD_CONVERTER_OUTPUT, &amplitude) == ESP_OK) {
         ESP_LOGI(TAG, "RFI amplitude reading: %u (0-255, higher = more signal)", amplitude);
     }
-    uint8_t op_after_field_on = 0;
-    reg_read1(REG_OP_CONTROL, &op_after_field_on);
-    ESP_LOGI(TAG, "op_control after field_on(): 0x%02x (tx_en bit is 0x%02x)", op_after_field_on, OP_TX_EN);
 
     return ESP_OK;
 }
 
 void st25r3916_close(void)
 {
-    axp2101_enable_rail(s_pmu, AXP2101_DLDO1, false);
+    /* Deliberately does NOT cut DLDO1. The ST25R3916 has proven unable to
+     * come back after a rail power-cycle (it stops answering SPI entirely),
+     * and LilyGo's own firmware likewise enables DLDO1 once at boot and
+     * leaves it on. Stopping the RF field is the useful part of "closing" -
+     * the rail stays up. */
+    reg_change_bits(REG_OP_CONTROL, OP_TX_EN, 0x00);
 }
 
 esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
@@ -698,16 +817,13 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
 
     /* RFAL's rfalPrepareTransceive() (reader/writer branch) resets the
      * receive logic with "Stop all activities" + "Reset RX gain" before
-     * every transceive. Tried here, but on this hardware STOP_ALL clears
-     * en/rx_en/tx_en wholesale (op_control read back 0x03 - only en_fd_c
-     * survived, not just tx_en as the datasheet's wording alone would
-     * suggest), and restoring from that mid-session proved unreliable
-     * (the oscillator wait after re-enabling 'en' intermittently timed out
-     * too) - net negative versus this driver's simpler Clear-FIFO-only
-     * reset, which was already working reliably for REQA transmission
-     * itself. Left out; only the "wait for TXE before RXE" fix below (a
-     * separate, uncontroversial RFAL behavior unrelated to STOP_ALL) is
-     * kept. */
+     * every transceive. Not done here: Clear FIFO alone already resets the
+     * FIFO, the FIFO status registers and the interrupt status bits
+     * (datasheet SS4.3.1), which is what this driver needs, and STOP_ALL was
+     * previously observed leaving op_control in a state this driver couldn't
+     * recover from mid-session. That observation is now suspect for the same
+     * reason as the field_on() one (see st25r3916_open()), so STOP_ALL is
+     * worth re-testing once the read path is confirmed solid. */
     direct_cmd(DCMD_CLEAR_FIFO);
     reg_write1(REG_ISO14443A_NFC, 0x00);   /* antcl off - REQA/WUPA get automatic CRC-free handling */
     /* "Clear nbtx bits before sending WUPA/REQA - otherwise ST25R3916 will
@@ -717,28 +833,31 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
      * a session), but it's what the reference sequence does. */
     reg_write1(REG_NUM_TX_BYTES2, 0x00);
 
+    /* Clear FIFO above cleared the interrupt status bits, so this mask starts
+     * clean. One wait, not two: I_txe and I_rxe arrive within a few hundred
+     * microseconds of each other at 106kbit/s and both land in the same
+     * sticky mask - waiting for them with two sequential reads meant the
+     * I_txe wait consumed I_rxe and the I_rxe wait then hung until timeout,
+     * reporting "no tag" for every tag. */
+    uint32_t irq = 0;
     esp_err_t err = direct_cmd(DCMD_TX_REQA);
-    /* Wait for the transmission to actually finish (I_txe) before waiting
-     * for a response - this driver's first version raced straight to
-     * waiting for I_rxe right after issuing the command, without confirming
-     * TX had completed. RFAL's rfalISO14443ATransceiveShortFrame() always
-     * waits for I_txe first, only entering its RX-wait state afterward. */
     if (err == ESP_OK) {
-        err = wait_main_irq(IRQ_MAIN_TXE, deadline);
-    }
-    if (err == ESP_OK) {
-        err = wait_main_irq(IRQ_MAIN_RXE, deadline);
+        err = wait_response(&irq, deadline);
     }
     if (err != ESP_OK) {
         /* No tag in range - not a driver error, just nothing to report. */
         return (err == ESP_ERR_TIMEOUT) ? ESP_ERR_NOT_FOUND : err;
     }
     size_t n = 0;
-    fifo_byte_count(&n);
-    uint8_t atqa[2] = { 0 };
-    if (n >= 2) {
-        fifo_read(atqa, 2);
+    ESP_RETURN_ON_ERROR(fifo_byte_count(&n), TAG, "fifo count (atqa)");
+    if (n < 2) {
+        /* Something answered but it isn't a 2-byte ATQA - don't walk into the
+         * anticollision cascade on a frame we didn't understand. */
+        ESP_LOGW(TAG, "short ATQA: %u bytes in FIFO", (unsigned)n);
+        return ESP_ERR_INVALID_RESPONSE;
     }
+    uint8_t atqa[2] = { 0 };
+    ESP_RETURN_ON_ERROR(fifo_read(atqa, 2), TAG, "fifo read atqa");
 
     uint8_t uid[10] = { 0 };
     uint8_t uid_len = 0;
@@ -770,6 +889,94 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
         snprintf(hex + i * 3, 4, "%02X ", uid[i]);
     }
     ESP_LOGI(TAG, "tag found: ATQA=%02x%02x UID=%s(%u bytes)", atqa[0], atqa[1], hex, uid_len);
+    return ESP_OK;
+}
+
+/* Diagnostic sweep. The chip answered SPI under the pre-fix PMU code and
+ * stopped once DLDO1's enable bit was corrected, which is backwards from
+ * what the AXP2101 register map says should happen - so sweep the rail
+ * states this board has actually been in, and for each one ask the chip for
+ * its identity register over a couple of SPI settings.
+ *
+ * Rail states, matching what the firmware did at various points:
+ *   0: both off
+ *   1: DLDO1 on at 3.3V (0x99/0x90 bit7)  - the corrected mapping
+ *   2: CPUSLDO on (0x98/0x90 bit6)        - what the pre-fix code actually
+ *                                           toggled while the chip worked
+ *   3: both on
+ * State 2 reproduces the previously-working configuration byte for byte,
+ * reserved 0x98 encoding included. */
+static void probe_rail_bits(uint8_t mask, bool set)
+{
+    uint8_t v = 0;
+    if (axp2101_read_reg(s_pmu, 0x90, &v) != ESP_OK) {
+        return;
+    }
+    v = set ? (uint8_t)(v | mask) : (uint8_t)(v & ~mask);
+    axp2101_write_reg(s_pmu, 0x90, v);
+}
+
+esp_err_t st25r3916_probe_spi(spi_host_device_t host, int cs_gpio, int off_ms)
+{
+    static const struct { uint8_t mode; int hz; } spi_combos[] = {
+        { 1,  1000000 }, { 1, 10000000 }, { 0, 10000000 },
+    };
+    static const char *rail_name[4] = { "both off", "DLDO1 3v3", "CPUSLDO", "both on" };
+
+    spi_device_handle_t saved = s_spi;
+
+    for (int state = 0; state < 4; state++) {
+        bool want_dldo1   = (state == 1) || (state == 3);
+        bool want_cpusldo = (state == 2) || (state == 3);
+
+        /* Drop both rails first so each state is entered from a cold start. */
+        probe_rail_bits((1u << 7) | (1u << 6), false);
+        vTaskDelay(pdMS_TO_TICKS(off_ms > 0 ? off_ms : 200));
+
+        if (want_cpusldo) {
+            axp2101_write_reg(s_pmu, 0x98, 0x1C);
+            probe_rail_bits((1u << 6), true);
+        }
+        if (want_dldo1) {
+            axp2101_write_reg(s_pmu, 0x99, 0x1C);
+            probe_rail_bits((1u << 7), true);
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+
+        uint8_t onoff = 0;
+        axp2101_read_reg(s_pmu, 0x90, &onoff);
+
+        for (size_t i = 0; i < sizeof(spi_combos) / sizeof(spi_combos[0]); i++) {
+            spi_device_interface_config_t cfg = {
+                .mode = spi_combos[i].mode,
+                .clock_speed_hz = spi_combos[i].hz,
+                .queue_size = 4,
+                .spics_io_num = cs_gpio,
+            };
+            spi_device_handle_t dev = NULL;
+            if (spi_bus_add_device(host, &cfg, &dev) != ESP_OK) {
+                continue;
+            }
+            s_spi = dev;
+            direct_cmd(DCMD_SET_DEFAULT);
+            vTaskDelay(pdMS_TO_TICKS(2));
+            uint8_t id[2] = { 0 };
+            reg_read1(REG_IC_IDENTITY, &id[0]);
+            reg_read1(REG_IC_IDENTITY, &id[1]);
+            bool ok = ((id[0] & IC_IDENTITY_TYPE_MASK) == IC_IDENTITY_TYPE_ST25R3916) &&
+                      id[0] == id[1];
+            ESP_LOGI(TAG, "rail=%-9s (0x90=0x%02x) mode=%u %8d Hz: ic_identity=%02x %02x %s",
+                     rail_name[state], onoff, spi_combos[i].mode, spi_combos[i].hz,
+                     id[0], id[1], ok ? "<== OK" : "");
+            s_spi = saved;
+            spi_bus_remove_device(dev);
+        }
+    }
+
+    /* Leave the board in the configuration normal operation expects. */
+    probe_rail_bits((1u << 6), false);
+    axp2101_write_reg(s_pmu, 0x99, 0x1C);
+    probe_rail_bits((1u << 7), true);
     return ESP_OK;
 }
 
