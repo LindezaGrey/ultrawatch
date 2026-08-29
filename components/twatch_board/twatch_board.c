@@ -91,6 +91,15 @@ static esp_err_t twatch_i2c_init(void)
     return ESP_OK;
 }
 
+bool twatch_sd_card_seated(void)
+{
+    bool level = false;
+    if (xl9555_read_input(twatch_xl9555_dev, TWATCH_XL_GPIO_SD_DETECT, &level) != ESP_OK) {
+        return true;   /* fail safe - see the header comment */
+    }
+    return !level;   /* active low: 0 = card seated */
+}
+
 static esp_err_t twatch_spi_init(void)
 {
     spi_bus_config_t bus_cfg = {

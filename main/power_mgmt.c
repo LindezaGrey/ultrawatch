@@ -519,19 +519,23 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
     } else {
         m10q_power(false);                                       /* GNSS (tells the driver) */
     }
-    /* BLDO2 (speaker) and DLDO1 (NFC) aren't touched here - both are left
-     * off permanently at boot (see axp2101_set_default_power()): the amp is
-     * only ever powered around actual playback (alarm.c, debug_audio.c),
-     * and there's no NFC driver to use DLDO1, so there's nothing to cut for
-     * sleep. */
+    /* BLDO2 (speaker) isn't touched here - it's left off at boot (see
+     * axp2101_set_default_power()) and only powered around actual playback
+     * (alarm.c, debug_audio.c). DLDO1 (NFC) is left on: st25r3916_close()
+     * already stops the RF field, which is the part that costs anything, and
+     * the chip has not proven able to come back reliably after a rail
+     * power-cycle. */
 
-    /* SD card (ALDO1): the card is only needed while awake. Unmount cleanly
-     * and cut the rail last, after everything above has had its chance to
-     * log - sd_log_unmount() flushes the RAM ring to disk before it unmounts,
-     * so anything logged during this function (including the "entering
-     * sleep" line above) is captured, not lost. A clean unmount-then-cut is
-     * what avoids the undefined-state/CRC-error remount failures that an
-     * unclean power pull causes - see sd_log_unmount()'s doc comment. */
+    /* SD card (ALDO1): unmount cleanly and last, after everything above has
+     * had its chance to log - sd_log_unmount() flushes the RAM ring to disk
+     * before it unmounts, so anything logged during this function (including
+     * the "entering sleep" line above) is captured, not lost.
+     *
+     * Whether the rail is then cut is sd_log_unmount()'s call, not ours: it
+     * is also the SPI2 bus rail whenever a card is seated, because an
+     * unpowered card clamps the shared MISO net and the SX1262 still services
+     * LoRa RX from its DIO1 interrupt during light sleep. It is cut only when
+     * the socket is empty. See sd_rail_off_if_socket_empty(). */
     sd_log_unmount();
 
     pm_arm_gpio_wakeup();

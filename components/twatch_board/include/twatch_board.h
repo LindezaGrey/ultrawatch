@@ -123,6 +123,24 @@ extern i2c_master_dev_handle_t twatch_imu_dev;
 extern i2c_master_dev_handle_t twatch_haptic_dev;
 extern i2c_master_dev_handle_t twatch_xl9555_dev;
 
+/* Is an SD card physically seated in the socket? (XL9555 P10, active low.)
+ *
+ * This is a bus question, not a filesystem question. SPI2's MOSI/MISO/SCK are
+ * shared by the SD card, the SX1262 and the ST25R3916, and a card that is
+ * present but *unpowered* does not release the bus: its DAT0 pin clamps the
+ * shared MISO net through its ESD protection diodes, so every read on SPI2
+ * comes back 0x00. (Writes are unaffected - MOSI is host-driven.) ALDO1 is
+ * therefore the SPI2 bus rail whenever a card is seated, not the card's
+ * private rail, and cutting it breaks the SX1262 and the ST25R3916 too.
+ *
+ * With an empty socket there is nothing to clamp and the rail can be cut
+ * freely, which is what makes it worth asking. Fails safe: an I2C error
+ * reports "seated", because wrongly believing the socket is empty is what
+ * silently corrupts the whole bus.
+ *
+ * See docs/nfc.md. */
+bool twatch_sd_card_seated(void);
+
 /* Shared I2S0 channels: TX = MAX98357A amp, RX = T3902 PDM mic (full-duplex). */
 extern i2s_chan_handle_t twatch_audio_tx;
 extern i2s_chan_handle_t twatch_audio_rx;

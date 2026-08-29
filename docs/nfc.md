@@ -282,12 +282,29 @@ This single fact explains every symptom at once:
 `st25r3916_open()` now holds ALDO1 up for the duration of a session and
 restores it in `st25r3916_close()`.
 
-> **This is a bus-wide problem, not an NFC one.** Reads of the SX1262 are
-> corrupted the same way whenever ALDO1 is down — including LoRa RX serviced
-> from the DIO1 interrupt during light sleep, when the SD card is unmounted by
-> definition. The proper fix belongs in the board layer: treat ALDO1 as the
-> SPI2 bus rail rather than the SD card's private rail, and only drop it when
-> the bus is genuinely quiescent. **Not yet done.**
+### ALDO1 is the SPI2 bus rail, not the SD card's private rail
+
+This is bus-wide, not an NFC problem: reads of the SX1262 are corrupted the
+same way whenever ALDO1 is down — including LoRa RX serviced from the DIO1
+interrupt during light sleep, when the card is unmounted by definition.
+
+So `sd_log_unmount()` now cuts ALDO1 **only when the socket is empty**. With a
+card seated the rail stays up after the filesystem is unmounted and across
+light sleep; with an empty socket there is nothing to clamp the bus, so the
+rail is cut and the idle current saved. Card presence comes from
+`twatch_sd_card_seated()` (XL9555 P10, active low), which fails safe — an I2C
+error reports "seated", because wrongly believing the socket is empty is what
+silently corrupts the whole bus.
+
+`st25r3916_open()` keeps its own hold on ALDO1 as well. With a card seated
+that is a no-op (the rail is already up); with an empty socket it is
+unnecessary but harmless. It exists to cover the one gap below.
+
+**Known gap:** a card inserted while the rail is down leaves the bus clamped
+until something re-evaluates. `sd_log_mount()` does, and the sleep/wake cycle
+calls it, so the window closes on its own within an idle timeout. Closing it
+properly needs an SD-detect interrupt on XL9555 P10, which nothing sets up
+today.
 
 ### The NFC rail does not gate register access
 

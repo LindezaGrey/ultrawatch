@@ -119,6 +119,33 @@ static esp_err_t write_png(const char *path, const uint16_t *rgb565, int w, int 
     return ESP_OK;
 }
 
+/* Cut ALDO1 - but only when the socket is actually empty.
+ *
+ * ALDO1 is the SD card's rail on paper, but SPI2 is shared with the SX1262
+ * and the ST25R3916, and a seated-but-unpowered card clamps the bus's MISO
+ * net through its ESD protection diodes: every read on SPI2 returns 0x00
+ * while this rail is down (see twatch_sd_card_seated()). So with a card in
+ * the socket the rail stays up even once the filesystem is unmounted,
+ * including across light sleep, where the SX1262 still services RX from its
+ * DIO1 interrupt.
+ *
+ * An empty socket has nothing to clamp the bus, so there the rail is cut and
+ * the idle current saved - which is the common case for a watch nobody has
+ * put a card in.
+ *
+ * Gap: a card inserted while the rail is down leaves the bus clamped until
+ * something re-evaluates. sd_log_mount() does, and the sleep/wake cycle calls
+ * it, so the window closes on its own within an idle timeout. Closing it
+ * properly needs an SD-detect interrupt, which nothing sets up today. */
+static void sd_rail_off_if_socket_empty(const char *why)
+{
+    if (twatch_sd_card_seated()) {
+        ESP_LOGD(TAG, "%s: card seated, keeping ALDO1 up (shared SPI2 bus rail)", why);
+        return;
+    }
+    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, false);
+}
+
 /* ---- Public API ---- */
 
 esp_err_t sd_log_mount(void)
@@ -165,7 +192,7 @@ esp_err_t sd_log_mount(void)
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "SD mount failed: %s", esp_err_to_name(err));
         s_sd_ready = false;
-        axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, false);   /* don't leave it powered for nothing */
+        sd_rail_off_if_socket_empty("mount failed");
         return err;
     }
 
@@ -191,8 +218,9 @@ esp_err_t sd_log_unmount(void)
 
     /* Cut ALDO1 only after a clean unmount - yanking the rail out from under
      * a still-mounted card is what leaves it in the undefined state that
-     * fails to remount with resp/CRC errors. */
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, false);
+     * fails to remount with resp/CRC errors. And only if the socket is empty:
+     * see sd_rail_off_if_socket_empty(). */
+    sd_rail_off_if_socket_empty("unmount");
     return err;
 }
 
