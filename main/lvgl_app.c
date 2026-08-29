@@ -37,6 +37,7 @@
 #include "power_mgmt.h"
 #include "alarm.h"
 #include "mesh_log.h"
+#include "st25r3916.h"
 
 static const char *TAG = "lvgl_app";
 
@@ -101,6 +102,29 @@ static lv_obj_t *s_mesh_screen;
 static lv_obj_t *s_mesh_empty_label;
 static lv_obj_t *s_mesh_row_label[MESH_LOG_COUNT];
 
+/* NFC screen (chained off BHI: swipe left again). One-shot scan on demand -
+ * st25r3916_open() holds the shared SPI2 bus rails (spi2_power.h) for as
+ * long as a session is open, so scanning is explicit (a button), not
+ * automatic on screen entry like GPS's always-on acquire. */
+static lv_obj_t *s_nfc_screen;
+static lv_obj_t *s_nfc_status_label;
+static lv_obj_t *s_nfc_uid_label;
+static lv_obj_t *s_nfc_start_btn;
+typedef enum {
+    NFC_SCAN_IDLE = 0,
+    NFC_SCAN_SCANNING,
+    NFC_SCAN_FOUND,
+    NFC_SCAN_TIMEOUT,
+    NFC_SCAN_ERROR,
+} nfc_scan_state_t;
+static volatile nfc_scan_state_t s_nfc_scan_state = NFC_SCAN_IDLE;
+static volatile bool s_nfc_scan_req;      /* Start tap, consumed by nfc_ctrl_task */
+static st25r3916_tag_t s_nfc_last_tag;    /* valid only when state == NFC_SCAN_FOUND */
+static esp_err_t s_nfc_last_err;          /* valid only when state == NFC_SCAN_ERROR */
+static uint32_t s_nfc_scan_start_ms;
+static TaskHandle_t s_nfc_ctrl_task;
+#define NFC_SCAN_TIMEOUT_MS 8000   /* matches nfcpoll's own default window */
+
 /* Alarm screen (set) + ringing screen. */
 static lv_obj_t *s_alarm_screen;
 static lv_obj_t *s_alarm_time_label;           /* live HH:MM while editing */
@@ -153,6 +177,7 @@ static void gps_save_enabled(bool on)
 #define SWIPE_DIST         60
 #define MENU_TIMEOUT_MS    5000   /* return to watch face after this idle */
 #define BHI_TIMEOUT_MS     10000  /* BHI screen keeps the cube up a bit longer */
+#define NFC_MENU_TIMEOUT_MS 10000  /* NFC screen: outlives one scan window (8s) */
 static lv_indev_t *s_touch_indev;
 static lv_point_t s_swipe_start;
 static bool s_swipe_active;
@@ -166,6 +191,9 @@ static void lvgl_build_power_screen(void);
 static void lvgl_build_bhi_screen(void);
 static void lvgl_build_gps_screen(void);
 static void lvgl_build_mesh_screen(void);
+static void lvgl_build_nfc_screen(void);
+static void nfc_start_btn_cb(lv_event_t *e);
+static void nfc_ctrl_task(void *arg);
 static void gps_power(bool on);
 static void gps_refresh(void);
 static void gps_ctrl_task(void *arg);
@@ -915,7 +943,7 @@ static void lvgl_build_bhi_screen(void)
     }
 
     lv_obj_t *hint = lv_label_create(s_bhi_screen);
-    lv_label_set_text(hint, "swipe right to go back");
+    lv_label_set_text(hint, "swipe right: clock   swipe left: NFC");
     lv_obj_set_style_text_font(hint, s_font_small, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -90);
@@ -1391,6 +1419,185 @@ void lvgl_mesh_screen_show(void)
      * back to the watch face on its next 500 ms tick. */
     s_last_touch_tick = lv_tick_get();
     esp_lv_adapter_unlock();
+}
+
+/* ---- NFC screen (chained off BHI: swipe left again) ---- */
+
+static void nfc_screen_update(lv_timer_t *timer)
+{
+    (void)timer;
+    if (!s_nfc_status_label) {
+        return;
+    }
+    if (lv_screen_active() != s_nfc_screen) {
+        return;
+    }
+
+    char buf[96];
+    nfc_scan_state_t st = s_nfc_scan_state;
+
+    switch (st) {
+    case NFC_SCAN_SCANNING: {
+        uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        uint32_t elapsed = (now - s_nfc_scan_start_ms) / 1000;
+        snprintf(buf, sizeof(buf), "Scanning... (%lus)", (unsigned long)elapsed);
+        lv_label_set_text(s_nfc_status_label, buf);
+        lv_label_set_text(s_nfc_uid_label, "Hold tag near the back of the watch");
+        lv_obj_set_style_text_color(s_nfc_uid_label, lv_color_hex(0x9E9E9E), 0);
+        /* Keep the watch awake for the scan window - otherwise auto-sleep
+         * could cut rails st25r3916_open() is relying on mid-scan. */
+        esp_lv_adapter_report_activity();
+        break;
+    }
+    case NFC_SCAN_FOUND: {
+        lv_label_set_text(s_nfc_status_label, "Tag found");
+        char hex[3 * 10 + 1] = { 0 };
+        for (uint8_t i = 0; i < s_nfc_last_tag.uid_len && i < sizeof(s_nfc_last_tag.uid); i++) {
+            snprintf(hex + i * 3, 4, "%02X ", s_nfc_last_tag.uid[i]);
+        }
+        snprintf(buf, sizeof(buf), "UID: %s(%u bytes)", hex, (unsigned)s_nfc_last_tag.uid_len);
+        lv_label_set_text(s_nfc_uid_label, buf);
+        lv_obj_set_style_text_color(s_nfc_uid_label, lv_color_hex(0x3DD68A), 0);
+        break;
+    }
+    case NFC_SCAN_TIMEOUT:
+        lv_label_set_text(s_nfc_status_label, "No tag found");
+        lv_label_set_text(s_nfc_uid_label, "Timed out - tap Start to try again");
+        lv_obj_set_style_text_color(s_nfc_uid_label, lv_color_hex(0x9E9E9E), 0);
+        break;
+    case NFC_SCAN_ERROR:
+        lv_label_set_text(s_nfc_status_label, "Reader error");
+        snprintf(buf, sizeof(buf), "%s", esp_err_to_name(s_nfc_last_err));
+        lv_label_set_text(s_nfc_uid_label, buf);
+        lv_obj_set_style_text_color(s_nfc_uid_label, lv_color_hex(0xE57373), 0);
+        break;
+    case NFC_SCAN_IDLE:
+    default:
+        lv_label_set_text(s_nfc_status_label, "Ready");
+        lv_label_set_text(s_nfc_uid_label, "Tap Start, then hold a tag near the watch");
+        lv_obj_set_style_text_color(s_nfc_uid_label, lv_color_hex(0x9E9E9E), 0);
+        break;
+    }
+
+    if (s_nfc_start_btn) {
+        bool scanning = (st == NFC_SCAN_SCANNING);
+        if (scanning) {
+            lv_obj_add_state(s_nfc_start_btn, LV_STATE_DISABLED);
+        } else {
+            lv_obj_clear_state(s_nfc_start_btn, LV_STATE_DISABLED);
+        }
+        lv_obj_t *bl = lv_obj_get_child(s_nfc_start_btn, 0);
+        if (bl) {
+            lv_label_set_text(bl, scanning ? "Scanning" : "Start");
+        }
+    }
+}
+
+/* NFC screen Start button: only issues a request if idle - nfc_ctrl_task
+ * (not this, the LVGL task) does st25r3916_open()/try()/close(), all of
+ * which block for real time and must not run here. */
+static void nfc_start_btn_cb(lv_event_t *e)
+{
+    (void)e;
+    if (s_nfc_scan_state == NFC_SCAN_SCANNING) {
+        return;
+    }
+    s_nfc_scan_req = true;
+}
+
+/* Background task owning every st25r3916 call: st25r3916_open() alone can
+ * take on the order of 100ms (rail settle + oscillator start + regulator
+ * calibration), and a full scan attempt loops st25r3916_try() for up to
+ * NFC_SCAN_TIMEOUT_MS - none of that belongs on the LVGL task. One-shot per
+ * request, per the chosen UX: stops on the first tag read OR the timeout,
+ * whichever comes first, rather than looping indefinitely like nfcpoll's own
+ * console command does. */
+static void nfc_ctrl_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        if (s_nfc_scan_req) {
+            s_nfc_scan_req = false;
+            s_nfc_scan_state = NFC_SCAN_SCANNING;
+            s_nfc_scan_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+
+            esp_err_t err = st25r3916_open();
+            if (err != ESP_OK) {
+                st25r3916_close();
+                s_nfc_last_err = err;
+                s_nfc_scan_state = NFC_SCAN_ERROR;
+            } else {
+                st25r3916_tag_t tag = { 0 };
+                esp_err_t try_err = ESP_ERR_NOT_FOUND;
+                TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(NFC_SCAN_TIMEOUT_MS);
+                while (xTaskGetTickCount() < deadline) {
+                    try_err = st25r3916_try(&tag, 300);
+                    if (try_err != ESP_ERR_NOT_FOUND) {
+                        break;
+                    }
+                }
+                st25r3916_close();
+                if (try_err == ESP_OK) {
+                    s_nfc_last_tag = tag;
+                    s_nfc_scan_state = NFC_SCAN_FOUND;
+                } else if (try_err == ESP_ERR_NOT_FOUND) {
+                    s_nfc_scan_state = NFC_SCAN_TIMEOUT;
+                } else {
+                    s_nfc_last_err = try_err;
+                    s_nfc_scan_state = NFC_SCAN_ERROR;
+                }
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+static void lvgl_build_nfc_screen(void)
+{
+    s_nfc_screen = screen_new();
+    lv_obj_set_style_bg_color(s_nfc_screen, lv_color_hex(0x201030), 0);
+
+    lv_obj_t *title = lv_label_create(s_nfc_screen);
+    lv_label_set_text(title, "NFC");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    s_nfc_status_label = lv_label_create(s_nfc_screen);
+    lv_label_set_text(s_nfc_status_label, "");
+    lv_obj_set_style_text_font(s_nfc_status_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_nfc_status_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_nfc_status_label, LV_ALIGN_CENTER, 0, -60);
+
+    s_nfc_uid_label = lv_label_create(s_nfc_screen);
+    lv_label_set_text(s_nfc_uid_label, "");
+    lv_obj_set_style_text_font(s_nfc_uid_label, s_font_micro, 0);
+    lv_label_set_long_mode(s_nfc_uid_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(s_nfc_uid_label, 360);
+    lv_obj_set_style_text_align(s_nfc_uid_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(s_nfc_uid_label, LV_ALIGN_CENTER, 0, -10);
+
+    s_nfc_start_btn = lv_btn_create(s_nfc_screen);
+    lv_obj_set_size(s_nfc_start_btn, 140, 44);
+    lv_obj_align(s_nfc_start_btn, LV_ALIGN_CENTER, 0, 80);
+    lv_obj_add_event_cb(s_nfc_start_btn, nfc_start_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *btn_lbl = lv_label_create(s_nfc_start_btn);
+    lv_label_set_text(btn_lbl, "Start");
+    lv_obj_set_style_text_font(btn_lbl, s_font_small, 0);
+    lv_obj_center(btn_lbl);
+
+    lv_obj_t *hint = lv_label_create(s_nfc_screen);
+    lv_label_set_text(hint, "swipe right: BHI sensor");
+    lv_obj_set_style_text_font(hint, s_font_micro, 0);
+    lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -12);
+
+    nfc_screen_update(NULL);
+    lv_timer_create(nfc_screen_update, 500, NULL);
+    if (s_nfc_ctrl_task == NULL) {
+        xTaskCreate(nfc_ctrl_task, "nfc_ctrl", 4096, NULL,
+                    ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, &s_nfc_ctrl_task);
+    }
 }
 
 /* Worker task that actually powers the GNSS receiver. m10q_power() blocks for
@@ -1931,6 +2138,15 @@ static void swipe_event_cb(lv_event_t *e)
     } else if (cur == s_bhi_screen) {
         if (horiz && dx > 0) {   /* right -> clock */
             lvgl_show_watch_face();
+        } else if (horiz && dx < 0) {   /* left -> NFC */
+            if (!s_nfc_screen) {
+                lvgl_build_nfc_screen();
+            }
+            lv_scr_load(s_nfc_screen);
+        }
+    } else if (cur == s_nfc_screen) {
+        if (horiz && dx > 0) {   /* right -> BHI */
+            lv_scr_load(s_bhi_screen);
         }
     } else if (cur == s_gps_screen) {
         if (horiz && dx < 0) {   /* left -> clock */
@@ -1963,7 +2179,8 @@ static void menu_timeout_cb(lv_timer_t *timer)
     if (cur == s_watch_screen) {
         return;
     }
-    uint32_t timeout = (cur == s_bhi_screen) ? BHI_TIMEOUT_MS : MENU_TIMEOUT_MS;
+    uint32_t timeout = (cur == s_bhi_screen) ? BHI_TIMEOUT_MS :
+                        (cur == s_nfc_screen) ? NFC_MENU_TIMEOUT_MS : MENU_TIMEOUT_MS;
     if (lv_tick_get() - s_last_touch_tick >= timeout) {
         lvgl_show_watch_face();
     }
