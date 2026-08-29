@@ -66,11 +66,16 @@ static const char *TAG = "axp2101";
 #define AXP_EN_ALDO4   (1u << 3)
 #define AXP_EN_BLDO1   (1u << 4)
 #define AXP_EN_BLDO2   (1u << 5)
-#define AXP_EN_DLDO1   (1u << 6)
-#define AXP_EN_DLDO2   (1u << 7)
+/* REG 0x90 bit7 = dldo1, bit6 = cpusldo (datasheet 6.13.2.75). These were
+ * swapped here: DLDO1 was using bit6, so every "enable/disable DLDO1" call
+ * actually toggled CPUSLDO while the NFC rail sat at its EFUSE default. */
+#define AXP_EN_DLDO1   (1u << 7)
+/* CPUSLDO is 0x90 bit6, not 0x91 bit0 - it was grouped under 0x91 below and
+ * the "disable cpusldo" call therefore wrote DLDO2's enable bit instead. */
+#define AXP_EN_CPUSLDO (1u << 6)
 
 /* 0x91 enable bits */
-#define AXP_EN_CPUSLDO (1u << 0)
+#define AXP_EN_DLDO2   (1u << 0)
 
 /* 0x30 ADC channel enable bits */
 #define AXP_ADC_BATT   (1u << 0)
@@ -93,7 +98,14 @@ static const axp_rail_map_t s_rail_map[AXP2101_RAIL_MAX] = {
     [AXP2101_ALDO4] = { AXP_REG_LDO_VOL0 + 3, AXP_EN_ALDO4, 500, 100, 0x1F },
     [AXP2101_BLDO1] = { AXP_REG_LDO_VOL0 + 4, AXP_EN_BLDO1, 500, 100, 0x1F },
     [AXP2101_BLDO2] = { AXP_REG_LDO_VOL0 + 5, AXP_EN_BLDO2, 500, 100, 0x1F },
-    [AXP2101_DLDO1] = { AXP_REG_LDO_VOL0 + 6, AXP_EN_DLDO1, 500, 100, 0x1F },
+    /* DLDO1's voltage register is 0x99, NOT 0x92+6=0x98 - 0x98 is CPUSLDO
+     * (datasheet 6.13.2.83/6.13.2.84). With +6 this wrote DLDO1's 3300mV
+     * encoding (0b11100) into CPUSLDO's register, where that value is
+     * reserved (CPUSLDO is 0.5-1.4V in 50mV steps), and left the real NFC
+     * rail unconfigured at its EFUSE default. DLDO1 itself is 0.5-3.4V in
+     * 100mV steps, so the min/step/mask below are correct; only the register
+     * index was wrong. */
+    [AXP2101_DLDO1] = { AXP_REG_LDO_VOL0 + 7, AXP_EN_DLDO1, 500, 100, 0x1F },
 };
 
 esp_err_t axp2101_read_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t *val)
@@ -209,17 +221,22 @@ esp_err_t axp2101_set_default_power(i2c_master_dev_handle_t dev)
      * enabled, so turn it back off right after configuring it. */
     ESP_RETURN_ON_ERROR(axp2101_enable_rail(dev, AXP2101_BLDO2, false), TAG, "bldo2 off");
     /* DLDO1 (NFC): voltage configured for whenever an st25r3916 driver
-     * exists to use it, but left OFF - there's no NFC driver yet
-     * (st25r3916.c is an unimplemented stub), so powering this rail on has
-     * been pure waste since day one. axp2101_init_rail() always leaves a
-     * rail enabled, so turn it back off right after configuring it. */
+     * exists to use it. Left ON, matching LilyGo's own initPMU(), which
+     * enables DLDO1 at boot and never cycles it outside sleep.
+     *
+     * This rail was briefly disabled here as a power saving, on the premise
+     * that nothing used it. That was doubly wrong: the enable bit in use at
+     * the time was CPUSLDO's (bit6), so it never actually switched the NFC
+     * rail at all, and once the bit was corrected the ST25R3916 stopped
+     * responding after being power-cycled - it comes up reliably only when
+     * left continuously powered. Revisit NFC power saving once the driver
+     * works, and validate it against the chip actually re-enumerating. */
     ret = axp2101_init_rail(dev, AXP2101_DLDO1, 3300);           /* NFC */
     ESP_RETURN_ON_ERROR(ret, TAG, "dldo1");
-    ESP_RETURN_ON_ERROR(axp2101_enable_rail(dev, AXP2101_DLDO1, false), TAG, "dldo1 off");
 
     /* Unused channels: DC2-DC5, CPUSLDO. */
     ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_DC_ONOFF_DVM, 0x1E, false), TAG, "disable dc2-5");
-    ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_LDO_ONOFF1, AXP_EN_CPUSLDO, false), TAG, "disable cpusldo");
+    ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_LDO_ONOFF0, AXP_EN_CPUSLDO, false), TAG, "disable cpusldo");
 
     /* RTC backup battery (Seiko MS621FE-FL11E, rechargeable, on VBACKUP per
      * schematic): its charge-enable bit defaults disabled and resets to
