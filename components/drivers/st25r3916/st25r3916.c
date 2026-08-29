@@ -197,6 +197,49 @@ static const char *TAG = "st25r3916";
 
 static spi_device_handle_t s_spi;
 static i2c_master_dev_handle_t s_pmu;
+static bool s_sd_rail_was_on;   /* see hold_spi_bus_rail() */
+
+/* SPI2 is shared by the SD card, the SX1262 and this chip, and the SD card's
+ * rail (ALDO1) is cut whenever the card is unmounted - which, under the
+ * on-demand SD lifecycle, is most of the time. An unpowered SD card does not
+ * release the bus: its DAT0 pin clamps the shared MISO net through its ESD
+ * protection diodes toward its own 0V rail, so EVERY read on SPI2 comes back
+ * 0x00 while ALDO1 is off. Writes are unaffected (MOSI is driven by the
+ * host), which is what made this so confusing - the chip was being configured
+ * correctly the whole time and simply could not be read.
+ *
+ * Measured, with the identity register (0x3F) read through a temporary SPI
+ * device at several mode/clock settings:
+ *
+ *   SD=off NFC=off  ic_identity=00    SD=on NFC=off  ic_identity=2a
+ *   SD=off NFC=on   ic_identity=00    SD=on NFC=on   ic_identity=2a
+ *
+ * Note the second column: the identity register reads fine with DLDO1 OFF.
+ * This chip's host interface is powered from VDD_IO, which comes from the
+ * always-on DC3V3 rail, not from DLDO1 - so "the chip answers SPI" was never
+ * evidence that its analog supply was up, and several earlier conclusions
+ * drawn from that are worth re-checking.
+ *
+ * This is a whole-bus problem, not an NFC one - reads of the SX1262 are
+ * corrupted the same way whenever ALDO1 is down. Holding the rail up for the
+ * duration of an NFC session fixes this driver; the bus-wide fix belongs in
+ * the board layer. */
+static void hold_spi_bus_rail(void)
+{
+    s_sd_rail_was_on = false;
+    axp2101_is_rail_enabled(s_pmu, AXP2101_ALDO1, &s_sd_rail_was_on);
+    if (!s_sd_rail_was_on) {
+        axp2101_enable_rail(s_pmu, AXP2101_ALDO1, true);
+        vTaskDelay(pdMS_TO_TICKS(100));   /* card power-up before it stops clamping */
+    }
+}
+
+static void release_spi_bus_rail(void)
+{
+    if (!s_sd_rail_was_on) {
+        axp2101_enable_rail(s_pmu, AXP2101_ALDO1, false);
+    }
+}
 
 /* ---- raw SPI primitives ---- */
 
@@ -685,6 +728,10 @@ esp_err_t st25r3916_open(void)
                  dldo1_vol, (unsigned)(500 + (dldo1_vol & 0x1F) * 100));
     }
 
+    /* Before anything is read back: an unpowered SD card on this shared bus
+     * clamps MISO to 0 (see hold_spi_bus_rail()). */
+    hold_spi_bus_rail();
+
     axp2101_enable_rail(s_pmu, AXP2101_DLDO1, true);
     /* Power-up settle before the first SPI transaction. Normally a no-op,
      * since the rail is left on across sessions (see st25r3916_close()), but
@@ -720,6 +767,7 @@ esp_err_t st25r3916_open(void)
         ESP_LOGW(TAG, "st25r3916 not responding correctly (ic_identity=0x%02x, expected type 0x%02x in mask 0x%02x) - chip absent/unpowered/misconfigured",
                  ic_id, IC_IDENTITY_TYPE_ST25R3916, IC_IDENTITY_TYPE_MASK);
         axp2101_enable_rail(s_pmu, AXP2101_DLDO1, false);
+        release_spi_bus_rail();
         return (err == ESP_OK) ? ESP_ERR_INVALID_RESPONSE : err;
     }
 
@@ -762,6 +810,7 @@ esp_err_t st25r3916_open(void)
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "st25r3916 bring-up failed: %s", esp_err_to_name(err));
         axp2101_enable_rail(s_pmu, AXP2101_DLDO1, false);
+        release_spi_bus_rail();
         return err;
     }
 
@@ -804,6 +853,7 @@ void st25r3916_close(void)
      * leaves it on. Stopping the RF field is the useful part of "closing" -
      * the rail stays up. */
     reg_change_bits(REG_OP_CONTROL, OP_TX_EN, 0x00);
+    release_spi_bus_rail();
 }
 
 esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
@@ -892,92 +942,41 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
     return ESP_OK;
 }
 
-/* Diagnostic sweep. The chip answered SPI under the pre-fix PMU code and
- * stopped once DLDO1's enable bit was corrected, which is backwards from
- * what the AXP2101 register map says should happen - so sweep the rail
- * states this board has actually been in, and for each one ask the chip for
- * its identity register over a couple of SPI settings.
- *
- * Rail states, matching what the firmware did at various points:
- *   0: both off
- *   1: DLDO1 on at 3.3V (0x99/0x90 bit7)  - the corrected mapping
- *   2: CPUSLDO on (0x98/0x90 bit6)        - what the pre-fix code actually
- *                                           toggled while the chip worked
- *   3: both on
- * State 2 reproduces the previously-working configuration byte for byte,
- * reserved 0x98 encoding included. */
-static void probe_rail_bits(uint8_t mask, bool set)
+/* Diagnostic primitive: create a temporary SPI device with the given mode
+ * and clock, issue Set default, and read the IC identity register twice.
+ * Deliberately does NOT touch any power rail - the caller owns that, since
+ * "which rails are up" is board-level policy and the interesting axes
+ * (the NFC rail, and the SD card sharing this bus) live outside this
+ * driver. Returns true when both reads agree and carry the ST25R3916 type
+ * nibble. */
+bool st25r3916_probe_identity(spi_host_device_t host, int cs_gpio,
+                              uint8_t mode, int hz, uint8_t out_id[2])
 {
-    uint8_t v = 0;
-    if (axp2101_read_reg(s_pmu, 0x90, &v) != ESP_OK) {
-        return;
-    }
-    v = set ? (uint8_t)(v | mask) : (uint8_t)(v & ~mask);
-    axp2101_write_reg(s_pmu, 0x90, v);
-}
+    out_id[0] = 0;
+    out_id[1] = 0;
 
-esp_err_t st25r3916_probe_spi(spi_host_device_t host, int cs_gpio, int off_ms)
-{
-    static const struct { uint8_t mode; int hz; } spi_combos[] = {
-        { 1,  1000000 }, { 1, 10000000 }, { 0, 10000000 },
+    spi_device_interface_config_t cfg = {
+        .mode = mode,
+        .clock_speed_hz = hz,
+        .queue_size = 4,
+        .spics_io_num = cs_gpio,
     };
-    static const char *rail_name[4] = { "both off", "DLDO1 3v3", "CPUSLDO", "both on" };
+    spi_device_handle_t dev = NULL;
+    if (spi_bus_add_device(host, &cfg, &dev) != ESP_OK) {
+        return false;
+    }
 
     spi_device_handle_t saved = s_spi;
+    s_spi = dev;
+    direct_cmd(DCMD_SET_DEFAULT);
+    vTaskDelay(pdMS_TO_TICKS(2));
+    reg_read1(REG_IC_IDENTITY, &out_id[0]);
+    reg_read1(REG_IC_IDENTITY, &out_id[1]);
+    s_spi = saved;
+    spi_bus_remove_device(dev);
 
-    for (int state = 0; state < 4; state++) {
-        bool want_dldo1   = (state == 1) || (state == 3);
-        bool want_cpusldo = (state == 2) || (state == 3);
-
-        /* Drop both rails first so each state is entered from a cold start. */
-        probe_rail_bits((1u << 7) | (1u << 6), false);
-        vTaskDelay(pdMS_TO_TICKS(off_ms > 0 ? off_ms : 200));
-
-        if (want_cpusldo) {
-            axp2101_write_reg(s_pmu, 0x98, 0x1C);
-            probe_rail_bits((1u << 6), true);
-        }
-        if (want_dldo1) {
-            axp2101_write_reg(s_pmu, 0x99, 0x1C);
-            probe_rail_bits((1u << 7), true);
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
-
-        uint8_t onoff = 0;
-        axp2101_read_reg(s_pmu, 0x90, &onoff);
-
-        for (size_t i = 0; i < sizeof(spi_combos) / sizeof(spi_combos[0]); i++) {
-            spi_device_interface_config_t cfg = {
-                .mode = spi_combos[i].mode,
-                .clock_speed_hz = spi_combos[i].hz,
-                .queue_size = 4,
-                .spics_io_num = cs_gpio,
-            };
-            spi_device_handle_t dev = NULL;
-            if (spi_bus_add_device(host, &cfg, &dev) != ESP_OK) {
-                continue;
-            }
-            s_spi = dev;
-            direct_cmd(DCMD_SET_DEFAULT);
-            vTaskDelay(pdMS_TO_TICKS(2));
-            uint8_t id[2] = { 0 };
-            reg_read1(REG_IC_IDENTITY, &id[0]);
-            reg_read1(REG_IC_IDENTITY, &id[1]);
-            bool ok = ((id[0] & IC_IDENTITY_TYPE_MASK) == IC_IDENTITY_TYPE_ST25R3916) &&
-                      id[0] == id[1];
-            ESP_LOGI(TAG, "rail=%-9s (0x90=0x%02x) mode=%u %8d Hz: ic_identity=%02x %02x %s",
-                     rail_name[state], onoff, spi_combos[i].mode, spi_combos[i].hz,
-                     id[0], id[1], ok ? "<== OK" : "");
-            s_spi = saved;
-            spi_bus_remove_device(dev);
-        }
-    }
-
-    /* Leave the board in the configuration normal operation expects. */
-    probe_rail_bits((1u << 6), false);
-    axp2101_write_reg(s_pmu, 0x99, 0x1C);
-    probe_rail_bits((1u << 7), true);
-    return ESP_OK;
+    return ((out_id[0] & IC_IDENTITY_TYPE_MASK) == IC_IDENTITY_TYPE_ST25R3916) &&
+           out_id[0] == out_id[1];
 }
 
 esp_err_t st25r3916_poll(st25r3916_tag_t *tag, int timeout_ms)

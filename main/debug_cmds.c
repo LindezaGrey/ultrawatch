@@ -290,11 +290,59 @@ void debug_cmd_nfcpoll(const char *args)
 
 void debug_cmd_nfcprobe(const char *args)
 {
-    /* "nfcprobe [off_ms]" - optionally power-cycle DLDO1 with the given off
-     * time first, then sweep SPI mode/clock combinations. */
-    int off_ms = (args[0] != '\0') ? atoi(args) : 0;
-    printf("nfcprobe: DLDO1 off for %dms, then sweeping SPI mode/clock...\n", off_ms);
-    st25r3916_probe_spi(TWATCH_SPI_HOST, TWATCH_PIN_NFC_CS, off_ms);
+    /* Sweep the two things that can plausibly keep the ST25R3916 off the
+     * bus, and read its identity register through each combination.
+     *
+     * The SD card axis is the interesting one: it shares SPI2's MOSI/MISO/
+     * SCK, and sd_log_unmount() cuts its rail (ALDO1) while leaving its DAT0
+     * pin tied to the shared MISO net. An unpowered device clamps the net
+     * through its ESD protection diodes toward its own 0V rail, which reads
+     * back as 0x00 - indistinguishable from "the NFC chip isn't answering".
+     * Every earlier probe here ran with the SD card unpowered, so that
+     * confound had to be removed before believing any of it.
+     *
+     * "nfcprobe [settle_ms]" - rail settle time, default 150ms. */
+    int settle = (args[0] != '\0') ? atoi(args) : 150;
+    if (settle < 20) {
+        settle = 20;
+    }
+
+    static const struct { uint8_t mode; int hz; } spi_combos[] = {
+        { 1,  1000000 }, { 1, 10000000 }, { 0, 10000000 },
+    };
+
+    /* Unmount cleanly first if the card is up: cutting the rail from under a
+     * mounted card is what leaves it unable to remount (sd_log.c). */
+    bool was_mounted = sd_log_available();
+    if (was_mounted) {
+        sd_log_unmount();
+    }
+
+    printf("nfcprobe: sweeping SD rail x NFC rail x SPI settings (settle %dms)\n", settle);
+
+    for (int sd_on = 0; sd_on <= 1; sd_on++) {
+        axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, sd_on != 0);
+        for (int nfc_on = 0; nfc_on <= 1; nfc_on++) {
+            axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, nfc_on != 0);
+            vTaskDelay(pdMS_TO_TICKS(settle));
+
+            for (size_t i = 0; i < sizeof(spi_combos) / sizeof(spi_combos[0]); i++) {
+                uint8_t id[2] = { 0 };
+                bool ok = st25r3916_probe_identity(TWATCH_SPI_HOST, TWATCH_PIN_NFC_CS,
+                                                   spi_combos[i].mode, spi_combos[i].hz, id);
+                printf("  SD=%-3s NFC=%-3s mode=%u %8d Hz: ic_identity=%02x %02x %s\n",
+                       sd_on ? "on" : "off", nfc_on ? "on" : "off",
+                       spi_combos[i].mode, spi_combos[i].hz, id[0], id[1], ok ? "<== OK" : "");
+            }
+        }
+    }
+
+    /* Restore: NFC rail on (normal operation), SD back to how it was found. */
+    axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, true);
+    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, false);
+    if (was_mounted) {
+        sd_log_mount();
+    }
     printf("nfcprobe: done\n");
 }
 

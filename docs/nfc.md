@@ -7,16 +7,6 @@ below was checked against **DS12484 Rev 8** (`Datasheets/ST25R3916_datasheet.pdf
 section numbers given inline. Items marked *unverified* have not yet been
 confirmed on hardware.
 
-> ## Current status (2026-08-29): the chip is not responding at all
->
-> On hardware, the ST25R3916 currently answers **neither SPI nor I2C**, in any
-> configuration. This is a more fundamental problem than the driver bugs
-> documented below, and it needs a measurement, not more code. See
-> [Current hardware state](#current-hardware-state) at the end.
->
-> Everything else in this document is datasheet-verified and the driver fixes
-> are real, but they are **unverified against a responding chip**.
-
 ## Part & interface
 
 | Item | Value |
@@ -250,70 +240,91 @@ Reference for a healthy log: `ic_identity` type nibble `0x28` after each stage,
 then `I_apon` → `I_cat` → `I_txe` → `I_rxe` and a 2-byte ATQA in the FIFO.
 
 
-## Current hardware state
+## Root cause: the SD card's rail and the shared SPI bus
 
-As of 2026-08-29 the chip does not answer at all. What was measured, using the
-`nfcprobe` and `i2cscan` console commands added for this:
+**This was the bug.** SPI2 is shared by the SD card, the SX1262 and the
+ST25R3916, and `sd_log_unmount()` cuts the SD card's rail (ALDO1) while
+leaving its DAT0 pin tied to the shared MISO net. Under the on-demand SD
+lifecycle the card is unmounted most of the time.
 
-**SPI sweep** — a temporary device is created per combination, `Set default`
-(`0xC0`) issued, then the IC identity register (`0x3F`) read twice:
+An unpowered device does not release a bus. Its I/O pins clamp the net through
+their ESD protection diodes toward its own (now 0 V) supply. So with ALDO1
+down, **every read on SPI2 returns `0x00`**. Writes are unaffected — MOSI is
+driven by the host — which is exactly what made this so hard to see: the
+ST25R3916 was being configured correctly the entire time and simply could not
+be read back.
 
-| SPI mode | Clock | `input_delay_ns` | `ic_identity` |
-|---|---|---|---|
-| 1 | 1 / 2 / 4 MHz | 0 and 80 | `00` |
-| 1 | 6 / 10 MHz | 0 | `00` |
-| 0 | 2 / 10 MHz | 0 | `00` |
+Measured with the identity register (`0x3F`) read through a temporary SPI
+device, sweeping the SD rail against the NFC rail:
 
-**Rail sweep** — each of the four PMU states this board's firmware has ever
-been in, entered cold (rails dropped, 200–1000 ms off, 100 ms settle), each
-crossed with the SPI settings above. Reg `0x90` reads back exactly as
-commanded in every case, so the PMU writes are landing:
+| SD rail | NFC rail (DLDO1) | mode | clock | `ic_identity` |
+|---|---|---|---|---|
+| off | off | 1 | 1 MHz | `00` |
+| off | off | 1 | 10 MHz | `00` |
+| off | on | 1 | 1 MHz | `00` |
+| off | on | 1 | 10 MHz | `00` |
+| **on** | off | 1 | 1 MHz | **`2a`** |
+| **on** | off | 1 | 10 MHz | **`2a`** |
+| **on** | on | 1 | 1 MHz | **`2a`** |
+| **on** | on | 1 | 10 MHz | **`2a`** |
 
-| Rail state | `0x90` | `ic_identity` |
-|---|---|---|
-| both off | `0x1e` | `00` |
-| DLDO1 on @ 3.3 V (corrected mapping) | `0x9e` | `00` |
-| CPUSLDO on @ `0x98`=`0x1C` (what the pre-fix code actually toggled) | `0x5e` | `00` |
-| both on | `0xde` | `00` |
+This single fact explains every symptom at once:
 
-**I2C scan** — the ST25R3916 selects SPI or I2C from its `I2C_EN` pin and
-answers at `0x50` in I2C mode. Full 7-bit scan finds
-`0x1a 0x20 0x28 0x34 0x51 0x5a` — touch, XL9555, BHI260AP, AXP2101, PCF85063A,
-DRV2605. **No `0x50`.**
+- `ic_identity` reading `0x00` — "chip absent/unpowered".
+- All four interrupt status registers reading `0x00`, so no `I_txe`, `I_rxe`,
+  `I_apon` or `I_cat` ever appeared.
+- `op_control` reading back `0x03` after field-on. That is precisely
+  `(0x00 & ~0x03) | 0x03` — `field_on()`'s own closing read-modify-write on
+  `en_fd_c` operating on a read that returned zero. There was never a chip
+  quirk to work around.
+- The intermittency: it worked whenever the SD card happened to be mounted.
 
-Ruled out by the above:
+`st25r3916_open()` now holds ALDO1 up for the duration of a session and
+restores it in `st25r3916_close()`.
 
-- SPI mode, clock rate and input delay — all silent, including mode 1 @ 10 MHz,
-  the exact configuration under which the chip previously reported
-  `ic_identity = 0x28`.
-- Which PMU rail is enabled, including reproducing the pre-fix CPUSLDO state
-  byte for byte.
-- The chip having quietly fallen back to I2C.
-- A bus fault: the SX1262 shares MOSI/MISO/SCK on SPI2 and enumerates fine
-  (`SX1262 found, status=0xa2`) on every boot.
-- A chip-select conflict: GPIO4 is defined exactly once in the tree, as
-  `TWATCH_PIN_NFC_CS`.
+> **This is a bus-wide problem, not an NFC one.** Reads of the SX1262 are
+> corrupted the same way whenever ALDO1 is down — including LoRa RX serviced
+> from the DIO1 interrupt during light sleep, when the SD card is unmounted by
+> definition. The proper fix belongs in the board layer: treat ALDO1 as the
+> SPI2 bus rail rather than the SD card's private rail, and only drop it when
+> the bus is genuinely quiescent. **Not yet done.**
 
-What is left, and what would settle it:
+### The NFC rail does not gate register access
 
-1. **The chip's VDD is not actually reaching 3.3 V.** The PMU reports DLDO1
-   enabled and programmed to 3300 mV, but a register bit reading back as set
-   only proves the request latched — not that the LDO is sourcing current.
-   *Test: meter on the ST25R3916's VDD pin / the DLDO1 net, with the rail
-   commanded on.*
-2. **VDD_IO / VDD power-up ordering.** VDD_IO appears to come from the
-   always-on DC3V3 rail while VDD comes from DLDO1, which the firmware used to
-   enable long after boot. If the part latched into a bad state from that
-   ordering, only a full board power-cycle clears it — an ESP32 reset does not,
-   since it never drops DC3V3. Now that DLDO1 is enabled during
-   `axp2101_set_default_power()`, both rails come up together at boot.
-   *Test: full power-off (`pwroff`, then the power button) rather than a reset,
-   then `nfcprobe`.*
-3. **The part is damaged.** Consistent with the evidence but not yet
-   distinguishable from (1) and (2), and only worth concluding after both.
+Note the second column above: the identity register reads fine with **DLDO1
+off**. This chip's host interface is powered from VDD_IO, which the schematic
+takes from the always-on DC3V3 rail, not from DLDO1.
 
-Note the ordering of events: the chip's last known-good `ic_identity = 0x28`
-predates the AXP2101 register-map corrections. The tree already recorded it
-"going unresponsive partway through this sequence (ic_identity reading 0x00)"
-before those corrections were made, so the silence is not obviously caused by
-them — the sweep above shows it persists with the pre-fix rail state restored.
+So "the chip answers SPI" was never evidence that its analog supply was up,
+and any earlier conclusion resting on that is worth re-checking. It also means
+DLDO1 gates only the analog/RF side, which is where it matters — but a
+register-level probe cannot tell you whether that rail is healthy.
+
+### Confirmed working
+
+```
+op_control after field_on(): 0xc9 (want en|rx_en|tx_en = 0xc8)
+RFI amplitude reading: 36 (0-255, higher = more signal)
+tag found: ATQA=4400 UID=1D E2 A9 40 1A 10 80 (7 bytes)
+```
+
+Repeatable, ~180 ms from `open()` to UID. Two things worth reading off that:
+
+- `op_control` is `0xc9` = `en | rx_en | tx_en | en_fd_c=01`, with no
+  force-write. Table 21 was right: `tx_en` is set automatically by the NFC
+  field-on command.
+- A 7-byte UID means two anticollision cascade levels completed, so the sticky
+  interrupt mask is delivering both `I_txe` and `I_rxe` correctly.
+
+The earlier "RFI amplitude 15-16/255, so the field must be weak" reading was
+taken through a clamped bus and meant nothing. The real figure is ~35.
+
+### On the SPI clock
+
+The sweep shows mode 1 at 10 MHz reading correctly once the bus is not
+clamped, so 10 MHz is not *the* bug. It is still out of spec for reads by the
+timing analysis above, and the sweep gives direct evidence of marginality:
+**mode 0** at 10 MHz — which should never work — returned `ff ff` in one rail
+state and a spuriously correct `2a 2a` in another. That is aliasing across the
+sampling edge, exactly what too little `T_DOD` margin looks like. The driver
+runs at 2 MHz with `input_delay_ns = 80` for margin.

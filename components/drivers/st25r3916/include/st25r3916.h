@@ -67,13 +67,14 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms);
 /* Power the chip back down. Safe to call even if st25r3916_open() failed. */
 void st25r3916_close(void);
 
-/* Diagnostic sweep: creates a temporary SPI device for each (mode, clock)
- * combination in a fixed list, issues Set default and reads the IC identity
- * register a few times through it, and logs what came back. Answers "which
- * SPI settings does this chip actually respond to on this board" directly,
- * instead of one flash cycle per guess. Powers DLDO1 on and leaves it on.
- * `host` and `cs_gpio` are the shared SPI2 bus and the NFC chip select. */
-esp_err_t st25r3916_probe_spi(spi_host_device_t host, int cs_gpio, int off_ms);
+/* Diagnostic primitive: probe the IC identity register through a temporary
+ * SPI device at the given mode/clock, without touching any power rail.
+ * Lets a caller sweep whatever axes matter - SPI settings, the NFC rail, or
+ * the SD card's rail, which shares this SPI bus and clamps MISO through its
+ * ESD diodes when unpowered. Fills out_id[2] with two consecutive reads and
+ * returns true when they agree and carry the ST25R3916 type nibble. */
+bool st25r3916_probe_identity(spi_host_device_t host, int cs_gpio,
+                              uint8_t mode, int hz, uint8_t out_id[2]);
 
 /* Convenience wrapper: open(), one try(), close(). Equivalent to this
  * driver's original one-shot-per-call behavior - prefer st25r3916_open()/
