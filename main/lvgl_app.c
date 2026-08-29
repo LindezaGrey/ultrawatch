@@ -38,6 +38,7 @@
 #include "alarm.h"
 #include "mesh_log.h"
 #include "st25r3916.h"
+#include "ndef.h"
 
 static const char *TAG = "lvgl_app";
 
@@ -121,6 +122,9 @@ static volatile nfc_scan_state_t s_nfc_scan_state = NFC_SCAN_IDLE;
 static volatile bool s_nfc_scan_req;      /* Start tap, consumed by nfc_ctrl_task */
 static st25r3916_tag_t s_nfc_last_tag;    /* valid only when state == NFC_SCAN_FOUND */
 static esp_err_t s_nfc_last_err;          /* valid only when state == NFC_SCAN_ERROR */
+#define NFC_MAX_NDEF_RECORDS 4
+static ndef_record_t s_nfc_last_ndef[NFC_MAX_NDEF_RECORDS];   /* valid only when state == NFC_SCAN_FOUND */
+static size_t s_nfc_last_ndef_count;      /* 0 = not NDEF-formatted or no message - both normal */
 static uint32_t s_nfc_scan_start_ms;
 static TaskHandle_t s_nfc_ctrl_task;
 #define NFC_SCAN_TIMEOUT_MS 8000   /* matches nfcpoll's own default window */
@@ -145,6 +149,8 @@ static lv_obj_t *s_ring_time_label;
 #define GPS_REFRESH_TIMEOUT_MS 120000
 static volatile int s_gps_ctrl_req;
 static TaskHandle_t s_gps_ctrl_task;
+#define LKP_REFRESH_INTERVAL_MS (60 * 1000)   /* NVS write throttle, not fix rate */
+static uint32_t s_gps_lkp_saved_ms;    /* xTaskGetTickCount()-scale, wraps like the others here */
 
 /* Persisted "GNSS enabled" setting (NVS, namespace "gps", key "en"). */
 #define GPS_NVS_NS       "gps"
@@ -1455,8 +1461,27 @@ static void nfc_screen_update(lv_timer_t *timer)
         for (uint8_t i = 0; i < s_nfc_last_tag.uid_len && i < sizeof(s_nfc_last_tag.uid); i++) {
             snprintf(hex + i * 3, 4, "%02X ", s_nfc_last_tag.uid[i]);
         }
-        snprintf(buf, sizeof(buf), "UID: %s(%u bytes)", hex, (unsigned)s_nfc_last_tag.uid_len);
-        lv_label_set_text(s_nfc_uid_label, buf);
+        /* UID line plus decoded NDEF content (if any) on its own lines below -
+         * LV_LABEL_LONG_WRAP handles an explicit "
+" fine (unlike
+         * LONG_DOT, which hangs on that combination - see mesh_screen_update()'s
+         * own doc comment on that bug). s_nfc_last_ndef_count == 0 covers
+         * both "not NDEF-formatted" and "formatted, empty message" - both
+         * normal outcomes for a tag, not an error. */
+        char found_buf[512];
+        int off = snprintf(found_buf, sizeof(found_buf), "UID: %s(%u bytes)",
+                           hex, (unsigned)s_nfc_last_tag.uid_len);
+        if (s_nfc_last_ndef_count == 0) {
+            snprintf(found_buf + off, sizeof(found_buf) - off, "\nNo NDEF data");
+        } else {
+            for (size_t i = 0; i < s_nfc_last_ndef_count && off < (int)sizeof(found_buf); i++) {
+                const char *kind = (s_nfc_last_ndef[i].kind == NDEF_TEXT) ? "Text" :
+                                    (s_nfc_last_ndef[i].kind == NDEF_URI)  ? "URI"  : "Other";
+                off += snprintf(found_buf + off, sizeof(found_buf) - off,
+                                "\n%s: %s", kind, s_nfc_last_ndef[i].text);
+            }
+        }
+        lv_label_set_text(s_nfc_uid_label, found_buf);
         lv_obj_set_style_text_color(s_nfc_uid_label, lv_color_hex(0x3DD68A), 0);
         break;
     }
@@ -1536,6 +1561,23 @@ static void nfc_ctrl_task(void *arg)
                         break;
                     }
                 }
+
+                /* NDEF read while the tag is still selected, i.e. before
+                 * st25r3916_close() - same sequence as nfcpoll's console
+                 * command. s_nfc_last_ndef_count staying 0 covers both "not
+                 * NDEF-formatted" and "formatted, empty message" - both
+                 * normal outcomes for a tag, shown as "no NDEF data" rather
+                 * than as an error. */
+                s_nfc_last_ndef_count = 0;
+                if (try_err == ESP_OK) {
+                    uint8_t ndef_buf[256];
+                    size_t ndef_len = 0;
+                    if (st25r3916_read_type2(ndef_buf, sizeof(ndef_buf), &ndef_len, 500) == ESP_OK) {
+                        s_nfc_last_ndef_count = ndef_parse(ndef_buf, ndef_len,
+                                                           s_nfc_last_ndef, NFC_MAX_NDEF_RECORDS);
+                    }
+                }
+
                 st25r3916_close();
                 if (try_err == ESP_OK) {
                     s_nfc_last_tag = tag;
@@ -1715,6 +1757,35 @@ static void gps_ctrl_task(void *arg)
             s_gps_acq_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
             m10q_power(true);
             ESP_LOGI(TAG, "GNSS re-powered after wake");
+        }
+
+        /* Opportunistic MGA-INI position seed refresh - independent of
+         * TRACKING_ENABLED. m10q_update_last_position() (the only thing
+         * that persists a fresh last-known-position for next session's
+         * MGA-INI POS aiding) used to be called ONLY from the tracking
+         * fix-due branch above, which is compiled out entirely when
+         * tracking is disabled - meaning ordinary GPS screen use or the
+         * boot-time refresh got a perfectly good fix, displayed it, and
+         * then never wrote it back. The next session kept re-seeding
+         * whatever position was last set by hand (gnssseed), however old
+         * or far away that had become - confirmed on hardware: a fix in
+         * Germany, MGA-INI POS still acking a UK coordinate hundreds of km
+         * off, months stale. A confidently-wrong position hint (radius
+         * 1km) is worse for acquisition than no hint at all.
+         *
+         * Any valid 3D fix, any time GNSS is powered, now refreshes it -
+         * throttled to once per LKP_REFRESH_INTERVAL_MS so a fix streaming
+         * at 1 Hz doesn't turn into an NVS write every second. */
+        if (s_gps_powered) {
+            m10q_fix_t fix;
+            m10q_get_fix(&fix);
+            if (fix.valid && fix.fix_3d) {
+                uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+                if (now - s_gps_lkp_saved_ms >= LKP_REFRESH_INTERVAL_MS) {
+                    m10q_update_last_position(fix.lat, fix.lon);
+                    s_gps_lkp_saved_ms = now;
+                }
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(50));
     }

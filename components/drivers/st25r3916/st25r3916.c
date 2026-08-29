@@ -924,6 +924,91 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
     return ESP_OK;
 }
 
+/* ---- Type 2 Tag memory read (NTAG21x / MIFARE Ultralight family) ----
+ *
+ * Only valid while a tag is selected - i.e. right after st25r3916_try()
+ * returns success, before st25r3916_close(). cascade_level()'s SELECT step
+ * already left antcl off and the tag in the ISO14443-3 ACTIVE state, so a
+ * plain CRC-framed command here (same shape as SELECT's own TX) is exactly
+ * what a selected Type 2 Tag expects. */
+
+/* READ (0x30 + 1-byte page address) -> 16 bytes (4 pages), CRC-checked and
+ * stripped by the chip the same way the SAK response already is. Mirrors
+ * cascade_level()'s structure: Clear FIFO (also resets IRQ status, SS4.3.1)
+ * -> load the command -> Transmit with CRC -> wait on the sticky IRQ mask
+ * -> read back whatever the FIFO actually holds. */
+static esp_err_t type2_read_pages(uint8_t page, uint8_t out16[16], TickType_t deadline)
+{
+    ESP_RETURN_ON_ERROR(direct_cmd(DCMD_CLEAR_FIFO), TAG, "clear fifo (type2 read)");
+    uint8_t cmd[2] = { 0x30, page };
+    ESP_RETURN_ON_ERROR(fifo_load(cmd, sizeof(cmd)), TAG, "fifo load (type2 read)");
+    ESP_RETURN_ON_ERROR(reg_write1(REG_NUM_TX_BYTES1, 0x00), TAG, "ntx1 (type2 read)");
+    ESP_RETURN_ON_ERROR(reg_write1(REG_NUM_TX_BYTES2, (uint8_t)(2u << 3)), TAG, "ntx2 (type2 read)");
+
+    uint32_t irq = 0;
+    ESP_RETURN_ON_ERROR(direct_cmd(DCMD_TX_WITH_CRC), TAG, "tx type2 read");
+    esp_err_t err = wait_response(&irq, deadline);
+    if (err != ESP_OK) {
+        /* Expected at the tag's memory boundary (some tags NAK a
+         * out-of-range page instead of wrapping) - not logged as a warning
+         * here, the caller decides whether a short read is normal. */
+        return err;
+    }
+    size_t n = 0;
+    ESP_RETURN_ON_ERROR(fifo_byte_count(&n), TAG, "fifo count (type2 read)");
+    if (n < 16) {
+        return ESP_ERR_INVALID_RESPONSE;   /* NAK (short response) or truncated read */
+    }
+    return fifo_read(out16, 16);
+}
+
+esp_err_t st25r3916_read_type2(uint8_t *out, size_t out_cap, size_t *out_len, int timeout_ms)
+{
+    if (!out || !out_len || out_cap == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *out_len = 0;
+    TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
+
+    /* Page 0-3 in one READ: pages 0-1 are the UID, page 2 lock/internal
+     * bytes, page 3 the Capability Container. Only the CC's magic number
+     * (byte 0 of page 3 = out16[12]) is checked here - if it isn't 0xE1 the
+     * tag was never NDEF-formatted, and walking its TLV area would just be
+     * parsing whatever happens to be there. Not an error: a tag with no
+     * NDEF content at all is a normal, expected outcome. */
+    uint8_t hdr16[16];
+    if (type2_read_pages(0, hdr16, deadline) != ESP_OK) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (hdr16[12] != 0xE1) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    /* User memory / TLV area starts at page 4. Read forward in 4-page (one
+     * READ command = 16 bytes) chunks until out_cap is filled or a read
+     * fails - a short/failed read this far in is the tag's memory boundary,
+     * not a driver error, so it ends the read with whatever was gathered
+     * rather than propagating an error the caller would have to unwrap. */
+    size_t got = 0;
+    uint8_t page = 4;
+    while (got < out_cap) {
+        uint8_t chunk[16];
+        if (type2_read_pages(page, chunk, deadline) != ESP_OK) {
+            break;
+        }
+        size_t take = out_cap - got;
+        if (take > 16) {
+            take = 16;
+        }
+        memcpy(out + got, chunk, take);
+        got += take;
+        page = (uint8_t)(page + 4);
+    }
+
+    *out_len = got;
+    return (got > 0) ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
 /* Diagnostic primitive: see the doc comment in st25r3916.h for why this
  * uses the permanent SPI device (s_spi, bound once in st25r3916_init())
  * rather than creating a temporary one - a temporary device sharing GPIO4

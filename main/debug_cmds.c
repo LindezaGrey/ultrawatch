@@ -29,6 +29,7 @@
 #include "pcf85063a.h"
 #include "st25r3916.h"
 #include "spi2_power.h"
+#include "ndef.h"
 #include "debug_cmds.h"
 
 void debug_cmd_shot(const char *args)
@@ -275,6 +276,24 @@ void debug_cmd_nfcpoll(const char *args)
             break;
         }
     }
+
+    /* Attempt an NDEF read while the tag is still selected - i.e. before
+     * st25r3916_close() - only when st25r3916_try() actually found one.
+     * "not NDEF-formatted" (ESP_ERR_NOT_FOUND from st25r3916_read_type2())
+     * is a normal outcome for a blank/non-Type-2 tag, not an error to
+     * report as one. */
+    uint8_t ndef_buf[256];
+    size_t ndef_len = 0;
+    ndef_record_t records[4];
+    size_t record_count = 0;
+    bool have_ndef = false;
+    if (err == ESP_OK) {
+        if (st25r3916_read_type2(ndef_buf, sizeof(ndef_buf), &ndef_len, 500) == ESP_OK) {
+            record_count = ndef_parse(ndef_buf, ndef_len, records, 4);
+            have_ndef = true;
+        }
+    }
+
     st25r3916_close();
     if (err == ESP_ERR_NOT_FOUND) {
         printf("nfcpoll: no tag\n");
@@ -286,6 +305,19 @@ void debug_cmd_nfcpoll(const char *args)
             printf("%02X ", tag.uid[i]);
         }
         printf("(%u bytes)\n", tag.uid_len);
+
+        if (!have_ndef) {
+            printf("nfcpoll: not NDEF-formatted (no Type 2 Capability Container)\n");
+        } else if (record_count == 0) {
+            printf("nfcpoll: NDEF-formatted, but no NDEF message found\n");
+        } else {
+            for (size_t i = 0; i < record_count; i++) {
+                const char *kind = (records[i].kind == NDEF_TEXT) ? "TEXT" :
+                                    (records[i].kind == NDEF_URI)  ? "URI"  : "OTHER";
+                printf("nfcpoll: NDEF[%u] %s (%s): %s\n", (unsigned)i, kind,
+                       records[i].type, records[i].text);
+            }
+        }
     }
 }
 

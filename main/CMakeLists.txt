@@ -17,6 +17,7 @@ idf_component_register(
         sx1262
         st25r3916
         spi2_power
+        ndef
         esp_lvgl_adapter
         lvgl
         spiffs

@@ -4,9 +4,12 @@
  * Shares the board SPI bus (twatch_board). CS 4, IRQ 5. No RESET line - Set
  * default is a direct command, not a pin. Reader (initiator) mode only:
  * REQA -> ATQA -> SEL_CLx anticollision/select cascade to recover a tag's
- * UID. No NDEF, no card emulation, no genuine multi-tag collision
- * resolution beyond what the chip's anticollision framing support gives -
- * see the driver's top-of-file comment for the primary-source references.
+ * UID, plus a Type 2 Tag (NTAG21x/MIFARE Ultralight family) memory read
+ * (st25r3916_read_type2()) once a tag is selected - hand its output to
+ * components/ndef to decode an NDEF message. No card emulation, no P2P, no
+ * genuine multi-tag collision resolution beyond what the chip's
+ * anticollision framing support gives - see the driver's top-of-file
+ * comment for the primary-source references.
  *
  * The rail (DLDO1) is dedicated to this chip and owned by this driver, but
  * unlike this codebase's other on-demand-rail drivers (sd_log_mount()/
@@ -22,6 +25,7 @@
  * powers back down when the caller is done. */
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
@@ -63,6 +67,21 @@ esp_err_t st25r3916_open(void);
  * to call repeatedly (e.g. in a polling loop) between one open()/close()
  * pair. */
 esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms);
+
+/* Reads a Type 2 Tag's (NTAG21x / MIFARE Ultralight family) user memory -
+ * page 4 onward - into `out`, up to `out_cap` bytes; `*out_len` is set to
+ * how much was actually read (may be less than out_cap: the tag's own
+ * memory size, or a read failing partway, both end the read normally
+ * rather than as an error). Checks the Capability Container's NDEF magic
+ * byte (page 3 byte 0 = 0xE1) first and returns ESP_ERR_NOT_FOUND
+ * immediately if it's absent - the tag was never NDEF-formatted.
+ *
+ * Only valid while a tag is selected: call it after a successful
+ * st25r3916_try(), before st25r3916_close(). The bytes returned are raw
+ * Type 2 Tag TLV-area data - hand them to ndef_parse() (components/ndef)
+ * to find and decode an NDEF message; this driver has no NDEF knowledge of
+ * its own, only the chip-level read primitive. */
+esp_err_t st25r3916_read_type2(uint8_t *out, size_t out_cap, size_t *out_len, int timeout_ms);
 
 /* Power the chip back down. Safe to call even if st25r3916_open() failed. */
 void st25r3916_close(void);
