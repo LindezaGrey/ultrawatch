@@ -37,6 +37,9 @@ void debug_cmd_alarmring(const char *args);
 void debug_cmd_alarmdismiss(const char *args);
 void debug_cmd_alarmsnooze(const char *args);
 void debug_cmd_timer(const char *args);
+
+void debug_cmd_gpxstatus(const char *args);
+void debug_cmd_gpxcat(const char *args);
 void debug_cmd_rtcdump(const char *args);
 void debug_cmd_rtctimer(const char *args);
 void debug_cmd_settime(const char *args);

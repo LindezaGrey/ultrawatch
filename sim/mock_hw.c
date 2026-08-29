@@ -352,6 +352,41 @@ void lvgl_tracking_start(void)
     }
 }
 
+/* ---- GPX logging (gps_track_btn_cb on the GPS screen) ----
+ * Point count derived from elapsed real time / the firmware's 30 s
+ * interval, rather than an actual ticking timer, so the count visibly
+ * grows during a sim session without needing a background task here. */
+static bool s_gpx_active;
+static time_t s_gpx_started_at;
+static uint32_t s_gpx_point_count;
+
+esp_err_t gpx_log_start(void)
+{
+    s_gpx_active = true;
+    s_gpx_started_at = time(NULL);
+    s_gpx_point_count = 0;
+    return ESP_OK;
+}
+
+esp_err_t gpx_log_stop(void)
+{
+    s_gpx_active = false;
+    return ESP_OK;
+}
+
+bool gpx_log_is_active(void)
+{
+    return s_gpx_active;
+}
+
+uint32_t gpx_log_point_count(void)
+{
+    if (s_gpx_active) {
+        s_gpx_point_count = (uint32_t)(time(NULL) - s_gpx_started_at) / 30;
+    }
+    return s_gpx_point_count;
+}
+
 void lvgl_tracking_stop(void)
 {
     if (s_tracking_active) {

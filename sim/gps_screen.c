@@ -27,10 +27,11 @@
  *     power request onto gps_ctrl_task. Per the porting brief it's replaced
  *     with a call to mock_gnss_set_enabled(), which flips the mock's
  *     internal GNSS-enabled flag directly.
- *   - TRACKING_ENABLED is forced to 1 in mock_hw.h (vs. 0 in the real
- *     tracking.h default) so the copied #if TRACKING_ENABLED branch below is
- *     the real (non-#else) one, and gps_track_btn_cb's body is otherwise
- *     unmodified.
+ *   - Phase 3 (DMS + GPX logging): the Start/Stop button and its label are
+ *     wired to mock_hw.c's gpx_log_* mocks now, not tracking.c's pedometer
+ *     (see main/lvgl_app.c's gps_track_btn_cb for why - a different,
+ *     unrelated feature). format_dms() is copied verbatim from the same
+ *     file for the same reason (no degree-sign glyph in the baked fonts).
  *
  * Keep this in sync with main/lvgl_app.c by hand: there's no build-time
  * link between the two.
@@ -112,6 +113,20 @@ static lv_color_t gps_snr_color(int snr)
     return lv_color_hex(0x3DD68A);
 }
 
+/* Decimal degrees -> DMS, plain-ASCII "D M S" notation - see the identical
+ * helper's comment in main/lvgl_app.c for why (no degree-sign glyph in the
+ * baked bitmap fonts). */
+static void format_dms(double deg, bool is_lat, char *out, size_t outlen)
+{
+    char dir = is_lat ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'W');
+    deg = fabs(deg);
+    int d = (int)deg;
+    double m_full = (deg - d) * 60.0;
+    int m = (int)m_full;
+    int s = (int)((m_full - m) * 60.0 + 0.5);
+    snprintf(out, outlen, "%dd%02dm%02ds%c", d, m, s, dir);
+}
+
 static void gps_screen_update(lv_timer_t *timer)
 {
     (void)timer;
@@ -129,12 +144,15 @@ static void gps_screen_update(lv_timer_t *timer)
     char buf[96];
 
     if (st == M10Q_STATE_FIXED && fix.valid) {
-        snprintf(buf, sizeof(buf), "Fix: %d sats  hAcc +/-%u m",
-                 (int)fix.sat_count, (unsigned)fix.hacc_m);
+        snprintf(buf, sizeof(buf), "Fix: %d sats  acc %um  HDOP %.1f",
+                 (int)fix.sat_count, (unsigned)fix.hacc_m, fix.hdop / 10.0);
         lv_label_set_text(s_gps_status_label, buf);
 
-        snprintf(buf, sizeof(buf), "%.5f, %.5f  %.0f m",
-                 fix.lat, fix.lon, fix.alt_m);
+        char dms_lat[16], dms_lon[16];
+        format_dms(fix.lat, true, dms_lat, sizeof(dms_lat));
+        format_dms(fix.lon, false, dms_lon, sizeof(dms_lon));
+        snprintf(buf, sizeof(buf), "%.5f, %.5f  %.0f m\n%s  %s",
+                 fix.lat, fix.lon, fix.alt_m, dms_lat, dms_lon);
         lv_label_set_text(s_gps_pos_label, buf);
 
         snprintf(buf, sizeof(buf), "Speed: %u km/h  course %u deg",
@@ -219,18 +237,14 @@ static void gps_screen_update(lv_timer_t *timer)
         }
     }
 
-    /* Tracking stats + button state. */
+    /* GPX recording state + button (mock_hw.c's gpx_log_* mocks). */
     if (s_gps_track_label && s_gps_track_btn) {
-#if TRACKING_ENABLED
-        bool active = tracking_is_active();
-        tracking_totals_t t;
-        tracking_get_totals(&t);
+        bool active = gpx_log_is_active();
         if (active) {
-            snprintf(buf, sizeof(buf), "Track %.2fkm  %lu steps",
-                     t.dist_cm / 100000.0, (unsigned long)t.steps);
+            snprintf(buf, sizeof(buf), "Recording: %lu pts",
+                     (unsigned long)gpx_log_point_count());
         } else {
-            snprintf(buf, sizeof(buf), "Tracked %.2fkm  %lu steps",
-                     t.dist_cm / 100000.0, (unsigned long)t.steps);
+            snprintf(buf, sizeof(buf), "GPX: off");
         }
         lv_label_set_text(s_gps_track_label, buf);
         lv_obj_t *bl = lv_obj_get_child(s_gps_track_btn, 0);
@@ -239,14 +253,6 @@ static void gps_screen_update(lv_timer_t *timer)
         }
         lv_obj_set_style_bg_color(s_gps_track_btn,
                                   active ? lv_color_hex(0x8B0000) : lv_color_hex(0x1B5E20), 0);
-#else
-        lv_label_set_text(s_gps_track_label, "Tracking disabled");
-        lv_obj_t *bl = lv_obj_get_child(s_gps_track_btn, 0);
-        if (bl) {
-            lv_label_set_text(bl, "Off");
-        }
-        lv_obj_set_style_bg_color(s_gps_track_btn, lv_color_hex(0x444444), 0);
-#endif
     }
 }
 
@@ -271,18 +277,16 @@ static void gps_pwr_switch_cb(lv_event_t *e)
     }
 }
 
-/* GPS screen Start/Stop tracking button. */
+/* GPS screen Start/Stop GPX-recording button. */
 static void gps_track_btn_cb(lv_event_t *e)
 {
     (void)e;
-#if TRACKING_ENABLED
-    if (tracking_is_active()) {
-        lvgl_tracking_stop();
+    if (gpx_log_is_active()) {
+        gpx_log_stop();
     } else {
-        lvgl_tracking_start();
+        gpx_log_start();
     }
     gps_screen_update(NULL);
-#endif
 }
 
 static void lvgl_build_gps_screen(void)
@@ -362,19 +366,19 @@ static void lvgl_build_gps_screen(void)
     lv_label_set_text(s_gps_pos_label, "");
     lv_obj_set_style_text_font(s_gps_pos_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_pos_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_gps_pos_label, LV_ALIGN_TOP_MID, 0, 334);
+    lv_obj_align(s_gps_pos_label, LV_ALIGN_TOP_MID, 0, 330);
 
     s_gps_speed_label = lv_label_create(s_gps_screen);
     lv_label_set_text(s_gps_speed_label, "");
     lv_obj_set_style_text_font(s_gps_speed_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_speed_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_gps_speed_label, LV_ALIGN_TOP_MID, 0, 362);
+    lv_obj_align(s_gps_speed_label, LV_ALIGN_TOP_MID, 0, 380);
 
     s_gps_sats_label = lv_label_create(s_gps_screen);
     lv_label_set_text(s_gps_sats_label, "");
     lv_obj_set_style_text_font(s_gps_sats_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_sats_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_gps_sats_label, LV_ALIGN_TOP_MID, 0, 390);
+    lv_obj_align(s_gps_sats_label, LV_ALIGN_TOP_MID, 0, 406);
 
     s_gps_diag_label = lv_label_create(s_gps_screen);
     lv_label_set_text(s_gps_diag_label, "");
@@ -387,7 +391,7 @@ static void lvgl_build_gps_screen(void)
     lv_label_set_text(s_gps_track_label, "");
     lv_obj_set_style_text_font(s_gps_track_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_track_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_gps_track_label, LV_ALIGN_TOP_MID, 0, 424);
+    lv_obj_align(s_gps_track_label, LV_ALIGN_TOP_MID, 0, 434);
 
     s_gps_track_btn = lv_btn_create(s_gps_screen);
     lv_obj_set_size(s_gps_track_btn, 120, 34);

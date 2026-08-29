@@ -179,9 +179,10 @@ typedef enum {
 esp_err_t daily_log_get_activity_seconds(const uint32_t *out[DAILY_ACT_COUNT]);
 
 /* --- tracking.h subset ---
- * TRACKING_ENABLED forced to 1 (the sim always has "tracking" wired up via
- * the mock start/stop below), so gps_screen.c's copied #if TRACKING_ENABLED
- * branch is the one compiled, matching the firmware's real branch. */
+ * Kept around even though gps_screen.c no longer calls into it (Phase 3
+ * repointed the Start/Stop button to gpx_log_* below) - tracking.c's
+ * pedometer feature is a separate, still out-of-scope concept, not removed
+ * from the mock surface just because its one UI hook moved elsewhere. */
 #define TRACKING_ENABLED 1
 
 typedef struct {
@@ -191,6 +192,12 @@ typedef struct {
 
 bool tracking_is_active(void);
 void tracking_get_totals(tracking_totals_t *totals);
+
+/* --- gpx_log.h subset --- */
+esp_err_t gpx_log_start(void);
+esp_err_t gpx_log_stop(void);
+bool gpx_log_is_active(void);
+uint32_t gpx_log_point_count(void);
 
 /* --- lvgl_app.h subset (tracking start/stop are mocked here directly,
  * rather than the real lvgl_tracking_start/stop() which blanks the display

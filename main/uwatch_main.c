@@ -23,6 +23,7 @@
 #include "sd_log.h"
 #include "crash_dump.h"
 #include "daily_log.h"
+#include "gpx_log.h"
 #include "mesh_log.h"
 #include "uwatch_main.h"
 #include "debug_audio.h"
@@ -178,6 +179,8 @@ static const debug_cmd_entry_t s_commands[] = {
     { "alarmdismiss",   debug_cmd_alarmdismiss },
     { "alarmsnooze",    debug_cmd_alarmsnooze },
     { "timer",          debug_cmd_timer },
+    { "gpxstatus",      debug_cmd_gpxstatus },
+    { "gpxcat",         debug_cmd_gpxcat },
     { "rtcdump",        debug_cmd_rtcdump },
     { "rtctimer",       debug_cmd_rtctimer },
     { "settime",        debug_cmd_settime },
@@ -249,6 +252,10 @@ void app_main(void)
 
     /* Per-minute steps + activity logging to the SD card (daily_log.h). */
     daily_log_init();
+
+    /* GPX track logging to the SD card, started/stopped from the GPS
+     * screen (gpx_log.h). */
+    gpx_log_init();
 
     /* Always-on background Meshtastic listener (mesh_log.h). */
     mesh_log_init();

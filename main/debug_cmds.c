@@ -24,6 +24,7 @@
 #include "power_mgmt.h"
 #include "alarm.h"
 #include "cd_timer.h"
+#include "gpx_log.h"
 #include "ble_debug.h"
 #include "daily_log.h"
 #include "bhi260ap.h"
@@ -621,6 +622,43 @@ void debug_cmd_timer(const char *args)
     }
     esp_err_t e = cdtimer_start((uint32_t)secs);
     printf("timer: %s\n", e == ESP_OK ? "started" : esp_err_to_name(e));
+}
+
+void debug_cmd_gpxstatus(const char *args)
+{
+    if (strcmp(args, "on") == 0) {
+        esp_err_t e = gpx_log_start();
+        printf("gpxstatus: start: %s\n", e == ESP_OK ? "ok" : esp_err_to_name(e));
+        return;
+    }
+    if (strcmp(args, "off") == 0) {
+        esp_err_t e = gpx_log_stop();
+        printf("gpxstatus: stop: %s\n", e == ESP_OK ? "ok" : esp_err_to_name(e));
+        return;
+    }
+    printf("gpxstatus: active=%d points=%lu path=%s\n", (int)gpx_log_is_active(),
+           (unsigned long)gpx_log_point_count(), gpx_log_current_path());
+    printf("gpxstatus: usage gpxstatus [on|off]\n");
+}
+
+void debug_cmd_gpxcat(const char *args)
+{
+    (void)args;
+    const char *path = gpx_log_current_path();
+    if (path[0] == '\0') {
+        printf("gpxcat: no session yet this boot\n");
+        return;
+    }
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        printf("gpxcat: fopen %s failed\n", path);
+        return;
+    }
+    char line[160];
+    while (fgets(line, sizeof(line), f)) {
+        fputs(line, stdout);
+    }
+    fclose(f);
 }
 
 void debug_cmd_alarmring(const char *args)
