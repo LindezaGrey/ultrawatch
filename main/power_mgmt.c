@@ -67,6 +67,7 @@ static TaskHandle_t s_wake_task;
 static volatile bool s_night_mode;
 static volatile bool s_imu_wake_armed;   /* GPIO8 ISR only notifies while asleep */
 static power_mgmt_night_mode_cb_t s_night_mode_cb;
+static power_mgmt_button_cb_t s_button_cb;
 
 /* Night mode is active between PM_NIGHT_START_HOUR (inclusive) and
  * PM_NIGHT_END_HOUR (exclusive), wrapping midnight. */
@@ -114,6 +115,11 @@ void power_mgmt_recheck_night_mode(void)
 void power_mgmt_register_night_mode_cb(power_mgmt_night_mode_cb_t cb)
 {
     s_night_mode_cb = cb;
+}
+
+void power_mgmt_register_button_cb(power_mgmt_button_cb_t cb)
+{
+    s_button_cb = cb;
 }
 
 /* ---- Persisted settings (night-mode auto, sleep-on-USB) ---- */
@@ -356,7 +362,15 @@ static void pm_wake_task(void *arg)
                  * behavior can differ) - let the normal re-arm-buttons +
                  * wake-display flow below run so the watch stays usable
                  * instead of getting stuck mid-shutdown until a real reset. */
+            } else if (s_button_cb) {
+                /* Short press (bit8/bit11, i.e. not PEK_LONG) - e.g. dismiss
+                 * a ringing alarm. Not gated on which IRQ bit specifically,
+                 * same as BOOT below: the callback itself decides whether
+                 * there's anything to do right now. */
+                s_button_cb();
             }
+        } else if ((sources & PM_WAKE_BOOT) && s_button_cb) {
+            s_button_cb();
         }
 
         /* Restore edge triggering (gpio_wakeup_enable() left these level) and

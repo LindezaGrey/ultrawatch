@@ -23,6 +23,7 @@
 #include "axp2101.h"
 #include "power_mgmt.h"
 #include "alarm.h"
+#include "cd_timer.h"
 #include "ble_debug.h"
 #include "daily_log.h"
 #include "bhi260ap.h"
@@ -501,39 +502,125 @@ void debug_cmd_disppwr(const char *args)
     printf("disppwr: display power cycled\n");
 }
 
-void debug_cmd_alarm(const char *args)
+/* Prints wmask as e.g. "Daily", "Mon-Fri", or a comma list of 3-letter
+ * abbreviations - mirrors the summary the Alarms/Timers list screen shows
+ * per row (main/lvgl_app.c). */
+static void print_weekday_mask(uint8_t wmask)
 {
-    if (args[0] == '\0') {
-        /* Status. */
-        alarm_config_t ac;
-        alarm_get_config(&ac);
-        printf("alarm: %s %02u:%02u mode %u ringing=%d armed=%d\n",
-               ac.enabled ? "armed" : "disabled", (unsigned)ac.hour, (unsigned)ac.min,
-               (unsigned)ac.ring_mode, (int)alarm_is_ringing(), (int)alarm_is_armed());
+    static const char *names[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+    if (wmask == ALARM_WEEKDAY_ALL) {
+        printf("Daily");
         return;
     }
-    /* alarm HH:MM [beep|vib|both]  or  alarm off */
-    const char *rest = args;
-    if (strcmp(rest, "off") == 0) {
-        alarm_set(0, 0, false, ALARM_RING_BEEP);
-        printf("alarm: disabled\n");
-    } else {
-        int hh = atoi(rest);
-        const char *sp = strchr(rest, ' ');
-        if (sp && hh >= 0 && hh <= 23) {
-            int mm = atoi(sp + 1);
-            uint8_t mode = ALARM_RING_BEEP;
-            const char *sp2 = strchr(sp + 1, ' ');
-            if (sp2) {
-                if (strncmp(sp2 + 1, "vib", 3) == 0) mode = ALARM_RING_VIB;
-                else if (strncmp(sp2 + 1, "both", 4) == 0) mode = ALARM_RING_BOTH;
-            }
-            alarm_set((uint8_t)hh, (uint8_t)mm, true, mode);
-            printf("alarm: set %02d:%02d mode %u\n", hh, mm, (unsigned)mode);
-        } else {
-            printf("alarm: usage alarm <hh> <mm> [beep|vib|both] | alarm off\n");
+    if (wmask == 0x3E) {   /* Mon..Fri */
+        printf("Mon-Fri");
+        return;
+    }
+    bool first = true;
+    for (int i = 0; i < 7; i++) {
+        if (wmask & (1u << i)) {
+            printf("%s%s", first ? "" : ",", names[i]);
+            first = false;
         }
     }
+}
+
+void debug_cmd_alarm(const char *args)
+{
+    (void)args;
+    printf("alarm: ringing=%d armed=%d\n", (int)alarm_is_ringing(), (int)alarm_is_armed());
+    printf("alarm: usage alarmls | alarmadd <hh> <mm> [beep|vib|both] [wmask=0xNN] | alarmrm <idx> | alarmen <idx> <0|1>\n");
+}
+
+void debug_cmd_alarmls(const char *args)
+{
+    (void)args;
+    alarm_entry_t list[ALARM_MAX_COUNT];
+    size_t n = alarm_get_all(list, ALARM_MAX_COUNT);
+    int shown = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (!list[i].in_use) {
+            continue;
+        }
+        printf("[%u] %02u:%02u mode=%u %s ", (unsigned)i, (unsigned)list[i].hour,
+               (unsigned)list[i].min, (unsigned)list[i].ring_mode,
+               list[i].enabled ? "enabled " : "disabled");
+        print_weekday_mask(list[i].weekday_mask);
+        printf("\n");
+        shown++;
+    }
+    if (shown == 0) {
+        printf("alarmls: no alarms configured\n");
+    }
+}
+
+void debug_cmd_alarmadd(const char *args)
+{
+    /* alarmadd <hh> <mm> [beep|vib|both] [0xNN weekday mask] */
+    int hh = -1, mm = -1;
+    uint8_t mode = ALARM_RING_BEEP;
+    uint8_t wmask = ALARM_WEEKDAY_ALL;
+    char mode_str[8] = { 0 };
+    int n = sscanf(args, "%d %d %7s %hhx", &hh, &mm, mode_str, &wmask);
+    if (n < 2 || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+        printf("alarmadd: usage alarmadd <hh> <mm> [beep|vib|both] [wmask hex]\n");
+        return;
+    }
+    if (n >= 3) {
+        if (strcmp(mode_str, "vib") == 0) mode = ALARM_RING_VIB;
+        else if (strcmp(mode_str, "both") == 0) mode = ALARM_RING_BOTH;
+    }
+    int idx = alarm_add((uint8_t)hh, (uint8_t)mm, mode, wmask);
+    if (idx < 0) {
+        printf("alarmadd: failed (list full?)\n");
+    } else {
+        printf("alarmadd: [%d] %02d:%02d mode=%u wmask=0x%02x\n", idx, hh, mm,
+               (unsigned)mode, (unsigned)wmask);
+    }
+}
+
+void debug_cmd_alarmrm(const char *args)
+{
+    int idx = atoi(args);
+    esp_err_t e = alarm_remove(idx);
+    printf("alarmrm: [%d] %s\n", idx, e == ESP_OK ? "removed" : esp_err_to_name(e));
+}
+
+void debug_cmd_alarmen(const char *args)
+{
+    int idx = -1, en = -1;
+    if (sscanf(args, "%d %d", &idx, &en) != 2) {
+        printf("alarmen: usage alarmen <idx> <0|1>\n");
+        return;
+    }
+    esp_err_t e = alarm_set_enabled(idx, en != 0);
+    printf("alarmen: [%d] %s: %s\n", idx, en ? "enabled" : "disabled",
+           e == ESP_OK ? "ok" : esp_err_to_name(e));
+}
+
+void debug_cmd_timer(const char *args)
+{
+    if (args[0] == '\0') {
+        if (cdtimer_is_active()) {
+            printf("timer: active, %lu s remaining\n", (unsigned long)cdtimer_remaining_seconds());
+        } else {
+            printf("timer: inactive\n");
+        }
+        printf("timer: usage timer <seconds> | timer off\n");
+        return;
+    }
+    if (strcmp(args, "off") == 0) {
+        cdtimer_cancel();
+        printf("timer: cancelled\n");
+        return;
+    }
+    int secs = atoi(args);
+    if (secs <= 0) {
+        printf("timer: usage timer <seconds> | timer off\n");
+        return;
+    }
+    esp_err_t e = cdtimer_start((uint32_t)secs);
+    printf("timer: %s\n", e == ESP_OK ? "started" : esp_err_to_name(e));
 }
 
 void debug_cmd_alarmring(const char *args)

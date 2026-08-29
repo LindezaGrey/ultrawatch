@@ -41,6 +41,13 @@ void power_mgmt_recheck_night_mode(void);
 typedef void (*power_mgmt_night_mode_cb_t)(bool night);
 void power_mgmt_register_night_mode_cb(power_mgmt_night_mode_cb_t cb);
 
+/* Fired on every short PWRKEY press and every BOOT press while awake (never
+ * on the PWRKEY long-press that triggers power_mgmt_shutdown()). A no-op
+ * most of the time; exists so alarm.c can stop a ringing alarm from either
+ * physical button without power_mgmt owning any alarm-specific logic. */
+typedef void (*power_mgmt_button_cb_t)(void);
+void power_mgmt_register_button_cb(power_mgmt_button_cb_t cb);
+
 /* Night-mode auto: when enabled (default) the watch auto-enters night mode
  * between PM_NIGHT_START_HOUR and PM_NIGHT_END_HOUR; when disabled, night
  * mode stays off regardless of the time. Persisted in NVS. */

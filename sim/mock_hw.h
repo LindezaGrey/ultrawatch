@@ -22,6 +22,7 @@ extern "C" {
 
 typedef int esp_err_t;
 #define ESP_OK 0
+#define ESP_ERR_INVALID_ARG 0x102
 
 /* --- pcf85063a.h subset ---
  * The real RTC stores UTC directly; sensor_cache_get_rtc() below mirrors that
@@ -219,24 +220,50 @@ typedef struct {
 
 size_t mesh_log_get_recent(mesh_msg_t *out, size_t max);
 
-/* --- alarm.h subset --- */
+/* --- alarm.h subset (multi-alarm + shared ring engine, 2026-08-29 overhaul) --- */
 #define ALARM_RING_BEEP  0
 #define ALARM_RING_VIB   1
 #define ALARM_RING_BOTH  2
 
+#define ALARM_MAX_COUNT   8
+#define ALARM_WEEKDAY_ALL 0x7Fu
+
 typedef struct {
+    bool     in_use;
     bool     enabled;
     uint8_t  hour;
     uint8_t  min;
     uint8_t  ring_mode;
-} alarm_config_t;
+    uint8_t  weekday_mask;
+} alarm_entry_t;
+
+typedef enum {
+    ALARM_RING_SOURCE_ALARM = 0,
+    ALARM_RING_SOURCE_TIMER,
+} alarm_ring_source_t;
 
 esp_err_t alarm_check(void);
+bool alarm_is_ringing(void);
 bool alarm_is_snoozing(void);
-void alarm_get_config(alarm_config_t *cfg);
-esp_err_t alarm_set(uint8_t hour, uint8_t min, bool enabled, uint8_t ring_mode);
+int alarm_add(uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask);
+esp_err_t alarm_update(int idx, uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask);
+esp_err_t alarm_remove(int idx);
+esp_err_t alarm_set_enabled(int idx, bool enabled);
+size_t alarm_get_all(alarm_entry_t *out, size_t max);
+int alarm_get_ringing_index(void);
 esp_err_t alarm_dismiss(void);
 esp_err_t alarm_snooze(void);
+
+/* --- cd_timer.h subset --- */
+esp_err_t cdtimer_start(uint32_t seconds);
+void cdtimer_cancel(void);
+bool cdtimer_is_active(void);
+uint32_t cdtimer_remaining_seconds(void);
+
+/* Sim-only (not a real cd_timer.h function): advances the mock countdown by
+ * one second. Called from watch_face.c's existing 1 Hz timer, standing in
+ * for the firmware's cdtimer_check() (main/lvgl_app.c's watch_face_update()). */
+void sim_cdtimer_tick(void);
 
 /* --- sd_log.h / twatch_board.h / ble_debug.h subset (status bar) --- */
 bool sd_log_available(void);

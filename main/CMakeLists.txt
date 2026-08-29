@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "uwatch_main.c" "debug_audio.c" "debug_bhi.c" "debug_gnss.c" "debug_cmds.c" "lvgl_app.c" "power_mgmt.c" "crash_dump.c" "tracking.c" "sensor_cache.c" "ble_debug.c" "alarm.c" "daily_log.c" "mesh_log.c" "cascadia_72.c" "cascadia_36.c" "cascadia_22.c" "cascadia_18.c"
+    SRCS "uwatch_main.c" "debug_audio.c" "debug_bhi.c" "debug_gnss.c" "debug_cmds.c" "lvgl_app.c" "power_mgmt.c" "crash_dump.c" "tracking.c" "sensor_cache.c" "ble_debug.c" "alarm.c" "cd_timer.c" "daily_log.c" "mesh_log.c" "cascadia_72.c" "cascadia_36.c" "cascadia_22.c" "cascadia_18.c"
     INCLUDE_DIRS "."
     REQUIRES
         twatch_board

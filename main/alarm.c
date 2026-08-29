@@ -1,17 +1,24 @@
 /*
- * alarm.c - daily alarm clock (see alarm.h for the API).
+ * alarm.c - multi-alarm clock + shared ring engine (see alarm.h for the API).
  *
  * Implementation notes:
- *  - Config is persisted in NVS ("alarm"/"cfg").
- *  - The RTC alarm matches hour+minute at second 0 (day/weekday masked), so it
- *    fires once per day at the configured time. Matching only hour+minute would
- *    keep AF asserted all minute long and re-ring after every dismissal.
- *    AIE (alarm interrupt) and GPIO1 wake are armed only while enabled.
+ *  - Up to ALARM_MAX_COUNT alarm entries live in RAM and are persisted as one
+ *    NVS blob ("alarm"/"cfg2"). The PCF85063A has exactly one hardware alarm
+ *    register, so alarm_recompute_next() always finds whichever enabled
+ *    entry's next (weekday, hour, min) occurrence is soonest and arms the
+ *    RTC for exactly that one moment (mask_weekday=false, a specific UTC
+ *    weekday) - re-run on every list edit and after every fire.
  *  - The ring runs on a dedicated task so it never blocks LVGL or the sensor
- *    cache. Beep (MAX98357A) enables the BLDO2 amp rail; vibration (DRV2605)
- *    enables the haptic M_EN line; both pulse on the same cadence.
- *  - Dismiss clears AF + re-arms for the next day. Snooze swaps the alarm
+ *    cache, shared between alarms and main/cd_timer.c's countdown timer via
+ *    alarm_ring_now(). Beep (MAX98357A) enables the BLDO2 amp rail;
+ *    vibration (DRV2605) enables the haptic M_EN line; both pulse on the
+ *    same cadence, using whichever ring_mode was passed to alarm_ring_now()
+ *    for the current ring cycle (s_ring_mode_active).
+ *  - Dismissing an alarm-sourced ring clears AF + re-arms the next earliest
+ *    occurrence across the whole list. Snooze (alarms only) swaps the alarm
  *    interrupt for the RTC countdown timer (600 s, wakes on TF/TIE).
+ *    Dismissing a timer-sourced ring does nothing RTC-related - the
+ *    countdown that triggered it lives entirely in main/cd_timer.c.
  */
 #include "alarm.h"
 #include "esp_log.h"
@@ -27,6 +34,7 @@
 #include "drv2605.h"
 #include "max98357a.h"
 #include "esp_lv_adapter.h"
+#include "power_mgmt.h"
 #include <math.h>
 #include <string.h>
 #include <time.h>
@@ -34,13 +42,13 @@
 static const char *TAG = "alarm";
 
 #define ALARM_NVS_NS      "alarm"
-#define ALARM_NVS_KEY     "cfg"
+#define ALARM_NVS_KEY     "cfg2"   /* new key: not the old single-alarm "cfg" blob (different layout, no migration - see alarm.h) */
 
 #define ALARM_SNOOZE_MIN  10
 
 /* If a ring is left unanswered for this long, snooze automatically and re-arm
  * the countdown timer. A missed snooze therefore keeps ringing every 10 min
- * instead of forever. 0 disables auto-snooze. */
+ * instead of forever. 0 disables auto-snooze. Alarms only - see ring_task(). */
 #define ALARM_AUTO_SNOOZE_MS  60000
 
 /* Ring melody: a repeating cycle of 3 soft beeps followed by a paced pause.
@@ -59,13 +67,18 @@ static const char *TAG = "alarm";
 #define RING_CHUNK_SAMPLES (AUDIO_SAMPLE_RATE / 25)  /* ~40 ms per write */
 
 /* ---- state ---- */
-static alarm_config_t s_cfg;
+static alarm_entry_t s_entries[ALARM_MAX_COUNT];
+static int s_armed_idx = -1;              /* which entry the RTC alarm register currently targets, -1 = none */
 static bool s_ringing;
-static bool s_snoozing;            /* 10 min snooze timer armed */
+static bool s_snoozing;                   /* 10 min snooze timer armed */
+static alarm_ring_source_t s_ring_source; /* which kind of ring is/was in progress */
+static uint8_t s_ring_mode_active;        /* ALARM_RING_* used for the current/last ring cycle */
 static TaskHandle_t s_ring_task;
-static SemaphoreHandle_t s_ring_cmd;    /* binary: signals ring start */
-static int s_ring_mode_pending;         /* -1 = none, 0=dismiss, 1=snooze */
+static SemaphoreHandle_t s_ring_cmd;      /* binary: signals ring start */
+static int s_ring_mode_pending;           /* -1 = none, 0=dismiss, 1=snooze */
 static alarm_ring_cb_t s_ring_cb;
+
+static void alarm_recompute_next(void);
 
 /* ---- NVS persistence ---- */
 
@@ -73,7 +86,7 @@ static void cfg_save(void)
 {
     nvs_handle_t h;
     if (nvs_open(ALARM_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
-        nvs_set_blob(h, ALARM_NVS_KEY, &s_cfg, sizeof(s_cfg));
+        nvs_set_blob(h, ALARM_NVS_KEY, s_entries, sizeof(s_entries));
         nvs_commit(h);
         nvs_close(h);
     }
@@ -81,78 +94,104 @@ static void cfg_save(void)
 
 static void cfg_load(void)
 {
+    memset(s_entries, 0, sizeof(s_entries));
     nvs_handle_t h;
     if (nvs_open(ALARM_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
-        size_t len = sizeof(s_cfg);
-        if (nvs_get_blob(h, ALARM_NVS_KEY, &s_cfg, &len) != ESP_OK) {
-            /* First boot: sensible default, disabled. */
-            s_cfg.enabled = false;
-            s_cfg.hour = 7;
-            s_cfg.min = 0;
-            s_cfg.ring_mode = ALARM_RING_BEEP;
+        size_t len = sizeof(s_entries);
+        if (nvs_get_blob(h, ALARM_NVS_KEY, s_entries, &len) != ESP_OK || len != sizeof(s_entries)) {
+            /* First boot (or old single-alarm blob under a different key/size
+             * that we deliberately don't try to migrate): all slots empty. */
+            memset(s_entries, 0, sizeof(s_entries));
         }
         nvs_close(h);
-    } else {
-        s_cfg.enabled = false;
-        s_cfg.hour = 7;
-        s_cfg.min = 0;
-        s_cfg.ring_mode = ALARM_RING_BEEP;
     }
 }
 
-/* ---- RTC alarm helper ---- */
-
-static void rtc_arm_alarm(void)
-{
-    /* Re-arming the daily alarm also cancels a pending snooze countdown. */
-    pcf85063a_timer_stop(twatch_rtc_dev);
-    s_snoozing = false;
-
-    /* s_cfg.hour/min are the user's LOCAL alarm time, but the RTC hardware
-     * match registers hold UTC. Convert using today's date (from the live
-     * RTC) so the DST offset in effect right now is the one baked into the
-     * match registers. Accepted edge case: since day/weekday are masked (the
-     * alarm fires at the same hh:mm UTC every day), a DST transition between
-     * arming and the alarm next firing shifts it by the DST delta until the
-     * alarm is re-armed (e.g. by changing the time, toggling it, or the
-     * dismiss/re-arm each ring already does) - not re-computed live. */
-    struct tm lt = {0};
-    pcf85063a_time_t rtc_now;
-    if (pcf85063a_get_time(twatch_rtc_dev, &rtc_now) == ESP_OK) {
-        time_t epoch_now = pcf85063a_time_to_epoch(&rtc_now);
-        localtime_r(&epoch_now, &lt);
-    } else {
-        time_t now = time(NULL);
-        localtime_r(&now, &lt);
-    }
-    lt.tm_hour = s_cfg.hour;
-    lt.tm_min = s_cfg.min;
-    lt.tm_sec = 0;
-    lt.tm_isdst = -1;
-    time_t alarm_epoch = mktime(&lt);
-    struct tm utc;
-    gmtime_r(&alarm_epoch, &utc);
-
-    pcf85063a_alarm_t a;
-    memset(&a, 0, sizeof(a));
-    a.enabled = true;
-    /* Match hour+minute exactly at second 0 -> fires once daily at hh:mm:00.
-     * Matching only hour+minute would keep AF asserted for the entire minute,
-     * so a dismissal would be overridden a second later by a fresh AF. */
-    a.mask_sec = false;
-    a.time.sec = 0;
-    a.mask_day = true;
-    a.mask_weekday = true;
-    a.time.hour = (uint8_t)utc.tm_hour;
-    a.time.min = (uint8_t)utc.tm_min;
-    pcf85063a_set_alarm(twatch_rtc_dev, &a);
-    ESP_LOGI(TAG, "armed local %02u:%02u -> RTC UTC %02u:%02u",
-             (unsigned)s_cfg.hour, (unsigned)s_cfg.min, a.time.hour, a.time.min);
-}
+/* ---- RTC alarm scheduler ---- */
 
 static void rtc_disarm_alarm(void)
 {
     pcf85063a_clear_alarm(twatch_rtc_dev);
+}
+
+/* Scans all enabled entries, finds whichever (weekday, hour, min) occurrence
+ * is soonest from now, and arms the RTC's one hardware alarm register for
+ * exactly that moment (a specific UTC weekday, not "every day"). Re-run
+ * after every list edit and after every alarm-sourced ring finishes. */
+static void alarm_recompute_next(void)
+{
+    time_t now_epoch;
+    pcf85063a_time_t rtc_now;
+    if (pcf85063a_get_time(twatch_rtc_dev, &rtc_now) == ESP_OK) {
+        now_epoch = pcf85063a_time_to_epoch(&rtc_now);
+    } else {
+        now_epoch = time(NULL);
+    }
+    struct tm today_lt;
+    localtime_r(&now_epoch, &today_lt);
+
+    int best_idx = -1;
+    time_t best_epoch = 0;
+
+    for (int i = 0; i < ALARM_MAX_COUNT; i++) {
+        if (!s_entries[i].in_use || !s_entries[i].enabled) {
+            continue;
+        }
+        uint8_t mask = s_entries[i].weekday_mask ? s_entries[i].weekday_mask : ALARM_WEEKDAY_ALL;
+        for (int wday = 0; wday < 7; wday++) {
+            if (!(mask & (1u << wday))) {
+                continue;
+            }
+            int delta = (wday - today_lt.tm_wday + 7) % 7;
+            struct tm cand = today_lt;
+            cand.tm_mday += delta;
+            cand.tm_hour = s_entries[i].hour;
+            cand.tm_min = s_entries[i].min;
+            cand.tm_sec = 0;
+            cand.tm_isdst = -1;
+            time_t cand_epoch = mktime(&cand);
+            if (cand_epoch <= now_epoch) {
+                /* Today's slot (delta==0) already passed, or is "now" -
+                 * push a week out rather than firing immediately again. */
+                cand.tm_mday += 7;
+                cand.tm_isdst = -1;
+                cand_epoch = mktime(&cand);
+            }
+            if (best_idx < 0 || cand_epoch < best_epoch) {
+                best_idx = i;
+                best_epoch = cand_epoch;
+            }
+        }
+    }
+
+    s_armed_idx = best_idx;
+    if (best_idx < 0) {
+        rtc_disarm_alarm();
+        ESP_LOGI(TAG, "recompute: nothing enabled, disarmed");
+        return;
+    }
+
+    struct tm utc;
+    gmtime_r(&best_epoch, &utc);
+
+    pcf85063a_alarm_t a;
+    memset(&a, 0, sizeof(a));
+    a.enabled = true;
+    /* Match sec=0/min/hour exactly, on one specific UTC weekday; day-of-month
+     * is masked (irrelevant once weekday pins the day). */
+    a.mask_sec = false;
+    a.time.sec = 0;
+    a.mask_min = false;
+    a.time.min = (uint8_t)utc.tm_min;
+    a.mask_hour = false;
+    a.time.hour = (uint8_t)utc.tm_hour;
+    a.mask_day = true;
+    a.mask_weekday = false;
+    a.time.weekday = (uint8_t)utc.tm_wday;
+    pcf85063a_set_alarm(twatch_rtc_dev, &a);
+    ESP_LOGI(TAG, "armed entry %d: local %02u:%02u -> RTC UTC wday=%u %02u:%02u",
+             best_idx, (unsigned)s_entries[best_idx].hour, (unsigned)s_entries[best_idx].min,
+             (unsigned)a.time.weekday, (unsigned)a.time.hour, (unsigned)a.time.min);
 }
 
 /* ---- ring task ---- */
@@ -202,10 +241,10 @@ static size_t ring_render_cycle(int16_t *buf, size_t cap)
 
 static void ring_set_outputs(bool on)
 {
-    if (s_cfg.ring_mode == ALARM_RING_BEEP || s_cfg.ring_mode == ALARM_RING_BOTH) {
+    if (s_ring_mode_active == ALARM_RING_BEEP || s_ring_mode_active == ALARM_RING_BOTH) {
         axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, on);   /* amp */
     }
-    if (s_cfg.ring_mode == ALARM_RING_VIB || s_cfg.ring_mode == ALARM_RING_BOTH) {
+    if (s_ring_mode_active == ALARM_RING_VIB || s_ring_mode_active == ALARM_RING_BOTH) {
         xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, on);  /* M_EN */
     }
 }
@@ -232,14 +271,14 @@ static void ring_task(void *arg)
 
         s_ringing = true;
         if (s_ring_cb) {
-            s_ring_cb(true);
+            s_ring_cb(true, s_ring_source);
         }
-        ESP_LOGI(TAG, "ringing %02u:%02u (mode %u)",
-                 (unsigned)s_cfg.hour, (unsigned)s_cfg.min, (unsigned)s_cfg.ring_mode);
+        ESP_LOGI(TAG, "ringing source=%d mode=%u armed_idx=%d",
+                 (int)s_ring_source, (unsigned)s_ring_mode_active, s_armed_idx);
         ring_set_outputs(true);
 
-        bool beep = (s_cfg.ring_mode == ALARM_RING_BEEP || s_cfg.ring_mode == ALARM_RING_BOTH);
-        bool vib  = (s_cfg.ring_mode == ALARM_RING_VIB || s_cfg.ring_mode == ALARM_RING_BOTH);
+        bool beep = (s_ring_mode_active == ALARM_RING_BEEP || s_ring_mode_active == ALARM_RING_BOTH);
+        bool vib  = (s_ring_mode_active == ALARM_RING_VIB || s_ring_mode_active == ALARM_RING_BOTH);
 
         /* Ring until dismiss or snooze. The melody cycle is written in a tight
          * loop so the I2S DMA stays continuously fed (no underrun crackle);
@@ -266,10 +305,13 @@ static void ring_task(void *arg)
              * cut the ring's rails under us. */
             esp_lv_adapter_report_activity();
 
-            /* Unanswered for too long -> snooze automatically. Only when a
-             * real alarm is configured (a bare `alarmring` test with the alarm
-             * off must not spin its own 10-min snooze cycle). */
-            if (ALARM_AUTO_SNOOZE_MS > 0 && alarm_is_armed() &&
+            /* Unanswered for too long -> snooze automatically. Alarms only
+             * (timers have no snooze concept - they just keep ringing until
+             * the physical button stops them), and only when a real entry is
+             * actually armed (a bare alarmring test with nothing configured
+             * must not spin its own 10-min snooze cycle). */
+            if (ALARM_AUTO_SNOOZE_MS > 0 && s_ring_source == ALARM_RING_SOURCE_ALARM &&
+                s_armed_idx >= 0 &&
                 pdTICKS_TO_MS(xTaskGetTickCount() - ring_started) >= ALARM_AUTO_SNOOZE_MS) {
                 ESP_LOGI(TAG, "auto-snoozed (%lu ms unanswered)",
                          (unsigned long)pdTICKS_TO_MS(xTaskGetTickCount() - ring_started));
@@ -284,24 +326,29 @@ static void ring_task(void *arg)
 
         /* Update snooze/dismiss state and RTC before the UI callback, so the
          * watch face can show the Zz icon on the very first update. */
-        if (finished == 1) {
-            /* Snooze: swap the daily alarm for a 10 min countdown timer. */
+        if (s_ring_source == ALARM_RING_SOURCE_TIMER) {
+            /* No RTC interaction - main/cd_timer.c already cleared its own
+             * active state the moment the countdown hit zero and this ring
+             * started (a timer has nothing left to "re-arm"). */
+            ESP_LOGI(TAG, "timer ring stopped");
+        } else if (finished == 1) {
+            /* Snooze: swap the armed alarm for a 10 min countdown timer. */
             rtc_disarm_alarm();
             pcf85063a_set_timer_minutes(twatch_rtc_dev, ALARM_SNOOZE_MIN, true);
             s_snoozing = true;
             ESP_LOGI(TAG, "snoozed %u min", (unsigned)ALARM_SNOOZE_MIN);
         } else {
-            /* Dismiss: clear AF + re-arm AIE for the next day (masked alarm
-             * re-fires daily, so just re-enabling the interrupt suffices).
-             * Also make sure no snooze countdown is still latched. */
+            /* Dismiss: clear AF, cancel any stray snooze countdown, and
+             * re-arm for the next earliest occurrence across the whole list
+             * (possibly a different entry than the one that just rang). */
             pcf85063a_timer_stop(twatch_rtc_dev);
-            rtc_arm_alarm();
             s_snoozing = false;
-            ESP_LOGI(TAG, "dismissed, re-armed for next day");
+            alarm_recompute_next();
+            ESP_LOGI(TAG, "dismissed, recomputed (armed_idx=%d)", s_armed_idx);
         }
 
         if (s_ring_cb) {
-            s_ring_cb(false);
+            s_ring_cb(false, s_ring_source);
         }
     }
 
@@ -312,7 +359,9 @@ static void ring_task(void *arg)
     vTaskDelete(NULL);
 }
 
-/* Notify the ring task to start. */
+/* Notify the ring task to start with whatever s_ring_source/s_ring_mode_active
+ * are already set to. Private - external callers go through
+ * alarm_ring_now(), which sets those fields first. */
 static void ring_start(void)
 {
     s_ring_mode_pending = -1;
@@ -320,10 +369,32 @@ static void ring_start(void)
     xSemaphoreGive(s_ring_cmd);
 }
 
-esp_err_t alarm_ring_test(void)
+esp_err_t alarm_ring_now(alarm_ring_source_t source, uint8_t ring_mode)
 {
+    if (ring_mode > ALARM_RING_BOTH) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_ring_source = source;
+    s_ring_mode_active = ring_mode;
     ring_start();
     return ESP_OK;
+}
+
+esp_err_t alarm_ring_test(void)
+{
+    return alarm_ring_now(ALARM_RING_SOURCE_ALARM, ALARM_RING_BOTH);
+}
+
+/* Physical-button dismiss (docs/application.md SS8.3: stopping is
+ * button-only, Power or Boot, either one - snooze stays touch-only via the
+ * ring screen). Registered with power_mgmt.c, which fires this on every
+ * short PWRKEY press and every BOOT press; a no-op whenever nothing is
+ * ringing, so it can't interfere with normal wake/sleep/shutdown behavior. */
+static void alarm_button_cb(void)
+{
+    if (s_ringing) {
+        alarm_dismiss();
+    }
 }
 
 /* ---- public API ---- */
@@ -338,61 +409,90 @@ esp_err_t alarm_init(void)
         xTaskCreate(ring_task, "alarm_ring", 4096, NULL, 5, &s_ring_task);
     }
 
-    if (s_cfg.enabled) {
-        rtc_arm_alarm();
-    } else {
-        rtc_disarm_alarm();
-    }
-    ESP_LOGI(TAG, "init: %s %02u:%02u mode %u",
-             s_cfg.enabled ? "armed" : "disabled",
-             (unsigned)s_cfg.hour, (unsigned)s_cfg.min, (unsigned)s_cfg.ring_mode);
+    power_mgmt_register_button_cb(alarm_button_cb);
+
+    alarm_recompute_next();
+    ESP_LOGI(TAG, "init: armed_idx=%d", s_armed_idx);
     return ESP_OK;
 }
 
-esp_err_t alarm_set(uint8_t hour, uint8_t min, bool enabled, uint8_t ring_mode)
+int alarm_add(uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask)
 {
     if (hour > 23 || min > 59 || ring_mode > ALARM_RING_BOTH) {
+        return -1;
+    }
+    for (int i = 0; i < ALARM_MAX_COUNT; i++) {
+        if (!s_entries[i].in_use) {
+            s_entries[i].in_use = true;
+            s_entries[i].enabled = true;
+            s_entries[i].hour = hour;
+            s_entries[i].min = min;
+            s_entries[i].ring_mode = ring_mode;
+            s_entries[i].weekday_mask = weekday_mask ? weekday_mask : ALARM_WEEKDAY_ALL;
+            cfg_save();
+            alarm_recompute_next();
+            ESP_LOGI(TAG, "add[%d]: %02u:%02u mode=%u wmask=0x%02x", i,
+                     (unsigned)hour, (unsigned)min, (unsigned)ring_mode,
+                     (unsigned)s_entries[i].weekday_mask);
+            return i;
+        }
+    }
+    ESP_LOGW(TAG, "add: all %d slots full", ALARM_MAX_COUNT);
+    return -1;
+}
+
+esp_err_t alarm_update(int idx, uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask)
+{
+    if (idx < 0 || idx >= ALARM_MAX_COUNT || !s_entries[idx].in_use ||
+        hour > 23 || min > 59 || ring_mode > ALARM_RING_BOTH) {
         return ESP_ERR_INVALID_ARG;
     }
-    s_cfg.hour = hour;
-    s_cfg.min = min;
-    s_cfg.ring_mode = ring_mode;
-    s_cfg.enabled = enabled;
+    s_entries[idx].hour = hour;
+    s_entries[idx].min = min;
+    s_entries[idx].ring_mode = ring_mode;
+    s_entries[idx].weekday_mask = weekday_mask ? weekday_mask : ALARM_WEEKDAY_ALL;
     cfg_save();
+    alarm_recompute_next();
+    return ESP_OK;
+}
 
-    if (enabled) {
-        rtc_arm_alarm();
-    } else {
-        rtc_disarm_alarm();
+esp_err_t alarm_remove(int idx)
+{
+    if (idx < 0 || idx >= ALARM_MAX_COUNT || !s_entries[idx].in_use) {
+        return ESP_ERR_INVALID_ARG;
     }
-    ESP_LOGI(TAG, "set: %s %02u:%02u mode %u",
-             enabled ? "armed" : "disabled", (unsigned)hour, (unsigned)min,
-             (unsigned)ring_mode);
+    memset(&s_entries[idx], 0, sizeof(s_entries[idx]));
+    cfg_save();
+    alarm_recompute_next();
     return ESP_OK;
 }
 
-esp_err_t alarm_arm(void)
+esp_err_t alarm_set_enabled(int idx, bool enabled)
 {
-    s_cfg.enabled = true;
+    if (idx < 0 || idx >= ALARM_MAX_COUNT || !s_entries[idx].in_use) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_entries[idx].enabled = enabled;
     cfg_save();
-    rtc_arm_alarm();
+    alarm_recompute_next();
     return ESP_OK;
 }
 
-esp_err_t alarm_disarm(void)
+size_t alarm_get_all(alarm_entry_t *out, size_t max)
 {
-    s_cfg.enabled = false;
-    cfg_save();
-    rtc_disarm_alarm();
-    /* Also cancel a pending snooze timer. */
-    pcf85063a_timer_stop(twatch_rtc_dev);
-    s_snoozing = false;
-    return ESP_OK;
+    size_t n = (max < ALARM_MAX_COUNT) ? max : ALARM_MAX_COUNT;
+    memcpy(out, s_entries, n * sizeof(alarm_entry_t));
+    return n;
 }
 
 bool alarm_is_armed(void)
 {
-    return s_cfg.enabled;
+    return s_armed_idx >= 0;
+}
+
+int alarm_get_ringing_index(void)
+{
+    return s_armed_idx;
 }
 
 bool alarm_is_ringing(void)
@@ -403,13 +503,6 @@ bool alarm_is_ringing(void)
 bool alarm_is_snoozing(void)
 {
     return s_snoozing;
-}
-
-void alarm_get_config(alarm_config_t *cfg)
-{
-    if (cfg) {
-        *cfg = s_cfg;
-    }
 }
 
 esp_err_t alarm_check(void)
@@ -433,10 +526,19 @@ esp_err_t alarm_check(void)
         if (tf) {
             /* The PCF85063A timer re-loads and loops by itself; stop it now so
              * the snooze is a one-shot (the next ring is started explicitly by
-             * another Snooze press). Also clears TF -> INT line de-asserts. */
+             * another Snooze press). Also clears TF -> INT line de-asserts.
+             * source/ring_mode are already set from the alarm that snoozed -
+             * don't touch them, just resume ringing. */
             pcf85063a_timer_stop(twatch_rtc_dev);
+            ring_start();
+        } else {
+            /* AF: a fresh alarm match. Ring using whichever entry is
+             * currently armed; fall back to a safe default rather than
+             * crashing if s_armed_idx is somehow stale. */
+            uint8_t mode = (s_armed_idx >= 0 && s_entries[s_armed_idx].in_use)
+                           ? s_entries[s_armed_idx].ring_mode : ALARM_RING_BEEP;
+            alarm_ring_now(ALARM_RING_SOURCE_ALARM, mode);
         }
-        ring_start();
     }
     return ESP_OK;
 }
@@ -456,6 +558,10 @@ esp_err_t alarm_dismiss(void)
 
 esp_err_t alarm_snooze(void)
 {
+    if (s_ring_source == ALARM_RING_SOURCE_TIMER) {
+        /* No snooze concept for timers - just stop it. */
+        return alarm_dismiss();
+    }
     s_ring_mode_pending = 1;
     return ESP_OK;
 }

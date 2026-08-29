@@ -44,7 +44,9 @@ int main(void)
 
     /* Sim-only dev shortcut: the ring screen is normally only reachable via
      * the real alarm-firing/RTC-interrupt system, which doesn't exist on the
-     * host (see ring_screen.c's header comment) - press 'R' to view it.
+     * host (see ring_screen.c's header comment) - press 'R' for an
+     * alarm-sourced preview (Snooze visible), 'T' for a timer-sourced one
+     * (Snooze hidden, "Time's up").
      *
      * This polls SDL_GetKeyboardState() (a snapshot updated as a side effect
      * of SDL_PumpEvents(), not a queue read) rather than running our own
@@ -57,6 +59,8 @@ int main(void)
      * events LVGL needs; reading the keyboard-state snapshot instead never
      * touches the queue. */
     bool r_key_prev = false;
+    bool t_key_prev = false;
+    bool a_key_prev = false;
 
     for (;;) {
         uint32_t next = lv_timer_handler();
@@ -64,9 +68,24 @@ int main(void)
         const Uint8 *keys = SDL_GetKeyboardState(NULL);
         bool r_key = keys[SDL_SCANCODE_R];
         if (r_key && !r_key_prev) {
-            sim_ring_screen_build();
+            sim_ring_screen_build(ALARM_RING_SOURCE_ALARM);
         }
         r_key_prev = r_key;
+
+        bool t_key = keys[SDL_SCANCODE_T];
+        if (t_key && !t_key_prev) {
+            sim_ring_screen_build(ALARM_RING_SOURCE_TIMER);
+        }
+        t_key_prev = t_key;
+
+        /* 'A' for the Alarms/Timers list screen, same dev-shortcut idea as
+         * 'R'/'T' above - swiping up from the watch face reaches it too
+         * (nav.c), this is just a direct jump for quick iteration. */
+        bool a_key = keys[SDL_SCANCODE_A];
+        if (a_key && !a_key_prev) {
+            sim_alarm_screen_build();
+        }
+        a_key_prev = a_key;
 
         SDL_Delay(next);
     }

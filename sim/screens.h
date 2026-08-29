@@ -18,6 +18,7 @@
 #pragma once
 
 #include "lvgl.h"
+#include "mock_hw.h"   /* alarm_ring_source_t, for sim_ring_screen_build() */
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,7 +44,10 @@ void sim_bhi_screen_build(void);
 void sim_gps_screen_build(void);
 void sim_mesh_screen_build(void);
 void sim_alarm_screen_build(void);
-void sim_ring_screen_build(void);
+/* source picks which ring-screen variant to preview: ALARM_RING_SOURCE_ALARM
+ * (shows a configured time, offers Snooze) or ALARM_RING_SOURCE_TIMER (shows
+ * "Time's up", no Snooze) - see ring_screen.c's header comment. */
+void sim_ring_screen_build(alarm_ring_source_t source);
 
 #ifdef __cplusplus
 }

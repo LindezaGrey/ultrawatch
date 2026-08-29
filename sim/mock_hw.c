@@ -397,15 +397,31 @@ size_t mesh_log_get_recent(mesh_msg_t *out, size_t max)
     return n;
 }
 
-/* ---- alarm / alarm-set + ring screens ---- */
-
-static alarm_config_t s_alarm_cfg = { .enabled = false, .hour = 7, .min = 0,
-                                      .ring_mode = ALARM_RING_BEEP };
-static bool s_alarm_snoozing = false;
+/* ---- alarm / alarms-timers screens ----
+ * In-RAM only (no NVS on the host); seeded with two example alarms so the
+ * list screen has something to render without needing to add one by hand
+ * first. Ring/dismiss/snooze state is tracked but nothing ever actually
+ * *fires* here (no RTC alarm interrupt on the host) - the ring screen is
+ * only reachable via main.c's 'R'/'T' dev-preview keys, same as before this
+ * overhaul; see ring_screen.c. */
+static alarm_entry_t s_alarms[ALARM_MAX_COUNT] = {
+    { .in_use = true, .enabled = true, .hour = 7, .min = 0,
+      .ring_mode = ALARM_RING_BEEP, .weekday_mask = 0x3E /* Mon-Fri */ },
+    { .in_use = true, .enabled = false, .hour = 9, .min = 30,
+      .ring_mode = ALARM_RING_BOTH, .weekday_mask = ALARM_WEEKDAY_ALL },
+};
+static bool s_alarm_ringing;
+static bool s_alarm_snoozing;
+static int s_alarm_ringing_idx = 0;
 
 esp_err_t alarm_check(void)
 {
     return ESP_OK;
+}
+
+bool alarm_is_ringing(void)
+{
+    return s_alarm_ringing;
 }
 
 bool alarm_is_snoozing(void)
@@ -413,30 +429,121 @@ bool alarm_is_snoozing(void)
     return s_alarm_snoozing;
 }
 
-void alarm_get_config(alarm_config_t *cfg)
+int alarm_add(uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask)
 {
-    *cfg = s_alarm_cfg;
+    for (int i = 0; i < ALARM_MAX_COUNT; i++) {
+        if (!s_alarms[i].in_use) {
+            s_alarms[i] = (alarm_entry_t){ .in_use = true, .enabled = true, .hour = hour,
+                                           .min = min, .ring_mode = ring_mode,
+                                           .weekday_mask = weekday_mask ? weekday_mask : ALARM_WEEKDAY_ALL };
+            return i;
+        }
+    }
+    return -1;
 }
 
-esp_err_t alarm_set(uint8_t hour, uint8_t min, bool enabled, uint8_t ring_mode)
+esp_err_t alarm_update(int idx, uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask)
 {
-    s_alarm_cfg.hour = hour;
-    s_alarm_cfg.min = min;
-    s_alarm_cfg.enabled = enabled;
-    s_alarm_cfg.ring_mode = ring_mode;
+    if (idx < 0 || idx >= ALARM_MAX_COUNT || !s_alarms[idx].in_use) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_alarms[idx].hour = hour;
+    s_alarms[idx].min = min;
+    s_alarms[idx].ring_mode = ring_mode;
+    s_alarms[idx].weekday_mask = weekday_mask ? weekday_mask : ALARM_WEEKDAY_ALL;
     return ESP_OK;
+}
+
+esp_err_t alarm_remove(int idx)
+{
+    if (idx < 0 || idx >= ALARM_MAX_COUNT || !s_alarms[idx].in_use) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_alarms[idx] = (alarm_entry_t){ 0 };
+    return ESP_OK;
+}
+
+esp_err_t alarm_set_enabled(int idx, bool enabled)
+{
+    if (idx < 0 || idx >= ALARM_MAX_COUNT || !s_alarms[idx].in_use) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_alarms[idx].enabled = enabled;
+    return ESP_OK;
+}
+
+size_t alarm_get_all(alarm_entry_t *out, size_t max)
+{
+    size_t n = (max < ALARM_MAX_COUNT) ? max : ALARM_MAX_COUNT;
+    memcpy(out, s_alarms, n * sizeof(alarm_entry_t));
+    return n;
+}
+
+int alarm_get_ringing_index(void)
+{
+    return s_alarm_ringing_idx;
 }
 
 esp_err_t alarm_dismiss(void)
 {
     s_alarm_snoozing = false;
+    s_alarm_ringing = false;
     return ESP_OK;
 }
 
 esp_err_t alarm_snooze(void)
 {
     s_alarm_snoozing = true;
+    s_alarm_ringing = false;
     return ESP_OK;
+}
+
+/* ---- cd_timer / active countdown on the alarms/timers list screen ---- */
+
+static bool s_timer_active;
+static uint32_t s_timer_remaining_s;
+
+esp_err_t cdtimer_start(uint32_t seconds)
+{
+    s_timer_active = true;
+    s_timer_remaining_s = seconds;
+    return ESP_OK;
+}
+
+void cdtimer_cancel(void)
+{
+    s_timer_active = false;
+    s_timer_remaining_s = 0;
+}
+
+bool cdtimer_is_active(void)
+{
+    return s_timer_active;
+}
+
+uint32_t cdtimer_remaining_seconds(void)
+{
+    if (!s_timer_active) {
+        return 0;
+    }
+    /* Counts down for real, same 1 Hz cadence as the firmware's
+     * cdtimer_check(), so the list screen's countdown display can be
+     * eyeballed - driven from watch_face.c's existing 1 s timer via
+     * sim_cdtimer_tick() below rather than a mock-only ticker, so the
+     * countdown only advances while a screen with a periodic refresh is
+     * actually showing it (matches the firmware, which only ticks via the
+     * watch face's timer too). */
+    return s_timer_remaining_s;
+}
+
+void sim_cdtimer_tick(void)
+{
+    if (s_timer_active && s_timer_remaining_s > 0) {
+        s_timer_remaining_s--;
+        if (s_timer_remaining_s == 0) {
+            s_timer_active = false;
+        }
+    }
 }
 
 /* ---- SD / BLE status bar sources ----

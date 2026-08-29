@@ -207,6 +207,7 @@ static void watch_face_update(lv_timer_t *timer)
     }
 
     update_status_bar(&s_status_bar);
+    sim_cdtimer_tick();
 }
 
 void sim_watch_face_start(void)
