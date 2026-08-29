@@ -20,6 +20,8 @@ _Avoid_: enabled, active
 
 **Power rail**:
 One of the AXP2101 PMU's 7 switchable outputs (ALDO1-4, BLDO1-2, DLDO1), each dedicated to one device: ALDO1=SD card, ALDO2=display, ALDO3=LoRa, ALDO4=sensor, BLDO1=GNSS, BLDO2=speaker, DLDO1=NFC (`docs/hardware.md`'s AXP2101 power tree table is canonical). DLDO2 exists on the chip but isn't routed to anything on this board.
+
+The one rail that is *not* only its named device's: **ALDO1 is also the SPI2 bus rail whenever an SD card is seated**, because a seated-but-unpowered card clamps the shared MISO net and every read on SPI2 then returns `0x00` — including the SX1262's and the ST25R3916's. So ALDO1 stays on while a card is present, at the cost of that card's idle draw, and is cut only when the socket is empty. Don't reason about it as "the SD card's rail" when deciding what to power down.
 _Avoid_: channel, LDO
 
 **Init a rail** (`axp2101_init_rail`):

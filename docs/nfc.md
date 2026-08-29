@@ -300,6 +300,15 @@ silently corrupts the whole bus.
 that is a no-op (the rail is already up); with an empty socket it is
 unnecessary but harmless. It exists to cover the one gap below.
 
+**What this costs.** A seated card's idle draw is now permanent rather than
+paid only while the filesystem is mounted. That is the price of keeping SPI2
+readable, and it is deliberate. The delta has **not been measured on this
+board** — an idle SD card is typically a fraction of a milliamp, but treat
+that as an expectation to verify, not a figure. If it turns out to matter, the
+way out is an SD-detect interrupt plus a properly refcounted bus hold, so the
+rail can drop while the bus is genuinely idle — *not* going back to cutting it
+blind, which is what caused all of this.
+
 **Known gap:** a card inserted while the rail is down leaves the bus clamped
 until something re-evaluates. `sd_log_mount()` does, and the sleep/wake cycle
 calls it, so the window closes on its own within an idle timeout. Closing it

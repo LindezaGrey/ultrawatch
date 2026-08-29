@@ -145,7 +145,7 @@ The panel has rounded corners; `assets/ui/safe_area_transparent.png` is the tran
 | DC1 | ESP32-S3 |
 | DC2–DC5 | Unused |
 | LDO1 (VRTC) | GPS backup (cannot be off) |
-| ALDO1 | SD card |
+| ALDO1 | SD card — **and the SPI2 bus rail whenever a card is seated**, see Notes |
 | ALDO2 | Display |
 | ALDO3 | LoRa |
 | ALDO4 | Sensor |
@@ -164,8 +164,25 @@ The panel has rounded corners; `assets/ui/safe_area_transparent.png` is the tran
 
 Deep sleep with power button + boot button: 1.1 mA; power-off keep-alive: 77 uA.
 
+**ALDO1 stays on for as long as a card is seated**, including across light
+sleep, so a seated card's idle draw is now permanent rather than paid only
+while the filesystem is mounted. That is the cost of keeping SPI2 readable —
+see Notes. The delta has **not been measured on this board**; an idle SD card
+is typically a fraction of a milliamp, but treat that as an expectation to
+verify, not a figure. With an empty socket nothing changes: the rail is cut as
+before.
+
 ## Notes
 
 - SD card must be FAT/FAT32 formatted.
+- **ALDO1 is the SPI2 bus rail, not just the SD card's rail.** SPI2 is shared
+  by the SD card, the SX1262 and the ST25R3916, and a card that is seated but
+  unpowered does not release the bus: its DAT0 pin clamps the shared MISO net
+  through its ESD protection diodes, so *every read on SPI2 returns `0x00`*.
+  Writes are unaffected, since MOSI is host-driven — which makes this fail as
+  "the device is dead" rather than as a bus error. `sd_log_unmount()`
+  therefore cuts ALDO1 only when the socket is empty
+  (`twatch_sd_card_seated()`, XL9555 P10). This was the root cause of the
+  entire ST25R3916 bring-up; see `docs/nfc.md`.
 - ST25R3916 (NFC) has no integrated capacitive presence detection — the reader must be enabled to detect cards.
 - ESP32-S3 uses external QSPI flash and PSRAM (not in-package).
