@@ -2639,9 +2639,9 @@ esp_err_t lvgl_app_start(void)
     /* Alarm clocks: show the ring screen when the alarm starts/stops. */
     alarm_register_ring_cb(alarm_ring_cb);
 
-    /* Default charge current: 100 mA (gentle for the 1100 mAh cell; 400 mA is
-     * the user-selectable maximum on the power screen). */
-    axp2101_set_charge_current_ma(twatch_pmu_dev, 100);
+    /* Default charge current: 500 mA (~0.45C for the 1100 mAh cell, well
+     * under its typical 1C max rating). */
+    axp2101_set_charge_current_ma(twatch_pmu_dev, 500);
 
     /* Force a full redraw when night mode toggles so the red-only transform
      * reaches every pixel. */
