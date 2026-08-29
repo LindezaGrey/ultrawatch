@@ -279,10 +279,13 @@ This single fact explains every symptom at once:
   quirk to work around.
 - The intermittency: it worked whenever the SD card happened to be mounted.
 
-`st25r3916_open()` now holds ALDO1 up for the duration of a session and
-restores it in `st25r3916_close()`.
+`st25r3916_open()` now brackets its whole session with
+`spi2_power_hold(AXP2101_DLDO1)`/`spi2_power_release(AXP2101_DLDO1)` — see
+"The `spi2_power` abstraction" below — which raises ALDO1 (if a card is
+seated) for the duration and restores DLDO1 the way NFC's own hardware
+constraints require.
 
-### ALDO1 is the SPI2 bus rail, not the SD card's private rail
+### ALDO1 is a shared SPI2 rail, not the SD card's private one
 
 This is bus-wide, not an NFC problem: reads of the SX1262 are corrupted the
 same way whenever ALDO1 is down — including LoRa RX serviced from the DIO1
@@ -296,9 +299,9 @@ rail is cut and the idle current saved. Card presence comes from
 error reports "seated", because wrongly believing the socket is empty is what
 silently corrupts the whole bus.
 
-`st25r3916_open()` keeps its own hold on ALDO1 as well. With a card seated
-that is a no-op (the rail is already up); with an empty socket it is
-unnecessary but harmless. It exists to cover the one gap below.
+Every SPI2 session (SD's own mount/unmount, NFC's open/close, and LoRa's
+future on-demand power-down) now goes through the same `spi2_power` module for
+this, rather than each driver managing ALDO1 directly — see below.
 
 **What this costs.** A seated card's idle draw is now permanent rather than
 paid only while the filesystem is mounted. That is the price of keeping SPI2
@@ -314,6 +317,79 @@ until something re-evaluates. `sd_log_mount()` does, and the sleep/wake cycle
 calls it, so the window closes on its own within an idle timeout. Closing it
 properly needs an SD-detect interrupt on XL9555 P10, which nothing sets up
 today.
+
+### The `spi2_power` abstraction
+
+`components/spi2_power` is the single place that owns every SPI2-adjacent
+rail's on/off policy, replacing the ad hoc, single-purpose logic that used to
+be duplicated between `st25r3916.c` and `sd_log.c`. Each rail is registered
+once (in `twatch_board.c`) with one of two policies:
+
+- **`SPI2_POWER_SHARED`** — raised by any caller's `spi2_power_hold()` if a
+  supplied predicate currently says so (or unconditionally, with no
+  predicate), lowered only on the *last* `spi2_power_release()`, re-evaluating
+  the predicate fresh at that moment. ALDO1 (predicate:
+  `twatch_sd_card_seated()`) and ALDO3 (no predicate — see below) are
+  registered this way.
+- **`SPI2_POWER_OWNED`** — raised only when its own registrant explicitly asks
+  (by naming its rail in `spi2_power_hold()`), never auto-lowered by
+  `spi2_power_release()`. DLDO1 is registered this way: it was never a bus
+  hazard for anyone else (see "The NFC rail does not gate register access"
+  below), but the chip doesn't reliably survive a rail power-cycle once
+  bring-up has completed, so once raised it stays raised. The one documented
+  exception is `st25r3916_open()`'s own bring-up-*failure* path, which still
+  powers DLDO1 back down directly — bypassing this module on purpose, the
+  same way `sd_log_mount()`'s retry-toggle recovery dance always has.
+
+Full design rationale: `docs/adr/0005-spi2-bus-power-abstraction.md`.
+
+### Measured: does LoRa's rail clamp the bus the same way SD's does?
+
+LoRa's rail (ALDO3) is about to stop being permanently on, which raises the
+same question SD already answered: does cutting it corrupt SPI2 reads for
+everyone else? The schematic gives circumstantial evidence for "yes" — the
+SX1262 module (HPB16B3) has one VCC pin for the whole package, no separate
+always-on I/O rail like the ST25R3916 has — so `spi2_power`'s design (above)
+registers ALDO3 as `SPI2_POWER_SHARED` on that assumption.
+
+**Measured on hardware, it doesn't hold.** `nfcprobe` (extended to sweep SD ×
+LoRa × NFC × SPI settings) reads the identity register through every
+combination:
+
+```
+SD=off LORA=off NFC=off  mode=1  1000000 Hz: ic_identity=00 00
+SD=off LORA=off NFC=on   mode=1  1000000 Hz: ic_identity=00 00
+SD=off LORA=on  NFC=off  mode=1  1000000 Hz: ic_identity=00 00
+SD=off LORA=on  NFC=on   mode=1  1000000 Hz: ic_identity=00 00
+SD=on  LORA=off NFC=off  mode=1  1000000 Hz: ic_identity=2a 2a  <== OK
+SD=on  LORA=off NFC=on   mode=1  1000000 Hz: ic_identity=2a 2a  <== OK
+SD=on  LORA=on  NFC=off  mode=1  1000000 Hz: ic_identity=2a 2a  <== OK
+SD=on  LORA=on  NFC=on   mode=1  1000000 Hz: ic_identity=2a 2a  <== OK
+```
+
+(mode 1 rows shown; mode 0 behaves as already documented above — see "On the
+SPI clock" — independent of LoRa's rail state.) Whether ALDO3 is on or off
+makes **no difference** to whether reads succeed, as long as ALDO1 is on. SD
+is still the deciding factor; LoRa isn't.
+
+This doesn't retroactively make the `SPI2_POWER_SHARED` registration for
+ALDO3 wrong — it costs nothing today (ALDO3 is still permanently on, so the
+registration has no observable effect yet) and one measurement session isn't
+grounds to declare the hazard categorically absent on every unit. But it is a
+real data point against the worst-case assumption, and whoever implements
+LoRa's actual on-demand power-down should treat it as exactly that — evidence
+to build on, not a settled fact — and is free to relax the registration once
+they've verified further under their own power-down policy's actual timing
+(this sweep used a 150 ms settle per state; a longer, sustained rail-off is
+untested).
+
+One more thing this run showed: the SX1262's RF configuration (TCXO,
+frequency, modulation) survived the probe's brief ALDO3 toggling well enough
+that `mesh_log` resumed decoding Meshtastic packets immediately afterward,
+with no reboot needed — likely because the rail was never off long enough to
+fully discharge the module's supply during a 150 ms-per-state sweep. That is
+not a guarantee for every toggle pattern; don't take one clean run as proof
+the chip retains its configuration across an arbitrary, sustained power-down.
 
 ### The NFC rail does not gate register access
 

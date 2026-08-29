@@ -16,6 +16,7 @@ idf_component_register(
         pcf85063a
         sx1262
         st25r3916
+        spi2_power
         esp_lvgl_adapter
         lvgl
         spiffs

@@ -11,4 +11,5 @@ idf_component_register(
         esp_common
         twatch_board
         axp2101
+        spi2_power
 )

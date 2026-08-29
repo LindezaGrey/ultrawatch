@@ -28,6 +28,7 @@
 #include "bhi260ap.h"
 #include "pcf85063a.h"
 #include "st25r3916.h"
+#include "spi2_power.h"
 #include "debug_cmds.h"
 
 void debug_cmd_shot(const char *args)
@@ -290,16 +291,41 @@ void debug_cmd_nfcpoll(const char *args)
 
 void debug_cmd_nfcprobe(const char *args)
 {
-    /* Sweep the two things that can plausibly keep the ST25R3916 off the
+    /* Sweep the three things that can plausibly keep the ST25R3916 off the
      * bus, and read its identity register through each combination.
      *
-     * The SD card axis is the interesting one: it shares SPI2's MOSI/MISO/
-     * SCK, and sd_log_unmount() cuts its rail (ALDO1) while leaving its DAT0
-     * pin tied to the shared MISO net. An unpowered device clamps the net
-     * through its ESD protection diodes toward its own 0V rail, which reads
-     * back as 0x00 - indistinguishable from "the NFC chip isn't answering".
-     * Every earlier probe here ran with the SD card unpowered, so that
-     * confound had to be removed before believing any of it.
+     * The SD card axis is what this was originally built to test: it shares
+     * SPI2's MOSI/MISO/SCK, and sd_log_unmount() cuts its rail (ALDO1) while
+     * leaving its DAT0 pin tied to the shared MISO net. An unpowered device
+     * clamps the net through its ESD protection diodes toward its own 0V
+     * rail, which reads back as 0x00 - indistinguishable from "the NFC chip
+     * isn't answering". Every earlier probe here ran with the SD card
+     * unpowered, so that confound had to be removed before believing any
+     * of it (see docs/nfc.md).
+     *
+     * The LoRa axis (ALDO3) asks the same question for the SX1262: its
+     * module has a single VCC pin for the whole package with no separate
+     * always-on I/O rail (unlike the ST25R3916, whose host interface runs
+     * off the always-on DC3V3 rail independent of DLDO1), so it is assumed
+     * to clamp the bus the same way the SD card does once its rail is cut -
+     * spi2_power.c's design assumes this worst case. This axis measures
+     * whether that assumption is actually true.
+     *
+     * CAUTION: toggling ALDO3 nominally tears down the SX1262's live RF
+     * configuration (TCXO settle, frequency, modulation - none of it is
+     * expected to survive a power cycle). Measured on hardware: with this
+     * probe's brief per-state toggling (default 150ms settle), mesh_log
+     * resumed decoding packets immediately afterward with no reboot needed
+     * - the rail was very likely never off long enough to fully discharge
+     * the module's supply. That is not a guarantee for every toggle
+     * pattern; a real, sustained rail-off (as LoRa's own future on-demand
+     * power-down would do) may still require re-running
+     * sx1262_configure_lora(). Don't take one clean run here as proof the
+     * chip retains its config indefinitely.
+     *
+     * All three axes bypass spi2_power's own policy on purpose - the whole
+     * point is to drive each rail directly and see what the bus does,
+     * which spi2_power's SHARED-rail auto-raise would otherwise fight.
      *
      * "nfcprobe [settle_ms]" - rail settle time, default 150ms. */
     int settle = (args[0] != '\0') ? atoi(args) : 150;
@@ -318,28 +344,38 @@ void debug_cmd_nfcprobe(const char *args)
         sd_log_unmount();
     }
 
-    printf("nfcprobe: sweeping SD rail x NFC rail x SPI settings (settle %dms)\n", settle);
+    printf("nfcprobe: sweeping SD rail x LoRa rail x NFC rail x SPI settings (settle %dms)\n", settle);
+    printf("nfcprobe: CAUTION - this briefly cycles LoRa's rail; a real sustained\n");
+    printf("nfcprobe:   power-down (unlike this quick sweep) may still need a reboot to resume RX\n");
 
     for (int sd_on = 0; sd_on <= 1; sd_on++) {
         axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, sd_on != 0);
-        for (int nfc_on = 0; nfc_on <= 1; nfc_on++) {
-            axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, nfc_on != 0);
-            vTaskDelay(pdMS_TO_TICKS(settle));
+        for (int lora_on = 0; lora_on <= 1; lora_on++) {
+            axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, lora_on != 0);
+            for (int nfc_on = 0; nfc_on <= 1; nfc_on++) {
+                axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, nfc_on != 0);
+                vTaskDelay(pdMS_TO_TICKS(settle));
 
-            for (size_t i = 0; i < sizeof(spi_combos) / sizeof(spi_combos[0]); i++) {
-                uint8_t id[2] = { 0 };
-                bool ok = st25r3916_probe_identity(TWATCH_SPI_HOST, TWATCH_PIN_NFC_CS,
-                                                   spi_combos[i].mode, spi_combos[i].hz, id);
-                printf("  SD=%-3s NFC=%-3s mode=%u %8d Hz: ic_identity=%02x %02x %s\n",
-                       sd_on ? "on" : "off", nfc_on ? "on" : "off",
-                       spi_combos[i].mode, spi_combos[i].hz, id[0], id[1], ok ? "<== OK" : "");
+                for (size_t i = 0; i < sizeof(spi_combos) / sizeof(spi_combos[0]); i++) {
+                    uint8_t id[2] = { 0 };
+                    bool ok = st25r3916_probe_identity(TWATCH_SPI_HOST, TWATCH_PIN_NFC_CS,
+                                                       spi_combos[i].mode, spi_combos[i].hz, id);
+                    printf("  SD=%-3s LORA=%-3s NFC=%-3s mode=%u %8d Hz: ic_identity=%02x %02x %s\n",
+                           sd_on ? "on" : "off", lora_on ? "on" : "off", nfc_on ? "on" : "off",
+                           spi_combos[i].mode, spi_combos[i].hz, id[0], id[1], ok ? "<== OK" : "");
+                }
             }
         }
     }
 
-    /* Restore: NFC rail on (normal operation), SD back to how it was found. */
+    /* Restore: NFC and LoRa rails on (normal operation - LoRa stays
+     * permanently on, unchanged in this pass), SD reconciled to its actual
+     * steady-state policy (card seated or not) rather than forced off,
+     * which is what spi2_power now owns. */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, true);
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, false);
+    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, true);
+    spi2_power_hold(AXP2101_RAIL_MAX);
+    spi2_power_release(AXP2101_RAIL_MAX);
     if (was_mounted) {
         sd_log_mount();
     }

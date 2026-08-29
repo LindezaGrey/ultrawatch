@@ -21,5 +21,6 @@ idf_component_register(
         m10q
         sx1262
         st25r3916
+        spi2_power
         freertos
 )

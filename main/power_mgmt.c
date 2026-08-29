@@ -521,21 +521,24 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
     }
     /* BLDO2 (speaker) isn't touched here - it's left off at boot (see
      * axp2101_set_default_power()) and only powered around actual playback
-     * (alarm.c, debug_audio.c). DLDO1 (NFC) is left on: st25r3916_close()
-     * already stops the RF field, which is the part that costs anything, and
-     * the chip has not proven able to come back reliably after a rail
-     * power-cycle. */
+     * (alarm.c, debug_audio.c). DLDO1 (NFC) is left on: it's registered
+     * with spi2_power as an SPI2_POWER_OWNED rail (twatch_board.c), which
+     * nothing ever auto-lowers - the chip has not proven able to come back
+     * reliably after a rail power-cycle once bring-up has completed, and
+     * st25r3916_close() already stops the RF field, which is the part that
+     * actually costs anything. */
 
     /* SD card (ALDO1): unmount cleanly and last, after everything above has
      * had its chance to log - sd_log_unmount() flushes the RAM ring to disk
      * before it unmounts, so anything logged during this function (including
      * the "entering sleep" line above) is captured, not lost.
      *
-     * Whether the rail is then cut is sd_log_unmount()'s call, not ours: it
-     * is also the SPI2 bus rail whenever a card is seated, because an
+     * Whether the rail is then cut is spi2_power's call, not ours: ALDO1 is
+     * registered as an SPI2_POWER_SHARED rail (twatch_board.c), because an
      * unpowered card clamps the shared MISO net and the SX1262 still services
-     * LoRa RX from its DIO1 interrupt during light sleep. It is cut only when
-     * the socket is empty. See sd_rail_off_if_socket_empty(). */
+     * LoRa RX from its DIO1 interrupt during light sleep. It's cut only when
+     * the socket is empty - see spi2_power.h and sd_log.c's
+     * sd_rail_reconcile(). */
     sd_log_unmount();
 
     pm_arm_gpio_wakeup();

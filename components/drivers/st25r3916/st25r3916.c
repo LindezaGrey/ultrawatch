@@ -42,6 +42,7 @@
  */
 #include "st25r3916.h"
 #include "axp2101.h"
+#include "spi2_power.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
@@ -197,49 +198,24 @@ static const char *TAG = "st25r3916";
 
 static spi_device_handle_t s_spi;
 static i2c_master_dev_handle_t s_pmu;
-static bool s_sd_rail_was_on;   /* see hold_spi_bus_rail() */
 
-/* SPI2 is shared by the SD card, the SX1262 and this chip, and the SD card's
- * rail (ALDO1) is cut whenever the card is unmounted - which, under the
- * on-demand SD lifecycle, is most of the time. An unpowered SD card does not
- * release the bus: its DAT0 pin clamps the shared MISO net through its ESD
- * protection diodes toward its own 0V rail, so EVERY read on SPI2 comes back
- * 0x00 while ALDO1 is off. Writes are unaffected (MOSI is driven by the
- * host), which is what made this so confusing - the chip was being configured
- * correctly the whole time and simply could not be read.
+/* SPI2 is shared by the SD card, the SX1262 and this chip. An unpowered
+ * device on that bus does not release it: its I/O pins clamp the shared
+ * MISO net through their own ESD protection diodes toward their dead 0V
+ * supply, so EVERY read on SPI2 comes back 0x00 while any one of them is
+ * off - not just reads of that device. Writes are unaffected (MOSI is
+ * driven by the host), which is what made this so confusing the first
+ * time around: the chip was being configured correctly the whole time and
+ * simply could not be read. See spi2_power.h for the full mechanism and
+ * docs/nfc.md for the hardware measurements that found it.
  *
- * Measured, with the identity register (0x3F) read through a temporary SPI
- * device at several mode/clock settings:
- *
- *   SD=off NFC=off  ic_identity=00    SD=on NFC=off  ic_identity=2a
- *   SD=off NFC=on   ic_identity=00    SD=on NFC=on   ic_identity=2a
- *
- * Note the second column: the identity register reads fine with DLDO1 OFF.
- * This chip's host interface is powered from VDD_IO, which comes from the
- * always-on DC3V3 rail, not from DLDO1 - so "the chip answers SPI" was never
- * evidence that its analog supply was up, and several earlier conclusions
- * drawn from that are worth re-checking.
- *
- * This is a whole-bus problem, not an NFC one - reads of the SX1262 are
- * corrupted the same way whenever ALDO1 is down. Holding the rail up for the
- * duration of an NFC session fixes this driver; the bus-wide fix belongs in
- * the board layer. */
-static void hold_spi_bus_rail(void)
-{
-    s_sd_rail_was_on = false;
-    axp2101_is_rail_enabled(s_pmu, AXP2101_ALDO1, &s_sd_rail_was_on);
-    if (!s_sd_rail_was_on) {
-        axp2101_enable_rail(s_pmu, AXP2101_ALDO1, true);
-        vTaskDelay(pdMS_TO_TICKS(100));   /* card power-up before it stops clamping */
-    }
-}
-
-static void release_spi_bus_rail(void)
-{
-    if (!s_sd_rail_was_on) {
-        axp2101_enable_rail(s_pmu, AXP2101_ALDO1, false);
-    }
-}
+ * st25r3916_open()/close() bracket every SPI2 session with
+ * spi2_power_hold()/release(AXP2101_DLDO1), which keeps every other
+ * hazard rail (the SD card's, LoRa's) up for the duration and also raises
+ * this chip's own DLDO1 - registered as an SPI2_POWER_OWNED rail, which
+ * spi2_power_release() never lowers on its own, matching this chip's
+ * inability to reliably survive a rail power-cycle once it has completed
+ * bring-up (see st25r3916_close()). */
 
 /* ---- raw SPI primitives ---- */
 
@@ -728,16 +704,11 @@ esp_err_t st25r3916_open(void)
                  dldo1_vol, (unsigned)(500 + (dldo1_vol & 0x1F) * 100));
     }
 
-    /* Before anything is read back: an unpowered SD card on this shared bus
-     * clamps MISO to 0 (see hold_spi_bus_rail()). */
-    hold_spi_bus_rail();
-
-    axp2101_enable_rail(s_pmu, AXP2101_DLDO1, true);
-    /* Power-up settle before the first SPI transaction. Normally a no-op,
-     * since the rail is left on across sessions (see st25r3916_close()), but
-     * on the first open after boot the LDO still has to ramp and the chip has
-     * to finish its power-on reset before it will answer SPI. */
-    vTaskDelay(pdMS_TO_TICKS(50));
+    /* Before anything is read back: raises every rail this session needs
+     * to trust its SPI2 reads, including DLDO1 itself, and settles for
+     * however long any of them actually needed (a no-op if everything was
+     * already on - see spi2_power.h). */
+    spi2_power_hold(AXP2101_DLDO1);
 
     /* Confirm the rail enable actually landed on DLDO1's bit (REG 0x90 bit7)
      * rather than being silently dropped - the enable bit was wrong until
@@ -766,8 +737,15 @@ esp_err_t st25r3916_open(void)
     if (err != ESP_OK || (ic_id & IC_IDENTITY_TYPE_MASK) != IC_IDENTITY_TYPE_ST25R3916) {
         ESP_LOGW(TAG, "st25r3916 not responding correctly (ic_identity=0x%02x, expected type 0x%02x in mask 0x%02x) - chip absent/unpowered/misconfigured",
                  ic_id, IC_IDENTITY_TYPE_ST25R3916, IC_IDENTITY_TYPE_MASK);
+        /* Bring-up never completed, so unlike a normal close() there is
+         * nothing running to lose from a power cycle - actively lower
+         * DLDO1 (bypassing spi2_power's SPI2_POWER_OWNED "never auto-lower"
+         * policy on purpose, same as sd_log.c's own retry-toggle recovery
+         * dance bypasses spi2_power for its own hardware-recovery reason)
+         * so the next open() gets a genuine cold start rather than retrying
+         * against a chip stuck in whatever state it's currently in. */
         axp2101_enable_rail(s_pmu, AXP2101_DLDO1, false);
-        release_spi_bus_rail();
+        spi2_power_release(AXP2101_RAIL_MAX);
         return (err == ESP_OK) ? ESP_ERR_INVALID_RESPONSE : err;
     }
 
@@ -809,8 +787,10 @@ esp_err_t st25r3916_open(void)
     }
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "st25r3916 bring-up failed: %s", esp_err_to_name(err));
+        /* See the identity-mismatch path above for why this bypasses
+         * spi2_power's normal "never auto-lower DLDO1" policy. */
         axp2101_enable_rail(s_pmu, AXP2101_DLDO1, false);
-        release_spi_bus_rail();
+        spi2_power_release(AXP2101_RAIL_MAX);
         return err;
     }
 
@@ -847,13 +827,15 @@ esp_err_t st25r3916_open(void)
 
 void st25r3916_close(void)
 {
-    /* Deliberately does NOT cut DLDO1. The ST25R3916 has proven unable to
-     * come back after a rail power-cycle (it stops answering SPI entirely),
+    /* spi2_power_release() leaves DLDO1 up (SPI2_POWER_OWNED - see the
+     * file-top comment and spi2_power.h): the ST25R3916 has proven unable
+     * to come back after a rail power-cycle once bring-up has completed,
      * and LilyGo's own firmware likewise enables DLDO1 once at boot and
-     * leaves it on. Stopping the RF field is the useful part of "closing" -
-     * the rail stays up. */
+     * leaves it on. Stopping the RF field is the useful part of "closing";
+     * the SD/LoRa hazard rails are released normally, dropping if nothing
+     * else needs them. */
     reg_change_bits(REG_OP_CONTROL, OP_TX_EN, 0x00);
-    release_spi_bus_rail();
+    spi2_power_release(AXP2101_DLDO1);
 }
 
 esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)

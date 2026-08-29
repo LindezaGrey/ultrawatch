@@ -19,6 +19,7 @@
 #include "sx1262.h"
 #include "meshtastic_radio.h"
 #include "st25r3916.h"
+#include "spi2_power.h"
 #include "driver/i2s_common.h"
 #include "driver/i2s_types.h"
 
@@ -247,6 +248,17 @@ esp_err_t twatch_board_init(void)
             ESP_LOGI(TAG, "battery: %umV, %u%%", batt_mv, batt_pct);
         }
     }
+
+    /* 2b. SPI2 bus power policy: register which rails must be kept up for
+     *    SPI2 reads to be trustworthy (see spi2_power.h). Must happen after
+     *    axp2101/xl9555 are both up (twatch_sd_card_seated() reads XL9555)
+     *    and before anything below can call spi2_power_hold() - sx1262_init()
+     *    doesn't hold the bus itself, but st25r3916_open() and sd_log_mount()
+     *    (called from main after this returns) do. */
+    spi2_power_init(twatch_pmu_dev);
+    spi2_power_register(AXP2101_ALDO1, SPI2_POWER_SHARED, twatch_sd_card_seated);
+    spi2_power_register(AXP2101_ALDO3, SPI2_POWER_SHARED, NULL);
+    spi2_power_register(AXP2101_DLDO1, SPI2_POWER_OWNED, NULL);
 
     /* 3. Touch: pulse TP_RST (XL9555 P8) low->high so the CST9217 boots
      *    into a known state, then init its driver on the I2C bus. */

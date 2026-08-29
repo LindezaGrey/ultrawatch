@@ -21,8 +21,12 @@ _Avoid_: enabled, active
 **Power rail**:
 One of the AXP2101 PMU's 7 switchable outputs (ALDO1-4, BLDO1-2, DLDO1), each dedicated to one device: ALDO1=SD card, ALDO2=display, ALDO3=LoRa, ALDO4=sensor, BLDO1=GNSS, BLDO2=speaker, DLDO1=NFC (`docs/hardware.md`'s AXP2101 power tree table is canonical). DLDO2 exists on the chip but isn't routed to anything on this board.
 
-The one rail that is *not* only its named device's: **ALDO1 is also the SPI2 bus rail whenever an SD card is seated**, because a seated-but-unpowered card clamps the shared MISO net and every read on SPI2 then returns `0x00` — including the SX1262's and the ST25R3916's. So ALDO1 stays on while a card is present, at the cost of that card's idle draw, and is cut only when the socket is empty. Don't reason about it as "the SD card's rail" when deciding what to power down.
+Three of these rails (ALDO1, ALDO3, DLDO1) are *not* purely their named device's — they also participate in [[spi2-bus-power]], because SPI2 is shared by the SD card, LoRa and NFC. Don't reason about any of the three purely as "the X's rail" when deciding what to power down; check spi2_power's registration for it first.
 _Avoid_: channel, LDO
+
+**spi2-bus-power**:
+The policy layer (`components/spi2_power`) that decides which SPI2-adjacent rails (ALDO1/ALDO3/DLDO1) stay powered, because an electrically unpowered device on that shared bus can clamp the MISO line through its own ESD protection diodes and corrupt every OTHER device's reads too — not a per-device concern, a bus-wide one. Two policies: `SPI2_POWER_SHARED` (raised for anyone holding the bus, per a live predicate — ALDO1 tracks card presence, ALDO3 is unconditional pending further verification) and `SPI2_POWER_OWNED` (raised only by its own registrant, never auto-lowered — DLDO1, because the ST25R3916 doesn't reliably survive a rail power-cycle once running). See `docs/adr/0005-spi2-bus-power-abstraction.md` and `docs/nfc.md`.
+_Avoid_: bus lock, SPI mutex
 
 **Init a rail** (`axp2101_init_rail`):
 One-time bring-up: configure a rail's voltage and turn it on. Called once per rail at boot (`axp2101_set_default_power`); rewrites the voltage register every call, so it's not a cheap way to just toggle a rail.

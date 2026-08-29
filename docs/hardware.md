@@ -145,9 +145,9 @@ The panel has rounded corners; `assets/ui/safe_area_transparent.png` is the tran
 | DC1 | ESP32-S3 |
 | DC2–DC5 | Unused |
 | LDO1 (VRTC) | GPS backup (cannot be off) |
-| ALDO1 | SD card — **and the SPI2 bus rail whenever a card is seated**, see Notes |
+| ALDO1 | SD card — **and part of the SPI2 bus power policy whenever a card is seated**, see Notes |
 | ALDO2 | Display |
-| ALDO3 | LoRa |
+| ALDO3 | LoRa — also registered in the SPI2 bus power policy as a precaution, see Notes |
 | ALDO4 | Sensor |
 | BLDO1 | GNSS |
 | BLDO2 | Speaker |
@@ -175,14 +175,22 @@ before.
 ## Notes
 
 - SD card must be FAT/FAT32 formatted.
-- **ALDO1 is the SPI2 bus rail, not just the SD card's rail.** SPI2 is shared
-  by the SD card, the SX1262 and the ST25R3916, and a card that is seated but
-  unpowered does not release the bus: its DAT0 pin clamps the shared MISO net
-  through its ESD protection diodes, so *every read on SPI2 returns `0x00`*.
-  Writes are unaffected, since MOSI is host-driven — which makes this fail as
-  "the device is dead" rather than as a bus error. `sd_log_unmount()`
-  therefore cuts ALDO1 only when the socket is empty
-  (`twatch_sd_card_seated()`, XL9555 P10). This was the root cause of the
-  entire ST25R3916 bring-up; see `docs/nfc.md`.
+- **SPI2's power is managed centrally, not per-device.** SPI2 is shared by the
+  SD card, the SX1262 and the ST25R3916, and a device that is physically
+  present on that bus but electrically unpowered does not release it: its I/O
+  pins can clamp the shared MISO net through their own ESD protection diodes,
+  so *every read on SPI2 returns `0x00`* while that's true — not just reads of
+  the unpowered device. Writes are unaffected, since MOSI is host-driven —
+  which makes this fail as "the device is dead" rather than as a bus error.
+  Confirmed on hardware for the SD card: `sd_log_unmount()` cuts ALDO1 only
+  when the socket is empty (`twatch_sd_card_seated()`, XL9555 P10). LoRa's
+  ALDO3 was assumed to behave the same way (the SX1262 module has a single
+  VCC pin, no separate always-on I/O rail like the ST25R3916 has) but
+  **measured not to** — NFC's identity register reads correctly with ALDO3
+  off, as long as ALDO1 is on. The policy for each rail is owned by
+  `components/spi2_power` (see `docs/adr/0005-spi2-bus-power-abstraction.md`),
+  not scattered across each driver. This clamp mechanism was the root cause
+  of the entire ST25R3916 bring-up saga; see `docs/nfc.md` for the full
+  measurements.
 - ST25R3916 (NFC) has no integrated capacitive presence detection — the reader must be enabled to detect cards.
 - ESP32-S3 uses external QSPI flash and PSRAM (not in-package).
