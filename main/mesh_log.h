@@ -58,6 +58,32 @@ void mesh_log_init(void);
  * Returns the number actually copied. */
 size_t mesh_log_get_recent(mesh_msg_t *out, size_t max);
 
+/* ---- Node table ----
+ * In-RAM only (rebuilt from traffic as it arrives, not persisted), unlike
+ * the SD text log below. Upserted from every decoded packet's `from`;
+ * `name` is filled in once a NodeInfo packet for that id is seen. */
+#define MESH_NODE_TABLE_MAX 32
+
+typedef struct {
+    uint32_t node_id;
+    char     name[32];   /* "" if no NodeInfo seen yet for this id */
+    int64_t  last_seen_us;
+    int16_t  last_rssi_dbm;
+    int8_t   last_snr_db;
+} mesh_node_t;
+
+/* Copies up to `max` known nodes (most-recently-seen first) into `out`.
+ * Returns the number actually copied. */
+size_t mesh_log_get_nodes(mesh_node_t *out, size_t max);
+
+size_t mesh_log_node_count(void);
+
+/* Writes the known name for `node_id` into `out` ("" if none seen yet this
+ * boot). Caller-provided buffer, not a shared static one: this is called
+ * from both mesh_log_task() and the UI task, and a static return buffer
+ * would race between them. */
+void mesh_log_node_name(uint32_t node_id, char *out, size_t outlen);
+
 #ifdef __cplusplus
 }
 #endif

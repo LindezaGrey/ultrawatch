@@ -227,6 +227,20 @@ typedef struct {
 
 size_t mesh_log_get_recent(mesh_msg_t *out, size_t max);
 
+#define MESH_NODE_TABLE_MAX 32
+
+typedef struct {
+    uint32_t node_id;
+    char     name[32];
+    int64_t  last_seen_us;
+    int16_t  last_rssi_dbm;
+    int8_t   last_snr_db;
+} mesh_node_t;
+
+size_t mesh_log_get_nodes(mesh_node_t *out, size_t max);
+size_t mesh_log_node_count(void);
+void mesh_log_node_name(uint32_t node_id, char *out, size_t outlen);
+
 /* --- alarm.h subset (multi-alarm + shared ring engine, 2026-08-29 overhaul) --- */
 #define ALARM_RING_BEEP  0
 #define ALARM_RING_VIB   1

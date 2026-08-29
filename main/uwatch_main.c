@@ -181,6 +181,8 @@ static const debug_cmd_entry_t s_commands[] = {
     { "timer",          debug_cmd_timer },
     { "gpxstatus",      debug_cmd_gpxstatus },
     { "gpxcat",         debug_cmd_gpxcat },
+    { "meshnodes",      debug_cmd_meshnodes },
+    { "meshcat",        debug_cmd_meshcat },
     { "rtcdump",        debug_cmd_rtcdump },
     { "rtctimer",       debug_cmd_rtctimer },
     { "settime",        debug_cmd_settime },

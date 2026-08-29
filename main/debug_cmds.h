@@ -40,6 +40,9 @@ void debug_cmd_timer(const char *args);
 
 void debug_cmd_gpxstatus(const char *args);
 void debug_cmd_gpxcat(const char *args);
+
+void debug_cmd_meshnodes(const char *args);
+void debug_cmd_meshcat(const char *args);
 void debug_cmd_rtcdump(const char *args);
 void debug_cmd_rtctimer(const char *args);
 void debug_cmd_settime(const char *args);

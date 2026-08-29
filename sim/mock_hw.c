@@ -10,7 +10,9 @@
  * button), touching it visibly changes what's mocked.
  */
 #include "mock_hw.h"
+#include "lvgl.h"
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 #include <time.h>
 
@@ -19,12 +21,17 @@
 #endif
 
 /* Monotonic seconds with sub-second resolution, used to animate the BHI cube
- * smoothly (time(NULL) alone only ticks once a second). */
+ * smoothly (time(NULL) alone only ticks once a second) and to timestamp
+ * synthetic mesh message/node ages. Built on lv_tick_get() (ms since
+ * SDL_Init, driven by SDL_GetTicks() - see main.c) rather than
+ * CLOCK_MONOTONIC (machine uptime, unrelated and much larger): UI code that
+ * computes an age via "lv_tick_get() - some_mock_timestamp" needs both
+ * sides on the same clock, or the subtraction underflows into a huge
+ * wrapped uint32_t (confirmed live: the Node-Overview screen showed
+ * "4293901188s ago" before this fix). */
 static double mock_now_s(void)
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+    return (double)lv_tick_get() / 1000.0;
 }
 
 /* ---- RTC / watch face (unchanged) ---- */
@@ -430,6 +437,55 @@ size_t mesh_log_get_recent(mesh_msg_t *out, size_t max)
         out[i].received_at_us = now_us - (int64_t)(msgs[i].age_s * 1e6);
     }
     return n;
+}
+
+/* ---- mesh node table ----
+ * Static synthetic nodes, matching some of mesh_log_get_recent()'s fake
+ * senders above (0x2ee119ab has a name from its NodeInfo message; the
+ * others don't, to exercise both the named and hex-ID row stylings on the
+ * Node-Overview screen). */
+size_t mesh_log_get_nodes(mesh_node_t *out, size_t max)
+{
+    static const struct { uint32_t node_id; const char *name; int16_t rssi; int8_t snr; double age_s; } nodes[] = {
+        { 0x2ee119ab, "Kevin Hester", -82, 5,  610.0 },
+        { 0x55c80e38, "",             -97, 6,  12.0 },
+        { 0x1a2b3c4d, "",             -103, 2, 340.0 },
+        { 0x9f8e7d6c, "",             -91, 8,  1820.0 },
+    };
+    size_t n = sizeof(nodes) / sizeof(nodes[0]);
+    if (n > max) {
+        n = max;
+    }
+    int64_t now_us = (int64_t)(mock_now_s() * 1e6);
+    for (size_t i = 0; i < n; i++) {
+        out[i].node_id = nodes[i].node_id;
+        snprintf(out[i].name, sizeof(out[i].name), "%s", nodes[i].name);
+        out[i].last_rssi_dbm = nodes[i].rssi;
+        out[i].last_snr_db = nodes[i].snr;
+        out[i].last_seen_us = now_us - (int64_t)(nodes[i].age_s * 1e6);
+    }
+    return n;
+}
+
+size_t mesh_log_node_count(void)
+{
+    mesh_node_t tmp[MESH_NODE_TABLE_MAX];
+    return mesh_log_get_nodes(tmp, MESH_NODE_TABLE_MAX);
+}
+
+void mesh_log_node_name(uint32_t node_id, char *out, size_t outlen)
+{
+    if (outlen > 0) {
+        out[0] = '\0';
+    }
+    mesh_node_t nodes[MESH_NODE_TABLE_MAX];
+    size_t n = mesh_log_get_nodes(nodes, MESH_NODE_TABLE_MAX);
+    for (size_t i = 0; i < n; i++) {
+        if (nodes[i].node_id == node_id) {
+            snprintf(out, outlen, "%s", nodes[i].name);
+            break;
+        }
+    }
 }
 
 /* ---- alarm / alarms-timers screens ----

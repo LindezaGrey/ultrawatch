@@ -25,6 +25,8 @@
 #include "alarm.h"
 #include "cd_timer.h"
 #include "gpx_log.h"
+#include "mesh_log.h"
+#include "esp_timer.h"
 #include "ble_debug.h"
 #include "daily_log.h"
 #include "bhi260ap.h"
@@ -655,6 +657,39 @@ void debug_cmd_gpxcat(const char *args)
         return;
     }
     char line[160];
+    while (fgets(line, sizeof(line), f)) {
+        fputs(line, stdout);
+    }
+    fclose(f);
+}
+
+void debug_cmd_meshnodes(const char *args)
+{
+    (void)args;
+    mesh_node_t nodes[MESH_NODE_TABLE_MAX];
+    size_t n = mesh_log_get_nodes(nodes, MESH_NODE_TABLE_MAX);
+    if (n == 0) {
+        printf("meshnodes: no nodes seen yet\n");
+        return;
+    }
+    int64_t now_us = esp_timer_get_time();
+    for (size_t i = 0; i < n; i++) {
+        uint32_t age_s = (uint32_t)((now_us - nodes[i].last_seen_us) / 1000000);
+        printf("!%08lx  %-20s  %lus ago  %ddBm %+ddB\n", (unsigned long)nodes[i].node_id,
+               nodes[i].name[0] ? nodes[i].name : "(unknown)", (unsigned long)age_s,
+               (int)nodes[i].last_rssi_dbm, (int)nodes[i].last_snr_db);
+    }
+}
+
+void debug_cmd_meshcat(const char *args)
+{
+    (void)args;
+    FILE *f = fopen("/sdcard/log/mesh.txt", "r");
+    if (!f) {
+        printf("meshcat: no log yet (no SD, or no text messages received)\n");
+        return;
+    }
+    char line[256];
     while (fgets(line, sizeof(line), f)) {
         fputs(line, stdout);
     }
