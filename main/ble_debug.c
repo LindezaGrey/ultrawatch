@@ -412,6 +412,11 @@ void ble_debug_print_status(void)
            (int)s_adv_active, (int)s_conn_handle);
 }
 
+bool ble_debug_is_connected(void)
+{
+    return s_conn_handle != BLE_HS_CONN_HANDLE_NONE;
+}
+
 /* Enable/disable BLE advertising at runtime. */
 void ble_debug_set_advertising(bool on)
 {

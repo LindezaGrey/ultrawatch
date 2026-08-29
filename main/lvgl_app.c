@@ -39,6 +39,7 @@
 #include "mesh_log.h"
 #include "st25r3916.h"
 #include "ndef.h"
+#include "ble_debug.h"
 
 static const char *TAG = "lvgl_app";
 
@@ -49,6 +50,7 @@ static const lv_font_t *s_font_small = &cascadia_22;  /* body text */
 static const lv_font_t *s_font_micro = &cascadia_18;  /* GPS diag line */
 
 /* Watch face objects. */
+static lv_obj_t *s_tz_label;    /* timezone abbreviation, e.g. "CEST" - docs/application.md section 4.1 */
 static lv_obj_t *s_time_label;
 static lv_obj_t *s_sec_label;
 static lv_obj_t *s_date_label;
@@ -137,8 +139,14 @@ static lv_obj_t *s_alarm_mode_beep;
 static lv_obj_t *s_alarm_mode_vib;
 static lv_obj_t *s_alarm_mode_both;
 static alarm_config_t s_alarm_edit;            /* live-edited copy (Set applies) */
-static lv_obj_t *s_ring_screen;
+static lv_obj_t *s_ring_screen;                /* alarm RINGING screen - not a nav-ring screen, don't confuse with s_nav_ring below */
 static lv_obj_t *s_ring_time_label;
+
+/* Settings screen (docs/application.md section 9) - minimal stub for Phase 1
+ * of the UI redesign: just enough to complete the 5-screen nav ring and be
+ * reachable/exitable correctly. Real nested-category content is a later
+ * phase. */
+static lv_obj_t *s_settings_screen;
 
 /* GNSS control runs off the LVGL task (m10q_power blocks for seconds during
  * baud probing/config); the UI issues a request and a worker task applies it. */
@@ -208,6 +216,7 @@ static void menu_timeout_cb(lv_timer_t *timer);
 static void lvgl_show_watch_face(void);
 static void lvgl_build_alarm_screen(void);
 static void lvgl_build_ring_screen(void);
+static void lvgl_build_settings_screen(void);
 
 /* Round invalidated areas to even coordinates (SH8601 requirement) BEFORE
  * LVGL renders, so the buffer content always matches the flushed area. */
@@ -228,6 +237,120 @@ static lv_obj_t *screen_new(void)
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
     return scr;
+}
+
+/* ---- Status bar (docs/application.md section 3) ----
+ *
+ * A small row of state icons shown identically on all five nav-ring screens
+ * (below). LVGL objects can't be shared across screens, so each screen gets
+ * its own set, built by build_status_bar() and refreshed by
+ * update_status_bar() from that screen's own update timer - the same
+ * "screen owns its own timer, function is a no-op when that screen isn't
+ * active" pattern already used throughout this file.
+ *
+ * Colors follow the spec's own convention (section 3.1): grey = off/absent,
+ * orange = transitioning/warning, green = active at target state, red =
+ * active-but-notable (kept per-icon, not applied uniformly - see below).
+ * Icons are short colored text labels, not symbol-font glyphs: several of
+ * these (GPX-tracking, LoRa) have no good built-in LVGL symbol, and a
+ * uniform text style avoids guessing at symbol-font availability for the
+ * ones that might (SD/GPS/BT/WiFi) - matches this file's existing
+ * text-icon convention (e.g. the watch face's "Zz" snooze indicator). */
+#define STATUS_COLOR_GREY   lv_color_hex(0x888888)
+#define STATUS_COLOR_ORANGE lv_color_hex(0xFFB300)
+#define STATUS_COLOR_GREEN  lv_color_hex(0x00E676)
+#define STATUS_COLOR_RED    lv_color_hex(0xFF5252)
+
+typedef struct {
+    lv_obj_t *sd;
+    lv_obj_t *gps;
+    lv_obj_t *gpx;
+    lv_obj_t *lora;
+    lv_obj_t *bt;
+    lv_obj_t *wifi;
+    lv_obj_t *batt;
+    lv_obj_t *chg;
+} status_bar_t;
+
+/* One instance per nav-ring screen, indexed the same way as s_nav_ring
+ * below (populated once each screen is built). */
+static status_bar_t s_status_bar[5];
+
+static lv_obj_t *status_icon_create(lv_obj_t *parent, const char *text, lv_coord_t x)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_label_set_text(l, text);
+    lv_obj_set_style_text_font(l, s_font_micro, 0);
+    lv_obj_set_style_text_color(l, STATUS_COLOR_GREY, 0);
+    lv_obj_align(l, LV_ALIGN_TOP_LEFT, x, 4);
+    return l;
+}
+
+/* Builds one status bar instance into `parent` (a screen about to be shown
+ * for the first time) and stores its objects in `out` for update_status_bar()
+ * to refresh later. Fixed left-to-right order, evenly spaced. */
+static void build_status_bar(lv_obj_t *parent, status_bar_t *out)
+{
+    out->sd   = status_icon_create(parent, "SD",   4);
+    out->gps  = status_icon_create(parent, "GPS",  44);
+    out->gpx  = status_icon_create(parent, "GPX",  92);
+    out->lora = status_icon_create(parent, "LoRa", 140);
+    out->bt   = status_icon_create(parent, "BT",   192);
+    out->wifi = status_icon_create(parent, "WiFi", 228);
+    out->chg  = status_icon_create(parent, "CHG",  272);
+    out->batt = status_icon_create(parent, "--%",  312);
+}
+
+/* Refreshes one status bar instance. Safe to call even if `bar->sd` (or any
+ * field) is NULL - i.e. before that screen has been built - callers already
+ * guard on "is this screen active" first, matching every other per-screen
+ * update function in this file. */
+static void update_status_bar(const status_bar_t *bar)
+{
+    if (!bar->sd) {
+        return;
+    }
+
+    lv_obj_set_style_text_color(bar->sd, sd_log_available() ? STATUS_COLOR_RED :
+                                (twatch_sd_card_seated() ? STATUS_COLOR_ORANGE : STATUS_COLOR_GREY), 0);
+
+    m10q_state_t gps_st = m10q_get_state();
+    lv_obj_set_style_text_color(bar->gps,
+        (gps_st == M10Q_STATE_FIXED) ? STATUS_COLOR_GREEN :
+        (gps_st == M10Q_STATE_ACQUIRING) ? STATUS_COLOR_ORANGE : STATUS_COLOR_GREY, 0);
+
+    /* TRACKING_ENABLED is 0 in this build (main/tracking.h) - this will show
+     * grey/inactive always until that's re-enabled. Not this phase's bug to
+     * fix; documented so it isn't mistaken for one. */
+    lv_obj_set_style_text_color(bar->gpx, tracking_is_active() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
+
+    /* LoRa has no on/off toggle yet (ALDO3 is hard-wired always-on, see
+     * power_mgmt.c) - shows "on" unconditionally until Phase 6 gives it a
+     * real state to reflect. */
+    lv_obj_set_style_text_color(bar->lora, STATUS_COLOR_GREEN, 0);
+
+    lv_obj_set_style_text_color(bar->bt, ble_debug_is_connected() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
+
+    /* WiFi has no subsystem behind it at all (see docs/application.md
+     * scoping decision) - permanently off/grey. */
+    lv_obj_set_style_text_color(bar->wifi, STATUS_COLOR_GREY, 0);
+
+    sensor_cache_t cache;
+    sensor_cache_get(&cache);
+    if (cache.valid) {
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%u%%", cache.batt_pct);
+        lv_label_set_text(bar->batt, buf);
+        lv_obj_set_style_text_color(bar->batt, cache.batt_pct <= 15 ? STATUS_COLOR_RED : lv_color_hex(0xE0E0E0), 0);
+
+        bool charging = (cache.chg_state != AXP2101_CHG_STOP);
+        if (charging) {
+            lv_obj_clear_flag(bar->chg, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_text_color(bar->chg, STATUS_COLOR_GREEN, 0);
+        } else {
+            lv_obj_add_flag(bar->chg, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 }
 
 /* Red-only night-mode transform. LVGL renders RGB565_SWAPPED (big-endian on
@@ -330,6 +453,12 @@ static void watch_face_update(lv_timer_t *timer)
     localtime_r(&epoch, &lt);
 
     char buf[32];
+    if (s_tz_label) {
+        char tz[8] = { 0 };
+        strftime(tz, sizeof(tz), "%Z", &lt);
+        lv_label_set_text(s_tz_label, tz);
+    }
+
     snprintf(buf, sizeof(buf), "%02d:%02d:%02d", lt.tm_hour, lt.tm_min, lt.tm_sec);
     lv_label_set_text(s_time_label, buf);
 
@@ -397,12 +526,16 @@ static void watch_face_update(lv_timer_t *timer)
             lv_obj_add_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN);
         }
     }
+
+    update_status_bar(&s_status_bar[0]);
 }
 
 static void lvgl_build_watch_face(void)
 {
     s_watch_screen = lv_screen_active();
     lv_obj_set_style_bg_color(s_watch_screen, lv_color_hex(0x000000), 0);
+
+    build_status_bar(s_watch_screen, &s_status_bar[0]);
 
     s_date_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_date_label, "");
@@ -437,6 +570,17 @@ static void lvgl_build_watch_face(void)
     lv_obj_set_style_text_color(s_snooze_icon, lv_color_hex(0xFFD54F), 0);
     lv_obj_align(s_snooze_icon, LV_ALIGN_TOP_LEFT, 70, 40);
     lv_obj_add_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN);
+
+    /* Timezone abbreviation (e.g. "CEST"/"CET") above the local time - the
+     * process TZ is already set at boot (main/uwatch_main.c) and
+     * watch_face_update() already computes localtime_r() for the primary
+     * display, so strftime("%Z", ...) gives this for free, no new TZ
+     * plumbing needed. */
+    s_tz_label = lv_label_create(lv_screen_active());
+    lv_label_set_text(s_tz_label, "");
+    lv_obj_set_style_text_font(s_tz_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_tz_label, lv_color_hex(0x9E9E9E), 0);
+    lv_obj_align(s_tz_label, LV_ALIGN_CENTER, 0, -40);
 
     s_time_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_time_label, "--:--:--");
@@ -1159,12 +1303,16 @@ static void gps_screen_update(lv_timer_t *timer)
         lv_obj_set_style_bg_color(s_gps_track_btn, lv_color_hex(0x444444), 0);
 #endif
     }
+
+    update_status_bar(&s_status_bar[1]);
 }
 
 static void lvgl_build_gps_screen(void)
 {
     s_gps_screen = screen_new();
     lv_obj_set_style_bg_color(s_gps_screen, lv_color_hex(0x102010), 0);
+
+    build_status_bar(s_gps_screen, &s_status_bar[1]);
 
     lv_obj_t *title = lv_label_create(s_gps_screen);
     lv_label_set_text(title, "GPS");
@@ -1352,12 +1500,16 @@ static void mesh_screen_update(lv_timer_t *timer)
         }
         lv_label_set_text(s_mesh_row_label[i], buf);
     }
+
+    update_status_bar(&s_status_bar[2]);
 }
 
 static void lvgl_build_mesh_screen(void)
 {
     s_mesh_screen = screen_new();
     lv_obj_set_style_bg_color(s_mesh_screen, lv_color_hex(0x201810), 0);
+
+    build_status_bar(s_mesh_screen, &s_status_bar[2]);
 
     lv_obj_t *title = lv_label_create(s_mesh_screen);
     lv_label_set_text(title, "MESH");
@@ -1425,6 +1577,43 @@ void lvgl_mesh_screen_show(void)
      * back to the watch face on its next 500 ms tick. */
     s_last_touch_tick = lv_tick_get();
     esp_lv_adapter_unlock();
+}
+
+/* ---- Settings screen (docs/application.md section 9) ----
+ * Minimal Phase 1 stub: just enough to complete the 5-screen nav ring and be
+ * swipe-reachable/exitable correctly. Real nested-category content
+ * (time/TZ, display, peripherals, sound/vibration, Ultra-Sparmodus, presets,
+ * info - absorbing today's Power screen along the way) is a later phase. */
+static void settings_screen_status_bar_update(lv_timer_t *timer)
+{
+    (void)timer;
+    if (lv_screen_active() != s_settings_screen) {
+        return;
+    }
+    update_status_bar(&s_status_bar[3]);
+}
+
+static void lvgl_build_settings_screen(void)
+{
+    s_settings_screen = screen_new();
+    lv_obj_set_style_bg_color(s_settings_screen, lv_color_hex(0x000000), 0);
+
+    build_status_bar(s_settings_screen, &s_status_bar[3]);
+
+    lv_obj_t *title = lv_label_create(s_settings_screen);
+    lv_label_set_text(title, "SETTINGS");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    lv_obj_t *placeholder = lv_label_create(s_settings_screen);
+    lv_label_set_text(placeholder, "Coming soon");
+    lv_obj_set_style_text_font(placeholder, s_font_small, 0);
+    lv_obj_set_style_text_color(placeholder, lv_color_hex(0x9E9E9E), 0);
+    lv_obj_align(placeholder, LV_ALIGN_CENTER, 0, 0);
+
+    update_status_bar(&s_status_bar[3]);
+    lv_timer_create(settings_screen_status_bar_update, 1000, NULL);
 }
 
 /* ---- NFC screen (chained off BHI: swipe left again) ---- */
@@ -1929,10 +2118,25 @@ static void alarm_en_switch_cb(lv_event_t *e)
     alarm_commit();
 }
 
+/* This screen's other controls all commit immediately on interaction, so
+ * unlike every other ring screen it has no periodic update timer of its
+ * own - this one exists solely to keep the status bar live while the
+ * screen is open. */
+static void alarm_screen_status_bar_update(lv_timer_t *timer)
+{
+    (void)timer;
+    if (lv_screen_active() != s_alarm_screen) {
+        return;
+    }
+    update_status_bar(&s_status_bar[4]);
+}
+
 static void lvgl_build_alarm_screen(void)
 {
     s_alarm_screen = screen_new();
     lv_obj_set_style_bg_color(s_alarm_screen, lv_color_hex(0x201020), 0);
+
+    build_status_bar(s_alarm_screen, &s_status_bar[4]);
 
     lv_obj_t *title = lv_label_create(s_alarm_screen);
     lv_label_set_text(title, "Alarm");
@@ -2061,6 +2265,11 @@ static void lvgl_build_alarm_screen(void)
     lv_obj_add_state(s_alarm_edit.ring_mode == ALARM_RING_BEEP ? s_alarm_mode_beep :
                      s_alarm_edit.ring_mode == ALARM_RING_VIB ? s_alarm_mode_vib : s_alarm_mode_both,
                      LV_STATE_CHECKED);
+
+    /* This screen otherwise has no periodic timer - every control commits
+     * immediately on interaction - but the status bar still needs live
+     * refresh (SD/battery/etc. can change while this screen is open). */
+    lv_timer_create(alarm_screen_status_bar_update, 1000, NULL);
 }
 
 /* Ringing screen: shown while the alarm rings. */
@@ -2145,6 +2354,62 @@ static void alarm_ring_cb(bool ringing)
     esp_lv_adapter_unlock();
 }
 
+/* ---- 5-screen nav ring (docs/application.md section 4.3) ----
+ *
+ * A single closed ring, not the tree this file used to have: swipe left
+ * advances (Main -> GPS -> LoRa -> Settings -> Alarms -> Main -> ...), swipe
+ * right retreats - the spec's own closing line ("swiping continuously in one
+ * direction passes through all five before returning to Main") is exactly a
+ * modular index walk, so that's what this is, replacing the old per-screen
+ * if/else tree entirely. Vertical swipes are unassigned on all five ring
+ * screens (spec: reserved, not built yet).
+ *
+ * The BHI (sensor), NFC, and Power screens are NOT in this ring (the spec
+ * doesn't mention them) - their build functions and debug-console entry
+ * points (lvgl_show_bhi_screen(), the nfcpoll/nfcprobe path) still work, but
+ * nothing routes to them by swipe any more. menu_timeout_cb()'s existing
+ * per-screen timeouts for them are left in place unchanged: reaching them
+ * via a debug command still needs a way back to the watch face, and the
+ * timeout already provides one. */
+typedef struct {
+    lv_obj_t **screen;      /* &s_watch_screen, &s_gps_screen, ... */
+    void (*build)(void);    /* lazy builder; NULL for the watch face (built once at boot) */
+} nav_ring_entry_t;
+
+static const nav_ring_entry_t s_nav_ring[] = {
+    { &s_watch_screen,    NULL },
+    { &s_gps_screen,      lvgl_build_gps_screen },
+    { &s_mesh_screen,     lvgl_build_mesh_screen },
+    { &s_settings_screen, lvgl_build_settings_screen },
+    { &s_alarm_screen,    lvgl_build_alarm_screen },
+};
+#define NAV_RING_COUNT (sizeof(s_nav_ring) / sizeof(s_nav_ring[0]))
+
+static int nav_ring_index_of(lv_obj_t *screen)
+{
+    for (size_t i = 0; i < NAV_RING_COUNT; i++) {
+        if (*s_nav_ring[i].screen == screen) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static void nav_ring_go(int index)
+{
+    const nav_ring_entry_t *entry = &s_nav_ring[index];
+    if (entry->screen == &s_watch_screen) {
+        lvgl_show_watch_face();   /* also forces an immediate label refresh */
+        return;
+    }
+    if (!*entry->screen && entry->build) {
+        entry->build();
+    }
+    if (*entry->screen) {
+        lv_scr_load(*entry->screen);
+    }
+}
+
 /* ---- Swipe navigation (indev-level: fires for every touch) ---- */
 
 static void swipe_event_cb(lv_event_t *e)
@@ -2171,68 +2436,17 @@ static void swipe_event_cb(lv_event_t *e)
         return;
     }
     bool horiz = abs(dx) > abs(dy);
-    lv_obj_t *cur = lv_screen_active();
-
-    if (cur == s_watch_screen) {
-        /* Away from the clock. */
-        if (horiz) {
-            if (dx < 0) {        /* left  -> BHI status */
-                if (!s_bhi_screen) {
-                    lvgl_build_bhi_screen();
-                }
-                lv_scr_load(s_bhi_screen);
-            } else {             /* right -> GPS */
-                if (!s_gps_screen) {
-                    lvgl_build_gps_screen();
-                }
-                lv_scr_load(s_gps_screen);
-            }
-        } else if (dy > 0) {     /* down  -> Power Management */
-            if (!s_power_screen) {
-                lvgl_build_power_screen();
-            }
-            lv_scr_load(s_power_screen);
-        } else if (dy < 0) {     /* up   -> Alarm */
-            if (!s_alarm_screen) {
-                lvgl_build_alarm_screen();
-            }
-            lv_scr_load(s_alarm_screen);
-        }
-    } else if (cur == s_power_screen) {
-        if (!horiz && dy < 0) {  /* up -> clock */
-            lvgl_show_watch_face();
-        }
-    } else if (cur == s_alarm_screen) {
-        if (!horiz && dy > 0) {  /* down -> clock */
-            lvgl_show_watch_face();
-        }
-    } else if (cur == s_bhi_screen) {
-        if (horiz && dx > 0) {   /* right -> clock */
-            lvgl_show_watch_face();
-        } else if (horiz && dx < 0) {   /* left -> NFC */
-            if (!s_nfc_screen) {
-                lvgl_build_nfc_screen();
-            }
-            lv_scr_load(s_nfc_screen);
-        }
-    } else if (cur == s_nfc_screen) {
-        if (horiz && dx > 0) {   /* right -> BHI */
-            lv_scr_load(s_bhi_screen);
-        }
-    } else if (cur == s_gps_screen) {
-        if (horiz && dx < 0) {   /* left -> clock */
-            lvgl_show_watch_face();
-        } else if (horiz && dx > 0) {   /* right -> Mesh */
-            if (!s_mesh_screen) {
-                lvgl_build_mesh_screen();
-            }
-            lv_scr_load(s_mesh_screen);
-        }
-    } else if (cur == s_mesh_screen) {
-        if (horiz && dx < 0) {   /* left -> GPS */
-            lv_scr_load(s_gps_screen);
-        }
+    if (!horiz) {
+        return;   /* vertical: unassigned on every ring screen, see above */
     }
+
+    int idx = nav_ring_index_of(lv_screen_active());
+    if (idx < 0) {
+        return;   /* not on a ring screen (e.g. BHI/NFC reached via debug command) - no gesture nav */
+    }
+    int next = (dx < 0) ? (int)((idx + 1) % NAV_RING_COUNT)
+                        : (int)((idx + NAV_RING_COUNT - 1) % NAV_RING_COUNT);
+    nav_ring_go(next);
 }
 
 /* ---- Menu inactivity timeout ----

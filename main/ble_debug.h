@@ -9,6 +9,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +27,12 @@ void ble_debug_notify_telemetry(void);
 
 /* Debug: print BLE state (advertising / connection). */
 void ble_debug_print_status(void);
+
+/* True while a central is connected - the status bar's Bluetooth icon reuses
+ * this (see docs/application.md's UI redesign): this bridge is a debug tool,
+ * not a pairing feature, but its connection state is the only real BLE
+ * signal that exists in this codebase today. */
+bool ble_debug_is_connected(void);
 
 /* Enable/disable BLE advertising at runtime (debug: BLE RF can desensitise
  * the GNSS front-end on this board). */
