@@ -291,8 +291,9 @@ void debug_cmd_nfcpoll(const char *args)
 
 void debug_cmd_nfcprobe(const char *args)
 {
-    /* Sweep the three things that can plausibly keep the ST25R3916 off the
-     * bus, and read its identity register through each combination.
+    /* Sweep the three rails that can plausibly keep the ST25R3916 off the
+     * bus, and read its identity register through the driver's own
+     * permanent SPI device (st25r3916_probe_identity()) at each combination.
      *
      * The SD card axis is what this was originally built to test: it shares
      * SPI2's MOSI/MISO/SCK, and sd_log_unmount() cuts its rail (ALDO1) while
@@ -303,13 +304,15 @@ void debug_cmd_nfcprobe(const char *args)
      * unpowered, so that confound had to be removed before believing any
      * of it (see docs/nfc.md).
      *
-     * The LoRa axis (ALDO3) asks the same question for the SX1262: its
+     * The LoRa axis (ALDO3) asked the same question for the SX1262: its
      * module has a single VCC pin for the whole package with no separate
      * always-on I/O rail (unlike the ST25R3916, whose host interface runs
-     * off the always-on DC3V3 rail independent of DLDO1), so it is assumed
+     * off the always-on DC3V3 rail independent of DLDO1), so it was assumed
      * to clamp the bus the same way the SD card does once its rail is cut -
-     * spi2_power.c's design assumes this worst case. This axis measures
-     * whether that assumption is actually true.
+     * spi2_power.c's design assumes this worst case defensively. Measured on
+     * hardware: it doesn't hold. With ALDO1 on, ic_identity reads correctly
+     * regardless of ALDO3's state. See docs/nfc.md for the full sweep this
+     * command produced.
      *
      * CAUTION: toggling ALDO3 nominally tears down the SX1262's live RF
      * configuration (TCXO settle, frequency, modulation - none of it is
@@ -327,15 +330,22 @@ void debug_cmd_nfcprobe(const char *args)
      * point is to drive each rail directly and see what the bus does,
      * which spi2_power's SHARED-rail auto-raise would otherwise fight.
      *
+     * No SPI mode/clock sweep any more (an earlier version of this command
+     * had one): it required a temporary spi_device_handle_t sharing GPIO4
+     * with the driver's permanent one, which ESP-IDF warned about
+     * ("GPIO 4 is conflict with others and be overwritten") and which is the
+     * leading suspect for the permanent device going unresponsive
+     * (ic_identity stuck at 0xFF, cleared only by a full reboot) after this
+     * command had run earlier in the same boot. See st25r3916.h's doc
+     * comment on st25r3916_probe_identity(). That question is already
+     * answered anyway (docs/nfc.md's SPI timing section) and wasn't worth
+     * re-asking at this risk.
+     *
      * "nfcprobe [settle_ms]" - rail settle time, default 150ms. */
     int settle = (args[0] != '\0') ? atoi(args) : 150;
     if (settle < 20) {
         settle = 20;
     }
-
-    static const struct { uint8_t mode; int hz; } spi_combos[] = {
-        { 1,  1000000 }, { 1, 10000000 }, { 0, 10000000 },
-    };
 
     /* Unmount cleanly first if the card is up: cutting the rail from under a
      * mounted card is what leaves it unable to remount (sd_log.c). */
@@ -344,7 +354,7 @@ void debug_cmd_nfcprobe(const char *args)
         sd_log_unmount();
     }
 
-    printf("nfcprobe: sweeping SD rail x LoRa rail x NFC rail x SPI settings (settle %dms)\n", settle);
+    printf("nfcprobe: sweeping SD rail x LoRa rail x NFC rail (settle %dms)\n", settle);
     printf("nfcprobe: CAUTION - this briefly cycles LoRa's rail; a real sustained\n");
     printf("nfcprobe:   power-down (unlike this quick sweep) may still need a reboot to resume RX\n");
 
@@ -356,14 +366,11 @@ void debug_cmd_nfcprobe(const char *args)
                 axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, nfc_on != 0);
                 vTaskDelay(pdMS_TO_TICKS(settle));
 
-                for (size_t i = 0; i < sizeof(spi_combos) / sizeof(spi_combos[0]); i++) {
-                    uint8_t id[2] = { 0 };
-                    bool ok = st25r3916_probe_identity(TWATCH_SPI_HOST, TWATCH_PIN_NFC_CS,
-                                                       spi_combos[i].mode, spi_combos[i].hz, id);
-                    printf("  SD=%-3s LORA=%-3s NFC=%-3s mode=%u %8d Hz: ic_identity=%02x %02x %s\n",
-                           sd_on ? "on" : "off", lora_on ? "on" : "off", nfc_on ? "on" : "off",
-                           spi_combos[i].mode, spi_combos[i].hz, id[0], id[1], ok ? "<== OK" : "");
-                }
+                uint8_t id[2] = { 0 };
+                bool ok = st25r3916_probe_identity(id);
+                printf("  SD=%-3s LORA=%-3s NFC=%-3s: ic_identity=%02x %02x %s\n",
+                       sd_on ? "on" : "off", lora_on ? "on" : "off", nfc_on ? "on" : "off",
+                       id[0], id[1], ok ? "<== OK" : "");
             }
         }
     }

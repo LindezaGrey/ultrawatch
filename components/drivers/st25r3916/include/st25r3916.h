@@ -67,14 +67,34 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms);
 /* Power the chip back down. Safe to call even if st25r3916_open() failed. */
 void st25r3916_close(void);
 
-/* Diagnostic primitive: probe the IC identity register through a temporary
- * SPI device at the given mode/clock, without touching any power rail.
- * Lets a caller sweep whatever axes matter - SPI settings, the NFC rail, or
- * the SD card's rail, which shares this SPI bus and clamps MISO through its
- * ESD diodes when unpowered. Fills out_id[2] with two consecutive reads and
- * returns true when they agree and carry the ST25R3916 type nibble. */
-bool st25r3916_probe_identity(spi_host_device_t host, int cs_gpio,
-                              uint8_t mode, int hz, uint8_t out_id[2]);
+/* Diagnostic primitive: probe the IC identity register through the driver's
+ * own permanent SPI device (the one wired up by st25r3916_init(), same one
+ * st25r3916_open()/try() use) - deliberately does NOT create a temporary
+ * spi_device_handle_t on the same CS pin. An earlier version did, and
+ * ESP-IDF warned "GPIO 4 is conflict with others and be overwritten" every
+ * time it ran: adding a second device on a CS pin already bound to an
+ * existing one reprograms the GPIO matrix routing for that pin, and nothing
+ * guarantees spi_bus_remove_device() restores it correctly afterward for the
+ * device left behind. That is the leading suspect for an st25r3916_open()
+ * session going permanently unresponsive (ic_identity reading 0xFF, not the
+ * SD-clamp's 0x00) after this probe had run earlier in the same boot -
+ * cleared only by a full reboot, which is consistent with corrupted GPIO
+ * matrix state rather than a chip-side fault (a temporary device's own
+ * reads were fine throughout).
+ *
+ * Touches no power rail either - lets a caller sweep whatever rail axes
+ * matter (the NFC rail, the SD card's rail, LoRa's rail - any of which can
+ * clamp this shared bus's MISO line through their own ESD protection
+ * diodes when unpowered) without this call itself perturbing anything.
+ * Fills out_id[2] with two consecutive reads and returns true when they
+ * agree and carry the ST25R3916 type nibble.
+ *
+ * No SPI mode/clock parameters (unlike the version this replaced): the
+ * permanent device's settings are fixed at board-init time
+ * (twatch_board.c), so sweeping them is no longer possible through this
+ * function - that question is already answered (see docs/nfc.md's SPI
+ * timing section) and isn't worth the CS-sharing risk to re-ask. */
+bool st25r3916_probe_identity(uint8_t out_id[2]);
 
 /* Convenience wrapper: open(), one try(), close(). Equivalent to this
  * driver's original one-shot-per-call behavior - prefer st25r3916_open()/

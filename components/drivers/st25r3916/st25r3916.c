@@ -924,38 +924,27 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
     return ESP_OK;
 }
 
-/* Diagnostic primitive: create a temporary SPI device with the given mode
- * and clock, issue Set default, and read the IC identity register twice.
+/* Diagnostic primitive: see the doc comment in st25r3916.h for why this
+ * uses the permanent SPI device (s_spi, bound once in st25r3916_init())
+ * rather than creating a temporary one - a temporary device sharing GPIO4
+ * with the permanent one was the leading suspect for the permanent device
+ * going permanently unresponsive after a probe run.
+ *
  * Deliberately does NOT touch any power rail - the caller owns that, since
- * "which rails are up" is board-level policy and the interesting axes
- * (the NFC rail, and the SD card sharing this bus) live outside this
- * driver. Returns true when both reads agree and carry the ST25R3916 type
- * nibble. */
-bool st25r3916_probe_identity(spi_host_device_t host, int cs_gpio,
-                              uint8_t mode, int hz, uint8_t out_id[2])
+ * "which rails are up" is board-level policy and the interesting axes (the
+ * NFC rail, the SD card's rail, LoRa's rail) live outside this driver. Only
+ * meant to be called with no st25r3916_open() session active - Set default
+ * resets whatever RF/mode state a session had configured. Returns true when
+ * both reads agree and carry the ST25R3916 type nibble. */
+bool st25r3916_probe_identity(uint8_t out_id[2])
 {
     out_id[0] = 0;
     out_id[1] = 0;
 
-    spi_device_interface_config_t cfg = {
-        .mode = mode,
-        .clock_speed_hz = hz,
-        .queue_size = 4,
-        .spics_io_num = cs_gpio,
-    };
-    spi_device_handle_t dev = NULL;
-    if (spi_bus_add_device(host, &cfg, &dev) != ESP_OK) {
-        return false;
-    }
-
-    spi_device_handle_t saved = s_spi;
-    s_spi = dev;
     direct_cmd(DCMD_SET_DEFAULT);
     vTaskDelay(pdMS_TO_TICKS(2));
     reg_read1(REG_IC_IDENTITY, &out_id[0]);
     reg_read1(REG_IC_IDENTITY, &out_id[1]);
-    s_spi = saved;
-    spi_bus_remove_device(dev);
 
     return ((out_id[0] & IC_IDENTITY_TYPE_MASK) == IC_IDENTITY_TYPE_ST25R3916) &&
            out_id[0] == out_id[1];
