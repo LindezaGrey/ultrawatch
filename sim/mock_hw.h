@@ -238,6 +238,11 @@ esp_err_t alarm_set(uint8_t hour, uint8_t min, bool enabled, uint8_t ring_mode);
 esp_err_t alarm_dismiss(void);
 esp_err_t alarm_snooze(void);
 
+/* --- sd_log.h / twatch_board.h / ble_debug.h subset (status bar) --- */
+bool sd_log_available(void);
+bool twatch_sd_card_seated(void);
+bool ble_debug_is_connected(void);
+
 #ifdef __cplusplus
 }
 #endif

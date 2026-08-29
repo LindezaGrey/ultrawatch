@@ -276,29 +276,54 @@ typedef struct {
  * below (populated once each screen is built). */
 static status_bar_t s_status_bar[5];
 
-static lv_obj_t *status_icon_create(lv_obj_t *parent, const char *text, lv_coord_t x)
+/* Row y and left/right-aligned x offsets are chosen from a measured safe-area
+ * scan of assets/ui/safe_area_transparent.png (410x502 panel, rounded
+ * corners physically clip/hide content there): at y~54 the corner cutout
+ * requires roughly x >= 34 from either edge (straight-edge margin is ~16px,
+ * but the corner radius is ~90-100px and dominates this close to the top),
+ * so every icon in this row is kept clear of x < 40 / x > 410-40 - see
+ * docs/application.md's "Abgerundete Ecken beachten" section. y=54 also
+ * clears every ring screen's title (TOP_MID, y=18, ends ~y=44) and the GPS
+ * screen's GNSS switch row (y=22, ends ~y=48) with a few px to spare. */
+#define STATUS_BAR_Y 54
+
+/* LVGL's built-in Montserrat glyph set (FontAwesome-derived, see
+ * lv_symbol_def.h) already ships real icons for most of these - reuses the
+ * same font the watch face's GPS satellite glyph uses, just at the smaller
+ * size this build has compiled in (montserrat_14). No emoji/icon font is
+ * bundled in this project, and adding one is a much bigger undertaking
+ * (font pipeline + licensing) than this row needs. Two items have no good
+ * built-in glyph and stay as short text: GPX-tracking (closest built-in,
+ * a generic loop/record glyph, read worse than the word) and LoRa (no
+ * antenna/radio symbol exists in this set at all). */
+static lv_obj_t *status_icon_create(lv_obj_t *parent, const char *text, lv_align_t align, lv_coord_t x)
 {
     lv_obj_t *l = lv_label_create(parent);
     lv_label_set_text(l, text);
-    lv_obj_set_style_text_font(l, s_font_micro, 0);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(l, STATUS_COLOR_GREY, 0);
-    lv_obj_align(l, LV_ALIGN_TOP_LEFT, x, 4);
+    lv_obj_align(l, align, x, STATUS_BAR_Y);
     return l;
 }
 
 /* Builds one status bar instance into `parent` (a screen about to be shown
  * for the first time) and stores its objects in `out` for update_status_bar()
- * to refresh later. Fixed left-to-right order, evenly spaced. */
+ * to refresh later. Fixed left-to-right order. The battery/charge labels are
+ * right-aligned (offset from the right edge) instead of left-positioned,
+ * since the battery text's width varies ("--%".."100%") and a fixed left x
+ * would let a wide value spill into the right corner's safe-area cutout. */
 static void build_status_bar(lv_obj_t *parent, status_bar_t *out)
 {
-    out->sd   = status_icon_create(parent, "SD",   4);
-    out->gps  = status_icon_create(parent, "GPS",  44);
-    out->gpx  = status_icon_create(parent, "GPX",  92);
-    out->lora = status_icon_create(parent, "LoRa", 140);
-    out->bt   = status_icon_create(parent, "BT",   192);
-    out->wifi = status_icon_create(parent, "WiFi", 228);
-    out->chg  = status_icon_create(parent, "CHG",  272);
-    out->batt = status_icon_create(parent, "--%",  312);
+    out->sd   = status_icon_create(parent, LV_SYMBOL_SD_CARD,   LV_ALIGN_TOP_LEFT,  40);
+    out->gps  = status_icon_create(parent, LV_SYMBOL_GPS,       LV_ALIGN_TOP_LEFT,  80);
+    out->gpx  = status_icon_create(parent, "GPX",               LV_ALIGN_TOP_LEFT,  118);
+    out->lora = status_icon_create(parent, "LoRa",              LV_ALIGN_TOP_LEFT,  166);
+    out->bt   = status_icon_create(parent, LV_SYMBOL_BLUETOOTH, LV_ALIGN_TOP_LEFT,  214);
+    out->wifi = status_icon_create(parent, LV_SYMBOL_WIFI,      LV_ALIGN_TOP_LEFT,  250);
+    /* CHG sits further left than its glyph alone needs, to clear the widest
+     * battery string ("<icon> 100%") to its right - see update_status_bar(). */
+    out->chg  = status_icon_create(parent, LV_SYMBOL_CHARGE,    LV_ALIGN_TOP_RIGHT, -115);
+    out->batt = status_icon_create(parent, LV_SYMBOL_BATTERY_EMPTY " --%", LV_ALIGN_TOP_RIGHT, -40);
 }
 
 /* Refreshes one status bar instance. Safe to call even if `bar->sd` (or any
@@ -338,8 +363,12 @@ static void update_status_bar(const status_bar_t *bar)
     sensor_cache_t cache;
     sensor_cache_get(&cache);
     if (cache.valid) {
-        char buf[8];
-        snprintf(buf, sizeof(buf), "%u%%", cache.batt_pct);
+        const char *icon = cache.batt_pct > 87 ? LV_SYMBOL_BATTERY_FULL :
+                            cache.batt_pct > 62 ? LV_SYMBOL_BATTERY_3 :
+                            cache.batt_pct > 37 ? LV_SYMBOL_BATTERY_2 :
+                            cache.batt_pct > 12 ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%s %u%%", icon, cache.batt_pct);
         lv_label_set_text(bar->batt, buf);
         lv_obj_set_style_text_color(bar->batt, cache.batt_pct <= 15 ? STATUS_COLOR_RED : lv_color_hex(0xE0E0E0), 0);
 

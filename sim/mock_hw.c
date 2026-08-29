@@ -438,3 +438,22 @@ esp_err_t alarm_snooze(void)
     s_alarm_snoozing = true;
     return ESP_OK;
 }
+
+/* ---- SD / BLE status bar sources ----
+ * sd_log_available() cycles so the SD icon's red/orange/grey states are all
+ * visible without needing a real card; the other two are static-true, since
+ * neither has a meaningful sim analogue (no SD socket, no BLE stack here). */
+bool sd_log_available(void)
+{
+    return ((long)time(NULL) / 10) % 2 == 0;
+}
+
+bool twatch_sd_card_seated(void)
+{
+    return true;
+}
+
+bool ble_debug_is_connected(void)
+{
+    return ((long)time(NULL) / 6) % 2 == 0;
+}

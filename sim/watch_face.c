@@ -33,6 +33,93 @@ static lv_obj_t *s_steps_label;
 static lv_obj_t *s_gps_icon;
 static lv_obj_t *s_track_dot;
 static lv_obj_t *s_snooze_icon;
+
+/* Status bar row - verbatim port of main/lvgl_app.c's build_status_bar()/
+ * update_status_bar()/status_icon_create(), watch-face instance only (the
+ * other four ring screens don't exist in this scaffold yet - see the
+ * top-of-file "keep in sync by hand" note). Positioning/colors/icon choices
+ * must be kept identical to the firmware original by hand. */
+#define STATUS_COLOR_GREY   lv_color_hex(0x888888)
+#define STATUS_COLOR_ORANGE lv_color_hex(0xFFB300)
+#define STATUS_COLOR_GREEN  lv_color_hex(0x00E676)
+#define STATUS_COLOR_RED    lv_color_hex(0xFF5252)
+#define STATUS_BAR_Y 54
+
+typedef struct {
+    lv_obj_t *sd;
+    lv_obj_t *gps;
+    lv_obj_t *gpx;
+    lv_obj_t *lora;
+    lv_obj_t *bt;
+    lv_obj_t *wifi;
+    lv_obj_t *batt;
+    lv_obj_t *chg;
+} status_bar_t;
+
+static status_bar_t s_status_bar;
+
+static lv_obj_t *status_icon_create(lv_obj_t *parent, const char *text, lv_align_t align, lv_coord_t x)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_label_set_text(l, text);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(l, STATUS_COLOR_GREY, 0);
+    lv_obj_align(l, align, x, STATUS_BAR_Y);
+    return l;
+}
+
+static void build_status_bar(lv_obj_t *parent, status_bar_t *out)
+{
+    out->sd   = status_icon_create(parent, LV_SYMBOL_SD_CARD,   LV_ALIGN_TOP_LEFT,  40);
+    out->gps  = status_icon_create(parent, LV_SYMBOL_GPS,       LV_ALIGN_TOP_LEFT,  80);
+    out->gpx  = status_icon_create(parent, "GPX",               LV_ALIGN_TOP_LEFT,  118);
+    out->lora = status_icon_create(parent, "LoRa",              LV_ALIGN_TOP_LEFT,  166);
+    out->bt   = status_icon_create(parent, LV_SYMBOL_BLUETOOTH, LV_ALIGN_TOP_LEFT,  214);
+    out->wifi = status_icon_create(parent, LV_SYMBOL_WIFI,      LV_ALIGN_TOP_LEFT,  250);
+    out->chg  = status_icon_create(parent, LV_SYMBOL_CHARGE,    LV_ALIGN_TOP_RIGHT, -115);
+    out->batt = status_icon_create(parent, LV_SYMBOL_BATTERY_EMPTY " --%", LV_ALIGN_TOP_RIGHT, -40);
+}
+
+static void update_status_bar(const status_bar_t *bar)
+{
+    if (!bar->sd) {
+        return;
+    }
+
+    lv_obj_set_style_text_color(bar->sd, sd_log_available() ? STATUS_COLOR_RED :
+                                (twatch_sd_card_seated() ? STATUS_COLOR_ORANGE : STATUS_COLOR_GREY), 0);
+
+    m10q_state_t gps_st = m10q_get_state();
+    lv_obj_set_style_text_color(bar->gps,
+        (gps_st == M10Q_STATE_FIXED) ? STATUS_COLOR_GREEN :
+        (gps_st == M10Q_STATE_ACQUIRING) ? STATUS_COLOR_ORANGE : STATUS_COLOR_GREY, 0);
+
+    lv_obj_set_style_text_color(bar->gpx, tracking_is_active() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
+    lv_obj_set_style_text_color(bar->lora, STATUS_COLOR_GREEN, 0);
+    lv_obj_set_style_text_color(bar->bt, ble_debug_is_connected() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
+    lv_obj_set_style_text_color(bar->wifi, STATUS_COLOR_GREY, 0);
+
+    sensor_cache_t cache;
+    sensor_cache_get(&cache);
+    if (cache.valid) {
+        const char *icon = cache.batt_pct > 87 ? LV_SYMBOL_BATTERY_FULL :
+                            cache.batt_pct > 62 ? LV_SYMBOL_BATTERY_3 :
+                            cache.batt_pct > 37 ? LV_SYMBOL_BATTERY_2 :
+                            cache.batt_pct > 12 ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%s %u%%", icon, cache.batt_pct);
+        lv_label_set_text(bar->batt, buf);
+        lv_obj_set_style_text_color(bar->batt, cache.batt_pct <= 15 ? STATUS_COLOR_RED : lv_color_hex(0xE0E0E0), 0);
+
+        bool charging = (cache.chg_state != AXP2101_CHG_STOP);
+        if (charging) {
+            lv_obj_clear_flag(bar->chg, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_style_text_color(bar->chg, STATUS_COLOR_GREEN, 0);
+        } else {
+            lv_obj_add_flag(bar->chg, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
 /* Not static: declared extern in screens.h so nav.c's swipe/menu-timeout
  * code can compare it against lv_screen_active(), same as the original
  * single-file lvgl_app.c did with its file-static s_watch_screen. */
@@ -118,12 +205,16 @@ static void watch_face_update(lv_timer_t *timer)
             lv_obj_add_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN);
         }
     }
+
+    update_status_bar(&s_status_bar);
 }
 
 void sim_watch_face_start(void)
 {
     s_watch_screen = lv_screen_active();
     lv_obj_set_style_bg_color(s_watch_screen, lv_color_hex(0x000000), 0);
+
+    build_status_bar(s_watch_screen, &s_status_bar);
 
     s_date_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_date_label, "");
