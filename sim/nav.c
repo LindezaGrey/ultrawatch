@@ -132,6 +132,17 @@ void sim_settings_sparmodus_screen_build(void)
     settings_open_subpage(5);
 }
 
+/* BHI260AP status screen: now shared (main/screens/bhi_screen.c). */
+void sim_bhi_screen_build(void)
+{
+    if (!s_bhi_screen) {
+        lvgl_build_bhi_screen();
+    }
+    lv_scr_load(s_bhi_screen);
+    bhi_screen_update(NULL);
+    s_last_touch_tick = lv_tick_get();
+}
+
 /* Alarms/Timers list + its 2 sub-screens + ringing screen: now shared
  * (main/screens/alarm_screen.c, main/screens/ring_screen.c). */
 void sim_alarm_screen_build(void)

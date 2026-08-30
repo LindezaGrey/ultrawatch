@@ -17,7 +17,6 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../managed_components/lvgl__lvgl lv
 add_executable(uwatch_sim
     main.c
     nav.c
-    bhi_screen.c
     screenshot.c
     mock_hw.c
     ../main/screens/watch_face.c
@@ -27,6 +26,7 @@ add_executable(uwatch_sim
     ../main/screens/settings_screen.c
     ../main/screens/alarm_screen.c
     ../main/screens/ring_screen.c
+    ../main/screens/bhi_screen.c
     ../main/cascadia_72.c
     ../main/cascadia_36.c
     ../main/cascadia_22.c

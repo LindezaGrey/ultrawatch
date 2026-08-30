@@ -1,50 +1,34 @@
 /*
- * bhi_screen.c - the real BHI260AP sensor screen from main/lvgl_app.c (lines
- * ~691-912 as of the porting pass), copied verbatim (activity_name /
- * bhi_cube_update / bhi_screen_update / bhi_text_row / lvgl_build_bhi_screen,
- * unmodified widget layout and logic - including the pure quaternion math in
- * bhi_cube_update) and run against mock_hw.c instead of real drivers.
+ * bhi_screen.c - BHI260AP sensor status screen, including the 3D
+ * orientation wireframe cube (GAMERV quaternion). Shared between the
+ * firmware and the host sim - see watch_face.c's header comment for the
+ * mechanism.
  *
- * Deviations from the firmware original (mechanical only):
- *   - screen_new() copied in here too, same as every non-watch-face screen.
- *   - No esp_lv_adapter_lock()/unlock(): none was present in this range of
- *     the original anyway (lvgl_show_bhi_screen(), which does lock, is out
- *     of scope here - navigation goes through nav.c instead).
- *
- * Keep this in sync with main/lvgl_app.c by hand: there's no build-time
- * link between the two.
+ * lvgl_show_bhi_screen() (main/lvgl_app.c) - needs esp_lv_adapter_lock(),
+ * so stays firmware-only - is the only entry point; it calls
+ * lvgl_build_bhi_screen() below directly.
  */
+#include "screens.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-#include "lvgl.h"
 #include "cascadia_fonts.h"
-#include "mock_hw.h"
-#include "screens.h"
+#include "bhi260ap.h"
+#include "daily_log.h"
 
 static const lv_font_t *s_font_small = &cascadia_22;
 static const lv_font_t *s_font_micro = &cascadia_18;
 
-/* Not static: declared extern in screens.h. */
 lv_obj_t *s_bhi_screen;
-
 static lv_obj_t *s_bhi_status_label;
 static lv_obj_t *s_bhi_rv_acc_label;
 static lv_obj_t *s_bhi_activity_label;
 static lv_obj_t *s_bhi_gesture_label;
-static lv_obj_t *s_daily_act_label[DAILY_ACT_COUNT];
-static lv_obj_t *s_cube_line[12];
+static lv_obj_t *s_daily_act_label[DAILY_ACT_COUNT];   /* today's per-activity minutes */
+static lv_obj_t *s_cube_line[12];                       /* GAMERV 3D wireframe cube */
 static lv_point_precise_t s_cube_pts[12][2];
-static lv_obj_t *s_axis_line[3];
+static lv_obj_t *s_axis_line[3];                        /* x/y/z origin pointer */
 static lv_point_precise_t s_axis_pts[3][2];
-
-static lv_obj_t *screen_new(void)
-{
-    lv_obj_t *scr = lv_obj_create(NULL);
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
-    return scr;
-}
 
 static const char *activity_name(uint8_t activity)
 {
@@ -76,12 +60,11 @@ static void bhi_cube_update(int16_t qx, int16_t qy, int16_t qz, int16_t qw)
         x /= n; y /= n; z /= n; w /= n;
     }
 
-    /* Use the conjugate (negate the vector part) so the cube rotates WITH the
-     * device instead of mirroring it: otherwise rotating the watch one way
-     * appears to counter-rotate the cube and it looks like it holds still. */
-    x = -x; y = -y; z = -z;
-
-    /* Rotation matrix from the quaternion (column-vector convention). */
+    /* Rotation matrix from the quaternion (column-vector convention). No
+     * app-side conjugate here (2026-08-27): the gyro's orientation matrix is
+     * now set at bhi260ap_init() so the fusion output is corrected at the
+     * source instead of patched here. If that turns out wrong on hardware,
+     * restore "x = -x; y = -y; z = -z;" here and revert bhi260ap_init(). */
     double r00 = 1 - 2 * (y * y + z * z), r01 = 2 * (x * y - w * z), r02 = 2 * (x * z + w * y);
     double r10 = 2 * (x * y + w * z), r11 = 1 - 2 * (x * x + z * z), r12 = 2 * (y * z - w * x);
     double r20 = 2 * (x * z - w * y), r21 = 2 * (y * z + w * x), r22 = 1 - 2 * (x * x + y * y);
@@ -133,7 +116,7 @@ static void bhi_cube_update(int16_t qx, int16_t qy, int16_t qz, int16_t qw)
     }
 }
 
-static void bhi_screen_update(lv_timer_t *timer)
+void bhi_screen_update(lv_timer_t *timer)
 {
     (void)timer;
     if (!s_bhi_status_label) {
@@ -162,7 +145,11 @@ static void bhi_screen_update(lv_timer_t *timer)
     snprintf(buf, sizeof(buf), "Activity: %s", activity_name(activity));
     lv_label_set_text(s_bhi_activity_label, buf);
 
-    /* Per-activity minutes logged today (from daily_log). */
+    /* Per-activity seconds logged today (from daily_log). Compact duration
+     * format so second-level precision is actually visible for an activity
+     * that just started, instead of showing "0" until a whole minute has
+     * passed: Xh Ym once it's been going over an hour, Xm Ys under that,
+     * Xs while it's still under a minute. */
     const uint32_t *secs[DAILY_ACT_COUNT];
     static const char *act_names[DAILY_ACT_COUNT] = {
         "Still", "Walk", "Run", "Cycle", "Vehicle", "Tilt", "Other" };
@@ -207,7 +194,7 @@ static lv_obj_t *bhi_text_row(lv_obj_t *parent, const char *text, lv_obj_t **lab
     return l;
 }
 
-static void lvgl_build_bhi_screen(void)
+void lvgl_build_bhi_screen(void)
 {
     s_bhi_screen = screen_new();
     lv_obj_set_style_bg_color(s_bhi_screen, lv_color_hex(0x002030), 0);
@@ -268,19 +255,11 @@ static void lvgl_build_bhi_screen(void)
     }
 
     lv_obj_t *hint = lv_label_create(s_bhi_screen);
-    lv_label_set_text(hint, "swipe right to go back");
+    lv_label_set_text(hint, "swipe right: clock   swipe left: NFC");
     lv_obj_set_style_text_font(hint, s_font_small, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -90);
 
     bhi_screen_update(NULL);
     lv_timer_create(bhi_screen_update, 200, NULL);   /* 5 Hz: smooth orientation cube */
-}
-
-void sim_bhi_screen_build(void)
-{
-    if (!s_bhi_screen) {
-        lvgl_build_bhi_screen();
-    }
-    lv_scr_load(s_bhi_screen);
 }

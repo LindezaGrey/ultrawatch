@@ -107,6 +107,19 @@ void lvgl_build_timer_screen(void);
 void lvgl_build_ring_screen(void);
 void alarm_list_refresh(void);
 
+/* BHI260AP status screen (main/screens/bhi_screen.c). lvgl_show_bhi_screen()
+ * (main/lvgl_app.c, firmware-only - needs esp_lv_adapter_lock()) calls
+ * lvgl_build_bhi_screen() directly; s_bhi_screen is extern since
+ * menu_timeout_cb() also checks it (BHI gets its own longer timeout,
+ * BHI_TIMEOUT_MS, so the orientation cube stays up a bit longer). */
+extern lv_obj_t *s_bhi_screen;
+void lvgl_build_bhi_screen(void);
+/* bhi_screen_update() gates on being the active screen, so the call
+ * inside lvgl_build_bhi_screen() (before lv_scr_load()) is a no-op -
+ * callers must refresh again right after loading, same "load first,
+ * then refresh" fix as mesh_screen_update()/nav_ring_go(). */
+void bhi_screen_update(lv_timer_t *timer);
+
 /* lv_tick_get() at the last touch - nav-ring inactivity timeout state
  * (main/lvgl_app.c's menu_timeout_cb() / sim/nav.c's equivalent). Extern
  * since main/screens/settings_screen.c's lvgl_show_settings_disp() (the
