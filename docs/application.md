@@ -59,8 +59,10 @@ Referenzdokument und wird um weitere Screens ergänzt, sobald diese definiert si
 | 4 | Alarme/Timer       | Anlegen, Anzeigen, Verwalten von Alarmen und Timern     | Entwurf (s. Abschnitt 8) |
 | 5 | Einstellungen      | Systemkonfiguration (Zeitzone, Display, Peripherie, ...)| Entwurf (s. Abschnitt 9) |
 
-Navigation zwischen allen Screens erfolgt ausschließlich per **Swipe-Geste**
-(siehe Abschnitt 4.3) – keine physischen Tasten/Krone für die Screen-Navigation.
+Screens 1–4 bilden den horizontalen Navigationsring; Einstellungen (5) liegt
+davon separat auf einer vertikalen Achse unterhalb des Hauptscreens (siehe
+Abschnitt 4.3). Navigation zwischen allen Screens erfolgt ausschließlich per
+**Swipe-Geste** – keine physischen Tasten/Krone für die Screen-Navigation.
 
 ---
 
@@ -89,8 +91,8 @@ bei Ein-/Ausblenden – stattdessen Graustufe für "inaktiv").
 | Icon        | Zustand       | Farbe  | Bedeutung                                  |
 |-------------|---------------|--------|---------------------------------------------|
 | SD-Karte    | not inserted  | Grau   | Keine SD-Karte gesteckt                     |
-| SD-Karte    | inserted      | Orange | SD-Karte gesteckt, aber nicht gemountet     |
-| SD-Karte    | mounted       | Rot    | SD-Karte gemountet (aktiver Dateizugriff möglich) |
+| SD-Karte    | inserted      | Grün   | SD-Karte gesteckt, im Ruhezustand (nicht gemountet) – der Normalzustand |
+| SD-Karte    | mounted       | Rot    | SD-Karte kurzzeitig gemountet, aktiver Schreib-/Lesezugriff läuft gerade |
 | GPS         | off           | Grau   | GPS-Modul ausgeschaltet                     |
 | GPS         | acquiring     | Orange | GPS eingeschaltet, sucht nach Fix           |
 | GPS         | 3D lock       | Grün   | GPS hat gültigen 3D-Fix                     |
@@ -114,11 +116,35 @@ bei Ein-/Ausblenden – stattdessen Graustufe für "inaktiv").
 > dreistufigen Zustands darstellen – Details (Icon-Form, Prozentanzeige als
 > Zahl oder rein grafisch) sind noch offen.
 
+> **SD-Karte wird on-demand gemountet**, nicht für die gesamte Wachzeit: sie
+> wird nur für die kurze Dauer eines tatsächlichen Schreib-/Lesevorgangs
+> gemountet (Tages-/Aktivitäts-Log, GPX-Track-Punkt, Mesh-Textlog, Crash-Dump,
+> Screenshot, Debug-Konsolen-Befehle) und direkt danach wieder ausgehängt –
+> damit ist sie den Rest der Zeit vor Beschädigung durch einen unsauberen
+> Stromausfall (z. B. Akku leer, Battery-Pull) geschützt. Der Rot-Zustand ist
+> deshalb nur für Sekundenbruchteile sichtbar; der Normalzustand einer
+> gesteckten Karte ist Grün.
+
 ### 3.3 Layout
 
-- Icons werden **von links nach rechts in fester Reihenfolge** am oberen Rand
-  angeordnet (Reihenfolge TBD, Vorschlag: Funkmodule zuerst, dann Storage, dann
-  Akku/Sonstiges).
+- Icons werden **von links nach rechts in fester Reihenfolge** angeordnet, in
+  zwei Zeilen gruppiert nach Funktion (festgelegt, nicht mehr TBD):
+  - **Zeile 1 – alle Funkmodule** (RF): Bluetooth, WLAN, GNSS, LoRa/Meshtastic
+    – ein Blick auf die obere Zeile beantwortet "sendet/empfängt gerade
+    etwas".
+  - **Zeile 2 – alles andere**: SD-Karte, GPX-Tracking (übernimmt jetzt das
+    frühere GNSS-Pin-Symbol), Ladezustand, Akkustand.
+  - GNSS wird mit einem kleinen Satelliten-Icon dargestellt, LoRa mit einem
+    3-Knoten-Mesh-Netzwerk-Icon statt dem reinen "LoRa"-Text – funktional
+    unverändert, nur die Darstellung. LVGLs eingebauter Symbol-Font
+    (Montserrat/FontAwesome-Subset) enthält weder ein Satelliten- noch ein
+    Mesh-Symbol, daher wurde dafür eine kleine Bild-Asset-Pipeline eingeführt
+    (`main/screens/status_icons.h/.c`, 28×28 A8-Alpha-Bitmaps, per
+    `lv_obj_set_style_image_recolor()` genauso eingefärbt wie die übrigen
+    Text-Icons). **Beide Icons sind bewusst einfache, selbst gezeichnete
+    Platzhalter** (kein reales Meshtastic-Logo – Markenrechtsfrage bewusst
+    umgangen); ein echtes Logo kann später eingesetzt werden, indem nur die
+    beiden `lv_image_dsc_t` in `status_icons.c` ersetzt werden.
 - Größe: klein genug, um nicht abzulenken, aber eindeutig erkennbar (Vorschlag:
   16×16 px bei aktueller Displayauflösung, anpassbar).
 - Icons ohne aktiven/relevanten Zustand können optional komplett ausgeblendet
@@ -161,33 +187,43 @@ passend zum Gesamtkonzept.
   aktualisiert sich die Abkürzung automatisch.
 - Die UTC-Zeit dient als stabile Referenz, unabhängig von der lokal eingestellten
   Zeitzone – nützlich z. B. für Logging, GPS-Zeitstempel, Funkprotokolle.
-- Navigation erfolgt ausschließlich über **horizontale Swipe-Gesten**, der
-  Hauptscreen (Zeit) ist dabei der zentrale Ausgangspunkt. Vorschlag für die
-  Reihenfolge (ringförmig, damit man in beide Richtungen "herumwischen" kann):
+- Navigation erfolgt über **Swipe-Gesten**, der Hauptscreen (Zeit) ist dabei
+  der zentrale Ausgangspunkt. Zwei unabhängige Achsen (festgelegt):
 
   ```
-  ⟵ Einstellungen ⟵ Alarme/Timer ⟵ [ Hauptscreen ] ⟶ GPS/Karte ⟶ LoRa-Nachrichten ⟶
+                    [ Einstellungen ]
+                          ↑ swipe-up
+                          ↓ swipe-down
+  [ Hauptscreen ] ⟶ GPS/Karte ⟶ LoRa/Mesh-Nachrichten ⟶ Alarme/Timer ⟶ zurück
+        ⟵                                                              ⟵
   ```
 
-  - Swipe **nach links** (Finger bewegt sich links, Inhalt kommt von rechts):
-    Hauptscreen → GPS/Karte → LoRa-Nachrichten → **weiter im Ring zurück zum
-    Hauptscreen** (geschlossener Ring, kein hartes Ende).
-  - Swipe **nach rechts**: Hauptscreen → Alarme/Timer → Einstellungen → **weiter
-    im Ring zurück zum Hauptscreen**.
-  - Der Ring ist geschlossen: Durchgängiges Wischen in eine Richtung führt nach
-    allen fünf Screens wieder zurück zum Hauptscreen.
-  - **Wichtig:** Diese Ring-Navigation gilt nur für den Wechsel zwischen den
-    fünf Hauptscreens selbst. Innerhalb von Unterseiten (z. B. den
-    Einstellungs-Kategorien, siehe Abschnitt 9.3) gelten **eigene,
-    lokale Swipe-Regeln** (typischerweise Swipe-zurück zur übergeordneten
-    Seite) – diese lösen keine Ring-Navigation aus und werden unabhängig
-    vom globalen Ring behandelt.
-  - Diese Zuordnung (welcher Screen liegt links/rechts vom Hauptscreen) ist ein
-    **Vorschlag** und sollte anhand der Nutzungshäufigkeit sortiert werden
+  - **Horizontal – geschlossener Ring aus vier Screens** (Hauptscreen,
+    GPS/Karte, LoRa/Mesh-Nachrichten, Alarme/Timer): Swipe nach links
+    schaltet einen Screen im Ring weiter, Swipe nach rechts einen zurück;
+    durchgängiges Wischen in eine Richtung führt nach allen vier Screens
+    wieder zum Hauptscreen. Reihenfolge nach Nutzungshäufigkeit sortiert
     (am häufigsten benötigter Screen am nächsten zum Hauptscreen).
-  - Vertikale Swipes sind aktuell nicht belegt – könnten optional für
-    Schnellzugriffe reserviert werden (z. B. Swipe-runter = Statusübersicht,
-    Swipe-hoch = Benachrichtigungen), falls das gewünscht ist.
+  - **Vertikal, nur auf dem Hauptscreen – Einstellungen liegt außerhalb des
+    Rings**: Swipe nach unten auf dem Hauptscreen öffnet Einstellungen,
+    Swipe nach oben auf der Einstellungen-Kategorieliste geht zurück zum
+    Hauptscreen. Einstellungen war ursprünglich Teil des horizontalen Rings,
+    wurde aber bewusst herausgelöst (kein Screen, den man beiläufig
+    durchwischt) – zusätzlich weiterhin per Tap-and-Hold auf dem Hauptscreen
+    erreichbar (direkt zur Display-Unterseite, siehe Abschnitt 9.3).
+  - Auf dem Mesh-Screen ist die vertikale Swipe-up-Geste bereits für die
+    Node-Übersicht belegt (siehe Abschnitt 7.2) – vertikale Gesten sind sonst
+    auf keinem Ring-Screen außer dem Hauptscreen belegt.
+  - **Wichtig:** Diese Ring-/Achsen-Navigation gilt nur für den Wechsel
+    zwischen den vier Hauptscreens und Einstellungen selbst. Innerhalb von
+    Unterseiten (z. B. den Einstellungs-Kategorien, siehe Abschnitt 9.3, oder
+    der Node-Übersicht) gelten **eigene, lokale Swipe-Regeln** (Swipe/Button
+    zurück zur jeweils übergeordneten Seite) – diese lösen keine Ring-
+    Navigation aus und werden unabhängig davon behandelt.
+  - Die BHI-Sensor- und NFC-Screens sind **nicht** über Swipe erreichbar (nur
+    über Debug-Konsolen-Befehle) und haben dementsprechend aktuell auch
+    keine Swipe-zurück-Geste – der Rückweg läuft dort ausschließlich über das
+    Inaktivitäts-Timeout.
 
 ---
 
@@ -344,9 +380,11 @@ Speichern-Schritt**. Jede Option wirkt unmittelbar nach der Auswahl/Änderung.
 Navigation innerhalb der Unterseiten erfolgt per **Swipe-zurück-Geste**
 (z. B. Swipe von links nach rechts, analog zu gängigen Touch-UIs). Diese Geste
 ist eine **lokale Regel der Einstellungs-Unterseiten** und unabhängig von der
-Ring-Navigation zwischen den fünf Hauptscreens (siehe Abschnitt 4.3) – die
-Ring-Navigation greift nur, solange man sich auf einem der fünf Hauptscreens
-befindet, nicht innerhalb einer Kategorie-Unterseite.
+horizontalen Ring-Navigation zwischen den vier Hauptscreens sowie der
+vertikalen Hauptscreen↔Einstellungen-Achse (siehe Abschnitt 4.3) – beide
+greifen nur, solange man sich auf der Einstellungen-Kategorieliste selbst
+befindet, nicht innerhalb einer Kategorie-Unterseite. Die Kategorieliste
+selbst wird per Swipe-nach-oben wieder verlassen (zurück zum Hauptscreen).
 
 ---
 
@@ -393,8 +431,8 @@ und wenigstens die Kernfunktion (Uhrzeit) so lange wie möglich verfügbar zu ha
 - Der **Einstellungen-Screen bleibt im Ultra-Sparmodus erreichbar**: Einer der
   drei Wake-Trigger (Power-Taste, Boot-Taste, Doppel-Tap, siehe Abschnitt 1)
   weckt den ESP32-S3 aus dem Deep-Sleep und ermöglicht die normale
-  Swipe-Navigation zum Einstellungen-Screen, um den Modus dort manuell zu
-  verlassen.
+  Swipe-nach-unten-Geste vom Hauptscreen zum Einstellungen-Screen, um den
+  Modus dort manuell zu verlassen.
 - **Automatisches Verlassen beim Anschließen des USB-Ladekabels**: Sobald der
   ESP32-S3 einen USB-Anschluss erkennt, wird der Ultra-Sparmodus automatisch
   beendet – unabhängig vom aktuellen Akkustand.
@@ -436,8 +474,9 @@ und wenigstens die Kernfunktion (Uhrzeit) so lange wie möglich verfügbar zu ha
 - ~~Ultra-Sparmodus technisches Verhalten~~ → ESP32-S3 Deep-Sleep, minütliches
   Wake, rote Zeitanzeige ohne Sekunden, reduzierte Helligkeit, alle Peripherie
   aktiv abgeschaltet (s. Abschnitt 10.3)
-- ~~Gesten-Konflikt Haupt-Ring vs. Einstellungen~~ → Ring gilt nur zwischen den
-  fünf Hauptscreens, Unterseiten haben eigene lokale Swipe-Regeln
+- ~~Gesten-Konflikt Haupt-Ring vs. Einstellungen~~ → Einstellungen liegt
+  außerhalb des horizontalen Rings (eigene vertikale Achse ab dem
+  Hauptscreen), Unterseiten haben zusätzlich eigene lokale Swipe-Regeln
 - ~~Einstellungen im Ultra-Sparmodus erreichbar~~ → ja, per Wake-Trigger
 - ~~Display zwischen Wake-Zyklen~~ → zuletzt angezeigte Zeit bleibt stehen
 - ~~Trigger-Unterscheidung Ultra-Sparmodus~~ → Minuten-Wake ist rein intern
