@@ -425,10 +425,27 @@ void power_mgmt_shutdown(void)
     axp2101_soft_poweroff(twatch_pmu_dev);
 }
 
+/* Ultra-Sparmodus auto-entry/exit check period (docs/application.md
+ * section 10.2/10.4) - independent of PM_NIGHT_CHECK_MS's cadence, a
+ * battery-threshold/USB-plug transition deserves noticing sooner than
+ * night mode's clock check. */
+#define PM_SPARMODUS_CHECK_MS 30000
+/* Battery percent below which Ultra-Sparmodus auto-activates. */
+#define PM_SPARMODUS_BATT_PCT 10
+
 static void pm_wake_task(void *arg)
 {
     (void)arg;
     uint32_t since_night_check = 0;
+    uint32_t since_sparmodus_check = 0;
+    /* Tracks the VBUS level as of the last check, to detect a present ->
+     * absent edge (the "just unplugged" moment section 10.4 cares about,
+     * as opposed to "still unplugged from before"). Seeded from the real
+     * level on the first check below rather than assumed false, so a
+     * device that boots already unplugged doesn't read as a false
+     * unplug-edge on its very first tick. */
+    bool sparmodus_vbus_seeded = false;
+    bool sparmodus_last_vbus = false;
     for (;;) {
         /* Wake every 5 s: pump USB activity (so the adapter never hits its idle
          * timeout while plugged in -> no sleep attempt / no error spam), and
@@ -477,6 +494,48 @@ static void pm_wake_task(void *arg)
             if (since_night_check >= PM_NIGHT_CHECK_MS) {
                 since_night_check = 0;
                 pm_apply_night_mode(pm_is_night_time());
+            }
+            since_sparmodus_check += 5000;
+            if (!sparmodus_vbus_seeded ||
+                    since_sparmodus_check >= PM_SPARMODUS_CHECK_MS) {
+                since_sparmodus_check = 0;
+                bool vbus_now = false;
+                axp2101_is_vbus_present(twatch_pmu_dev, &vbus_now);
+                if (!sparmodus_vbus_seeded) {
+                    /* First tick: just record the level, no edge to react
+                     * to yet (nothing to compare against). */
+                    sparmodus_vbus_seeded = true;
+                } else if (vbus_now && s_sparmodus_active) {
+                    /* USB inserted while Sparmodus was active (either it
+                     * was auto/manually entered before this device woke,
+                     * or the user plugged in during an explicit-wake
+                     * session) - full exit, no special "restore" needed
+                     * (the next real sleep/wake cycle is just normal). */
+                    ESP_LOGI(TAG, "Ultra-Sparmodus: USB inserted, exiting");
+                    power_mgmt_set_sparmodus_active(false);
+                } else if (!vbus_now) {
+                    sensor_cache_t cache;
+                    sensor_cache_get(&cache);
+                    bool low_batt = cache.valid && cache.batt_pct < PM_SPARMODUS_BATT_PCT;
+                    if (sparmodus_last_vbus && low_batt) {
+                        /* Just unplugged, still low - re-enter immediately
+                         * (section 10.4's "sofort wieder aktiviert"),
+                         * rather than waiting for the next idle timeout. */
+                        ESP_LOGI(TAG, "Ultra-Sparmodus: USB removed, battery still low, re-entering");
+                        power_mgmt_set_sparmodus_active(true);
+                        power_mgmt_sparmodus_enter_sleep();   /* does not return */
+                    } else if (!s_sparmodus_active && low_batt) {
+                        /* Plain auto-entry (section 10.2): just set the
+                         * flag: power_mgmt_enter_sleep() picks it up on
+                         * the next idle timeout, same as a manual Settings
+                         * toggle, rather than cutting the display mid-
+                         * interaction. */
+                        ESP_LOGI(TAG, "Ultra-Sparmodus: battery below %u%%, auto-activating",
+                                 PM_SPARMODUS_BATT_PCT);
+                        power_mgmt_set_sparmodus_active(true);
+                    }
+                }
+                sparmodus_last_vbus = vbus_now;
             }
             continue;
         }
@@ -640,11 +699,22 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
 {
     (void)ctx;
 
+    bool vbus = false;
+    axp2101_is_vbus_present(twatch_pmu_dev, &vbus);
+
+    /* Ultra-Sparmodus takes over the idle-timeout moment entirely (deep
+     * sleep instead of the normal light-sleep cycle below) - unless VBUS
+     * is present, in which case being plugged in already means "not low-
+     * battery survival mode" even if the periodic exit check in
+     * pm_wake_task() hasn't run yet, so just fall through to the normal
+     * light-sleep path instead. Never returns when it does fire. */
+    if (s_sparmodus_active && !vbus) {
+        power_mgmt_sparmodus_enter_sleep();
+    }
+
     /* Skip auto-sleep while on USB power (charging / development) unless the
      * user disabled the "do not sleep on USB" setting. */
-    bool vbus = false;
-    if (s_skip_sleep_on_usb &&
-            axp2101_is_vbus_present(twatch_pmu_dev, &vbus) == ESP_OK && vbus) {
+    if (s_skip_sleep_on_usb && vbus) {
         ESP_LOGD(TAG, "on USB power, skipping auto sleep");
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -750,8 +820,24 @@ void power_mgmt_load_config(void)
 void power_mgmt_init(void)
 {
     power_mgmt_load_config();
+    /* This boot is proceeding normally past app_main()'s early fork (see
+     * power_mgmt_sparmodus_should_resleep_silently()) - whether that's a
+     * cold boot or an explicit Sparmodus wake, the RTC flag's only job was
+     * telling that fork apart from a silent timer wake, and it's now
+     * spent either way (power_mgmt_sparmodus_enter_sleep() sets it again
+     * if/when this boot goes back to deep sleep). */
+    s_rtc_sparmodus_active = false;
     /* Apply the persisted night-mode setting on boot. */
     pm_apply_night_mode(pm_is_night_time());
+    /* Ultra-Sparmodus's reduced brightness (docs/application.md section
+     * 10.3) - kept independent of night mode (which also disables touch
+     * input; Sparmodus must NOT do that, since the user needs touch/swipe
+     * to reach Settings and turn it off during an explicit wake). Reuses
+     * the existing dim level rather than introducing a second one the
+     * spec doesn't actually distinguish. */
+    if (s_sparmodus_active) {
+        co5300_set_brightness(PM_NIGHT_BRIGHTNESS);
+    }
     /* DFS + automatic light sleep (tickless). */
     esp_pm_config_t pm = {
         .max_freq_mhz = 240,

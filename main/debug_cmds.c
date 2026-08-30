@@ -219,8 +219,16 @@ void debug_cmd_sparmodus(const char *args)
         printf("sparmodus: entering deep sleep now\n");
         fflush(stdout);
         power_mgmt_sparmodus_enter_sleep();   /* does not return */
+    } else if (strcmp(args, "set on") == 0 || strcmp(args, "set off") == 0) {
+        /* Sets the persisted flag only - no sleep. Lets the watch-face
+         * red/minimal rendering (gated on power_mgmt_get_sparmodus_active())
+         * be exercised live without waiting for an idle timeout or a real
+         * low-battery/USB condition. */
+        bool on = strcmp(args, "set on") == 0;
+        power_mgmt_set_sparmodus_active(on);
+        printf("sparmodus: persisted flag set to %d\n", on ? 1 : 0);
     } else {
-        printf("sparmodus: usage: sparmodus on (persisted flag=%d)\n",
+        printf("sparmodus: usage: sparmodus on | sparmodus set on|off (persisted flag=%d)\n",
                power_mgmt_get_sparmodus_active() ? 1 : 0);
     }
 }

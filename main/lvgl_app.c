@@ -452,6 +452,26 @@ static void update_status_bar(const status_bar_t *bar)
     }
 }
 
+/* Shows/hides every icon in one status bar instance at once - used to drop
+ * the whole row for Ultra-Sparmodus's minimal watch face (docs/application.md
+ * section 10.3: "Statusleiste entfaellt vollstaendig"). Safe to call before
+ * the screen is built (same NULL guard as update_status_bar()). */
+static void status_bar_set_hidden(const status_bar_t *bar, bool hidden)
+{
+    if (!bar->sd) {
+        return;
+    }
+    lv_obj_t *icons[] = { bar->sd, bar->gps, bar->gpx, bar->lora,
+                           bar->bt, bar->wifi, bar->batt, bar->chg };
+    for (size_t i = 0; i < sizeof(icons) / sizeof(icons[0]); i++) {
+        if (hidden) {
+            lv_obj_add_flag(icons[i], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_clear_flag(icons[i], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
 /* Red-only night-mode transform. LVGL renders RGB565_SWAPPED (big-endian on
  * the panel): each pixel is 2 bytes, byte0 = MSB = RRRRR GGG, byte1 = GGG BBBBB.
  * Keeping only the red channel zeroes green/blue. Applied in-place; the blit is
@@ -462,7 +482,11 @@ static esp_err_t night_mode_draw_bitmap(lv_display_t *disp, esp_lcd_panel_handle
 {
     (void)disp;
     (void)user_ctx;
-    if (power_mgmt_is_night_mode()) {
+    /* Ultra-Sparmodus's explicit-wake display (docs/application.md section
+     * 10.3) reuses this same red-only transform as night mode - both want
+     * "red instead of white", just for different reasons and without
+     * night mode's other side effects (touch stays enabled). */
+    if (power_mgmt_is_night_mode() || power_mgmt_get_sparmodus_active()) {
         uint8_t *buf = (uint8_t *)color_map;
         size_t n = (size_t)(x_end - x_start) * (y_end - y_start);
         for (size_t i = 0; i < n; i++) {
@@ -558,6 +582,38 @@ static void watch_face_update(lv_timer_t *timer)
         strftime(tz, sizeof(tz), "%Z", &lt);
         lv_label_set_text(s_tz_label, tz);
     }
+
+    bool sparmodus = power_mgmt_get_sparmodus_active();
+
+    /* Ultra-Sparmodus (docs/application.md section 10.3): only the time,
+     * no seconds, everything else hidden - the red/dim rendering itself is
+     * applied at blit time by night_mode_draw_bitmap(), not here. Widgets
+     * are hidden/shown every tick (not just on the edge that toggles
+     * Sparmodus) so leaving the mode self-corrects on the next tick with
+     * no separate restore path. */
+    lv_obj_t *bar_container = lv_obj_get_parent(s_batt_fill);
+    if (sparmodus) {
+        snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
+        lv_label_set_text(s_time_label, buf);
+        if (s_tz_label) { lv_obj_add_flag(s_tz_label, LV_OBJ_FLAG_HIDDEN); }
+        if (s_sec_label) { lv_obj_add_flag(s_sec_label, LV_OBJ_FLAG_HIDDEN); }
+        if (s_date_label) { lv_obj_add_flag(s_date_label, LV_OBJ_FLAG_HIDDEN); }
+        if (s_batt_label) { lv_obj_add_flag(s_batt_label, LV_OBJ_FLAG_HIDDEN); }
+        if (bar_container) { lv_obj_add_flag(bar_container, LV_OBJ_FLAG_HIDDEN); }
+        if (s_steps_label) { lv_obj_add_flag(s_steps_label, LV_OBJ_FLAG_HIDDEN); }
+        if (s_gps_icon) { lv_obj_add_flag(s_gps_icon, LV_OBJ_FLAG_HIDDEN); }
+        if (s_track_dot) { lv_obj_add_flag(s_track_dot, LV_OBJ_FLAG_HIDDEN); }
+        if (s_snooze_icon) { lv_obj_add_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN); }
+        status_bar_set_hidden(&s_status_bar[0], true);
+        return;
+    }
+
+    if (s_tz_label) { lv_obj_clear_flag(s_tz_label, LV_OBJ_FLAG_HIDDEN); }
+    if (s_sec_label) { lv_obj_clear_flag(s_sec_label, LV_OBJ_FLAG_HIDDEN); }
+    if (s_date_label) { lv_obj_clear_flag(s_date_label, LV_OBJ_FLAG_HIDDEN); }
+    if (s_batt_label) { lv_obj_clear_flag(s_batt_label, LV_OBJ_FLAG_HIDDEN); }
+    if (bar_container) { lv_obj_clear_flag(bar_container, LV_OBJ_FLAG_HIDDEN); }
+    status_bar_set_hidden(&s_status_bar[0], false);
 
     snprintf(buf, sizeof(buf), "%02d:%02d:%02d", lt.tm_hour, lt.tm_min, lt.tm_sec);
     lv_label_set_text(s_time_label, buf);
