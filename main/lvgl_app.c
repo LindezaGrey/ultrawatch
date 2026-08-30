@@ -2525,9 +2525,15 @@ static void lvgl_build_nfc_screen(void)
     s_nfc_screen = screen_new();
     lv_obj_set_style_bg_color(s_nfc_screen, lv_color_hex(0x201030), 0);
 
+    /* High-DPI sizing (AGENT.md "Display density & UI sizing"): title and
+     * the Start button promote to cascadia_36 (both short, fixed text
+     * with room to spare). Status/UID text stay at their current sizes -
+     * status can be a variable-length error string and the UID label
+     * uses WRAP mode with unpredictable line count, both risk pushing
+     * into the button below at a bigger font. */
     lv_obj_t *title = lv_label_create(s_nfc_screen);
     lv_label_set_text(title, "NFC");
-    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
 
@@ -2551,7 +2557,7 @@ static void lvgl_build_nfc_screen(void)
     lv_obj_add_event_cb(s_nfc_start_btn, nfc_start_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *btn_lbl = lv_label_create(s_nfc_start_btn);
     lv_label_set_text(btn_lbl, "Start");
-    lv_obj_set_style_text_font(btn_lbl, s_font_small, 0);
+    lv_obj_set_style_text_font(btn_lbl, s_font_sec, 0);
     lv_obj_center(btn_lbl);
 
     lv_obj_t *hint = lv_label_create(s_nfc_screen);
@@ -3357,11 +3363,16 @@ static void lvgl_build_ring_screen(void)
     s_ring_screen = screen_new();
     lv_obj_set_style_bg_color(s_ring_screen, lv_color_hex(0x300000), 0);
 
+    /* High-DPI sizing (AGENT.md "Display density & UI sizing"): title
+     * promotes to cascadia_36 (nudged up 4px to keep clear of the giant
+     * cascadia_72 time below it); the Dismiss/Snooze button labels
+     * promote too - these buttons are already huge (330x112) with room
+     * to spare for the bigger glyphs. */
     s_ring_title_label = lv_label_create(s_ring_screen);
     lv_label_set_text(s_ring_title_label, "ALARM");
-    lv_obj_set_style_text_font(s_ring_title_label, s_font_small, 0);
+    lv_obj_set_style_text_font(s_ring_title_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_ring_title_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(s_ring_title_label, LV_ALIGN_TOP_MID, 0, 18);
+    lv_obj_align(s_ring_title_label, LV_ALIGN_TOP_MID, 0, 14);
 
     s_ring_time_label = lv_label_create(s_ring_screen);
     lv_obj_set_style_text_font(s_ring_time_label, s_font_time, 0);
@@ -3373,7 +3384,7 @@ static void lvgl_build_ring_screen(void)
     lv_obj_align(dismiss, LV_ALIGN_TOP_MID, 0, 220);
     lv_obj_t *dl = lv_label_create(dismiss);
     lv_label_set_text(dl, "Dismiss");
-    lv_obj_set_style_text_font(dl, s_font_small, 0);
+    lv_obj_set_style_text_font(dl, s_font_sec, 0);
     lv_obj_center(dl);
     /* Fire on touch-down so the first tap acts immediately, regardless of
      * click state or timing. Kept as a touch fallback alongside the
@@ -3387,7 +3398,7 @@ static void lvgl_build_ring_screen(void)
     lv_obj_align(s_ring_snooze_btn, LV_ALIGN_TOP_MID, 0, 340);
     lv_obj_t *sl = lv_label_create(s_ring_snooze_btn);
     lv_label_set_text(sl, "Snooze 10 min");
-    lv_obj_set_style_text_font(sl, s_font_small, 0);
+    lv_obj_set_style_text_font(sl, s_font_sec, 0);
     lv_obj_center(sl);
     lv_obj_add_event_cb(s_ring_snooze_btn, alarm_snooze_btn_cb, LV_EVENT_PRESSED, NULL);
 }
@@ -3409,7 +3420,11 @@ static void alarm_ring_cb(bool ringing, alarm_ring_source_t source)
             }
             if (source == ALARM_RING_SOURCE_TIMER) {
                 lv_label_set_text(s_ring_title_label, "TIMER");
-                lv_label_set_text(s_ring_time_label, "Time's up");
+                /* "Time's up" overflows cascadia_72's width at this font
+                 * size (confirmed via the sim's screenshot capture - a
+                 * pre-existing bug, not something the high-DPI pass
+                 * introduced); "Done" fits comfortably. */
+                lv_label_set_text(s_ring_time_label, "Done");
                 lv_obj_add_flag(s_ring_snooze_btn, LV_OBJ_FLAG_HIDDEN);
             } else {
                 lv_label_set_text(s_ring_title_label, "ALARM");
