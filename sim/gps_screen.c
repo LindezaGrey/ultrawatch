@@ -49,6 +49,7 @@
 
 static const lv_font_t *s_font_small = &cascadia_22;
 static const lv_font_t *s_font_micro = &cascadia_18;
+static const lv_font_t *s_font_sec   = &cascadia_36;
 
 /* Not static: declared extern in screens.h. */
 lv_obj_t *s_gps_screen;
@@ -296,18 +297,20 @@ static void lvgl_build_gps_screen(void)
 
     lv_obj_t *title = lv_label_create(s_gps_screen);
     lv_label_set_text(title, "GPS");
-    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
 
-    /* GNSS on/off switch. */
+    /* GNSS on/off switch. Explicit larger size (matches Settings, AGENT.md
+     * "Display density & UI sizing"). */
     lv_obj_t *pwr_lbl = lv_label_create(s_gps_screen);
     lv_label_set_text(pwr_lbl, "GNSS");
     lv_obj_set_style_text_font(pwr_lbl, s_font_small, 0);
     lv_obj_set_style_text_color(pwr_lbl, lv_color_hex(0xE0E0E0), 0);
     lv_obj_align(pwr_lbl, LV_ALIGN_TOP_LEFT, 90, 22);
     s_gps_pwr_switch = lv_switch_create(s_gps_screen);
-    lv_obj_align(s_gps_pwr_switch, LV_ALIGN_TOP_RIGHT, -90, 22);
+    lv_obj_set_size(s_gps_pwr_switch, 66, 36);
+    lv_obj_align(s_gps_pwr_switch, LV_ALIGN_TOP_RIGHT, -90, 14);
     lv_obj_add_event_cb(s_gps_pwr_switch, gps_pwr_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     /* Skyplot: horizon ring + elevation rings. */
