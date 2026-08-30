@@ -185,6 +185,11 @@ esp_err_t esp_lv_adapter_report_activity(void)
     return ESP_OK;
 }
 
+const char *uwatch_firmware_version(void)
+{
+    return "sim";
+}
+
 m10q_state_t m10q_get_state(void)
 {
     if (!s_gnss_enabled) {

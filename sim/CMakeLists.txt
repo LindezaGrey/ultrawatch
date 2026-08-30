@@ -20,13 +20,13 @@ add_executable(uwatch_sim
     bhi_screen.c
     alarm_screen.c
     ring_screen.c
-    settings_screen.c
     screenshot.c
     mock_hw.c
     ../main/screens/watch_face.c
     ../main/screens/status_bar.c
     ../main/screens/gps_screen.c
     ../main/screens/mesh_screen.c
+    ../main/screens/settings_screen.c
     ../main/cascadia_72.c
     ../main/cascadia_36.c
     ../main/cascadia_22.c

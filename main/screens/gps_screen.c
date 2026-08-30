@@ -17,7 +17,6 @@
  * same on/off state).
  */
 #include "screens.h"
-#include "status_bar.h"
 #include <stdio.h>
 #include <math.h>
 #include "cascadia_fonts.h"
@@ -45,7 +44,6 @@ static lv_obj_t *s_gps_dots[M10Q_MAX_SATS];   /* satellite dots (in view order) 
 static lv_obj_t *s_gps_track_label;            /* tracking stats (distance/steps/avg) */
 static lv_obj_t *s_gps_track_btn;              /* Start/Stop tracking button */
 static lv_obj_t *s_gps_pwr_switch;             /* GNSS on/off switch */
-static status_bar_t s_status_bar;
 
 /* Owns the "is GNSS powered" flag and its power-on timestamp - see the
  * file header comment for why this needs a getter/setter instead of a
@@ -257,8 +255,6 @@ void gps_screen_update(lv_timer_t *timer)
         lv_obj_set_style_bg_color(s_gps_track_btn,
                                   active ? lv_color_hex(0x8B0000) : lv_color_hex(0x1B5E20), 0);
     }
-
-    update_status_bar(&s_status_bar);
 }
 
 /* GNSS on/off switch on the GPS screen. Persists the choice so the next boot
@@ -299,8 +295,6 @@ void lvgl_build_gps_screen(void)
 {
     s_gps_screen = screen_new();
     lv_obj_set_style_bg_color(s_gps_screen, lv_color_hex(0x102010), 0);
-
-    build_status_bar(s_gps_screen, &s_status_bar);
 
     lv_obj_t *title = lv_label_create(s_gps_screen);
     lv_label_set_text(title, "GPS");

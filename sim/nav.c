@@ -41,7 +41,7 @@
 
 static lv_point_t s_swipe_start;
 static bool s_swipe_active;
-static uint32_t s_last_touch_tick;   /* lv_tick_get() at last touch */
+uint32_t s_last_touch_tick;   /* lv_tick_get() at last touch - extern via screens/screens.h */
 
 void sim_show_watch_face(void)
 {
@@ -78,6 +78,57 @@ void sim_mesh_screen_build(void)
 void sim_node_screen_build(void)
 {
     lvgl_show_node_overview();
+}
+
+/* Settings category list + its 6 sub-pages: now shared
+ * (main/screens/settings_screen.c). Only the category list needs its own
+ * build-or-reuse+load wrapper here - lvgl_show_settings_disp() (Display)
+ * already IS one (shared, called directly by watch_face_long_press_cb()
+ * below); the other 4 sub-pages have no swipe/tap entry point in the sim
+ * at all (matches the firmware - only reachable via the category list),
+ * so these wrappers exist purely for main.c's UWATCH_SIM_SCREEN dev
+ * shortcut/screenshot use. */
+void sim_settings_screen_build(void)
+{
+    if (!s_settings_screen) {
+        lvgl_build_settings_screen();
+    }
+    lv_scr_load(s_settings_screen);
+}
+
+void sim_settings_disp_screen_build(void)
+{
+    lvgl_show_settings_disp();
+}
+
+void sim_settings_tz_screen_build(void)
+{
+    sim_settings_screen_build();
+    settings_open_subpage(0);
+}
+
+void sim_settings_periph_screen_build(void)
+{
+    sim_settings_screen_build();
+    settings_open_subpage(2);
+}
+
+void sim_settings_sound_screen_build(void)
+{
+    sim_settings_screen_build();
+    settings_open_subpage(3);
+}
+
+void sim_settings_info_screen_build(void)
+{
+    sim_settings_screen_build();
+    settings_open_subpage(4);
+}
+
+void sim_settings_sparmodus_screen_build(void)
+{
+    sim_settings_screen_build();
+    settings_open_subpage(5);
 }
 
 static void swipe_event_cb(lv_event_t *e)

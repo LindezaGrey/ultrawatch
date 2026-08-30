@@ -11,6 +11,12 @@ extern "C" {
 
 esp_err_t lvgl_app_start(void);
 
+/* Firmware version string (esp_app_get_description()->version - ESP-IDF,
+ * unavailable on the host) - lets main/screens/settings_screen.c's Info
+ * page call one portable name; the sim mocks this to a fixed "sim"
+ * string instead. */
+const char *uwatch_firmware_version(void);
+
 /* Invalidate the active LVGL screen so it repaints fully (used after wake,
  * when the panel GRAM was blanked during sleep). Safe to call from any task. */
 void lvgl_force_redraw(void);

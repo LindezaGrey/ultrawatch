@@ -61,6 +61,38 @@ void lvgl_build_mesh_screen(void);
 void mesh_screen_update(lv_timer_t *timer);
 void lvgl_show_node_overview(void);
 
+/* Settings category list + its 6 sub-pages (main/screens/settings_screen.c).
+ * All 7 screen handles are extern: main/lvgl_app.c's menu_timeout_cb()
+ * (nav-ring inactivity timeout) and nav-ring array both check/reference
+ * them directly, same as every other screen. */
+extern lv_obj_t *s_settings_screen;
+extern lv_obj_t *s_set_tz_screen;
+extern lv_obj_t *s_set_disp_screen;
+extern lv_obj_t *s_set_periph_screen;
+extern lv_obj_t *s_set_sound_screen;
+extern lv_obj_t *s_set_info_screen;
+extern lv_obj_t *s_set_sparmodus_screen;
+
+void lvgl_build_settings_screen(void);
+/* Reachable both from the Settings category list and via tap-and-hold on
+ * the watch face (docs/application.md section 9.3) - main/lvgl_app.c's
+ * watch_face_long_press_cb() calls this directly. */
+void lvgl_show_settings_disp(void);
+/* Category row -> sub-page dispatch (0=TZ, 1=Display, 2=Peripherie,
+ * 3=Sound, 4=Info, 5=Ultra-Sparmodus). Not just the row-click handler's
+ * internals: sim/nav.c's UWATCH_SIM_SCREEN dev shortcut calls this
+ * directly too, since none of these sub-pages (besides Display) have any
+ * other entry point. */
+void settings_open_subpage(int idx);
+
+/* lv_tick_get() at the last touch - nav-ring inactivity timeout state
+ * (main/lvgl_app.c's menu_timeout_cb() / sim/nav.c's equivalent). Extern
+ * since main/screens/settings_screen.c's lvgl_show_settings_disp() (the
+ * watch-face tap-and-hold shortcut) resets it directly, same as every
+ * swipe does, so landing there via long-press doesn't immediately look
+ * idle to the timeout check. */
+extern uint32_t s_last_touch_tick;
+
 #ifdef __cplusplus
 }
 #endif

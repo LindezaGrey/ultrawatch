@@ -12,7 +12,6 @@
  * here.
  */
 #include "screens.h"
-#include "status_bar.h"
 #include <stdio.h>
 #include <time.h>
 #include "cascadia_fonts.h"
@@ -32,7 +31,6 @@ static lv_obj_t *s_mesh_conn_label;    /* channel + node count */
 static lv_obj_t *s_mesh_list_cont;     /* scrollable row container */
 static lv_obj_t *s_mesh_row_label[MESH_LOG_COUNT];
 static lv_obj_t *s_mesh_preset_label[MESH_PRESET_COUNT];
-static status_bar_t s_status_bar;
 
 static lv_obj_t *s_node_empty_label;
 static lv_obj_t *s_node_row_label[MESH_NODE_TABLE_MAX];
@@ -128,8 +126,6 @@ void mesh_screen_update(lv_timer_t *timer)
             lv_label_set_text(s_mesh_preset_label[i], buf);
         }
     }
-
-    update_status_bar(&s_status_bar);
 }
 
 /* Preset buttons are visually complete per docs/application.md 7.2 point 5
@@ -153,8 +149,6 @@ void lvgl_build_mesh_screen(void)
 {
     s_mesh_screen = screen_new();
     lv_obj_set_style_bg_color(s_mesh_screen, lv_color_hex(0x201810), 0);
-
-    build_status_bar(s_mesh_screen, &s_status_bar);
 
     /* High-DPI sizing (AGENT.md "Display density & UI sizing"): title
      * promotes to cascadia_36 and conn_label to cascadia_22, same as

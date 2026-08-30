@@ -333,6 +333,11 @@ void lvgl_gps_set_enabled(bool on);
  * here, the sim has no auto-sleep to defer. */
 esp_err_t esp_lv_adapter_report_activity(void);
 
+/* Real uwatch_firmware_version() wraps esp_app_get_description()->version
+ * (ESP-IDF, unavailable on the host) - mocked to a fixed string here for
+ * the Settings Info page. */
+const char *uwatch_firmware_version(void);
+
 #ifdef __cplusplus
 }
 #endif

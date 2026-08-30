@@ -1,89 +1,75 @@
 /*
- * settings_screen.c - the Settings category list + its 5 sub-pages (Zeit &
- * Zeitzone, Display, Peripherie, Ton & Vibration, Info) from
- * main/lvgl_app.c (Phase 5, high-DPI sizing pass), copied verbatim and run
- * against mock_hw.c instead of the real drivers/NVS.
+ * settings_screen.c - Settings category list (docs/application.md section
+ * 9) + its 6 local sub-pages: Zeit & Zeitzone, Display, Peripherie, Ton &
+ * Vibration, Info, Ultra-Sparmodus. Shared between the firmware and the
+ * host sim - see watch_face.c's header comment for the mechanism.
  *
- * Deviations from the firmware original (all mechanical, not logic
- * changes):
- *   - screen_new() copied in here too, same as every non-watch-face screen.
- *   - No status bar: the sim never ported build_status_bar()/
- *     update_status_bar() to begin with (see mesh_screen.c/gps_screen.c -
- *     neither has one either), so the Settings category list simply omits
- *     it rather than half-porting a piece no other sim screen has.
- *   - lvgl_gps_set_enabled()/ble_debug_is_advertising()/
- *     ble_debug_set_advertising()/sd_log_get_space() are all mocked in
- *     mock_hw.c instead of driving real hardware/NVS.
- *   - esp_app_get_description()->version (ESP-IDF, unavailable on the host)
- *     is replaced with a fixed "sim" string for the Info page.
- *
- * Keep this in sync with main/lvgl_app.c by hand: there's no build-time
- * link between the two.
+ * "Presets verwalten" is deferred (see Phase 5 plan) - LoRa preset text is
+ * still editable, just via the `presetset` debug command instead of a
+ * Settings category (this project deliberately has no on-watch text
+ * keyboard). Everything here applies immediately except the display
+ * timeout, which is flagged as taking effect after a restart.
  */
+#include "screens.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <time.h>
-#include "lvgl.h"
 #include "cascadia_fonts.h"
-#include "mock_hw.h"
-#include "screens.h"
+#include "power_mgmt.h"
+#include "lvgl_app.h"
+#include "m10q.h"
+#include "ble_debug.h"
+#include "alarm.h"
+#include "mesh_log.h"
+#include "sensor_cache.h"
+#include "sd_log.h"
 
 static const lv_font_t *s_font_small = &cascadia_22;  /* body text */
 static const lv_font_t *s_font_sec   = &cascadia_36;  /* titles/prominent labels - high-DPI sizing */
 
-/* Not static: declared extern in screens.h. */
-lv_obj_t *s_settings_screen;
+lv_obj_t *s_settings_screen;            /* category list */
 
-static lv_obj_t *s_set_tz_screen;
+lv_obj_t *s_set_tz_screen;
 static lv_obj_t *s_set_tz_abbrev_label;
 static lv_obj_t *s_set_tz_offset_label;
 
-static lv_obj_t *s_set_disp_screen;
+lv_obj_t *s_set_disp_screen;
 static lv_obj_t *s_set_disp_timeout_label;
 static lv_obj_t *s_set_disp_bright_label;
 
-static lv_obj_t *s_set_periph_screen;
+lv_obj_t *s_set_periph_screen;
 static lv_obj_t *s_set_periph_gps_switch;
 static lv_obj_t *s_set_periph_bt_switch;
 
-static lv_obj_t *s_set_sound_screen;
+lv_obj_t *s_set_sound_screen;
 static lv_obj_t *s_set_sound_alarm_switch;
 static lv_obj_t *s_set_sound_notify_switch;
 
-static lv_obj_t *s_set_info_screen;
+lv_obj_t *s_set_info_screen;
 static lv_obj_t *s_set_info_batt_label;
 static lv_obj_t *s_set_info_sd_label;
 
-static lv_obj_t *s_set_sparmodus_screen;
+lv_obj_t *s_set_sparmodus_screen;
 static lv_obj_t *s_set_sparmodus_switch;
 
-static void lvgl_build_settings_tz_screen(void);
 static void settings_tz_refresh(void);
-static void lvgl_build_settings_disp_screen(void);
+static void lvgl_build_settings_tz_screen(void);
 static void settings_disp_refresh(void);
-static void lvgl_build_settings_periph_screen(void);
+static void lvgl_build_settings_disp_screen(void);
 static void settings_periph_refresh(lv_timer_t *timer);
-static void lvgl_build_settings_sound_screen(void);
+static void lvgl_build_settings_periph_screen(void);
 static void settings_sound_refresh(void);
-static void lvgl_build_settings_info_screen(void);
+static void lvgl_build_settings_sound_screen(void);
 static void settings_info_refresh(lv_timer_t *timer);
-static void lvgl_build_settings_sparmodus_screen(void);
+static void lvgl_build_settings_info_screen(void);
 static void settings_sparmodus_refresh(void);
-
-static lv_obj_t *screen_new(void)
-{
-    lv_obj_t *scr = lv_obj_create(NULL);
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
-    return scr;
-}
+static void lvgl_build_settings_sparmodus_screen(void);
+static void settings_back_cb(lv_event_t *e);
 
 /* Local swipe-down-to-go-back gesture, shared by every Settings sub-page -
- * distance-threshold only, registered per-sub-page-root with the
- * sub-page's own back callback as user data. */
-#define SWIPE_DIST 60
-
+ * a top-to-bottom swipe anywhere on the sub-page returns to the category
+ * list, same as tapping the "< Back" button (user_data is that button's
+ * own click callback, invoked directly so both paths share one body). */
 static void settings_sub_swipe_cb(lv_event_t *e)
 {
     lv_indev_t *indev = lv_indev_active();
@@ -104,22 +90,21 @@ static void settings_sub_swipe_cb(lv_event_t *e)
     active = false;
     int dx = p.x - start.x;
     int dy = p.y - start.y;
-    if (dy < SWIPE_DIST || abs(dy) <= abs(dx)) {
-        return;
+    if (dy < 60 || abs(dy) <= abs(dx)) {
+        return;   /* only a top-to-bottom swipe counts as "back" */
     }
     void (*back_cb)(lv_event_t *) = (void (*)(lv_event_t *))lv_event_get_user_data(e);
     back_cb(e);
 }
 
-static void settings_back_cb(lv_event_t *e)
+/* Category row -> sub-page dispatch, shared by all 6 rows. Each sub-page
+ * is lazily built on first visit, same pattern as every other local
+ * sub-screen in this file. Not static: sim/nav.c's UWATCH_SIM_SCREEN dev
+ * shortcut calls this directly to reach a sub-page headlessly (none of
+ * them have any other entry point besides this row-click dispatch and,
+ * for Display only, the watch-face tap-and-hold shortcut). */
+void settings_open_subpage(int idx)
 {
-    (void)e;
-    lv_scr_load(s_settings_screen);
-}
-
-static void settings_row_click_cb(lv_event_t *e)
-{
-    int idx = (int)(intptr_t)lv_event_get_user_data(e);
     switch (idx) {
     case 0:
         if (!s_set_tz_screen) { lvgl_build_settings_tz_screen(); }
@@ -127,9 +112,7 @@ static void settings_row_click_cb(lv_event_t *e)
         settings_tz_refresh();
         break;
     case 1:
-        if (!s_set_disp_screen) { lvgl_build_settings_disp_screen(); }
-        lv_scr_load(s_set_disp_screen);
-        settings_disp_refresh();
+        lvgl_show_settings_disp();
         break;
     case 2:
         if (!s_set_periph_screen) { lvgl_build_settings_periph_screen(); }
@@ -156,17 +139,37 @@ static void settings_row_click_cb(lv_event_t *e)
     }
 }
 
-static void lvgl_build_settings_screen(void)
+static void settings_row_click_cb(lv_event_t *e)
+{
+    settings_open_subpage((int)(intptr_t)lv_event_get_user_data(e));
+}
+
+static void settings_back_cb(lv_event_t *e)
+{
+    (void)e;
+    lv_scr_load(s_settings_screen);
+}
+
+void lvgl_build_settings_screen(void)
 {
     s_settings_screen = screen_new();
     lv_obj_set_style_bg_color(s_settings_screen, lv_color_hex(0x000000), 0);
 
+    /* High-DPI sizing (see AGENT.md "Display density & UI sizing"): title
+     * and row labels use cascadia_36 (s_font_sec) instead of the old
+     * cascadia_22 - at ~315 PPI, 22px body text reads under 2mm tall, too
+     * small for comfortable reading/tapping. Rows are 64px tall (matches
+     * the alarm-edit screen's stepper-button precedent for a
+     * fingertip-sized touch target) and the list uses most of the safe
+     * width instead of leaving margin on both sides. */
     lv_obj_t *title = lv_label_create(s_settings_screen);
     lv_label_set_text(title, "SETTINGS");
     lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 16);
 
+    /* 6th category (Ultra-Sparmodus, Phase 6) added back - rows shrink
+     * 64->56px / pad 10->8px to fit all 6 above the bottom safe margin. */
     static const char *cat_names[6] = {
         "Zeit & Zeitzone", "Display", "Peripherie", "Ton & Vibration", "Info",
         "Ultra-Sparmodus",
@@ -199,15 +202,8 @@ static void lvgl_build_settings_screen(void)
     }
 }
 
-void sim_settings_screen_build(void)
-{
-    if (!s_settings_screen) {
-        lvgl_build_settings_screen();
-    }
-    lv_scr_load(s_settings_screen);
-}
-
-/* ---- Zeit & Zeitzone ---- */
+/* ---- Zeit & Zeitzone (info-only: no TZ auto-detect infra exists, see
+ * Phase 5 plan) ---- */
 
 static void settings_tz_refresh(void)
 {
@@ -223,6 +219,10 @@ static void settings_tz_refresh(void)
     snprintf(buf, sizeof(buf), "Zone: %s", abbrev);
     lv_label_set_text(s_set_tz_abbrev_label, buf);
 
+    /* struct tm on this toolchain has no tm_gmtoff (picolibc) and there's
+     * no timegm() either - derive the UTC offset from the local vs. UTC
+     * wall-clock fields directly instead, day-wrap handled via tm_yday
+     * (works for any offset in -24h..+24h, which covers every real zone). */
     struct tm utcv;
     gmtime_r(&now, &utcv);
     long local_secs = tmv.tm_hour * 3600L + tmv.tm_min * 60L + tmv.tm_sec;
@@ -256,6 +256,9 @@ static void lvgl_build_settings_tz_screen(void)
     lv_obj_center(bl);
     lv_obj_add_event_cb(back, settings_back_cb, LV_EVENT_CLICKED, NULL);
 
+    /* Title sits below the back button (not centered at the very top like
+     * the category list) so a wide title never overlaps it - see AGENT.md
+     * "Display density & UI sizing". */
     lv_obj_t *title = lv_label_create(s_set_tz_screen);
     lv_label_set_text(title, "TIME & TIMEZONE");
     lv_obj_set_style_text_font(title, s_font_sec, 0);
@@ -275,7 +278,8 @@ static void lvgl_build_settings_tz_screen(void)
     settings_tz_refresh();
 }
 
-/* ---- Display ---- */
+/* ---- Display: timeout (persists, takes effect after restart) + brightness
+ * (applies immediately) ---- */
 
 static const uint32_t s_disp_timeout_opts[] = { 5, 10, 15, 20, 30, 60 };
 #define DISP_TIMEOUT_OPT_COUNT (sizeof(s_disp_timeout_opts) / sizeof(s_disp_timeout_opts[0]))
@@ -394,68 +398,18 @@ static void lvgl_build_settings_disp_screen(void)
     settings_disp_refresh();
 }
 
-/* Reachable both from the Settings category list and via tap-and-hold on
- * the watch face. */
-void sim_settings_disp_screen_build(void)
+void lvgl_show_settings_disp(void)
 {
     if (!s_set_disp_screen) {
         lvgl_build_settings_disp_screen();
     }
     lv_scr_load(s_set_disp_screen);
     settings_disp_refresh();
+    s_last_touch_tick = lv_tick_get();
 }
 
-/* Direct entry points for the remaining 4 sub-pages, exposed for
- * screenshot/dev-shortcut use (see main.c's UWATCH_SIM_SCREEN env var) -
- * none of these are reachable via swipe in the sim (nav.c still mirrors
- * the pre-nav-ring tree, see this file's header comment), so a click chain
- * through the category list isn't a robust way to reach them headlessly. */
-void sim_settings_tz_screen_build(void)
-{
-    if (!s_set_tz_screen) {
-        lvgl_build_settings_tz_screen();
-    }
-    lv_scr_load(s_set_tz_screen);
-    settings_tz_refresh();
-}
-
-void sim_settings_periph_screen_build(void)
-{
-    if (!s_set_periph_screen) {
-        lvgl_build_settings_periph_screen();
-    }
-    lv_scr_load(s_set_periph_screen);
-    settings_periph_refresh(NULL);
-}
-
-void sim_settings_sound_screen_build(void)
-{
-    if (!s_set_sound_screen) {
-        lvgl_build_settings_sound_screen();
-    }
-    lv_scr_load(s_set_sound_screen);
-    settings_sound_refresh();
-}
-
-void sim_settings_info_screen_build(void)
-{
-    if (!s_set_info_screen) {
-        lvgl_build_settings_info_screen();
-    }
-    lv_scr_load(s_set_info_screen);
-    settings_info_refresh(NULL);
-}
-
-void sim_settings_sparmodus_screen_build(void)
-{
-    if (!s_set_sparmodus_screen) {
-        lvgl_build_settings_sparmodus_screen();
-    }
-    lv_scr_load(s_set_sparmodus_screen);
-    settings_sparmodus_refresh();
-}
-
-/* ---- Peripherie ---- */
+/* ---- Peripherie: GPS/Bluetooth real toggles, LoRa/WiFi shown disabled
+ * (no toggle capability exists for either yet, see Phase 5 plan) ---- */
 
 static void settings_gps_switch_cb(lv_event_t *e)
 {
@@ -469,13 +423,17 @@ static void settings_bt_switch_cb(lv_event_t *e)
     ble_debug_set_advertising(lv_obj_has_state(s_set_periph_bt_switch, LV_STATE_CHECKED));
 }
 
+/* Mirrors the GPS screen's own switch state formula (gps_screen_is_powered()
+ * && m10q_get_state() != M10Q_STATE_OFF, screens/gps_screen.c's
+ * gps_screen_update()) so the two switches never disagree about what
+ * "on" means. */
 static void settings_periph_refresh(lv_timer_t *timer)
 {
     (void)timer;
     if (lv_screen_active() != s_set_periph_screen) {
         return;
     }
-    bool gps_on = m10q_get_state() != M10Q_STATE_OFF;
+    bool gps_on = gps_screen_is_powered() && m10q_get_state() != M10Q_STATE_OFF;
     if (lv_obj_has_state(s_set_periph_gps_switch, LV_STATE_CHECKED) != gps_on) {
         if (gps_on) { lv_obj_add_state(s_set_periph_gps_switch, LV_STATE_CHECKED); }
         else { lv_obj_clear_state(s_set_periph_gps_switch, LV_STATE_CHECKED); }
@@ -736,7 +694,9 @@ static void lvgl_build_settings_info_screen(void)
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
 
     lv_obj_t *fw_label = lv_label_create(s_set_info_screen);
-    lv_label_set_text(fw_label, "Firmware: sim");
+    char fw_buf[48];
+    snprintf(fw_buf, sizeof(fw_buf), "Firmware: v%s", uwatch_firmware_version());
+    lv_label_set_text(fw_label, fw_buf);
     lv_obj_set_style_text_font(fw_label, s_font_small, 0);
     lv_obj_set_style_text_color(fw_label, lv_color_hex(0xE0E0E0), 0);
     lv_obj_align(fw_label, LV_ALIGN_TOP_LEFT, 20, 172);
@@ -756,13 +716,9 @@ static void lvgl_build_settings_info_screen(void)
 }
 
 /* ---- Ultra-Sparmodus (docs/application.md section 10, Phase 6) ----
- * Sim-only note: this sub-page is screenshot-verifiable like every other
- * Settings screen, but the actual deep-sleep entry/exit/wake-source logic
- * that power_mgmt_set_sparmodus_active() will eventually drive is
- * firmware-only - the sim has no hardware to sleep, same reasoning as
- * why GNSS-power-task specifics or BLE advertising are mocked here
- * instead of ported. Stage 1 of Phase 6: the toggle just flips the mock
- * flag, nothing else happens yet. */
+ * Stage 1: the toggle persists power_mgmt_get/set_sparmodus_active() to
+ * NVS only - flipping it does NOT yet shut peripherals down or deep-sleep
+ * (that lands in a later stage, see the Phase 6 plan). */
 
 static void settings_sparmodus_switch_cb(lv_event_t *e)
 {
