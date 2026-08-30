@@ -96,6 +96,27 @@ void power_mgmt_set_brightness(uint8_t level);
 bool power_mgmt_get_sparmodus_active(void);
 void power_mgmt_set_sparmodus_active(bool on);
 
+/* True if app_main() should immediately re-arm wake sources and go back
+ * to deep sleep without doing anything else (booting from the silent
+ * per-minute timer wake while Ultra-Sparmodus is active) - call this as
+ * the very first thing in app_main(), before nvs_flash_init() or any
+ * other init. Encapsulates both the RTC_DATA_ATTR flag (which survives a
+ * deep-sleep wake) and the wake-cause check so app_main() itself stays a
+ * one-line fork - see main/uwatch_main.c. */
+bool power_mgmt_sparmodus_should_resleep_silently(void);
+
+/* Real deep-sleep entry: shuts every peripheral down, arms wake sources
+ * (touch/PWRKEY/BOOT/RTC-alarm + the 60s silent timer), and calls
+ * esp_deep_sleep_start() - does not return. Currently reachable only via
+ * the `sparmodus on` debug console command (see main/debug_cmds.c) while
+ * Stage 3's auto-entry-on-idle-timeout wiring is still being built. */
+void power_mgmt_sparmodus_enter_sleep(void);
+
+/* Re-arms the same wake sources and re-enters deep sleep, touching
+ * nothing else - what power_mgmt_sparmodus_should_resleep_silently()
+ * returning true means to do. */
+void power_mgmt_sparmodus_resleep(void);
+
 #ifdef __cplusplus
 }
 #endif

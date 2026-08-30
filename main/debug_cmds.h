@@ -20,6 +20,7 @@ void debug_cmd_panictest(const char *args);
 void debug_cmd_dailylog(const char *args);
 void debug_cmd_motor(const char *args);
 void debug_cmd_pm(const char *args);
+void debug_cmd_sparmodus(const char *args);
 void debug_cmd_pwroff(const char *args);
 void debug_cmd_rails(const char *args);
 void debug_cmd_nfcpoll(const char *args);

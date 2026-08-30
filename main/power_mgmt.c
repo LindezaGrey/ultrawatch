@@ -48,6 +48,10 @@ static const char *TAG = "power_mgmt";
  * INTSTS2 occupies bits 8-15, so its bit 2 ("long press", per
  * axp2101_configure_pwrkey_shutdown()'s OFFLEVEL threshold) is bit 10 here. */
 #define AXP_IRQ_PEK_LONG (1u << 10)
+/* INTSTS2 bit 7 ("VBUS insert", datasheet REG49) -> bit 15 here. Only
+ * fires once axp2101_enable_vbus_irq() has unmasked it - see Phase 6's
+ * Ultra-Sparmodus deep-sleep wake handling. */
+#define AXP_IRQ_VBUS_INSERT (1u << 15)
 
 /* Night-mode clock check period while the watch is idle. */
 #define PM_NIGHT_CHECK_MS  60000
@@ -65,6 +69,14 @@ static bool s_skip_sleep_on_usb = true;  /* default: never sleep on USB */
 static uint32_t s_display_timeout_s = 5; /* default: matches the historical 5000 ms literal */
 static uint8_t s_brightness = 0x80;      /* default: matches the historical 0x80 literal */
 static bool s_sparmodus_active = false;  /* Ultra-Sparmodus, docs/application.md section 10 */
+
+/* Survives a deep-sleep wake (unlike every other static above, which is
+ * re-initialized from scratch since deep sleep wipes normal DRAM/task
+ * state - a deep-sleep wake IS a fresh boot). This is what app_main()
+ * actually branches on via power_mgmt_sparmodus_should_resleep_silently();
+ * s_sparmodus_active above is the separate NVS-persisted "user wants this
+ * mode" preference, only read at boot/from Settings. */
+RTC_DATA_ATTR static bool s_rtc_sparmodus_active;
 
 /* RTC-capable GPIO wakeup for the touch line is armed here. */
 static volatile uint32_t s_wake_sources;   /* bitmask of PM_WAKE_*, ISR-writer/task-reader */
@@ -208,9 +220,11 @@ bool power_mgmt_get_sparmodus_active(void)
     return s_sparmodus_active;
 }
 
-/* Stage 1 of Phase 6: persists the flag only. Real deep-sleep entry (arming
- * wake sources, shutting peripherals down, esp_deep_sleep_start()) lands in
- * a later stage - see the Phase 6 plan. */
+/* Persists the NVS preference only - does NOT itself trigger deep sleep.
+ * Stage 3 of Phase 6 wires this into the idle-timeout path (auto-entry);
+ * for now the Settings toggle just remembers the choice, and
+ * power_mgmt_sparmodus_enter_sleep() below is reachable only via the
+ * `sparmodus on` debug command while that wiring is being built/verified. */
 void power_mgmt_set_sparmodus_active(bool on)
 {
     if (on == s_sparmodus_active) {
@@ -218,6 +232,64 @@ void power_mgmt_set_sparmodus_active(bool on)
     }
     s_sparmodus_active = on;
     pm_config_save();
+}
+
+bool power_mgmt_sparmodus_should_resleep_silently(void)
+{
+    /* esp_sleep_get_wakeup_cause() (singular) is deprecated in this
+     * ESP-IDF version - use the bitmap form instead. */
+    uint32_t causes = esp_sleep_get_wakeup_causes();
+    return s_rtc_sparmodus_active && causes == (1u << ESP_SLEEP_WAKEUP_TIMER);
+}
+
+/* 60s "invisible" internal wake (docs/application.md section 10.3) - not
+ * every minute on the wall clock, just every 60s of sleep duration; close
+ * enough for "roughly once a minute" and avoids needing RTC-alarm-based
+ * scheduling for something this loose. */
+#define PM_SPARMODUS_TICK_US (60ULL * 1000000ULL)
+
+/* 4 EXT1 pins = every existing light-sleep wake source (touch/PWRKEY/BOOT)
+ * plus the RTC alarm line (so a scheduled alarm still reaches the user -
+ * see the Phase 6 plan's alarm-during-Sparmodus decision), all active-low
+ * (ESP_EXT1_WAKEUP_ANY_LOW), matching the LOW_LEVEL trigger these same 4
+ * GPIOs already use for light-sleep wake in pm_arm_gpio_wakeup() below. */
+static void pm_sparmodus_arm_wake(void)
+{
+    esp_sleep_enable_timer_wakeup(PM_SPARMODUS_TICK_US);
+    uint64_t pins = (1ULL << PM_GPIO_TOUCH) | (1ULL << PM_GPIO_PWRKEY) |
+                    (1ULL << PM_GPIO_BOOT) | (1ULL << PM_GPIO_RTC);
+    esp_sleep_enable_ext1_wakeup_io(pins, ESP_EXT1_WAKEUP_ANY_LOW);
+}
+
+/* Real deep-sleep entry: shuts every peripheral down (docs/application.md
+ * section 10.3's "alle Peripherie wird aktiv abgeschaltet"), arms wake
+ * sources, and calls esp_deep_sleep_start() - does not return. Currently
+ * reachable only via the `sparmodus on` debug command (Stage 2 of Phase 6 -
+ * auto-entry-on-idle-timeout wiring is Stage 3). */
+void power_mgmt_sparmodus_enter_sleep(void)
+{
+    ESP_LOGI(TAG, "Ultra-Sparmodus: entering deep sleep");
+    lvgl_gps_set_enabled(false);
+    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);   /* LoRa rail */
+    sd_log_unmount();
+    /* VBUS-insert IRQ is a one-time PMIC register write (persists on its
+     * own power, independent of the ESP32's sleep/reset cycle) - only
+     * needs enabling once, here, not on every re-sleep. */
+    axp2101_enable_vbus_irq(twatch_pmu_dev);
+    s_rtc_sparmodus_active = true;
+    pm_sparmodus_arm_wake();
+    esp_deep_sleep_start();
+}
+
+/* The silent per-minute wake's entire job: re-arm the same wake sources
+ * and go straight back to sleep, touching nothing else (no display, no
+ * peripheral I/O) - see the Phase 6 plan's "per-minute wake does no work
+ * at all" decision. Peripherals are already off from enter_sleep() above;
+ * nothing to redo. */
+void power_mgmt_sparmodus_resleep(void)
+{
+    pm_sparmodus_arm_wake();
+    esp_deep_sleep_start();
 }
 
 bool power_mgmt_get_night_mode_auto(void)

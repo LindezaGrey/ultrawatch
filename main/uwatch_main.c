@@ -19,6 +19,7 @@
 #include "nvs_flash.h"
 #include "driver/usb_serial_jtag.h"
 #include "twatch_board.h"
+#include "power_mgmt.h"
 #include "lvgl_app.h"
 #include "sd_log.h"
 #include "crash_dump.h"
@@ -149,6 +150,7 @@ static const debug_cmd_entry_t s_commands[] = {
     { "motor",          debug_cmd_motor },
     { "crashinfo",      debug_cmd_crashinfo },
     { "pm",             debug_cmd_pm },
+    { "sparmodus",      debug_cmd_sparmodus },
     { "pwroff",         debug_cmd_pwroff },
     { "rails",          debug_cmd_rails },
     { "nfcpoll",        debug_cmd_nfcpoll },
@@ -229,6 +231,17 @@ void uwatch_debug_process_cmd(const char *cmd)
 
 void app_main(void)
 {
+    /* Ultra-Sparmodus's silent per-minute wake (docs/application.md
+     * section 10.3): re-arm and go straight back to deep sleep, touching
+     * nothing else - no NVS, no board bring-up, no display. Must be the
+     * very first thing in app_main(), before any other init, since this
+     * check itself needs none of it (the RTC_DATA_ATTR flag it reads
+     * survives a deep-sleep wake without re-loading anything). Never
+     * returns when true. */
+    if (power_mgmt_sparmodus_should_resleep_silently()) {
+        power_mgmt_sparmodus_resleep();
+    }
+
     /* Set the local timezone so UTC<->local conversions (RTC sync from GNSS,
      * MGA-INI aiding) are correct. */
     setenv("TZ", "CET-1CEST-2,M3.5.0/2,M10.5.0/3", 1);

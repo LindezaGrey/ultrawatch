@@ -68,9 +68,17 @@ esp_err_t axp2101_is_rail_enabled(i2c_master_dev_handle_t dev, axp2101_rail_t ra
 
 /* Interrupt handling (PEK power key etc.). */
 esp_err_t axp2101_enable_pek_irq(i2c_master_dev_handle_t dev);
+/* VBUS-insert IRQ (datasheet REG41 bit7, "vinsert_irq") - same enable
+ * register as axp2101_enable_pek_irq(), a different bit, safe to call
+ * alongside it. Lets USB-plug become a real wake source (e.g. for
+ * Ultra-Sparmodus's deep-sleep exit, docs/application.md section 10.4) on
+ * the same physical IRQ line PWRKEY already shares - see
+ * AXP_IRQ_VBUS_INSERT for reading which one actually fired. */
+esp_err_t axp2101_enable_vbus_irq(i2c_master_dev_handle_t dev);
 esp_err_t axp2101_clear_irq(i2c_master_dev_handle_t dev);
 /* 24-bit IRQ status: bits 0-7 = INTSTS1, 8-15 = INTSTS2, 16-23 = INTSTS3.
- * PEK: INTSTS2 bits 0=press edge, 1=release edge, 2=long, 3=short. */
+ * PEK: INTSTS2 bits 0=press edge, 1=release edge, 2=long, 3=short.
+ * VBUS: INTSTS2 bit 7 = insert, bit 6 = remove (datasheet REG49). */
 esp_err_t axp2101_get_irq_status(i2c_master_dev_handle_t dev, uint32_t *status);
 
 /* PWRKEY long-press shutdown (datasheet section 6.5.4.3 "Power Off" + REG22H

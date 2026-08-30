@@ -208,6 +208,23 @@ void debug_cmd_pm(const char *args)
     }
 }
 
+/* Ultra-Sparmodus (docs/application.md section 10), Phase 6 stage 2: only
+ * a manual, debug-triggered way in exists so far - `sparmodus on` calls
+ * power_mgmt_sparmodus_enter_sleep() directly (peripherals off, wake
+ * sources armed, real esp_deep_sleep_start() - does not return). Stage 3
+ * wires this into the idle-timeout/auto-entry-threshold path instead. */
+void debug_cmd_sparmodus(const char *args)
+{
+    if (strcmp(args, "on") == 0) {
+        printf("sparmodus: entering deep sleep now\n");
+        fflush(stdout);
+        power_mgmt_sparmodus_enter_sleep();   /* does not return */
+    } else {
+        printf("sparmodus: usage: sparmodus on (persisted flag=%d)\n",
+               power_mgmt_get_sparmodus_active() ? 1 : 0);
+    }
+}
+
 void debug_cmd_pwroff(const char *args)
 {
     (void)args;

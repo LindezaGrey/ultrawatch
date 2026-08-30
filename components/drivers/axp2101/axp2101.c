@@ -33,6 +33,7 @@ static const char *TAG = "axp2101";
 #define AXP_REG_OFFLEVEL   0x27 /* bits3:2 = OFFLEVEL (long-press threshold) */
 
 #define AXP_INTEN2_PEK    0x0F   /* bits 0-3: press/release edge, long, short */
+#define AXP_INTEN2_VBUS_INSERT (1u << 7)   /* datasheet REG41 bit7: vinsert_irq enable */
 #define AXP_PWROFF_EN_PWRON_OFFLEVEL  (1u << 1)
 #define AXP_COMMON_CFG_SOFT_PWROFF    (1u << 0)
 #define AXP_OFFLEVEL_MASK   0x0C   /* bits 3:2 */
@@ -306,6 +307,18 @@ esp_err_t axp2101_enable_pek_irq(i2c_master_dev_handle_t dev)
     uint8_t val = 0;
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTEN2, &val), TAG, "read inten2");
     return axp2101_write_reg(dev, AXP_REG_INTEN2, (uint8_t)(val | AXP_INTEN2_PEK));
+}
+
+esp_err_t axp2101_enable_vbus_irq(i2c_master_dev_handle_t dev)
+{
+    /* Same physical register as axp2101_enable_pek_irq() (datasheet REG41,
+     * "IRQ Enable 1") - VBUS insert lives in bit7 of the same byte the PEK
+     * bits (0-3) already occupy, so this is a read-modify-write OR, same
+     * pattern, non-conflicting with whatever axp2101_enable_pek_irq() has
+     * already set. */
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTEN2, &val), TAG, "read inten2");
+    return axp2101_write_reg(dev, AXP_REG_INTEN2, (uint8_t)(val | AXP_INTEN2_VBUS_INSERT));
 }
 
 esp_err_t axp2101_clear_irq(i2c_master_dev_handle_t dev)
