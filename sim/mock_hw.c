@@ -642,17 +642,16 @@ uint32_t cdtimer_remaining_seconds(void)
     if (!s_timer_active) {
         return 0;
     }
-    /* Counts down for real, same 1 Hz cadence as the firmware's
-     * cdtimer_check(), so the list screen's countdown display can be
-     * eyeballed - driven from watch_face.c's existing 1 s timer via
-     * sim_cdtimer_tick() below rather than a mock-only ticker, so the
-     * countdown only advances while a screen with a periodic refresh is
-     * actually showing it (matches the firmware, which only ticks via the
-     * watch face's timer too). */
+    /* Counts down for real, same 1 Hz cadence as the real cd_timer.c, so
+     * the list screen's countdown display can be eyeballed - driven from
+     * watch_face.c's existing 1 s timer via cdtimer_check() below rather
+     * than a mock-only ticker, so the countdown only advances while a
+     * screen with a periodic refresh is actually showing it (matches the
+     * firmware, which only ticks via the watch face's timer too). */
     return s_timer_remaining_s;
 }
 
-void sim_cdtimer_tick(void)
+void cdtimer_check(void)
 {
     if (s_timer_active && s_timer_remaining_s > 0) {
         s_timer_remaining_s--;

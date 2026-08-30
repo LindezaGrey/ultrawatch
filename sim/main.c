@@ -15,6 +15,7 @@
 #include <SDL2/SDL.h>
 #include "lvgl.h"
 #include "screens.h"
+#include "screens/screens.h"   /* shared: lvgl_build_watch_face() */
 #include "nav.h"
 #include "screenshot.h"
 
@@ -34,7 +35,7 @@ int main(void)
     lv_sdl_window_set_title(disp, "UWatch simulator");
     lv_indev_t *mouse_indev = lv_sdl_mouse_create();
 
-    sim_watch_face_start();
+    lvgl_build_watch_face();
     /* Swipe navigation (mouse-drag stands in for a touch swipe) + the
      * menu-inactivity timeout, wired against the mouse indev just created. */
     sim_nav_init(mouse_indev);

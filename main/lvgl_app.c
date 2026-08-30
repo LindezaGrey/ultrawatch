@@ -43,6 +43,8 @@
 #include "st25r3916.h"
 #include "ndef.h"
 #include "ble_debug.h"
+#include "screens/screens.h"
+#include "screens/status_bar.h"
 
 static const char *TAG = "lvgl_app";
 
@@ -51,15 +53,6 @@ static const lv_font_t *s_font_time = &cascadia_72;   /* HH:MM:SS */
 static const lv_font_t *s_font_sec  = &cascadia_36;   /* UTC time */
 static const lv_font_t *s_font_small = &cascadia_22;  /* body text */
 static const lv_font_t *s_font_micro = &cascadia_18;  /* GPS diag line */
-
-/* Watch face objects. */
-static lv_obj_t *s_tz_label;    /* timezone abbreviation, e.g. "CEST" - docs/application.md section 4.1 */
-static lv_obj_t *s_time_label;
-static lv_obj_t *s_sec_label;
-static lv_obj_t *s_date_label;
-static lv_obj_t *s_steps_label; /* step count on the watch face */
-static lv_obj_t *s_track_dot;  /* solid red dot: tracking session active */
-static lv_obj_t *s_snooze_icon; /* "Zz" shown while snoozing */
 
 /* BHI260AP status screen. */
 static lv_obj_t *s_bhi_screen;
@@ -245,7 +238,6 @@ static void gps_save_enabled(bool on)
 static lv_indev_t *s_touch_indev;
 static lv_point_t s_swipe_start;
 static bool s_swipe_active;
-static lv_obj_t *s_watch_screen;
 static uint32_t s_last_touch_tick;   /* lv_tick_get() at last touch */
 
 static void swipe_event_cb(lv_event_t *e);
@@ -263,7 +255,6 @@ static void nfc_ctrl_task(void *arg);
 static void gps_power(bool on);
 static void gps_refresh(void);
 static void gps_ctrl_task(void *arg);
-static void lvgl_build_watch_face(void);
 static void menu_timeout_cb(lv_timer_t *timer);
 static void lvgl_show_watch_face(void);
 static void lvgl_build_alarm_screen(void);
@@ -306,193 +297,14 @@ static lv_obj_t *screen_new(void)
     return scr;
 }
 
-/* ---- Status bar (docs/application.md section 3) ----
- *
- * A small row of state icons shown identically on all five nav-ring screens
- * (below). LVGL objects can't be shared across screens, so each screen gets
- * its own set, built by build_status_bar() and refreshed by
- * update_status_bar() from that screen's own update timer - the same
- * "screen owns its own timer, function is a no-op when that screen isn't
- * active" pattern already used throughout this file.
- *
- * Colors follow the spec's own convention (section 3.1): grey = off/absent,
- * orange = transitioning/warning, green = active at target state, red =
- * active-but-notable (kept per-icon, not applied uniformly - see below).
- * Icons are short colored text labels, not symbol-font glyphs: several of
- * these (GPX-tracking, LoRa) have no good built-in LVGL symbol, and a
- * uniform text style avoids guessing at symbol-font availability for the
- * ones that might (SD/GPS/BT/WiFi) - matches this file's existing
- * text-icon convention (e.g. the watch face's "Zz" snooze indicator). */
-#define STATUS_COLOR_GREY   lv_color_hex(0x888888)
-#define STATUS_COLOR_ORANGE lv_color_hex(0xFFB300)
-#define STATUS_COLOR_GREEN  lv_color_hex(0x00E676)
-#define STATUS_COLOR_RED    lv_color_hex(0xFF5252)
-
-typedef struct {
-    lv_obj_t *sd;
-    lv_obj_t *gps;
-    lv_obj_t *gpx;
-    lv_obj_t *lora;
-    lv_obj_t *bt;
-    lv_obj_t *wifi;
-    lv_obj_t *batt;
-    lv_obj_t *chg;
-} status_bar_t;
-
-/* One instance per nav-ring screen, indexed the same way as s_nav_ring
- * below (populated once each screen is built). */
+/* Status bar (docs/application.md section 3) - build_status_bar()/
+ * build_status_bar_big()/update_status_bar()/status_bar_set_hidden() and
+ * the status_bar_t type now live in screens/status_bar.h (shared with the
+ * sim). One instance per nav-ring screen still using this file's own
+ * status bar (watch face's instance moved into screens/watch_face.c along
+ * with the rest of that screen); indexed the same way as s_nav_ring below
+ * (index 0, watch face, is unused here now). */
 static status_bar_t s_status_bar[5];
-
-/* Row y and left/right-aligned x offsets are chosen from a measured safe-area
- * scan of assets/ui/safe_area_transparent.png (410x502 panel, rounded
- * corners physically clip/hide content there): at y~54 the corner cutout
- * requires roughly x >= 34 from either edge (straight-edge margin is ~16px,
- * but the corner radius is ~90-100px and dominates this close to the top),
- * so every icon in this row is kept clear of x < 40 / x > 410-40 - see
- * docs/application.md's "Abgerundete Ecken beachten" section. y=54 also
- * clears every ring screen's title (TOP_MID, y=18, ends ~y=44) and the GPS
- * screen's GNSS switch row (y=22, ends ~y=48) with a few px to spare. */
-#define STATUS_BAR_Y 54
-
-/* LVGL's built-in Montserrat glyph set (FontAwesome-derived, see
- * lv_symbol_def.h) already ships real icons for most of these - reuses the
- * same font the watch face's GPS satellite glyph uses, just at the smaller
- * size this build has compiled in (montserrat_14). No emoji/icon font is
- * bundled in this project, and adding one is a much bigger undertaking
- * (font pipeline + licensing) than this row needs. Two items have no good
- * built-in glyph and stay as short text: GPX-tracking (closest built-in,
- * a generic loop/record glyph, read worse than the word) and LoRa (no
- * antenna/radio symbol exists in this set at all). */
-static lv_obj_t *status_icon_create_ex(lv_obj_t *parent, const char *text, lv_align_t align,
-                                        lv_coord_t x, lv_coord_t y, const lv_font_t *font)
-{
-    lv_obj_t *l = lv_label_create(parent);
-    lv_label_set_text(l, text);
-    lv_obj_set_style_text_font(l, font, 0);
-    lv_obj_set_style_text_color(l, STATUS_COLOR_GREY, 0);
-    lv_obj_align(l, align, x, y);
-    return l;
-}
-
-static lv_obj_t *status_icon_create(lv_obj_t *parent, const char *text, lv_align_t align, lv_coord_t x)
-{
-    return status_icon_create_ex(parent, text, align, x, STATUS_BAR_Y, &lv_font_montserrat_14);
-}
-
-/* Builds one status bar instance into `parent` (a screen about to be shown
- * for the first time) and stores its objects in `out` for update_status_bar()
- * to refresh later. Fixed left-to-right order. The battery/charge labels are
- * right-aligned (offset from the right edge) instead of left-positioned,
- * since the battery text's width varies ("--%".."100%") and a fixed left x
- * would let a wide value spill into the right corner's safe-area cutout. */
-static void build_status_bar(lv_obj_t *parent, status_bar_t *out)
-{
-    out->sd   = status_icon_create(parent, LV_SYMBOL_SD_CARD,   LV_ALIGN_TOP_LEFT,  40);
-    out->gps  = status_icon_create(parent, LV_SYMBOL_GPS,       LV_ALIGN_TOP_LEFT,  80);
-    out->gpx  = status_icon_create(parent, "GPX",               LV_ALIGN_TOP_LEFT,  118);
-    out->lora = status_icon_create(parent, "LoRa",              LV_ALIGN_TOP_LEFT,  166);
-    out->bt   = status_icon_create(parent, LV_SYMBOL_BLUETOOTH, LV_ALIGN_TOP_LEFT,  214);
-    out->wifi = status_icon_create(parent, LV_SYMBOL_WIFI,      LV_ALIGN_TOP_LEFT,  250);
-    /* CHG sits further left than its glyph alone needs, to clear the widest
-     * battery string ("<icon> 100%") to its right - see update_status_bar(). */
-    out->chg  = status_icon_create(parent, LV_SYMBOL_CHARGE,    LV_ALIGN_TOP_RIGHT, -115);
-    out->batt = status_icon_create(parent, LV_SYMBOL_BATTERY_EMPTY " --%", LV_ALIGN_TOP_RIGHT, -40);
-}
-
-/* Watch-face-only variant: double-size icons (montserrat_28 vs. the other
- * four nav-ring screens' montserrat_14), spread over two rows since the
- * doubled glyphs/text no longer fit one row within the safe area. Feeds
- * the same status_bar_t/update_status_bar() - only construction differs,
- * refresh logic is font-size-agnostic. */
-#define STATUS_BAR_Y_ROW2 (STATUS_BAR_Y + 44)
-static void build_status_bar_big(lv_obj_t *parent, status_bar_t *out)
-{
-    const lv_font_t *f = &lv_font_montserrat_28;
-    out->sd   = status_icon_create_ex(parent, LV_SYMBOL_SD_CARD,   LV_ALIGN_TOP_LEFT,  40, STATUS_BAR_Y,      f);
-    out->gps  = status_icon_create_ex(parent, LV_SYMBOL_GPS,       LV_ALIGN_TOP_LEFT,  120, STATUS_BAR_Y,     f);
-    out->gpx  = status_icon_create_ex(parent, "GPX",               LV_ALIGN_TOP_LEFT,  200, STATUS_BAR_Y,     f);
-    out->chg  = status_icon_create_ex(parent, LV_SYMBOL_CHARGE,    LV_ALIGN_TOP_RIGHT, -90, STATUS_BAR_Y,    f);
-    out->lora = status_icon_create_ex(parent, "LoRa",              LV_ALIGN_TOP_LEFT,  40, STATUS_BAR_Y_ROW2, f);
-    out->bt   = status_icon_create_ex(parent, LV_SYMBOL_BLUETOOTH, LV_ALIGN_TOP_LEFT,  120, STATUS_BAR_Y_ROW2, f);
-    out->wifi = status_icon_create_ex(parent, LV_SYMBOL_WIFI,      LV_ALIGN_TOP_LEFT,  200, STATUS_BAR_Y_ROW2, f);
-    out->batt = status_icon_create_ex(parent, LV_SYMBOL_BATTERY_EMPTY " --%", LV_ALIGN_TOP_RIGHT, -40, STATUS_BAR_Y_ROW2, f);
-}
-
-/* Refreshes one status bar instance. Safe to call even if `bar->sd` (or any
- * field) is NULL - i.e. before that screen has been built - callers already
- * guard on "is this screen active" first, matching every other per-screen
- * update function in this file. */
-static void update_status_bar(const status_bar_t *bar)
-{
-    if (!bar->sd) {
-        return;
-    }
-
-    lv_obj_set_style_text_color(bar->sd, sd_log_available() ? STATUS_COLOR_RED :
-                                (twatch_sd_card_seated() ? STATUS_COLOR_ORANGE : STATUS_COLOR_GREY), 0);
-
-    m10q_state_t gps_st = m10q_get_state();
-    lv_obj_set_style_text_color(bar->gps,
-        (gps_st == M10Q_STATE_FIXED) ? STATUS_COLOR_GREEN :
-        (gps_st == M10Q_STATE_ACQUIRING) ? STATUS_COLOR_ORANGE : STATUS_COLOR_GREY, 0);
-
-    /* Reflects gpx_log.c (time-based GPX file logging), not tracking.c's
-     * unrelated step-gated pedometer (which stays disabled - see
-     * TRACKING_ENABLED in tracking.h). */
-    lv_obj_set_style_text_color(bar->gpx, gpx_log_is_active() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
-
-    /* LoRa has no on/off toggle yet (ALDO3 is hard-wired always-on, see
-     * power_mgmt.c) - shows "on" unconditionally until Phase 6 gives it a
-     * real state to reflect. */
-    lv_obj_set_style_text_color(bar->lora, STATUS_COLOR_GREEN, 0);
-
-    lv_obj_set_style_text_color(bar->bt, ble_debug_is_connected() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
-
-    /* WiFi has no subsystem behind it at all (see docs/application.md
-     * scoping decision) - permanently off/grey. */
-    lv_obj_set_style_text_color(bar->wifi, STATUS_COLOR_GREY, 0);
-
-    sensor_cache_t cache;
-    sensor_cache_get(&cache);
-    if (cache.valid) {
-        const char *icon = cache.batt_pct > 87 ? LV_SYMBOL_BATTERY_FULL :
-                            cache.batt_pct > 62 ? LV_SYMBOL_BATTERY_3 :
-                            cache.batt_pct > 37 ? LV_SYMBOL_BATTERY_2 :
-                            cache.batt_pct > 12 ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
-        char buf[16];
-        snprintf(buf, sizeof(buf), "%s %u%%", icon, cache.batt_pct);
-        lv_label_set_text(bar->batt, buf);
-        lv_obj_set_style_text_color(bar->batt, cache.batt_pct <= 15 ? STATUS_COLOR_RED : lv_color_hex(0xE0E0E0), 0);
-
-        bool charging = (cache.chg_state != AXP2101_CHG_STOP);
-        if (charging) {
-            lv_obj_clear_flag(bar->chg, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_style_text_color(bar->chg, STATUS_COLOR_GREEN, 0);
-        } else {
-            lv_obj_add_flag(bar->chg, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-}
-
-/* Shows/hides every icon in one status bar instance at once - used to drop
- * the whole row for Ultra-Sparmodus's minimal watch face (docs/application.md
- * section 10.3: "Statusleiste entfaellt vollstaendig"). Safe to call before
- * the screen is built (same NULL guard as update_status_bar()). */
-static void status_bar_set_hidden(const status_bar_t *bar, bool hidden)
-{
-    if (!bar->sd) {
-        return;
-    }
-    lv_obj_t *icons[] = { bar->sd, bar->gps, bar->gpx, bar->lora,
-                           bar->bt, bar->wifi, bar->batt, bar->chg };
-    for (size_t i = 0; i < sizeof(icons) / sizeof(icons[0]); i++) {
-        if (hidden) {
-            lv_obj_add_flag(icons[i], LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_clear_flag(icons[i], LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-}
 
 /* Red-only night-mode transform. LVGL renders RGB565_SWAPPED (big-endian on
  * the panel): each pixel is 2 bytes, byte0 = MSB = RRRRR GGG, byte1 = GGG BBBBB.
@@ -575,182 +387,10 @@ static void lvgl_build_boot_screen(void)
     lv_obj_align(hash, LV_ALIGN_CENTER, 0, 80);
 }
 
-static void watch_face_update(lv_timer_t *timer)
-{
-    (void)timer;
-
-    /* Fire the alarm when the RTC AF/TF flag is set (also covers a wake from
-     * light sleep via the RTC INT line). */
-    alarm_check();
-    cdtimer_check();
-
-    /* Read the wall-clock time from the RTC (PCF85063A), not the ESP32 system
-     * clock, so the display never drifts. The RTC is polled by the background
-     * telemetry task; reading the cache keeps I2C off the UI task. */
-    pcf85063a_time_t t;
-    if (!sensor_cache_get_rtc(&t)) {
-        return;
-    }
-
-    /* The RTC stores UTC directly; convert to local (process TZ) for the
-     * primary display, which stays DST-aware. */
-    time_t epoch = pcf85063a_time_to_epoch(&t);
-    struct tm lt;
-    localtime_r(&epoch, &lt);
-
-    char buf[32];
-    if (s_tz_label) {
-        char tz[8] = { 0 };
-        strftime(tz, sizeof(tz), "%Z", &lt);
-        lv_label_set_text(s_tz_label, tz);
-    }
-
-    bool sparmodus = power_mgmt_get_sparmodus_active();
-
-    /* Ultra-Sparmodus (docs/application.md section 10.3): only the time,
-     * no seconds, everything else hidden - the red/dim rendering itself is
-     * applied at blit time by night_mode_draw_bitmap(), not here. Widgets
-     * are hidden/shown every tick (not just on the edge that toggles
-     * Sparmodus) so leaving the mode self-corrects on the next tick with
-     * no separate restore path. */
-    if (sparmodus) {
-        snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
-        lv_label_set_text(s_time_label, buf);
-        if (s_tz_label) { lv_obj_add_flag(s_tz_label, LV_OBJ_FLAG_HIDDEN); }
-        if (s_sec_label) { lv_obj_add_flag(s_sec_label, LV_OBJ_FLAG_HIDDEN); }
-        if (s_date_label) { lv_obj_add_flag(s_date_label, LV_OBJ_FLAG_HIDDEN); }
-        if (s_steps_label) { lv_obj_add_flag(s_steps_label, LV_OBJ_FLAG_HIDDEN); }
-        if (s_track_dot) { lv_obj_add_flag(s_track_dot, LV_OBJ_FLAG_HIDDEN); }
-        if (s_snooze_icon) { lv_obj_add_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN); }
-        status_bar_set_hidden(&s_status_bar[0], true);
-        return;
-    }
-
-    if (s_tz_label) { lv_obj_clear_flag(s_tz_label, LV_OBJ_FLAG_HIDDEN); }
-    if (s_sec_label) { lv_obj_clear_flag(s_sec_label, LV_OBJ_FLAG_HIDDEN); }
-    if (s_date_label) { lv_obj_clear_flag(s_date_label, LV_OBJ_FLAG_HIDDEN); }
-    status_bar_set_hidden(&s_status_bar[0], false);
-
-    snprintf(buf, sizeof(buf), "%02d:%02d:%02d", lt.tm_hour, lt.tm_min, lt.tm_sec);
-    lv_label_set_text(s_time_label, buf);
-
-    /* UTC sub-display: the RTC snapshot is already UTC, no conversion. */
-    snprintf(buf, sizeof(buf), "UTC %02d:%02d", t.hour, t.min);
-    lv_label_set_text(s_sec_label, buf);
-
-    static const char *wday[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
-    static const char *mon[] = { "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-                                 "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
-    snprintf(buf, sizeof(buf), "%s  %02d %s %d",
-             wday[lt.tm_wday], lt.tm_mday, mon[lt.tm_mon], lt.tm_year + 1900);
-    lv_label_set_text(s_date_label, buf);
-
-    /* Step count from the BHI260AP (cached in the driver, no I2C here). */
-    if (s_steps_label) {
-        uint32_t steps = 0;
-        if (bhi260ap_get_daily_steps(&steps) == ESP_OK) {
-            snprintf(buf, sizeof(buf), "Steps: %lu", (unsigned long)steps);
-        } else {
-            snprintf(buf, sizeof(buf), "Steps: --");
-        }
-        lv_label_set_text(s_steps_label, buf);
-    }
-
-    /* Tracking dot: visible only while a tracking session is active. */
-    if (s_track_dot) {
-        if (tracking_is_active()) {
-            lv_obj_clear_flag(s_track_dot, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(s_track_dot, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-
-    /* Snooze icon: visible while the 10 min snooze timer is pending. */
-    if (s_snooze_icon) {
-        if (alarm_is_snoozing()) {
-            lv_obj_clear_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN);
-        }
-    }
-
-    update_status_bar(&s_status_bar[0]);
-}
-
-static void lvgl_build_watch_face(void)
-{
-    s_watch_screen = lv_screen_active();
-    lv_obj_set_style_bg_color(s_watch_screen, lv_color_hex(0x000000), 0);
-
-    build_status_bar_big(s_watch_screen, &s_status_bar[0]);
-
-    s_date_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_date_label, "");
-    lv_obj_set_style_text_font(s_date_label, s_font_sec, 0);
-    lv_obj_set_style_text_color(s_date_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_date_label, LV_ALIGN_TOP_MID, 0, 420);
-
-    /* Tracking indicator: solid red dot, visible only while a tracking
-     * session is active. The satellite fix icon used to sit here too, but
-     * it duplicated the status bar's own GPS icon (both color-code fix
-     * state independently) - removed once that icon got bigger/more
-     * prominent in the two-row status bar. */
-    s_track_dot = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(s_track_dot, 12, 12);
-    lv_obj_align(s_track_dot, LV_ALIGN_TOP_MID, 0, 24);
-    lv_obj_clear_flag(s_track_dot, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(s_track_dot, lv_color_hex(0xFF2020), 0);
-    lv_obj_set_style_radius(s_track_dot, 6, 0);
-    lv_obj_set_style_pad_all(s_track_dot, 0, 0);
-    lv_obj_add_flag(s_track_dot, LV_OBJ_FLAG_HIDDEN);
-
-    /* Snooze indicator: "Zz" over the alarm icon, hidden unless snoozing. */
-    s_snooze_icon = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_snooze_icon, "Zz");
-    lv_obj_set_style_text_font(s_snooze_icon, &lv_font_montserrat_22, 0);
-    lv_obj_set_style_text_color(s_snooze_icon, lv_color_hex(0xFFD54F), 0);
-    lv_obj_align(s_snooze_icon, LV_ALIGN_TOP_LEFT, 70, 40);
-    lv_obj_add_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN);
-
-    /* Timezone abbreviation (e.g. "CEST"/"CET") above the local time - the
-     * process TZ is already set at boot (main/uwatch_main.c) and
-     * watch_face_update() already computes localtime_r() for the primary
-     * display, so strftime("%Z", ...) gives this for free, no new TZ
-     * plumbing needed. Positioned with a clear gap above the big time font
-     * below it (cascadia_72's glyphs reach well above s_time_label's own
-     * y) - this used to overlap before the gap was widened. */
-    s_tz_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_tz_label, "");
-    lv_obj_set_style_text_font(s_tz_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_tz_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_tz_label, LV_ALIGN_TOP_MID, 0, 140);
-
-    s_time_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_time_label, "--:--:--");
-    lv_obj_set_style_text_font(s_time_label, s_font_time, 0);
-    lv_obj_set_style_text_color(s_time_label, lv_color_hex(0xFFFFFF), 0);
-    /* Tighten the monospace cells so the full-width colons don't sprawl. */
-    lv_obj_set_style_text_letter_space(s_time_label, -6, 0);
-    lv_obj_align(s_time_label, LV_ALIGN_TOP_MID, 0, 175);
-
-    s_sec_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_sec_label, "UTC --:--");
-    lv_obj_set_style_text_font(s_sec_label, s_font_sec, 0);
-    lv_obj_set_style_text_color(s_sec_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_sec_label, LV_ALIGN_TOP_MID, 0, 275);
-
-    s_steps_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_steps_label, "Steps: --");
-    lv_obj_set_style_text_font(s_steps_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_steps_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_steps_label, LV_ALIGN_TOP_MID, 0, 325);
-
-    watch_face_update(NULL);
-    lv_timer_create(watch_face_update, 1000, NULL);
-
-    /* Menu inactivity timeout (runs forever; no-op on the watch face). */
-    lv_timer_create(menu_timeout_cb, 500, NULL);
-}
+/* Watch face builder + 1 Hz update: main/screens/watch_face.c (shared
+ * with the sim). menu_timeout_cb()'s timer is started separately, right
+ * after lvgl_build_watch_face(), in boot_to_watch_face() below - see
+ * watch_face.c's header comment for why. */
 
 /* Show the boot screen for a few seconds, then the watch face. */
 static void boot_to_watch_face(lv_timer_t *timer)
@@ -758,6 +398,9 @@ static void boot_to_watch_face(lv_timer_t *timer)
     lv_timer_delete(timer);
     lv_obj_clean(lv_screen_active());
     lvgl_build_watch_face();
+
+    /* Menu inactivity timeout (runs forever; no-op on the watch face). */
+    lv_timer_create(menu_timeout_cb, 500, NULL);
 }
 
 /* ---- BHI260AP status screen ---- */

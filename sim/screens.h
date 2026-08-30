@@ -32,11 +32,13 @@ extern lv_obj_t *s_alarm_screen;
 extern lv_obj_t *s_ring_screen;
 extern lv_obj_t *s_settings_screen;
 
-/* Watch face (watch_face.c). */
-void sim_watch_face_start(void);
-/* Re-run the watch face's 1 s update once (RTC labels etc.) on demand, e.g.
- * right after nav.c loads it back onto screen. */
-void sim_watch_face_refresh(void);
+/* Watch face: now a genuinely shared file, main/screens/watch_face.c,
+ * compiled from this one copy by both builds (see its own header comment).
+ * Its lvgl_build_watch_face()/watch_face_update() are declared in
+ * main/screens/screens.h ("screens/screens.h" on this build's include
+ * path - main/ is already added in sim/CMakeLists.txt) - callers here
+ * (main.c, nav.c) include that header directly instead of a sim-only
+ * wrapper. */
 
 /* Lazy build-or-reuse + lv_scr_load() for each of the other screens. */
 void sim_bhi_screen_build(void);

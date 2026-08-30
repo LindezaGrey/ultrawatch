@@ -285,16 +285,17 @@ esp_err_t alarm_snooze(void);
 bool alarm_get_sound_enabled(void);
 void alarm_set_sound_enabled(bool enabled);
 
-/* --- cd_timer.h subset --- */
+/* --- cd_timer.h subset ---
+ * cdtimer_check() is a real cd_timer.h function (called every second from
+ * watch_face.c's shared update timer, same as the firmware) - mocked here
+ * as a simplified decrement-only version that does not fire
+ * alarm_ring_now() on expiry (alarm_ring_now() isn't mocked), unlike the
+ * real cd_timer.c. */
 esp_err_t cdtimer_start(uint32_t seconds);
 void cdtimer_cancel(void);
 bool cdtimer_is_active(void);
 uint32_t cdtimer_remaining_seconds(void);
-
-/* Sim-only (not a real cd_timer.h function): advances the mock countdown by
- * one second. Called from watch_face.c's existing 1 Hz timer, standing in
- * for the firmware's cdtimer_check() (main/lvgl_app.c's watch_face_update()). */
-void sim_cdtimer_tick(void);
+void cdtimer_check(void);
 
 /* --- sd_log.h / twatch_board.h / ble_debug.h subset (status bar) --- */
 bool sd_log_available(void);

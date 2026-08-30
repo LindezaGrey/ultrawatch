@@ -17,8 +17,9 @@
  *     swipe-direction logic are unchanged.
  *   - lvgl_show_watch_face() is renamed sim_show_watch_face() (exposed via
  *     nav.h) since it's no longer file-static to a single lvgl_app.c
- *     translation unit; its body calls sim_watch_face_refresh() instead of
- *     directly calling the (now watch_face.c-static) watch_face_update().
+ *     translation unit; its body calls watch_face_update(NULL) directly -
+ *     main/screens/watch_face.c is a genuinely shared file now, so this is
+ *     the exact same function the firmware calls, not a sim-only wrapper.
  *   - Registration: main/lvgl_app.c registers swipe_event_cb on the real
  *     touch indev inside lvgl_app_start() (see its s_touch_indev /
  *     lv_indev_add_event_cb() call site). sim_nav_init() below does the
@@ -30,6 +31,7 @@
 #include <stdlib.h>
 #include "lvgl.h"
 #include "screens.h"
+#include "screens/screens.h"   /* shared: lvgl_build_watch_face(), watch_face_update() */
 #include "nav.h"
 
 /* Swipe detection at the input-device level (works regardless of widget). */
@@ -44,7 +46,7 @@ static uint32_t s_last_touch_tick;   /* lv_tick_get() at last touch */
 void sim_show_watch_face(void)
 {
     lv_scr_load(s_watch_screen);
-    sim_watch_face_refresh();
+    watch_face_update(NULL);
 }
 
 static void swipe_event_cb(lv_event_t *e)
