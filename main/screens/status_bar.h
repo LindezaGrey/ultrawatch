@@ -27,11 +27,7 @@ typedef struct {
 
 /* Builds one status bar instance into `parent` (a screen about to be shown
  * for the first time) and stores its objects in `out` for update_status_bar()
- * to refresh later. */
-void build_status_bar(lv_obj_t *parent, status_bar_t *out);
-
-/* Watch-face-only variant: double-size icons over two rows - see
- * status_bar.c for why the watch face alone gets this treatment. */
+ * to refresh later. Only the watch face builds one - see status_bar.c. */
 void build_status_bar_big(lv_obj_t *parent, status_bar_t *out);
 
 /* Refreshes one status bar instance. Safe to call even if `bar->sd` (or any

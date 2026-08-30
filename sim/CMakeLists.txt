@@ -21,6 +21,7 @@ add_executable(uwatch_sim
     mock_hw.c
     ../main/screens/watch_face.c
     ../main/screens/status_bar.c
+    ../main/screens/status_icons.c
     ../main/screens/gps_screen.c
     ../main/screens/mesh_screen.c
     ../main/screens/settings_screen.c
