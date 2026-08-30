@@ -16,6 +16,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <string.h>
@@ -221,6 +222,44 @@ bool sd_log_available(void)
     return s_sd_ready;
 }
 
+/* ---- On-demand session API ----
+ * Refcounted: mounts on the 0->1 transition, unmounts on the ->0 transition,
+ * so nested/overlapping callers (daily_log + gpx_log + mesh_log can all fire
+ * close together) share one mount instead of unmounting out from under each
+ * other. Guarded by its own mutex since these run from independent tasks. */
+static SemaphoreHandle_t s_session_mux;
+static int s_session_count;
+
+esp_err_t sd_log_session_begin(void)
+{
+    if (!s_session_mux) {
+        s_session_mux = xSemaphoreCreateMutex();
+    }
+    xSemaphoreTake(s_session_mux, portMAX_DELAY);
+    esp_err_t err = ESP_OK;
+    if (s_session_count == 0) {
+        err = sd_log_mount();
+    }
+    s_session_count++;
+    xSemaphoreGive(s_session_mux);
+    return sd_log_available() ? ESP_OK : err;
+}
+
+void sd_log_session_end(void)
+{
+    if (!s_session_mux) {
+        return;
+    }
+    xSemaphoreTake(s_session_mux, portMAX_DELAY);
+    if (s_session_count > 0) {
+        s_session_count--;
+    }
+    if (s_session_count == 0) {
+        sd_log_unmount();
+    }
+    xSemaphoreGive(s_session_mux);
+}
+
 esp_err_t sd_log_get_space(uint64_t *total_bytes, uint64_t *free_bytes)
 {
     if (!s_sd_ready) {
@@ -241,7 +280,8 @@ esp_err_t sd_log_get_space(uint64_t *total_bytes, uint64_t *free_bytes)
 
 esp_err_t sd_log_clear(void)
 {
-    if (!s_sd_ready) {
+    if (sd_log_session_begin() != ESP_OK) {
+        sd_log_session_end();
         return ESP_ERR_NOT_FOUND;
     }
     DIR *d = opendir(SD_SHOT_DIR);
@@ -259,6 +299,7 @@ esp_err_t sd_log_clear(void)
         }
         closedir(d);
     }
+    sd_log_session_end();
     return ESP_OK;
 }
 
@@ -347,7 +388,8 @@ static void trim_shots(void)
 
 esp_err_t sd_log_save_screenshot(const uint16_t *rgb565, int w, int h)
 {
-    if (!s_sd_ready) {
+    if (sd_log_session_begin() != ESP_OK) {
+        sd_log_session_end();
         return ESP_ERR_NOT_FOUND;
     }
     /* Persistent counter from the card contents (survives reboot). */
@@ -358,5 +400,6 @@ esp_err_t sd_log_save_screenshot(const uint16_t *rgb565, int w, int h)
     if (err == ESP_OK) {
         trim_shots();
     }
+    sd_log_session_end();
     return err;
 }

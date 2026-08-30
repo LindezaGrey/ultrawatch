@@ -55,12 +55,10 @@ static const char *class_name(daily_activity_t c)
     }
 }
 
-/* Write the CSV header if the file is new/empty on this boot. */
+/* Write the CSV header if the file is new/empty on this boot. Called only
+ * from within a sd_log_session_begin()/end() bracket (see daily_log_task). */
 static void ensure_header(void)
 {
-    if (!sd_log_available()) {
-        return;
-    }
     FILE *s = fopen(STEPS_CSV, "a");
     if (s) {
         if (ftell(s) == 0) {
@@ -77,11 +75,10 @@ static void ensure_header(void)
     }
 }
 
+/* Called only from within a sd_log_session_begin()/end() bracket (see
+ * daily_log_task). */
 static void append_lines(const struct tm *lt, uint32_t lifetime)
 {
-    if (!sd_log_available()) {
-        return;
-    }
     char stemp[24], stem[24];
     snprintf(stemp, sizeof(stemp), "%04u-%02u-%02u", (unsigned)(lt->tm_year + 1900),
              (unsigned)(lt->tm_mon + 1), (unsigned)lt->tm_mday);
@@ -127,9 +124,15 @@ static void daily_log_task(void *arg)
             uint32_t lifetime = 0;
             bhi260ap_get_step_count(&lifetime);
 
+            /* One mounted session covers every SD touch this tick (day-roll
+             * marker, header-on-first-run, the steps/activity rows) rather
+             * than mounting/unmounting separately for each - they always
+             * happen together, once a minute. */
+            bool sd_ok = (sd_log_session_begin() == ESP_OK);
+
             if (have_last && ymd != last_ymd) {
                 ESP_LOGI(TAG, "new day %lu", (unsigned long)ymd);
-                if (sd_log_available()) {
+                if (sd_ok) {
                     FILE *s = fopen(STEPS_CSV, "a");
                     if (s) {
                         fprintf(s, "# day %04u-%02u-%02u\n",
@@ -150,11 +153,14 @@ static void daily_log_task(void *arg)
             bhi260ap_daily_sample(lifetime, ymd);
             bhi260ap_get_daily_steps(&s_steps);
 
-            if (!s_log_ready) {
-                ensure_header();
-                s_log_ready = true;
+            if (sd_ok) {
+                if (!s_log_ready) {
+                    ensure_header();
+                    s_log_ready = true;
+                }
+                append_lines(&lt, lifetime);
             }
-            append_lines(&lt, lifetime);
+            sd_log_session_end();
         }
         vTaskDelay(pdMS_TO_TICKS(LOG_INTERVAL_MS));
     }

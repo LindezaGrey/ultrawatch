@@ -88,13 +88,12 @@ static void mesh_node_upsert(uint32_t from, const char *name, int16_t rssi, int8
 
 /* Appends one "Zeitstempel | Absender | Nachricht" line for a real text
  * message - see docs/application.md section 7.2 point 6. Same
- * fopen/fprintf/fclose-per-write pattern as daily_log.c/gpx_log.c, gated on
- * sd_log_available(); the parent dir is already created by sd_log_mount(). */
+ * fopen/fprintf/fclose-per-write pattern as daily_log.c/gpx_log.c, bracketed
+ * by sd_log_session_begin()/end() (on-demand mount, see sd_log.h) rather
+ * than assuming the card is already mounted; the parent dir is already
+ * created by sd_log_mount(). */
 static void mesh_text_log_append(const char *sender, const char *text)
 {
-    if (!sd_log_available()) {
-        return;
-    }
     pcf85063a_time_t rtc;
     if (!sensor_cache_get_rtc(&rtc)) {
         return;
@@ -105,13 +104,19 @@ static void mesh_text_log_append(const char *sender, const char *text)
     char ts[24];
     strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &lt);
 
+    if (sd_log_session_begin() != ESP_OK) {
+        sd_log_session_end();
+        return;
+    }
     FILE *f = fopen(MESH_TEXT_LOG_PATH, "a");
     if (!f) {
         ESP_LOGW(TAG, "mesh_text_log_append: fopen failed");
+        sd_log_session_end();
         return;
     }
     fprintf(f, "%s | %s | %s\n", ts, sender, text);
     fclose(f);
+    sd_log_session_end();
 }
 
 static void mesh_log_task(void *arg)

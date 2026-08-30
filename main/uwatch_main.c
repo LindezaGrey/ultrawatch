@@ -21,7 +21,6 @@
 #include "twatch_board.h"
 #include "power_mgmt.h"
 #include "lvgl_app.h"
-#include "sd_log.h"
 #include "crash_dump.h"
 #include "daily_log.h"
 #include "gpx_log.h"
@@ -262,9 +261,11 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "UWatch boot complete");
 
-    /* Mount the SD card (best effort) for crash dumps, daily activity logs,
-     * and screenshots - see sd_log.h. */
-    sd_log_mount();
+    /* SD card is mounted on demand, per write (sd_log_session_begin()/end(),
+     * see sd_log.h) - crash dumps, daily activity logs, GPX/mesh logging,
+     * and screenshots each bracket their own I/O rather than relying on a
+     * persistent boot-time mount, so the card sits unmounted (and safe from
+     * an unclean power loss) whenever nothing is actively being written. */
 
     /* Per-minute steps + activity logging to the SD card (daily_log.h). */
     daily_log_init();

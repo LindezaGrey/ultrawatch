@@ -46,6 +46,11 @@ void debug_cmd_sdls(const char *args)
 {
     (void)args;
     /* List PNG screenshots on the SD card. */
+    if (sd_log_session_begin() != ESP_OK) {
+        printf("sdls: no SD card\n");
+        sd_log_session_end();
+        return;
+    }
     DIR *d = opendir("/sdcard/shot");
     if (!d) {
         printf("sdls: no shot dir\n");
@@ -56,6 +61,7 @@ void debug_cmd_sdls(const char *args)
         }
         closedir(d);
     }
+    sd_log_session_end();
 }
 
 void debug_cmd_sdclear(const char *args)
@@ -91,6 +97,11 @@ void debug_cmd_crashsave(const char *args)
 void debug_cmd_crashls(const char *args)
 {
     (void)args;
+    if (sd_log_session_begin() != ESP_OK) {
+        printf("crashls: no SD card\n");
+        sd_log_session_end();
+        return;
+    }
     DIR *d = opendir("/sdcard/log/crash");
     if (!d) {
         printf("crashls: no crash dir\n");
@@ -101,6 +112,7 @@ void debug_cmd_crashls(const char *args)
         }
         closedir(d);
     }
+    sd_log_session_end();
 }
 
 void debug_cmd_crashread(const char *args)
@@ -114,6 +126,11 @@ void debug_cmd_crashread(const char *args)
         name[name_len] = '\0';
         char path[128];
         snprintf(path, sizeof(path), "/sdcard/log/crash/%s", name);
+        if (sd_log_session_begin() != ESP_OK) {
+            printf("crashread: no SD card\n");
+            sd_log_session_end();
+            return;
+        }
         FILE *f = fopen(path, "r");
         if (!f) {
             printf("crashread: cannot open %s\n", path);
@@ -124,6 +141,7 @@ void debug_cmd_crashread(const char *args)
             }
             fclose(f);
         }
+        sd_log_session_end();
     }
 }
 

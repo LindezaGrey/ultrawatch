@@ -704,9 +704,10 @@ void cdtimer_check(void)
 }
 
 /* ---- SD / BLE status bar sources ----
- * sd_log_available() cycles so the SD icon's red/orange/grey states are all
- * visible without needing a real card; the other two are static-true, since
- * neither has a meaningful sim analogue (no SD socket, no BLE stack here). */
+ * sd_log_available() cycles so the SD icon's red/green states (currently
+ * mounted/writing vs. seated-and-idle) are both visible without needing a
+ * real card; twatch_sd_card_seated() is static-true since there's no
+ * meaningful sim analogue for a physical SD socket. */
 bool sd_log_available(void)
 {
     return ((long)time(NULL) / 10) % 2 == 0;

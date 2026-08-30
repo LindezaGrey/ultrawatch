@@ -56,7 +56,8 @@ esp_err_t gpx_log_start(void)
     if (s_active) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (!sd_log_available()) {
+    if (sd_log_session_begin() != ESP_OK) {
+        sd_log_session_end();
         return ESP_ERR_NOT_FOUND;
     }
     mkdir(GPX_DIR, 0755);
@@ -68,12 +69,14 @@ esp_err_t gpx_log_start(void)
     FILE *f = fopen(s_path, "a");
     if (!f) {
         ESP_LOGW(TAG, "start: fopen %s failed", s_path);
+        sd_log_session_end();
         return ESP_FAIL;
     }
     fprintf(f, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                "<gpx version=\"1.1\" creator=\"UWatch\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n"
                "<trk><name>%s</name><trkseg>\n", ts);
     fclose(f);
+    sd_log_session_end();
 
     s_point_count = 0;
     s_active = true;
@@ -87,13 +90,14 @@ esp_err_t gpx_log_stop(void)
         return ESP_ERR_INVALID_STATE;
     }
     s_active = false;
-    if (sd_log_available()) {
+    if (sd_log_session_begin() == ESP_OK) {
         FILE *f = fopen(s_path, "a");
         if (f) {
             fprintf(f, "</trkseg></trk></gpx>\n");
             fclose(f);
         }
     }
+    sd_log_session_end();
     ESP_LOGI(TAG, "stopped: %s (%lu points)", s_path, (unsigned long)s_point_count);
     return ESP_OK;
 }
@@ -115,9 +119,6 @@ const char *gpx_log_current_path(void)
 
 static void append_trackpoint(void)
 {
-    if (!sd_log_available()) {
-        return;
-    }
     m10q_fix_t fix;
     if (m10q_get_fix(&fix) != ESP_OK || !fix.valid) {
         ESP_LOGD(TAG, "tick: no valid fix, skipping point");
@@ -134,14 +135,20 @@ static void append_trackpoint(void)
     char ts[24];
     strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", &utc);
 
+    if (sd_log_session_begin() != ESP_OK) {
+        sd_log_session_end();
+        return;
+    }
     FILE *f = fopen(s_path, "a");
     if (!f) {
         ESP_LOGW(TAG, "tick: fopen %s failed", s_path);
+        sd_log_session_end();
         return;
     }
     fprintf(f, "<trkpt lat=\"%.6f\" lon=\"%.6f\"><ele>%.1f</ele><time>%s</time></trkpt>\n",
             fix.lat, fix.lon, fix.alt_m, ts);
     fclose(f);
+    sd_log_session_end();
     s_point_count++;
 }
 

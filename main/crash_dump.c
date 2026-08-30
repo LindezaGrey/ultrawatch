@@ -198,7 +198,8 @@ esp_err_t crash_dump_save(void)
     }
     ESP_LOGW(TAG, "core dump found in flash, decoding to SD card");
 
-    if (!sd_log_available()) {
+    if (sd_log_session_begin() != ESP_OK) {
+        sd_log_session_end();
         ESP_LOGW(TAG, "no SD card; keeping core dump in flash for next boot");
         return ESP_ERR_NOT_FOUND;
     }
@@ -226,6 +227,7 @@ esp_err_t crash_dump_save(void)
             ESP_LOGW(TAG, "flash core dump erase failed: %s", esp_err_to_name(err));
         }
     }
+    sd_log_session_end();
     return ESP_OK;
 }
 

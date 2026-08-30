@@ -790,9 +790,10 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     /* BLDO2 (speaker) isn't restored here - it stays off across sleep and
      * wake alike; see enter_sleep's comment. */
 
-    /* SD card (ALDO1): remount now the watch is awake again - sd_log_mount()
-     * owns powering ALDO1 back on itself (see its doc comment). */
-    sd_log_mount();
+    /* SD card (ALDO1): deliberately NOT remounted here - it now mounts only
+     * on demand around an actual write (sd_log_session_begin()/end(), see
+     * sd_log.h), not for the whole awake session, so there's nothing to
+     * restore just because the watch woke up. */
 
     /* Resume the IMU wake-up streams before waking the panel. */
     bhi260ap_ap_resume();
