@@ -85,6 +85,28 @@ void lvgl_show_settings_disp(void);
  * other entry point. */
 void settings_open_subpage(int idx);
 
+/* Alarms/Timers list + its 2 local sub-screens (create/edit one alarm,
+ * start a timer): main/screens/alarm_screen.c. The ringing screen lives
+ * in main/screens/ring_screen.c, same split as the sim already used.
+ * All 4 screen handles + the ring screen's 3 widgets are extern:
+ * main/lvgl_app.c's menu_timeout_cb()/nav-ring array check the screens,
+ * and alarm_ring_cb() (firmware-only - runs on the alarm ring task, needs
+ * esp_lv_adapter_lock()) sets the ring screen's title/time/snooze-button
+ * directly for each new ring. */
+extern lv_obj_t *s_alarm_screen;
+extern lv_obj_t *s_alarm_edit_screen;
+extern lv_obj_t *s_timer_screen;
+extern lv_obj_t *s_ring_screen;
+extern lv_obj_t *s_ring_title_label;
+extern lv_obj_t *s_ring_time_label;
+extern lv_obj_t *s_ring_snooze_btn;
+
+void lvgl_build_alarm_screen(void);
+void lvgl_build_alarm_edit_screen(void);
+void lvgl_build_timer_screen(void);
+void lvgl_build_ring_screen(void);
+void alarm_list_refresh(void);
+
 /* lv_tick_get() at the last touch - nav-ring inactivity timeout state
  * (main/lvgl_app.c's menu_timeout_cb() / sim/nav.c's equivalent). Extern
  * since main/screens/settings_screen.c's lvgl_show_settings_disp() (the

@@ -1,70 +1,47 @@
 /*
- * alarm_screen.c - the Alarms/Timers list screen + its two local sub-screens
- * (create/edit one alarm, start a timer), ported from main/lvgl_app.c's
- * 2026-08-29 multi-alarm overhaul (lvgl_build_alarm_screen /
- * lvgl_build_alarm_edit_screen / lvgl_build_timer_screen and their
- * callbacks), run against mock_hw.c instead of real drivers.
+ * alarm_screen.c - Alarms/Timers list screen (docs/application.md section
+ * 8) + its 2 local sub-screens: create/edit one alarm, start a timer.
+ * Shared between the firmware and the host sim - see watch_face.c's
+ * header comment for the mechanism.
  *
- * Deviations from the firmware original (mechanical only):
- *   - screen_new() copied in here too, same as every non-watch-face screen.
- *   - No status bar: this sim only ported the status bar to watch_face.c
- *     (see that file's header comment) - none of the other sim screens have
- *     one either, so this isn't a new gap specific to this screen.
- *   - alarm_screen_status_bar_update()'s 1 s timer is kept (renamed
- *     alarm_screen_refresh_timer) purely to call alarm_list_refresh() -
- *     there's no status bar call to make here.
- *
- * The ringing screen (lvgl_build_ring_screen and friends) lives in
- * ring_screen.c, same split as the firmware.
- *
- * Keep this in sync with main/lvgl_app.c by hand: there's no build-time
- * link between the two.
+ * The ringing screen (lvgl_build_ring_screen) lives in ring_screen.c,
+ * same split the sim already used. alarm_ring_cb() (main/lvgl_app.c) -
+ * the real ring start/stop callback, runs on the alarm ring task and
+ * needs esp_lv_adapter_lock() - stays firmware-only and calls into
+ * lvgl_build_ring_screen() there, then sets the ring screen's own
+ * title/time/snooze-button directly for each new ring (see screens.h).
  */
+#include "screens.h"
 #include <stdio.h>
 #include <string.h>
-#include "lvgl.h"
 #include "cascadia_fonts.h"
-#include "mock_hw.h"
-#include "screens.h"
+#include "alarm.h"
+#include "cd_timer.h"
 
 static const lv_font_t *s_font_small = &cascadia_22;
 static const lv_font_t *s_font_sec   = &cascadia_36;
-static const lv_font_t *s_font_micro = &cascadia_18;
 
-/* Not static: declared extern in screens.h so nav.c can compare it against
- * lv_screen_active(), same as the original single-file lvgl_app.c did. */
-lv_obj_t *s_alarm_screen;
-
-static lv_obj_t *s_alarm_row[ALARM_MAX_COUNT];
+lv_obj_t *s_alarm_screen;               /* the LIST screen (nav-ring slot) */
+static lv_obj_t *s_alarm_row[ALARM_MAX_COUNT]; /* one row per slot, hidden if !in_use */
 static lv_obj_t *s_alarm_row_time_label[ALARM_MAX_COUNT];
 static lv_obj_t *s_alarm_row_switch[ALARM_MAX_COUNT];
-static lv_obj_t *s_alarm_timer_label;
+static lv_obj_t *s_alarm_timer_label;          /* active countdown, hidden if none running */
 static lv_obj_t *s_alarm_timer_cancel_btn;
 
-static lv_obj_t *s_alarm_edit_screen;
+lv_obj_t *s_alarm_edit_screen;          /* create/edit one alarm */
 static lv_obj_t *s_alarm_edit_time_label;
 static lv_obj_t *s_alarm_edit_mode_beep;
 static lv_obj_t *s_alarm_edit_mode_vib;
 static lv_obj_t *s_alarm_edit_mode_both;
-static lv_obj_t *s_alarm_edit_wday_btn[7];
-static lv_obj_t *s_alarm_edit_delete_btn;
-static int s_alarm_edit_idx = -1;
+static lv_obj_t *s_alarm_edit_wday_btn[7];     /* Sun..Sat */
+static lv_obj_t *s_alarm_edit_delete_btn;      /* hidden while creating a new entry */
+static int s_alarm_edit_idx = -1;              /* -1 = creating new, >=0 = editing that slot */
 static uint8_t s_alarm_edit_hour, s_alarm_edit_min, s_alarm_edit_mode, s_alarm_edit_wmask;
 
-static lv_obj_t *s_timer_screen;
+lv_obj_t *s_timer_screen;               /* countdown-timer duration presets */
 
-static void lvgl_build_alarm_edit_screen(void);
-static void lvgl_build_timer_screen(void);
-static void alarm_list_refresh(void);
-
-static lv_obj_t *screen_new(void)
-{
-    lv_obj_t *scr = lv_obj_create(NULL);
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
-    return scr;
-}
-
+/* "Daily"/"Mon-Fri"/comma list, mirrors debug_cmds.c's print_weekday_mask()
+ * but into a buffer instead of stdout. */
 static void weekday_summary(uint8_t wmask, char *out, size_t outlen)
 {
     static const char *names[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
@@ -72,7 +49,7 @@ static void weekday_summary(uint8_t wmask, char *out, size_t outlen)
         snprintf(out, outlen, "Daily");
         return;
     }
-    if (wmask == 0x3E) {
+    if (wmask == 0x3E) {   /* Mon..Fri */
         snprintf(out, outlen, "Mon-Fri");
         return;
     }
@@ -87,7 +64,10 @@ static void weekday_summary(uint8_t wmask, char *out, size_t outlen)
     }
 }
 
-static void alarm_list_refresh(void)
+/* Re-populates the 8 fixed alarm rows and the active-timer display. Called
+ * on build, from the list screen's periodic refresh timer, and whenever
+ * an edit/add/remove/timer-start returns to this screen. */
+void alarm_list_refresh(void)
 {
     alarm_entry_t list[ALARM_MAX_COUNT];
     alarm_get_all(list, ALARM_MAX_COUNT);
@@ -123,15 +103,6 @@ static void alarm_list_refresh(void)
     }
 }
 
-static void alarm_screen_refresh_timer(lv_timer_t *timer)
-{
-    (void)timer;
-    if (lv_screen_active() != s_alarm_screen) {
-        return;
-    }
-    alarm_list_refresh();
-}
-
 static void alarm_timer_cancel_btn_cb(lv_event_t *e)
 {
     (void)e;
@@ -146,6 +117,9 @@ static void alarm_row_switch_cb(lv_event_t *e)
     alarm_set_enabled(idx, en);
 }
 
+/* Tapping a row's label area (not its switch - LVGL only delivers CLICKED
+ * to the row container for events that land on the container itself, not
+ * on the child switch) opens that entry in the edit screen. */
 static void alarm_row_click_cb(lv_event_t *e)
 {
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
@@ -177,7 +151,7 @@ static void alarm_add_btn_cb(lv_event_t *e)
     if (!s_alarm_edit_screen) {
         lvgl_build_alarm_edit_screen();
     }
-    lv_obj_add_flag(s_alarm_edit_delete_btn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_alarm_edit_delete_btn, LV_OBJ_FLAG_HIDDEN);   /* nothing to delete yet */
     lv_scr_load(s_alarm_edit_screen);
 }
 
@@ -190,48 +164,38 @@ static void timer_add_btn_cb(lv_event_t *e)
     lv_scr_load(s_timer_screen);
 }
 
-/* Public entry points for screenshot/dev-shortcut use (see main.c's
- * UWATCH_SIM_SCREEN env var) - both sub-screens are normally reached by
- * tapping a control on the Alarms list, not a direct swipe. */
-void sim_alarm_edit_screen_build(void)
+/* The list screen's other controls (switches, +Alarm/+Timer, edit/timer
+ * sub-screens) all commit immediately, so - like the old single-alarm
+ * screen - this timer exists mainly to keep the active countdown/row
+ * states live while the screen is open. */
+static void alarm_screen_refresh_timer(lv_timer_t *timer)
 {
-    s_alarm_edit_idx = -1;
-    s_alarm_edit_hour = 7;
-    s_alarm_edit_min = 0;
-    s_alarm_edit_mode = ALARM_RING_BEEP;
-    s_alarm_edit_wmask = ALARM_WEEKDAY_ALL;
-    if (!s_alarm_edit_screen) {
-        lvgl_build_alarm_edit_screen();
-    }
-    lv_obj_add_flag(s_alarm_edit_delete_btn, LV_OBJ_FLAG_HIDDEN);
-    lv_scr_load(s_alarm_edit_screen);
-}
-
-void sim_timer_screen_build(void)
-{
-    if (!s_timer_screen) {
-        lvgl_build_timer_screen();
-    }
-    lv_scr_load(s_timer_screen);
-}
-
-void sim_alarm_screen_build(void)
-{
-    if (s_alarm_screen) {
-        lv_scr_load(s_alarm_screen);
-        alarm_list_refresh();
+    (void)timer;
+    if (lv_screen_active() != s_alarm_screen) {
         return;
     }
+    alarm_list_refresh();
+}
 
+void lvgl_build_alarm_screen(void)
+{
     s_alarm_screen = screen_new();
     lv_obj_set_style_bg_color(s_alarm_screen, lv_color_hex(0x201020), 0);
 
+    /* High-DPI sizing (AGENT.md "Display density & UI sizing"): title and
+     * the +Alarm/+Timer buttons promote to cascadia_36; the timer-cancel
+     * button and list-row labels stay at cascadia_22 - both sit next to a
+     * fixed-width sibling (the 90px Cancel button, the switch on each
+     * row) and weekday-summary text is variable-length enough ("Mon-Fri"
+     * vs "Daily" etc.) that cascadia_36 risks overflowing into it. Rows
+     * and their switches still get a bigger touch target. */
     lv_obj_t *title = lv_label_create(s_alarm_screen);
     lv_label_set_text(title, "ALARMS");
     lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
 
+    /* Active countdown, hidden unless a timer is running (alarm_list_refresh()). */
     s_alarm_timer_label = lv_label_create(s_alarm_screen);
     lv_label_set_text(s_alarm_timer_label, "");
     lv_obj_set_style_text_font(s_alarm_timer_label, s_font_sec, 0);
@@ -267,6 +231,8 @@ void sim_alarm_screen_build(void)
     lv_obj_center(atl);
     lv_obj_add_event_cb(add_timer, timer_add_btn_cb, LV_EVENT_CLICKED, NULL);
 
+    /* Scrollable list, up to ALARM_MAX_COUNT rows (fixed-count, hidden/shown
+     * per slot - same pattern as the mesh screen's message rows). */
     lv_obj_t *list_cont = lv_obj_create(s_alarm_screen);
     lv_obj_set_size(list_cont, 370, 280);
     lv_obj_align(list_cont, LV_ALIGN_TOP_MID, 0, 190);
@@ -300,7 +266,7 @@ void sim_alarm_screen_build(void)
         lv_obj_add_event_cb(sw, alarm_row_switch_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)i);
         s_alarm_row_switch[i] = sw;
 
-        lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);   /* shown by alarm_list_refresh() if in_use */
     }
 
     lv_obj_t *hint = lv_label_create(s_alarm_screen);
@@ -311,10 +277,9 @@ void sim_alarm_screen_build(void)
 
     alarm_list_refresh();
     lv_timer_create(alarm_screen_refresh_timer, 1000, NULL);
-    lv_scr_load(s_alarm_screen);
 }
 
-/* ---- Alarm create/edit sub-screen ---- */
+/* ---- Alarm create/edit sub-screen (local, not in the nav ring) ---- */
 
 static void alarm_edit_screen_refresh(void)
 {
@@ -345,6 +310,10 @@ static void alarm_edit_hour_btn_cb(lv_event_t *e)
     alarm_edit_screen_refresh();
 }
 
+/* Steps by 30 min (not 1) - the doc specifies full/half-hour presets, not
+ * freetext/digit entry, and a 30 min step is a tap-based preset in
+ * everything but name while reusing the existing +/- stepper widget instead
+ * of a new scrollable time-list. */
 static void alarm_edit_min_btn_cb(lv_event_t *e)
 {
     int delta = (int)(intptr_t)lv_event_get_user_data(e);
@@ -394,11 +363,17 @@ static void alarm_edit_back_btn_cb(lv_event_t *e)
     alarm_list_refresh();
 }
 
-static void lvgl_build_alarm_edit_screen(void)
+void lvgl_build_alarm_edit_screen(void)
 {
     s_alarm_edit_screen = screen_new();
     lv_obj_set_style_bg_color(s_alarm_edit_screen, lv_color_hex(0x201020), 0);
 
+    /* Back button uses the same rounded-corner-safe position/size as
+     * Settings (AGENT.md "Display density & UI sizing", commit cfb7307).
+     * Everything else on this screen (time/stepper/weekday/mode/save
+     * buttons) is already packed with no vertical slack - see the
+     * comment at the weekday row below for what could still be sized up
+     * safely without cascading the whole layout. */
     lv_obj_t *back = lv_button_create(s_alarm_edit_screen);
     lv_obj_set_size(back, 92, 46);
     lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
@@ -461,6 +436,8 @@ static void lvgl_build_alarm_edit_screen(void)
     lv_obj_set_style_text_color(wday_lbl, lv_color_hex(0xE0E0E0), 0);
     lv_obj_align(wday_lbl, LV_ALIGN_TOP_LEFT, 20, 260);
 
+    /* 2-char labels fit comfortably at cascadia_22 (fixed box size unchanged -
+     * no cascading effect on the tightly-packed rows below/above). */
     static const char *wday_names[7] = { "Su", "Mo", "Tu", "We", "Th", "Fr", "Sa" };
     for (int i = 0; i < 7; i++) {
         lv_obj_t *wb = lv_button_create(s_alarm_edit_screen);
@@ -536,7 +513,7 @@ static void lvgl_build_alarm_edit_screen(void)
     alarm_edit_screen_refresh();
 }
 
-/* ---- Timer-start sub-screen ---- */
+/* ---- Timer-start sub-screen (local, not in the nav ring) ---- */
 
 static const uint16_t s_timer_presets_min[8] = { 1, 5, 10, 15, 30, 60, 90, 120 };
 
@@ -555,11 +532,16 @@ static void timer_back_btn_cb(lv_event_t *e)
     alarm_list_refresh();
 }
 
-static void lvgl_build_timer_screen(void)
+void lvgl_build_timer_screen(void)
 {
     s_timer_screen = screen_new();
     lv_obj_set_style_bg_color(s_timer_screen, lv_color_hex(0x102020), 0);
 
+    /* Back button: same rounded-corner-safe position/size as Settings
+     * (AGENT.md "Display density & UI sizing", commit cfb7307). Title
+     * stays centered so it doesn't need to move (no horizontal overlap
+     * with the button regardless of y); the preset grid shifts down 10px
+     * to clear the now-taller button. */
     lv_obj_t *back = lv_button_create(s_timer_screen);
     lv_obj_set_size(back, 92, 46);
     lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);

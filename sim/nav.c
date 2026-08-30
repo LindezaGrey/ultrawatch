@@ -28,6 +28,7 @@
  * Keep this in sync with main/lvgl_app.c by hand: there's no build-time
  * link between the two.
  */
+#include <stdio.h>
 #include <stdlib.h>
 #include "lvgl.h"
 #include "screens.h"
@@ -129,6 +130,70 @@ void sim_settings_sparmodus_screen_build(void)
 {
     sim_settings_screen_build();
     settings_open_subpage(5);
+}
+
+/* Alarms/Timers list + its 2 sub-screens + ringing screen: now shared
+ * (main/screens/alarm_screen.c, main/screens/ring_screen.c). */
+void sim_alarm_screen_build(void)
+{
+    if (!s_alarm_screen) {
+        lvgl_build_alarm_screen();
+    }
+    lv_scr_load(s_alarm_screen);
+    alarm_list_refresh();
+}
+
+/* Public entry points for screenshot/dev-shortcut use (see main.c's
+ * UWATCH_SIM_SCREEN env var) - both sub-screens are normally reached by
+ * tapping a control on the Alarms list, not a direct swipe. */
+void sim_alarm_edit_screen_build(void)
+{
+    if (!s_alarm_edit_screen) {
+        lvgl_build_alarm_edit_screen();
+    }
+    lv_scr_load(s_alarm_edit_screen);
+}
+
+void sim_timer_screen_build(void)
+{
+    if (!s_timer_screen) {
+        lvgl_build_timer_screen();
+    }
+    lv_scr_load(s_timer_screen);
+}
+
+/* Ring screen preview: normally shown only via the firmware's
+ * alarm_ring_cb() (runs on the alarm ring task, needs
+ * esp_lv_adapter_lock() - no sim equivalent), so main.c's 'R'/'T'
+ * dev-shortcut keys call this directly instead, replicating just the
+ * source-aware title/time-label logic alarm_ring_cb() also does. */
+void sim_ring_screen_build(alarm_ring_source_t source)
+{
+    if (!s_ring_screen) {
+        lvgl_build_ring_screen();
+    }
+    if (source == ALARM_RING_SOURCE_TIMER) {
+        lv_label_set_text(s_ring_title_label, "TIMER");
+        lv_label_set_text(s_ring_time_label, "Done");
+        lv_obj_add_flag(s_ring_snooze_btn, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_label_set_text(s_ring_title_label, "ALARM");
+        /* Stamp the first configured alarm's time (no real "which entry
+         * fired" state to query in this preview-only screen). */
+        alarm_entry_t list[ALARM_MAX_COUNT];
+        alarm_get_all(list, ALARM_MAX_COUNT);
+        char buf[8] = "--:--";
+        for (int i = 0; i < ALARM_MAX_COUNT; i++) {
+            if (list[i].in_use) {
+                snprintf(buf, sizeof(buf), "%02u:%02u", (unsigned)list[i].hour,
+                         (unsigned)list[i].min);
+                break;
+            }
+        }
+        lv_label_set_text(s_ring_time_label, buf);
+        lv_obj_clear_flag(s_ring_snooze_btn, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_scr_load(s_ring_screen);
 }
 
 static void swipe_event_cb(lv_event_t *e)
