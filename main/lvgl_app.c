@@ -168,7 +168,7 @@ static lv_obj_t *s_ring_snooze_btn;            /* hidden for a timer-sourced rin
  * "Ultra-Sparmodus" are deferred, see Phase 5 plan). Each sub-page is its
  * own screen, reached by tapping a category row and left the same way
  * every other local sub-screen is (a "< Back" button + a local
- * swipe-right gesture, docs/application.md section 9.2). */
+ * top-to-bottom swipe gesture). */
 static lv_obj_t *s_settings_screen;            /* category list */
 
 static lv_obj_t *s_set_tz_screen;
@@ -191,10 +191,11 @@ static lv_obj_t *s_set_info_screen;
 static lv_obj_t *s_set_info_batt_label;
 static lv_obj_t *s_set_info_sd_label;
 
-/* Local swipe-right-to-go-back gesture, shared by every Settings sub-page
- * (section 9.2: "Swipe von links nach rechts") - distance-threshold only,
- * registered per-sub-page-root with the sub-page's own back callback as
- * user data (so one handler serves all 5 pages). */
+/* Local swipe-down-to-go-back gesture, shared by every Settings sub-page -
+ * distance-threshold only, registered per-sub-page-root with the
+ * sub-page's own back callback as user data (so one handler serves all 5
+ * pages). Deviates from docs/application.md section 9.2's own suggested
+ * left-to-right swipe (explicit user preference: top-to-bottom instead). */
 static void settings_sub_swipe_cb(lv_event_t *e);
 
 /* GNSS control runs off the LVGL task (m10q_power blocks for seconds during
@@ -1713,8 +1714,8 @@ static void settings_sub_swipe_cb(lv_event_t *e)
     active = false;
     int dx = p.x - start.x;
     int dy = p.y - start.y;
-    if (dx < SWIPE_DIST || abs(dx) <= abs(dy)) {
-        return;   /* only a left-to-right swipe counts as "back" (section 9.2) */
+    if (dy < SWIPE_DIST || abs(dy) <= abs(dx)) {
+        return;   /* only a top-to-bottom swipe counts as "back" */
     }
     void (*back_cb)(lv_event_t *) = (void (*)(lv_event_t *))lv_event_get_user_data(e);
     back_cb(e);

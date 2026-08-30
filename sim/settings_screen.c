@@ -74,9 +74,9 @@ static lv_obj_t *screen_new(void)
     return scr;
 }
 
-/* Local swipe-right-to-go-back gesture, shared by every Settings sub-page
- * (docs/application.md section 9.2) - distance-threshold only, registered
- * per-sub-page-root with the sub-page's own back callback as user data. */
+/* Local swipe-down-to-go-back gesture, shared by every Settings sub-page -
+ * distance-threshold only, registered per-sub-page-root with the
+ * sub-page's own back callback as user data. */
 #define SWIPE_DIST 60
 
 static void settings_sub_swipe_cb(lv_event_t *e)
@@ -99,7 +99,7 @@ static void settings_sub_swipe_cb(lv_event_t *e)
     active = false;
     int dx = p.x - start.x;
     int dy = p.y - start.y;
-    if (dx < SWIPE_DIST || abs(dx) <= abs(dy)) {
+    if (dy < SWIPE_DIST || abs(dy) <= abs(dx)) {
         return;
     }
     void (*back_cb)(lv_event_t *) = (void (*)(lv_event_t *))lv_event_get_user_data(e);
