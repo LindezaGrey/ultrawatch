@@ -289,6 +289,7 @@
           <div class="setting">
             <label for="chargeCurrent">Charge current</label>
             <select id="chargeCurrent" data-connected disabled>
+              <option value="" selected disabled>Read from watch first</option>
               <option value="25">25 mA</option><option value="50">50 mA</option>
               <option value="75">75 mA</option><option value="100">100 mA</option>
               <option value="125">125 mA</option><option value="150">150 mA</option>
@@ -300,6 +301,7 @@
           <div class="setting">
             <label for="inputCurrent">Input-current limit</label>
             <select id="inputCurrent" data-connected disabled>
+              <option value="" selected disabled>Read from watch first</option>
               <option value="100">100 mA</option><option value="500">500 mA</option>
               <option value="900">900 mA</option><option value="1000">1000 mA</option>
               <option value="1500">1500 mA</option><option value="2000">2000 mA</option>
@@ -312,6 +314,11 @@
           <div class="setting">
             <label>Cell-battery charger</label>
             <label class="toggle"><input id="chargerEnabled" type="checkbox" data-connected disabled> Enabled</label>
+          </div>
+          <div class="setting">
+            <label>RTC backup charger</label>
+            <label class="toggle"><input id="rtcBackupChargerEnabled" type="checkbox" data-connected disabled> Enabled</label>
+            <small>100 µA · 3.1 V · MS621FE</small>
           </div>
         </div>
         <div class="buttons">
@@ -525,7 +532,8 @@
       'dateTime', 'readTime', 'browserTime', 'writeTime', 'percentage',
       'batteryPresence', 'batteryFill', 'voltage', 'powerState',
       'externalPower', 'readPower', 'chargeCurrent', 'inputCurrent',
-      'chargeVoltage', 'chargerEnabled', 'readPowerConfig', 'writePowerConfig',
+      'chargeVoltage', 'chargerEnabled', 'rtcBackupChargerEnabled',
+      'readPowerConfig', 'writePowerConfig',
       'imuX', 'imuY', 'imuZ', 'imuW', 'imuAccuracy', 'readImu',
       'brightness', 'brightnessValue', 'themeColor', 'themeColorValue',
       'readScreen', 'writeScreen',
@@ -550,6 +558,8 @@
     let sensorEnabledMask = 0x04;
     let sensorReadyMask = 0;
     let sensorWriteInProgress = false;
+    let powerConfigLoaded = false;
+    let powerConfigWriteInProgress = false;
     let systemPowerWriteInProgress = false;
     let alarmWriteInProgress = false;
     let themeWriteInProgress = false;
@@ -592,6 +602,29 @@
       ui.connect.disabled = connected;
       ui.disconnect.disabled = !connected;
       document.querySelectorAll('[data-connected]').forEach(button => { button.disabled = !connected; });
+      updatePowerConfigControls();
+    }
+
+    function updatePowerConfigControls() {
+      const connected = Boolean(device?.gatt?.connected);
+      const editable = connected && powerConfigLoaded && !powerConfigWriteInProgress;
+      ui.chargeCurrent.disabled = !editable;
+      ui.inputCurrent.disabled = !editable;
+      ui.chargerEnabled.disabled = !editable;
+      ui.rtcBackupChargerEnabled.disabled = !editable;
+      ui.readPowerConfig.disabled = !connected || powerConfigWriteInProgress;
+      ui.writePowerConfig.disabled = !editable;
+    }
+
+    function resetPowerConfigControls() {
+      powerConfigLoaded = false;
+      powerConfigWriteInProgress = false;
+      ui.chargeCurrent.value = '';
+      ui.inputCurrent.value = '';
+      ui.chargeVoltage.textContent = '-- V';
+      ui.chargerEnabled.checked = false;
+      ui.rtcBackupChargerEnabled.checked = false;
+      updatePowerConfigControls();
     }
 
     function showTime(dataView) {
@@ -623,14 +656,16 @@
 
     function showPowerConfig(dataView) {
       const values = decoder.decode(dataView).replace(/\0/g, '').split(',').map(Number);
-      if (values.length !== 4 || values.some(value => !Number.isInteger(value))) {
+      if (values.length !== 5 || values.some(value => !Number.isInteger(value))) {
         throw new Error('Unexpected power configuration');
       }
-      const [chargeCurrent, inputCurrent, chargeVoltage, chargerEnabled] = values;
+      const [chargeCurrent, inputCurrent, chargeVoltage, chargerEnabled,
+        rtcBackupChargerEnabled] = values;
       if (chargeCurrent < 0 || chargeCurrent > 1000 ||
           ![100, 500, 900, 1000, 1500, 2000].includes(inputCurrent) ||
           ![4000, 4100, 4200, 4350, 4400, 5000].includes(chargeVoltage) ||
-          ![0, 1].includes(chargerEnabled)) {
+          ![0, 1].includes(chargerEnabled) ||
+          ![0, 1].includes(rtcBackupChargerEnabled)) {
         throw new Error('Power configuration outside valid range');
       }
 
@@ -647,6 +682,9 @@
       ui.inputCurrent.value = String(inputCurrent);
       ui.chargeVoltage.textContent = `${(chargeVoltage / 1000).toFixed(2)} V`;
       ui.chargerEnabled.checked = Boolean(chargerEnabled);
+      ui.rtcBackupChargerEnabled.checked = Boolean(rtcBackupChargerEnabled);
+      powerConfigLoaded = true;
+      updatePowerConfigControls();
     }
 
     function showSensorControl(dataView) {
@@ -1057,6 +1095,7 @@
       wifiActiveProfile = 0xffffffff;
       renderWifiProfiles();
       closeWifiEditor();
+      resetPowerConfigControls();
       setConnected(false);
       ui.message.textContent = 'Watch disconnected.';
     }
@@ -1194,6 +1233,8 @@
         showPowerConfig(await characteristics.powerConfig.readValue());
         return true;
       } catch (error) {
+        powerConfigLoaded = false;
+        updatePowerConfigControls();
         if (reportError) ui.message.textContent = `Charge settings read failed: ${error.message}`;
         return false;
       }
@@ -1441,25 +1482,37 @@
     }
 
     async function writePowerConfig() {
+      if (!powerConfigLoaded) {
+        ui.message.textContent = 'Read the charge settings before you apply changes.';
+        return;
+      }
       const chargeCurrent = Number(ui.chargeCurrent.value);
       const inputCurrent = Number(ui.inputCurrent.value);
       if (!Number.isInteger(chargeCurrent) || chargeCurrent < 25 || chargeCurrent > 500) {
         ui.message.textContent = 'Choose a charge current from 25 through 500 mA.';
         return;
       }
+      powerConfigWriteInProgress = true;
+      updatePowerConfigControls();
       try {
-        const value = `${chargeCurrent},${inputCurrent},${ui.chargerEnabled.checked ? 1 : 0}`;
+        const value = `${chargeCurrent},${inputCurrent},${ui.chargerEnabled.checked ? 1 : 0},` +
+          `${ui.rtcBackupChargerEnabled.checked ? 1 : 0}`;
         const payload = encoder.encode(value);
         if (characteristics.powerConfig.writeValueWithResponse) {
           await characteristics.powerConfig.writeValueWithResponse(payload);
         } else {
           await characteristics.powerConfig.writeValue(payload);
         }
-        await readPowerConfig(false);
+        if (!await readPowerConfig(false)) {
+          throw new Error('the watch did not return the applied settings');
+        }
         await readPower(false);
-        ui.message.textContent = `Charge settings applied and verified: ${value}.`;
+        ui.message.textContent = 'Cell and RTC backup charge settings applied and verified.';
       } catch (error) {
         ui.message.textContent = `Charge settings write failed: ${error.message}`;
+      } finally {
+        powerConfigWriteInProgress = false;
+        updatePowerConfigControls();
       }
     }
 

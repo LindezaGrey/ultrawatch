@@ -4,6 +4,9 @@ Runs a small Watch/Launcher/Settings window manager in Cascadia Code inside the
 validated safe-area contour. It exposes the clock, power management, Wi-Fi,
 BHI260AP orientation, and MIA-M10Q GPS data over Bluetooth Low Energy.
 
+Read [Be aware of those footguns](BE_AWARE_OF_THOSE_FOOTGUNS.md) before you add
+a feature that combines display, radio, SD, sensor, or interrupt work.
+
 - Device name: `UltraWatch`
 - Service: `7a1e0001-7a1e-4b6c-8d9e-001122334455`
 - RTC: `7a1e0002-7a1e-4b6c-8d9e-001122334455`, read/write/notify each minute,
@@ -11,8 +14,10 @@ BHI260AP orientation, and MIA-M10Q GPS data over Bluetooth Low Energy.
 - Battery/power: `7a1e0003-7a1e-4b6c-8d9e-001122334455`, read/notify every five
   seconds, payload `percentage,millivolts,direction,vbus,present`
 - Charge configuration: `7a1e0004-7a1e-4b6c-8d9e-001122334455`, read/write.
-  Reads return `charge_milliamps,input_milliamps,charge_millivolts,enabled`;
-  writes accept `charge_milliamps,input_milliamps,enabled`.
+  Reads return `charge_milliamps,input_milliamps,charge_millivolts,enabled,`
+  `rtc_backup_enabled`. Writes accept
+  `charge_milliamps,input_milliamps,enabled,rtc_backup_enabled`. A legacy
+  three-field write leaves the RTC backup setting unchanged.
 - IMU orientation: `7a1e0005-7a1e-4b6c-8d9e-001122334455`, read/notify at
   25 Hz. Its 10-byte little-endian payload contains signed 16-bit
   `x,y,z,w,accuracy` values. Divide every value by 16384; accuracy is in
@@ -73,6 +78,11 @@ through the board-recommended 500 mA maximum. Input-current writes accept 100,
 500, 900, 1000, 1500, or 2000 mA. The target charge voltage is intentionally
 read-only. Settings are read back from the PMIC after every write and are not
 persisted across a PMIC power-on reset.
+
+The AXP2101 charges the MS621FE RTC backup cell at 100 µA with a 3.1 V
+termination voltage. Firmware enables this charger after each restart. The
+Charge settings panel can disable it until the next restart. This switch is
+separate from the main-cell charger.
 
 The RTC stores local calendar time only; the payload has no timezone or UTC
 offset. Its hardware year range is represented here as 2000 through 2099. This
@@ -200,7 +210,9 @@ SD data:
 Hardware registers:
 
 - PCF85063A calendar and active alarm registers.
-- AXP2101 charge settings. These settings do not survive a PMIC power-on reset.
+- AXP2101 main-cell and RTC backup charge settings. These settings do not
+  survive a PMIC power-on reset. Firmware enables RTC backup charging again at
+  startup.
 
 Volatile state:
 
@@ -362,9 +374,10 @@ pinned QGIS version instead of the moving `stable` tag:
 docker pull --platform linux/amd64 qgis/qgis:3.44.12
 ```
 
-The repository contains the versioned `firmware/maps/hessen-debug.qgs`
-project. Its data-source path is relative to the project. Its minimal headless
-render command is:
+The repository contains the versioned `firmware/maps/hessen-day.qgs`
+project. Its data-source path is relative to the project. The project uses a
+high-contrast day palette and scale-based road classes for the watch display.
+Its minimal headless render command is:
 
 ```sh
 docker run --rm --platform linux/amd64 \
@@ -372,16 +385,18 @@ docker run --rm --platform linux/amd64 \
   -v "$PWD:/work" -w /work \
   qgis/qgis:3.44.12 \
   qgis_process run native:tilesxyzmbtiles \
-  --PROJECT_PATH=/work/firmware/maps/hessen-debug.qgs -- \
+  --PROJECT_PATH=/work/firmware/maps/hessen-day.qgs -- \
   'EXTENT=7.609011,10.388817,49.359391,51.749253 [EPSG:4326]' \
-  ZOOM_MIN=6 ZOOM_MAX=15 DPI=96 TILE_FORMAT=1 QUALITY=75 \
+  ZOOM_MIN=6 ZOOM_MAX=15 DPI=96 TILE_FORMAT=0 \
   METATILESIZE=4 \
-  OUTPUT_FILE=/work/local-map-data/hessen-raster.mbtiles
+  OUTPUT_FILE=/work/local-map-data/hessen-day-raster.mbtiles
 ```
 
 The checked-in QGIS project defines the source layers, draw order, and a
-minimal dark debug style. Regenerate it after a GeoPackage filename or layer
-change with:
+high-contrast day style. It shows motorways at every scale. Federal, regional,
+local, and path layers appear as the map zooms in. This keeps minor roads from
+covering the overview. Regenerate the project after a GeoPackage filename,
+layer, or style change with:
 
 ```sh
 docker run --rm --platform linux/amd64 \
@@ -390,7 +405,7 @@ docker run --rm --platform linux/amd64 \
   qgis/qgis:3.44.12 \
   python3 firmware/tools/generate_hessen_qgis_project.py \
   local-map-data/basisviews_bdlm_HE_EPSG4326_2026-08-17.gpkg \
-  firmware/maps/hessen-debug.qgs \
+  firmware/maps/hessen-day.qgs \
   --labels local-map-data/gn250/GN250_p.shp
 ```
 
@@ -405,16 +420,17 @@ iteration.
 Convert the rendered raster MBTiles to the current watch package:
 
 ```sh
-python3 firmware/tools/build_offline_map.py \
-  local-map-data/hessen-raster.mbtiles \
+.venv/bin/python firmware/tools/build_offline_map.py \
+  local-map-data/hessen-day-raster.mbtiles \
   firmware/sdcard/ultrawatch/maps \
-  --jpeg-quality 75 \
-  --attribution DEBUG
+  --jpeg-quality 85 \
+  --attribution '© GeoBasis-DE / BKG 2026, dl-de/by-2-0, data modified'
 ```
 
-The temporary `DEBUG` value satisfies the current package-format validator. It
-is not production attribution. The tool accepts 256 x 256 PNG, JPEG, and WebP
-raster tiles, converts TMS rows to XYZ, and rejects vector archives. It
+The PNG MBTiles file is an intermediate artifact. The package tool encodes each
+tile to JPEG once, which keeps labels clearer than a JPEG-to-JPEG conversion.
+The tool accepts 256 x 256 PNG, JPEG, and WebP raster tiles, converts TMS rows
+to XYZ, and rejects vector archives. It
 produces `map.uwi`, `map.000`, optional additional `map.NNN` segments, and
 `map.sha256`. ESP-IDF on this target has a signed 32-bit file seek, so segment
 files split at that platform boundary before the larger FAT32 file limit.

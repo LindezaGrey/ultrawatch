@@ -145,13 +145,18 @@
 #define AXP_CHARGE_CURRENT_REGISTER 0x62
 #define AXP_CHARGE_VOLTAGE_REGISTER 0x64
 #define AXP_BATTERY_DETECT_REGISTER 0x68
+#define AXP_BACKUP_CHARGE_VOLTAGE_REGISTER 0x6a
 #define AXP_IRQ_ENABLE1_REGISTER   0x41
 #define AXP_IRQ_STATUS0_REGISTER   0x48
 #define AXP_CHIP_ID                0x4a
 #define AXP_INPUT_CURRENT_MASK     0x07
 #define AXP_CELL_CHARGE_ENABLE_BIT 1
+#define AXP_BACKUP_CHARGE_ENABLE_BIT 2
 #define AXP_CHARGE_CURRENT_MASK    0x1f
 #define AXP_CHARGE_VOLTAGE_MASK    0x07
+#define AXP_BACKUP_CHARGE_VOLTAGE_MASK 0x07
+#define AXP_BACKUP_CHARGE_VOLTAGE_MV 3100
+#define AXP_BACKUP_CHARGE_VOLTAGE_CODE 5
 #define AXP_BATTERY_ADC_ENABLE_BIT 0
 #define AXP_BATTERY_DETECT_BIT     0
 #define AXP_POWERON_SHORT_PRESS_BIT 3
@@ -245,6 +250,7 @@ typedef struct {
     unsigned input_current_ma;
     unsigned charge_voltage_mv;
     bool charger_enabled;
+    bool backup_charger_enabled;
 } power_config_t;
 
 static SemaphoreHandle_t i2c_mutex;
@@ -1569,6 +1575,8 @@ static esp_err_t axp_read_power_config(power_config_t *config)
     config->charge_voltage_mv = decoded_voltage;
     config->charger_enabled =
         (module_enable & (1U << AXP_CELL_CHARGE_ENABLE_BIT)) != 0;
+    config->backup_charger_enabled =
+        (module_enable & (1U << AXP_BACKUP_CHARGE_ENABLE_BIT)) != 0;
     return ESP_OK;
 }
 
@@ -1620,6 +1628,38 @@ static esp_err_t axp_set_power_config(unsigned charge_current_ma,
     if (actual.charge_current_ma != charge_current_ma ||
         actual.input_current_ma != input_current_ma ||
         actual.charger_enabled != charger_enabled) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t axp_set_backup_charger(bool enabled)
+{
+    const uint8_t voltage_code = AXP_BACKUP_CHARGE_VOLTAGE_CODE;
+    ESP_RETURN_ON_ERROR(
+        axp_write_masked_register(AXP_BACKUP_CHARGE_VOLTAGE_REGISTER,
+                                  AXP_BACKUP_CHARGE_VOLTAGE_MASK,
+                                  voltage_code),
+        TAG, "RTC backup charge voltage write failed");
+
+    const uint8_t enable_mask = 1U << AXP_BACKUP_CHARGE_ENABLE_BIT;
+    ESP_RETURN_ON_ERROR(
+        axp_write_masked_register(AXP_MODULE_ENABLE_REGISTER, enable_mask,
+                                  enabled ? enable_mask : 0),
+        TAG, "RTC backup charger switch failed");
+
+    uint8_t module_enable;
+    uint8_t charge_voltage;
+    ESP_RETURN_ON_ERROR(axp_read_registers(AXP_MODULE_ENABLE_REGISTER,
+                                           &module_enable, 1),
+                        TAG, "RTC backup charger verification failed");
+    ESP_RETURN_ON_ERROR(axp_read_registers(
+                            AXP_BACKUP_CHARGE_VOLTAGE_REGISTER,
+                            &charge_voltage, 1),
+                        TAG, "RTC backup charge voltage verification failed");
+    const bool actual_enabled = (module_enable & enable_mask) != 0;
+    if (actual_enabled != enabled ||
+        (charge_voltage & AXP_BACKUP_CHARGE_VOLTAGE_MASK) != voltage_code) {
         return ESP_ERR_INVALID_RESPONSE;
     }
     return ESP_OK;
@@ -1825,25 +1865,34 @@ static esp_err_t power_config_get_payload(char *output, size_t output_size)
     power_config_t config;
     ESP_RETURN_ON_ERROR(axp_read_power_config(&config),
                         TAG, "power configuration unavailable");
-    int length = snprintf(output, output_size, "%u,%u,%u,%u",
+    int length = snprintf(output, output_size, "%u,%u,%u,%u,%u",
                           config.charge_current_ma, config.input_current_ma,
                           config.charge_voltage_mv,
-                          config.charger_enabled ? 1 : 0);
+                          config.charger_enabled ? 1 : 0,
+                          config.backup_charger_enabled ? 1 : 0);
     return length > 0 && (size_t)length < output_size ? ESP_OK : ESP_FAIL;
 }
 
 static bool parse_power_config_write(const char *payload,
                                      unsigned *charge_current_ma,
                                      unsigned *input_current_ma,
-                                     bool *charger_enabled)
+                                     bool *charger_enabled,
+                                     bool *backup_charger_enabled,
+                                     bool *backup_setting_present)
 {
     unsigned enabled;
+    unsigned backup_enabled = 0;
     char trailing;
-    if (sscanf(payload, "%u,%u,%u%c", charge_current_ma, input_current_ma,
-               &enabled, &trailing) != 3 || enabled > 1) {
+    int fields = sscanf(payload, "%u,%u,%u,%u%c", charge_current_ma,
+                        input_current_ma, &enabled, &backup_enabled,
+                        &trailing);
+    if ((fields != 3 && fields != 4) || enabled > 1 ||
+        (fields == 4 && backup_enabled > 1)) {
         return false;
     }
     *charger_enabled = enabled != 0;
+    *backup_charger_enabled = backup_enabled != 0;
+    *backup_setting_present = fields == 4;
     return charge_current_to_code(*charge_current_ma) >= 0 &&
            input_current_to_code(*input_current_ma) >= 0;
 }
@@ -1941,17 +1990,30 @@ static int power_config_gatt_access(uint16_t conn_handle, uint16_t attr_handle,
         unsigned charge_current_ma;
         unsigned input_current_ma;
         bool charger_enabled;
+        bool backup_charger_enabled;
+        bool backup_setting_present;
         if (!parse_power_config_write(payload, &charge_current_ma,
-                                      &input_current_ma, &charger_enabled)) {
+                                      &input_current_ma, &charger_enabled,
+                                      &backup_charger_enabled,
+                                      &backup_setting_present)) {
             return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
         }
         if (axp_set_power_config(charge_current_ma, input_current_ma,
                                  charger_enabled) != ESP_OK) {
             return BLE_ATT_ERR_UNLIKELY;
         }
-        ESP_LOGI(TAG, "power config set: %umA charge, %umA input, %s",
+        if (backup_setting_present &&
+            axp_set_backup_charger(backup_charger_enabled) != ESP_OK) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+        ESP_LOGI(TAG,
+                 "power config set: %umA charge, %umA input, cell %s, "
+                 "RTC backup %s",
                  charge_current_ma, input_current_ma,
-                 charger_enabled ? "enabled" : "disabled");
+                 charger_enabled ? "enabled" : "disabled",
+                 backup_setting_present
+                     ? (backup_charger_enabled ? "enabled" : "disabled")
+                     : "unchanged");
         return 0;
     }
 
@@ -3128,13 +3190,22 @@ esp_err_t ble_rtc_start(void)
 
     ESP_RETURN_ON_ERROR(axp_initialize_measurement(),
                         TAG, "PMIC measurement initialization failed");
+    esp_err_t backup_charge_result = axp_set_backup_charger(true);
+    if (backup_charge_result != ESP_OK) {
+        ESP_LOGW(TAG, "RTC backup charger unavailable: %s",
+                 esp_err_to_name(backup_charge_result));
+    }
     power_config_t config;
     esp_err_t config_result = axp_read_power_config(&config);
     if (config_result == ESP_OK) {
-        ESP_LOGI(TAG, "power config: %umA charge, %umA input, %umV, %s",
+        ESP_LOGI(TAG,
+                 "power config: %umA charge, %umA input, %umV, cell %s, "
+                 "RTC backup %s at %umV",
                  config.charge_current_ma, config.input_current_ma,
                  config.charge_voltage_mv,
-                 config.charger_enabled ? "enabled" : "disabled");
+                 config.charger_enabled ? "enabled" : "disabled",
+                 config.backup_charger_enabled ? "enabled" : "disabled",
+                 AXP_BACKUP_CHARGE_VOLTAGE_MV);
     } else {
         ESP_LOGW(TAG, "power configuration unavailable: %s",
                  esp_err_to_name(config_result));

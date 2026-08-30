@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the minimal QGIS project for the Hessen offline-map render."""
+"""Create the high-contrast QGIS project for the Hessen offline map."""
 
 from __future__ import annotations
 
@@ -16,12 +16,104 @@ from qgis.core import (
     QgsMarkerSymbol,
     QgsPalLayerSettings,
     QgsProject,
+    QgsSimpleLineSymbolLayer,
     QgsProperty,
     QgsTextBufferSettings,
     QgsTextFormat,
     QgsVectorLayer,
     QgsVectorLayerSimpleLabeling,
-    QgsWkbTypes,
+)
+
+
+BACKGROUND_COLOR = "#f6f3eb"
+LABEL_COLOR = "#20242a"
+LABEL_BUFFER_COLOR = "#ffffff"
+
+POLYGON_STYLES = {
+    "gewaesserflaeche_bdlm": ("#b9dbea", "#6ca8c2"),
+    "vegetationsflaeche_bdlm": ("#dce9d4", "#a8c39a"),
+    "siedlungsflaeche_bdlm": ("#eee9e2", "#c6bdb3"),
+    "bauwerksflaeche_bdlm": ("#d7d1c8", "#a69c90"),
+    "verkehrsflaeche_bdlm": ("#f9f7f2", "#b8afa5"),
+    "reliefflaeche_bdlm": ("#f0e9d9", "#cdbf9f"),
+    "besondere_flaeche_bdlm": ("#eee7d8", "#b8aa8b"),
+    "weitere_nutzung_flaeche_bdlm": ("#ece7de", "#bbb2a7"),
+}
+
+POLYGON_MINIMUM_SCALES = {
+    "bauwerksflaeche_bdlm": 75_000,
+    "verkehrsflaeche_bdlm": 75_000,
+    "besondere_flaeche_bdlm": 100_000,
+}
+
+ROAD_LAYERS = (
+    {
+        "name": "Motorways",
+        "filter": '"objektart" = \'Strassenachse\' AND "klasse" = \'Bundesautobahn\'',
+        "minimum_scale": 0,
+        "casing": "#62584d",
+        "center": "#f2b84b",
+        "casing_width": 1.65,
+        "center_width": 1.05,
+    },
+    {
+        "name": "Federal roads",
+        "filter": '"objektart" = \'Strassenachse\' AND "klasse" = \'Bundesstraße\'',
+        "minimum_scale": 2_500_000,
+        "casing": "#68625c",
+        "center": "#ffffff",
+        "casing_width": 1.45,
+        "center_width": 0.90,
+    },
+    {
+        "name": "State and district roads",
+        "filter": '"objektart" = \'Strassenachse\' AND "klasse" IN '
+        "('Landesstraße, Staatsstraße', 'Kreisstraße')",
+        "minimum_scale": 500_000,
+        "casing": "#837d75",
+        "center": "#fff8e7",
+        "casing_width": 1.15,
+        "center_width": 0.66,
+    },
+    {
+        "name": "Local roads",
+        "filter": '"objektart" = \'Strassenachse\' AND "klasse" IN '
+        "('Gemeindestraße', 'Sonstige öffentliche Straße')",
+        "minimum_scale": 100_000,
+        "casing": "#a39d96",
+        "center": "#ffffff",
+        "casing_width": 0.82,
+        "center_width": 0.42,
+    },
+    {
+        "name": "Paths and tracks",
+        "filter": '"objektart" IN (\'Fahrwegachse\', \'WegPfadSteig\')',
+        "minimum_scale": 50_000,
+        "casing": "#8f806b",
+        "center": None,
+        "casing_width": 0.32,
+        "center_width": 0,
+    },
+    {
+        "name": "Railways",
+        "filter": '"objektart" = \'Bahnstrecke\'',
+        "minimum_scale": 500_000,
+        "casing": "#555b64",
+        "center": "#f6f3eb",
+        "casing_width": 0.72,
+        "center_width": 0.28,
+    },
+)
+
+BOUNDARY_LAYERS = (
+    ("State boundaries", '"klasse" = \'Grenze des Bundeslandes\'', 0, 0.75),
+    (
+        "District boundaries",
+        '"klasse" = \'Grenze des Kreises / Kreisfreien Stadt / Region\'',
+        1_000_000,
+        0.45,
+    ),
+    ("Municipal boundaries", '"klasse" = \'Grenze der Gemeinde\'', 150_000, 0.28),
 )
 
 
@@ -44,35 +136,117 @@ def layer_names(source: Path) -> list[str]:
         return [row[0] for row in rows]
 
 
-def colors(name: str) -> tuple[str, str]:
-    if name.startswith("gewaesser"):
-        return "#102b42", "#41a9db"
-    if name.startswith("vegetation"):
-        return "#152e25", "#356a52"
-    if name.startswith("siedlung") or name.startswith("bauwerk"):
-        return "#272a31", "#707784"
-    if name.startswith("verkehr"):
-        return "#24262b", "#d5d8df"
-    if name.startswith("grenze"):
-        return "#171724", "#7772a8"
-    return "#171b20", "#59616b"
+def set_minimum_scale(layer: QgsVectorLayer, scale: float) -> None:
+    if scale <= 0:
+        return
+    layer.setScaleBasedVisibility(True)
+    layer.setMinimumScale(scale)
+    layer.setMaximumScale(0)
 
 
-def apply_style(layer: QgsVectorLayer, name: str) -> None:
-    fill, stroke = colors(name)
-    geometry = QgsWkbTypes.geometryType(layer.wkbType())
-    if geometry == QgsWkbTypes.PolygonGeometry:
-        symbol = QgsFillSymbol.createSimple(
-            {"color": fill, "outline_color": stroke, "outline_width": "0.15"}
+def road_symbol(
+    casing: str,
+    center: str | None,
+    casing_width: float,
+    center_width: float,
+) -> QgsLineSymbol:
+    symbol = QgsLineSymbol.createSimple(
+        {"color": casing, "width": str(casing_width), "capstyle": "round"}
+    )
+    if center:
+        center_layer = QgsSimpleLineSymbolLayer.create(
+            {"line_color": center, "line_width": str(center_width), "capstyle": "round"}
         )
-    elif geometry == QgsWkbTypes.LineGeometry:
-        width = "0.65" if name.startswith("verkehr") else "0.35"
-        symbol = QgsLineSymbol.createSimple({"color": stroke, "width": width})
-    else:
-        symbol = QgsMarkerSymbol.createSimple(
-            {"color": stroke, "outline_color": fill, "size": "1.2"}
+        if center_layer is None:
+            raise RuntimeError("QGIS could not create a road center line")
+        symbol.appendSymbolLayer(center_layer)
+    return symbol
+
+
+def load_layer(
+    project: QgsProject,
+    source: Path,
+    table: str,
+    display_name: str | None = None,
+    subset: str | None = None,
+) -> QgsVectorLayer:
+    uri = f"{source}|layername={table}"
+    layer = QgsVectorLayer(uri, display_name or table, "ogr")
+    if not layer.isValid():
+        raise RuntimeError(f"QGIS could not load layer: {table}")
+    if subset and not layer.setSubsetString(subset):
+        raise RuntimeError(f"QGIS rejected filter for {display_name or table}: {subset}")
+    project.addMapLayer(layer, False)
+    return layer
+
+
+def add_polygon_layers(project: QgsProject, source: Path) -> list[QgsVectorLayer]:
+    layers = []
+    for table, (fill, stroke) in POLYGON_STYLES.items():
+        layer = load_layer(project, source, table)
+        outline_width = "0.12" if table in {
+            "gewaesserflaeche_bdlm",
+            "bauwerksflaeche_bdlm",
+            "verkehrsflaeche_bdlm",
+        } else "0"
+        layer.renderer().setSymbol(
+            QgsFillSymbol.createSimple(
+                {
+                    "color": fill,
+                    "outline_color": stroke,
+                    "outline_width": outline_width,
+                }
+            )
         )
-    layer.renderer().setSymbol(symbol)
+        set_minimum_scale(layer, POLYGON_MINIMUM_SCALES.get(table, 0))
+        layers.append(layer)
+    return layers
+
+
+def add_road_layers(project: QgsProject, source: Path) -> list[QgsVectorLayer]:
+    layers = []
+    for definition in ROAD_LAYERS:
+        layer = load_layer(
+            project,
+            source,
+            "verkehrslinie_bdlm",
+            definition["name"],
+            definition["filter"],
+        )
+        layer.renderer().setSymbol(
+            road_symbol(
+                definition["casing"],
+                definition["center"],
+                definition["casing_width"],
+                definition["center_width"],
+            )
+        )
+        set_minimum_scale(layer, definition["minimum_scale"])
+        layers.append(layer)
+    return layers
+
+
+def add_reference_lines(project: QgsProject, source: Path) -> list[QgsVectorLayer]:
+    layers = []
+    water = load_layer(project, source, "gewaesserlinie_bdlm", "Waterways")
+    water.renderer().setSymbol(
+        QgsLineSymbol.createSimple({"color": "#5e9db7", "width": "0.42"})
+    )
+    set_minimum_scale(water, 150_000)
+    layers.append(water)
+
+    for name, subset, minimum_scale, width in BOUNDARY_LAYERS:
+        layer = load_layer(
+            project, source, "grenze_linie_bdlm", name, subset
+        )
+        layer.renderer().setSymbol(
+            QgsLineSymbol.createSimple(
+                {"color": "#7d7194", "width": str(width), "line_style": "dash"}
+            )
+        )
+        set_minimum_scale(layer, minimum_scale)
+        layers.append(layer)
+    return layers
 
 
 def add_label_layer(
@@ -97,11 +271,11 @@ def add_label_layer(
     text_format = QgsTextFormat()
     text_format.setFont(QFont("DejaVu Sans"))
     text_format.setSize(10)
-    text_format.setColor(QColor("#f2f5f8"))
+    text_format.setColor(QColor(LABEL_COLOR))
     buffer = QgsTextBufferSettings()
     buffer.setEnabled(True)
-    buffer.setSize(1.2)
-    buffer.setColor(QColor("#05080c"))
+    buffer.setSize(1.5)
+    buffer.setColor(QColor(LABEL_BUFFER_COLOR))
     text_format.setBuffer(buffer)
 
     settings = QgsPalLayerSettings()
@@ -144,33 +318,32 @@ def main() -> None:
 
     application = QgsApplication([], False)
     application.initQgis()
+    project = QgsProject.instance()
     try:
-        project = QgsProject.instance()
         project.clear()
-        project.setTitle("UltraWatch Hessen debug map")
+        project.setTitle("UltraWatch Hessen high-contrast day map")
         project.setCrs(project.crs().fromEpsgId(4326))
-        project.setBackgroundColor(QColor("#05080c"))
+        project.setBackgroundColor(QColor(BACKGROUND_COLOR))
+        project.setFileName(str(output))
         project.setFilePathStorage(Qgis.FilePathType.Relative)
 
-        layers: list[QgsVectorLayer] = []
-        for name in layer_names(source):
-            uri = f"{source}|layername={name}"
-            layer = QgsVectorLayer(uri, name, "ogr")
-            if not layer.isValid():
-                raise RuntimeError(f"QGIS could not load layer: {name}")
-            apply_style(layer, name)
-            project.addMapLayer(layer, False)
-            layers.append(layer)
+        available_layers = set(layer_names(source))
+        required_layers = set(POLYGON_STYLES) | {
+            "verkehrslinie_bdlm",
+            "gewaesserlinie_bdlm",
+            "grenze_linie_bdlm",
+        }
+        missing_layers = sorted(required_layers - available_layers)
+        if missing_layers:
+            raise RuntimeError(f"GeoPackage is missing layers: {', '.join(missing_layers)}")
+
+        polygon_layers = add_polygon_layers(project, source)
+        road_layers = add_road_layers(project, source)
+        reference_lines = add_reference_lines(project, source)
 
         root = project.layerTreeRoot()
-        for geometry in (
-            QgsWkbTypes.PolygonGeometry,
-            QgsWkbTypes.LineGeometry,
-            QgsWkbTypes.PointGeometry,
-        ):
-            for layer in layers:
-                if QgsWkbTypes.geometryType(layer.wkbType()) == geometry:
-                    root.addLayer(layer)
+        for layer in [*road_layers, *reference_lines, *polygon_layers]:
+            root.addLayer(layer)
 
         municipality_labels = add_label_layer(
             project,
@@ -199,8 +372,10 @@ def main() -> None:
 
         if not project.write(str(output)):
             raise RuntimeError(f"QGIS could not write project: {output}")
-        print(f"Created {output} with {len(layers)} map layers and 2 label layers")
+        map_layer_count = len(polygon_layers) + len(road_layers) + len(reference_lines)
+        print(f"Created {output} with {map_layer_count} map layers and 2 label layers")
     finally:
+        project.clear()
         application.exitQgis()
 
 

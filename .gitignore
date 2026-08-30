@@ -7,5 +7,6 @@ firmware/managed_components/
 firmware/sdkconfig
 firmware/sdkconfig.old
 local-map-data/
-firmware/maps
+firmware/maps/*
+!firmware/maps/.gitkeep
 firmware/sdcard/ultrawatch/maps/*
