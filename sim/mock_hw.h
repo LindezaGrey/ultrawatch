@@ -305,11 +305,16 @@ bool ble_debug_is_advertising(void);
 void ble_debug_set_advertising(bool on);
 esp_err_t sd_log_get_space(uint64_t *total_bytes, uint64_t *free_bytes);
 
-/* --- lvgl_app.h subset (Settings/Peripherie screen) ---
+/* --- lvgl_app.h subset (Settings/Peripherie screen + the shared
+ * gps_screen.c's gps_pwr_switch_cb()) ---
  * Real lvgl_gps_set_enabled() drives the GNSS power task; the sim has no
- * task, so this mock just calls mock_gnss_set_enabled() directly (same
- * substitution gps_screen.c's own gps_pwr_switch_cb() already makes). */
+ * task, so this mock just calls mock_gnss_set_enabled() directly. */
 void lvgl_gps_set_enabled(bool on);
+
+/* --- esp_lv_adapter.h subset ---
+ * Real esp_lv_adapter_report_activity() resets the idle-sleep timer; no-op
+ * here, the sim has no auto-sleep to defer. */
+esp_err_t esp_lv_adapter_report_activity(void);
 
 #ifdef __cplusplus
 }

@@ -18,7 +18,6 @@ add_executable(uwatch_sim
     main.c
     nav.c
     bhi_screen.c
-    gps_screen.c
     mesh_screen.c
     alarm_screen.c
     ring_screen.c
@@ -27,6 +26,7 @@ add_executable(uwatch_sim
     mock_hw.c
     ../main/screens/watch_face.c
     ../main/screens/status_bar.c
+    ../main/screens/gps_screen.c
     ../main/cascadia_72.c
     ../main/cascadia_36.c
     ../main/cascadia_22.c

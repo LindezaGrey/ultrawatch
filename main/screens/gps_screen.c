@@ -1,81 +1,70 @@
 /*
- * gps_screen.c - the real GPS screen from main/lvgl_app.c (lines ~936-1236
- * plus the gps_pwr_switch_cb/gps_track_btn_cb callbacks at ~1360-1390, as of
- * the porting pass), copied verbatim (gps_ring / gps_sat_xy / gps_snr_color /
- * gps_screen_update / lvgl_build_gps_screen - unmodified widget layout,
- * unmodified skyplot trig) and run against mock_hw.c instead of real
- * drivers.
+ * gps_screen.c - GPS screen (skyplot + fix info). Shared between the
+ * firmware and the host sim - see watch_face.c's header comment for the
+ * mechanism (real header names, intercepted by stubs under sim/compat/).
  *
- * Deviations from the firmware original:
- *   - screen_new() copied in here too, same as every non-watch-face screen.
- *   - No esp_lv_adapter_lock()/unlock(): none was present in this range
- *     anyway.
- *   - esp_lv_adapter_report_activity() call site deleted (power-management
- *     hook, no-op on the sim per the porting brief).
- *   - gps_ctrl_task (the real background worker that calls the blocking
- *     m10q_power()) is skipped entirely per the porting brief - it has no
- *     sim equivalent, so xTaskCreate(gps_ctrl_task, ...) is dropped from
- *     lvgl_build_gps_screen(), and its two bookkeeping fields
- *     (s_gps_powered, s_gps_acq_start_ms) are now set directly by
- *     gps_pwr_switch_cb() below (see its comment) instead of by the task.
- *   - "now"/"elapsed" while acquiring used xTaskGetTickCount()*
- *     portTICK_PERIOD_MS (FreeRTOS, unavailable on the host); replaced with
- *     lv_tick_get(), which is the same "ms since start" tick the sim already
- *     drives from SDL_GetTicks() (see main.c).
- *   - gps_pwr_switch_cb()'s body is NOT verbatim: the real body calls
- *     lvgl_gps_set_enabled(), which persists the choice to NVS and queues a
- *     power request onto gps_ctrl_task. Per the porting brief it's replaced
- *     with a call to mock_gnss_set_enabled(), which flips the mock's
- *     internal GNSS-enabled flag directly.
- *   - Phase 3 (DMS + GPX logging): the Start/Stop button and its label are
- *     wired to mock_hw.c's gpx_log_* mocks now, not tracking.c's pedometer
- *     (see main/lvgl_app.c's gps_track_btn_cb for why - a different,
- *     unrelated feature). format_dms() is copied verbatim from the same
- *     file for the same reason (no degree-sign glyph in the baked fonts).
+ * GNSS is powered on demand: the BLDO1 rail is enabled when this screen is
+ * opened and disabled when it is left. The always-on VRTC backup rail keeps
+ * the receiver's ephemeris/RTC alive, so each power-up is a warm/hot start.
  *
- * Keep this in sync with main/lvgl_app.c by hand: there's no build-time
- * link between the two.
+ * The background power-transition worker (gps_ctrl_task, a real FreeRTOS
+ * task) stays firmware-only in main/lvgl_app.c - it has no sim equivalent
+ * (the sim's GNSS mock has no power-on latency to simulate). Both it and
+ * this file's gps_pwr_switch_cb() go through gps_screen_set_powered()/
+ * gps_screen_is_powered() below instead of touching s_gps_powered directly,
+ * since ownership of that flag is now split across two files (and, via
+ * lvgl_app.c's settings_periph_refresh(), a third screen that mirrors the
+ * same on/off state).
  */
+#include "screens.h"
+#include "status_bar.h"
 #include <stdio.h>
 #include <math.h>
-#include "lvgl.h"
 #include "cascadia_fonts.h"
-#include "mock_hw.h"
-#include "screens.h"
+#include "m10q.h"
+#include "gpx_log.h"
+#include "lvgl_app.h"
+#include "esp_lv_adapter.h"
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
-
+static const lv_font_t *s_font_sec  = &cascadia_36;
 static const lv_font_t *s_font_small = &cascadia_22;
 static const lv_font_t *s_font_micro = &cascadia_18;
-static const lv_font_t *s_font_sec   = &cascadia_36;
 
-/* Not static: declared extern in screens.h. */
+#define GPS_SKY_RADIUS    100
+#define GPS_SKY_CX        205
+#define GPS_SKY_CY        190
+
 lv_obj_t *s_gps_screen;
 
 static lv_obj_t *s_gps_status_label;
 static lv_obj_t *s_gps_pos_label;
 static lv_obj_t *s_gps_speed_label;
 static lv_obj_t *s_gps_sats_label;
-static lv_obj_t *s_gps_diag_label;
-static lv_obj_t *s_gps_dots[M10Q_MAX_SATS];
-static bool s_gps_powered;
-static uint32_t s_gps_acq_start_ms;
-static lv_obj_t *s_gps_track_label;
-static lv_obj_t *s_gps_track_btn;
-static lv_obj_t *s_gps_pwr_switch;
+static lv_obj_t *s_gps_diag_label;           /* GNSS diagnostics (state/offset/ttff/rx) */
+static lv_obj_t *s_gps_dots[M10Q_MAX_SATS];   /* satellite dots (in view order) */
+static lv_obj_t *s_gps_track_label;            /* tracking stats (distance/steps/avg) */
+static lv_obj_t *s_gps_track_btn;              /* Start/Stop tracking button */
+static lv_obj_t *s_gps_pwr_switch;             /* GNSS on/off switch */
+static status_bar_t s_status_bar;
 
-#define GPS_SKY_RADIUS    100
-#define GPS_SKY_CX        205
-#define GPS_SKY_CY        190
+/* Owns the "is GNSS powered" flag and its power-on timestamp - see the
+ * file header comment for why this needs a getter/setter instead of a
+ * plain file-static now that gps_ctrl_task (main/lvgl_app.c) and the
+ * Settings/Peripherie screen (also lvgl_app.c) both touch it. */
+static volatile bool s_gps_powered;
+static uint32_t s_gps_acq_start_ms;            /* power-on timestamp */
 
-static lv_obj_t *screen_new(void)
+bool gps_screen_is_powered(void)
 {
-    lv_obj_t *scr = lv_obj_create(NULL);
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
-    return scr;
+    return s_gps_powered;
+}
+
+void gps_screen_set_powered(bool on)
+{
+    s_gps_powered = on;
+    if (on) {
+        s_gps_acq_start_ms = lv_tick_get();
+    }
 }
 
 static lv_obj_t *gps_ring(int radius)
@@ -114,9 +103,13 @@ static lv_color_t gps_snr_color(int snr)
     return lv_color_hex(0x3DD68A);
 }
 
-/* Decimal degrees -> DMS, plain-ASCII "D M S" notation - see the identical
- * helper's comment in main/lvgl_app.c for why (no degree-sign glyph in the
- * baked bitmap fonts). */
+/* Decimal degrees -> DMS. The doc's example uses "48°07'24"N", but the
+ * baked bitmap fonts here (cascadia_*.c) only cover ASCII 0x20-0x7E - no
+ * degree sign (U+00B0) - and the source TTF isn't in the repo to
+ * regenerate them with a wider range (see cascadia_22.c's header comment
+ * for the original `lv_font_conv` invocation). Using the plain-ASCII
+ * "D M S" letter notation instead (e.g. "48d07m24sN"), a common fallback
+ * for the same reason on other text-only GPS displays. */
 static void format_dms(double deg, bool is_lat, char *out, size_t outlen)
 {
     char dir = is_lat ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'W');
@@ -128,7 +121,7 @@ static void format_dms(double deg, bool is_lat, char *out, size_t outlen)
     snprintf(out, outlen, "%dd%02dm%02ds%c", d, m, s, dir);
 }
 
-static void gps_screen_update(lv_timer_t *timer)
+void gps_screen_update(lv_timer_t *timer)
 {
     (void)timer;
     if (!s_gps_status_label) {
@@ -144,6 +137,13 @@ static void gps_screen_update(lv_timer_t *timer)
     m10q_state_t st = m10q_get_state();
     char buf[96];
 
+    /* While acquiring, keep the watch awake (no auto-sleep) so the GNSS rail
+     * stays powered. Once a fix is obtained, stop reporting activity: the
+     * adapter's idle timeout then auto-sleeps the watch ~5 s after the fix,
+     * powering BLDO1 off (VRTC backup keeps ephemeris for the next session). */
+    if (st != M10Q_STATE_FIXED || !fix.valid) {
+        esp_lv_adapter_report_activity();
+    }
     if (st == M10Q_STATE_FIXED && fix.valid) {
         snprintf(buf, sizeof(buf), "Fix: %d sats  acc %um  HDOP %.1f",
                  (int)fix.sat_count, (unsigned)fix.hacc_m, fix.hdop / 10.0);
@@ -238,7 +238,9 @@ static void gps_screen_update(lv_timer_t *timer)
         }
     }
 
-    /* GPX recording state + button (mock_hw.c's gpx_log_* mocks). */
+    /* GPX recording state + Start/Stop button (main/gpx_log.c) - a
+     * time-based (every 30s) SD file logger, unrelated to tracking.c's
+     * step-gated pedometer (that stays disabled, see TRACKING_ENABLED). */
     if (s_gps_track_label && s_gps_track_btn) {
         bool active = gpx_log_is_active();
         if (active) {
@@ -255,15 +257,22 @@ static void gps_screen_update(lv_timer_t *timer)
         lv_obj_set_style_bg_color(s_gps_track_btn,
                                   active ? lv_color_hex(0x8B0000) : lv_color_hex(0x1B5E20), 0);
     }
+
+    update_status_bar(&s_status_bar);
 }
 
 /* GNSS on/off switch on the GPS screen. Persists the choice so the next boot
- * powers GNSS on only if it was left enabled.
- *
- * NOT verbatim vs. main/lvgl_app.c - see the file header comment: this calls
- * mock_gnss_set_enabled() instead of the real lvgl_gps_set_enabled(), and
- * takes over the power-on bookkeeping (s_gps_powered/s_gps_acq_start_ms)
- * that the skipped gps_ctrl_task would otherwise do. */
+ * powers GNSS on only if it was left enabled. lvgl_gps_set_enabled() is the
+ * single entry point for the actual transition: on the firmware it queues a
+ * request onto the async gps_ctrl_task, which alone calls
+ * gps_screen_set_powered() once it has actually acted on it; on the sim
+ * (no task) the mock_gnss_set_enabled() it calls into does the equivalent
+ * synchronously instead. Do NOT also call gps_screen_set_powered() here -
+ * doing so previously raced the real task: this callback would flip
+ * gps_screen_is_powered() before the task read it, so the task's own
+ * "only transition if the state disagrees" guard saw no disagreement and
+ * silently skipped the real m10q_power() call - the switch changed how it
+ * looked without changing what GNSS was doing. */
 static void gps_pwr_switch_cb(lv_event_t *e)
 {
     (void)e;
@@ -271,14 +280,10 @@ static void gps_pwr_switch_cb(lv_event_t *e)
         return;
     }
     bool on = lv_obj_has_state(s_gps_pwr_switch, LV_STATE_CHECKED);
-    mock_gnss_set_enabled(on);
-    s_gps_powered = on;
-    if (on) {
-        s_gps_acq_start_ms = lv_tick_get();
-    }
+    lvgl_gps_set_enabled(on);
 }
 
-/* GPS screen Start/Stop GPX-recording button. */
+/* GPS screen Start/Stop tracking button. */
 static void gps_track_btn_cb(lv_event_t *e)
 {
     (void)e;
@@ -290,10 +295,12 @@ static void gps_track_btn_cb(lv_event_t *e)
     gps_screen_update(NULL);
 }
 
-static void lvgl_build_gps_screen(void)
+void lvgl_build_gps_screen(void)
 {
     s_gps_screen = screen_new();
     lv_obj_set_style_bg_color(s_gps_screen, lv_color_hex(0x102010), 0);
+
+    build_status_bar(s_gps_screen, &s_status_bar);
 
     lv_obj_t *title = lv_label_create(s_gps_screen);
     lv_label_set_text(title, "GPS");
@@ -301,8 +308,14 @@ static void lvgl_build_gps_screen(void)
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
 
-    /* GNSS on/off switch. Explicit larger size (matches Settings, AGENT.md
-     * "Display density & UI sizing"). */
+    /* GNSS on/off switch. Explicit larger size (matches the Settings
+     * screens' switches, AGENT.md "Display density & UI sizing") - this
+     * screen's skyplot + stacked telemetry rows already use the full
+     * panel height with no slack, so unlike Settings this pass is limited
+     * to touch targets and the few short standalone labels (title, this
+     * one); the info-row stack and the diagnostics line stay at their
+     * current sizes - promoting them would need reflowing/shrinking the
+     * skyplot, a bigger change than a sizing pass. */
     lv_obj_t *pwr_lbl = lv_label_create(s_gps_screen);
     lv_label_set_text(pwr_lbl, "GNSS");
     lv_obj_set_style_text_font(pwr_lbl, s_font_small, 0);
@@ -389,30 +402,30 @@ static void lvgl_build_gps_screen(void)
     lv_obj_set_style_text_color(s_gps_diag_label, lv_color_hex(0x8A9BA8), 0);
     lv_obj_align(s_gps_diag_label, LV_ALIGN_TOP_MID, 0, 56);
 
-    /* Tracking stats + start/stop. */
+    /* GPX recording state + start/stop (main/gpx_log.c). */
     s_gps_track_label = lv_label_create(s_gps_screen);
     lv_label_set_text(s_gps_track_label, "");
     lv_obj_set_style_text_font(s_gps_track_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_track_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_gps_track_label, LV_ALIGN_TOP_MID, 0, 434);
+    lv_obj_align(s_gps_track_label, LV_ALIGN_TOP_MID, 0, 404);
 
+    /* Bigger touch target (was 120x34/cascadia_22 - too small next to every
+     * other button this app's high-DPI pass already enlarged). */
     s_gps_track_btn = lv_btn_create(s_gps_screen);
-    lv_obj_set_size(s_gps_track_btn, 120, 34);
+    lv_obj_set_size(s_gps_track_btn, 170, 50);
     lv_obj_align(s_gps_track_btn, LV_ALIGN_BOTTOM_MID, 0, -16);
     lv_obj_add_event_cb(s_gps_track_btn, gps_track_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *btn_lbl = lv_label_create(s_gps_track_btn);
     lv_label_set_text(btn_lbl, "Start");
-    lv_obj_set_style_text_font(btn_lbl, s_font_small, 0);
+    lv_obj_set_style_text_font(btn_lbl, s_font_sec, 0);
     lv_obj_center(btn_lbl);
 
     gps_screen_update(NULL);
     lv_timer_create(gps_screen_update, 1000, NULL);
-}
-
-void sim_gps_screen_build(void)
-{
-    if (!s_gps_screen) {
-        lvgl_build_gps_screen();
-    }
-    lv_scr_load(s_gps_screen);
+    /* No task-spawn here (unlike the pre-migration original): gps_ctrl_task
+     * is already unconditionally started at boot in lvgl_app.c's
+     * lvgl_app_start(), well before any screen navigation can reach this
+     * function, so the old "spawn if not already running" guard here was
+     * dead code - removing it also drops the last ESP-only
+     * (xTaskCreate/FreeRTOS) call from this file. */
 }

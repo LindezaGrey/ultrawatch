@@ -11,6 +11,7 @@
  */
 #include "mock_hw.h"
 #include "lvgl.h"
+#include "screens/screens.h"   /* gps_screen_set_powered() */
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -167,11 +168,21 @@ void mock_gnss_set_enabled(bool on)
         s_gnss_on_since = time(NULL);
     }
     s_gnss_enabled = on;
+    /* No gps_ctrl_task in the sim to update the GPS screen's own
+     * "is powered" bookkeeping (switch state, acquiring-timer) - do it
+     * synchronously here instead, standing in for what the real task's
+     * next poll would do. */
+    gps_screen_set_powered(on);
 }
 
 void lvgl_gps_set_enabled(bool on)
 {
     mock_gnss_set_enabled(on);
+}
+
+esp_err_t esp_lv_adapter_report_activity(void)
+{
+    return ESP_OK;
 }
 
 m10q_state_t m10q_get_state(void)

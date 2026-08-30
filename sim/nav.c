@@ -49,6 +49,18 @@ void sim_show_watch_face(void)
     watch_face_update(NULL);
 }
 
+/* GPS screen: now shared (main/screens/gps_screen.c), which - unlike the
+ * old hand-ported sim/gps_screen.c - exposes only lvgl_build_gps_screen()/
+ * gps_screen_update(), no lazy-build-then-load wrapper (the firmware does
+ * that lazy check inline at its own call site, same pattern used here). */
+void sim_gps_screen_build(void)
+{
+    if (!s_gps_screen) {
+        lvgl_build_gps_screen();
+    }
+    lv_scr_load(s_gps_screen);
+}
+
 static void swipe_event_cb(lv_event_t *e)
 {
     lv_indev_t *indev = lv_indev_active();
