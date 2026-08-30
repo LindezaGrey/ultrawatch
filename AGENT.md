@@ -109,6 +109,41 @@ load
 - FreeRTOS-aware debugging: `xtensa-esp32s3-elf-gdb` from ESP-IDF has FreeRTOS task awareness built in via `task` commands (`task list`, `task current`).
 - Common GDB commands: `continue`, `break`, `b <file>:<line>`, `p *pxCurrentTCB`, `thread`, `task list`.
 
+## Display density & UI sizing
+
+The panel is 410x502 px on a 2.06" AMOLED — about **315 PPI**
+(`sqrt(410² + 502²) / 2.06`), comparable to a phone/Retina display, not a
+typical ~100 PPI desktop monitor. Every screen in `main/lvgl_app.c` (and
+its `sim/*_screen.c` mirrors) is laid out in raw pixel literals with no
+DPI-aware scaling, so a size that looks reasonable in a desktop screenshot
+is often too small to read or tap reliably on the real panel.
+
+When sizing new UI:
+- **Fonts**: the four Cascadia Code bitmap fonts (`main/cascadia_18/22/36/
+  72.c`, `cascadia_fonts.h`) are pre-rendered via `lv_font_conv` from
+  `assets/fonts/CascadiaCode.ttf` — regenerate a size rather than reusing a
+  too-small existing one if body text reads cramped. `cascadia_18`/
+  `cascadia_22` in particular are borderline for real-panel legibility at
+  this density.
+- **Touch targets**: buttons/switches/rows should be sized for a fingertip
+  at ~315 PPI, not a mouse pointer — err larger, not smaller (the "< Back"
+  button's `70x36` and the alarm-edit stepper buttons' `150x64` are both
+  already tuned for this panel and are reasonable references).
+- **Use the available space**: the safe area is 410x502 minus the
+  rounded-corner margins (`assets/ui/safe_area_transparent.png`, ~16px
+  straight-edge / ~90-100px corner radius, see section 1 of
+  `docs/application.md`) — lay content out to use that space rather than
+  leaving it visually sparse with a lot of unused black. But scale
+  deliberately, not uniformly: keep consistent padding and aligned rows/
+  columns, and prefer fewer, larger, well-spaced elements over cramming
+  more in at the current small size — a full but cluttered screen reads
+  worse than a sparse one.
+- Verify at real scale before calling a layout done: screenshot via the sim
+  (`sim/screenshot.c`, see Simulator section below) and view it at 1:1 —
+  the sim's window renders at the panel's exact native pixel resolution,
+  so a screenshot viewed at 100% is genuinely representative of what the
+  panel will show.
+
 ## Simulator (`sim/`)
 
 An LVGL PC simulator (SDL2-backed) mirrors the watch's screens on the host, without hardware. Each screen is ported from `main/lvgl_app.c` into its own `sim/*_screen.c` file, run against mocked drivers (`sim/mock_hw.c`/`.h`) instead of the real ESP-IDF/I2C/SPI code. Not built by `idf.py` — it's a separate plain-CMake project.
