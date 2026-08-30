@@ -203,9 +203,9 @@ void sim_alarm_screen_build(void)
 
     lv_obj_t *title = lv_label_create(s_alarm_screen);
     lv_label_set_text(title, "ALARMS");
-    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
 
     s_alarm_timer_label = lv_label_create(s_alarm_screen);
     lv_label_set_text(s_alarm_timer_label, "");
@@ -229,7 +229,7 @@ void sim_alarm_screen_build(void)
     lv_obj_align(add_alarm, LV_ALIGN_TOP_LEFT, 20, 135);
     lv_obj_t *aal = lv_label_create(add_alarm);
     lv_label_set_text(aal, "+ Alarm");
-    lv_obj_set_style_text_font(aal, s_font_small, 0);
+    lv_obj_set_style_text_font(aal, s_font_sec, 0);
     lv_obj_center(aal);
     lv_obj_add_event_cb(add_alarm, alarm_add_btn_cb, LV_EVENT_CLICKED, NULL);
 
@@ -238,7 +238,7 @@ void sim_alarm_screen_build(void)
     lv_obj_align(add_timer, LV_ALIGN_TOP_RIGHT, -20, 135);
     lv_obj_t *atl = lv_label_create(add_timer);
     lv_label_set_text(atl, "+ Timer");
-    lv_obj_set_style_text_font(atl, s_font_small, 0);
+    lv_obj_set_style_text_font(atl, s_font_sec, 0);
     lv_obj_center(atl);
     lv_obj_add_event_cb(add_timer, timer_add_btn_cb, LV_EVENT_CLICKED, NULL);
 
@@ -253,12 +253,12 @@ void sim_alarm_screen_build(void)
 
     for (int i = 0; i < ALARM_MAX_COUNT; i++) {
         lv_obj_t *row = lv_obj_create(list_cont);
-        lv_obj_set_size(row, LV_PCT(100), 40);
+        lv_obj_set_size(row, LV_PCT(100), 48);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_style_bg_color(row, lv_color_hex(0x301830), 0);
         lv_obj_set_style_border_width(row, 0, 0);
-        lv_obj_set_style_radius(row, 6, 0);
-        lv_obj_set_style_pad_all(row, 6, 0);
+        lv_obj_set_style_radius(row, 8, 0);
+        lv_obj_set_style_pad_all(row, 8, 0);
         lv_obj_add_event_cb(row, alarm_row_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
         s_alarm_row[i] = row;
 
@@ -270,7 +270,7 @@ void sim_alarm_screen_build(void)
         s_alarm_row_time_label[i] = l;
 
         lv_obj_t *sw = lv_switch_create(row);
-        lv_obj_set_size(sw, 56, 30);
+        lv_obj_set_size(sw, 66, 36);
         lv_obj_align(sw, LV_ALIGN_RIGHT_MID, 0, 0);
         lv_obj_add_event_cb(sw, alarm_row_switch_cb, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)i);
         s_alarm_row_switch[i] = sw;
