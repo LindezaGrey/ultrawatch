@@ -140,6 +140,14 @@ void power_mgmt_set_night_mode_auto(bool on) { s_pm_night_mode_auto = on; }
 bool power_mgmt_get_skip_sleep_on_usb(void) { return s_pm_skip_sleep_on_usb; }
 void power_mgmt_set_skip_sleep_on_usb(bool yes) { s_pm_skip_sleep_on_usb = yes; }
 
+static uint32_t s_pm_display_timeout_s = 5;
+static uint8_t s_pm_brightness = 0x80;
+
+uint32_t power_mgmt_get_display_timeout_s(void) { return s_pm_display_timeout_s; }
+void power_mgmt_set_display_timeout_s(uint32_t seconds) { s_pm_display_timeout_s = seconds; }
+uint8_t power_mgmt_get_brightness(void) { return s_pm_brightness; }
+void power_mgmt_set_brightness(uint8_t level) { s_pm_brightness = level; }
+
 /* ---- m10q / GPS screen ----
  * GNSS defaults OFF (matches the firmware's default persisted setting) and is
  * only "powered" via mock_gnss_set_enabled(), driven by the GPS screen's
@@ -155,6 +163,11 @@ void mock_gnss_set_enabled(bool on)
         s_gnss_on_since = time(NULL);
     }
     s_gnss_enabled = on;
+}
+
+void lvgl_gps_set_enabled(bool on)
+{
+    mock_gnss_set_enabled(on);
 }
 
 m10q_state_t m10q_get_state(void)
@@ -412,6 +425,10 @@ void lvgl_tracking_stop(void)
  * a decoded NodeInfo, a decoded non-NodeInfo portnum, and an unknown-channel
  * entry - covering all three mesh_msg_kind_t row stylings. */
 
+static bool s_mesh_notify_enabled = true;
+bool mesh_log_get_notify_enabled(void) { return s_mesh_notify_enabled; }
+void mesh_log_set_notify_enabled(bool enabled) { s_mesh_notify_enabled = enabled; }
+
 size_t mesh_log_get_recent(mesh_msg_t *out, size_t max)
 {
     static const struct { uint32_t from; const char *text; uint8_t channel_hash; mesh_msg_kind_t kind; double age_s; } msgs[] = {
@@ -514,6 +531,10 @@ bool alarm_is_ringing(void)
 {
     return s_alarm_ringing;
 }
+
+static bool s_alarm_sound_enabled = true;
+bool alarm_get_sound_enabled(void) { return s_alarm_sound_enabled; }
+void alarm_set_sound_enabled(bool enabled) { s_alarm_sound_enabled = enabled; }
 
 bool alarm_is_snoozing(void)
 {
@@ -654,4 +675,15 @@ bool twatch_sd_card_seated(void)
 bool ble_debug_is_connected(void)
 {
     return ((long)time(NULL) / 6) % 2 == 0;
+}
+
+static bool s_ble_advertising = true;
+bool ble_debug_is_advertising(void) { return s_ble_advertising; }
+void ble_debug_set_advertising(bool on) { s_ble_advertising = on; }
+
+esp_err_t sd_log_get_space(uint64_t *total_bytes, uint64_t *free_bytes)
+{
+    if (total_bytes) { *total_bytes = 8ULL * 1024 * 1024 * 1024; }
+    if (free_bytes) { *free_bytes = 3ULL * 1024 * 1024 * 1024; }
+    return ESP_OK;
 }

@@ -9,6 +9,7 @@
  */
 #include "lvgl_app.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <math.h>
@@ -63,18 +64,6 @@ static lv_obj_t *s_gps_icon;   /* satellite status icon (grey/red/green) */
 static lv_obj_t *s_track_dot;  /* solid red dot: tracking session active */
 static lv_obj_t *s_snooze_icon; /* "Zz" shown while snoozing */
 
-/* Power management screen. */
-static lv_obj_t *s_power_screen;
-static lv_obj_t *s_pw_batt_label;
-static lv_obj_t *s_pw_chg_label;
-static lv_obj_t *s_pw_temp_label;
-static lv_obj_t *s_pw_runtime_label;
-static lv_obj_t *s_pw_chg_switch;
-static lv_obj_t *s_pw_night_switch;
-static lv_obj_t *s_pw_usb_switch;
-static lv_obj_t *s_pw_cur_100;
-static lv_obj_t *s_pw_cur_400;
-
 /* BHI260AP status screen. */
 static lv_obj_t *s_bhi_screen;
 static lv_obj_t *s_bhi_status_label;
@@ -108,6 +97,7 @@ static lv_obj_t *s_mesh_empty_label;
 static lv_obj_t *s_mesh_conn_label;    /* channel + node count */
 static lv_obj_t *s_mesh_list_cont;     /* scrollable row container - also the fling-gesture target */
 static lv_obj_t *s_mesh_row_label[MESH_LOG_COUNT];
+static lv_obj_t *s_mesh_preset_label[MESH_PRESET_COUNT];
 static lv_point_t s_mesh_press;
 static uint32_t s_mesh_press_tick;
 
@@ -172,11 +162,40 @@ static lv_obj_t *s_ring_title_label;           /* "ALARM" or "TIMER" */
 static lv_obj_t *s_ring_time_label;
 static lv_obj_t *s_ring_snooze_btn;            /* hidden for a timer-sourced ring (no snooze concept) */
 
-/* Settings screen (docs/application.md section 9) - minimal stub for Phase 1
- * of the UI redesign: just enough to complete the 5-screen nav ring and be
- * reachable/exitable correctly. Real nested-category content is a later
- * phase. */
-static lv_obj_t *s_settings_screen;
+/* Settings screen (docs/application.md section 9): a category list
+ * (nav-ring slot 3) + 5 local sub-pages (Zeit & Zeitzone, Display,
+ * Peripherie, Ton & Vibration, Info - "Presets verwalten" and
+ * "Ultra-Sparmodus" are deferred, see Phase 5 plan). Each sub-page is its
+ * own screen, reached by tapping a category row and left the same way
+ * every other local sub-screen is (a "< Back" button + a local
+ * swipe-right gesture, docs/application.md section 9.2). */
+static lv_obj_t *s_settings_screen;            /* category list */
+
+static lv_obj_t *s_set_tz_screen;
+static lv_obj_t *s_set_tz_abbrev_label;
+static lv_obj_t *s_set_tz_offset_label;
+
+static lv_obj_t *s_set_disp_screen;
+static lv_obj_t *s_set_disp_timeout_label;
+static lv_obj_t *s_set_disp_bright_label;
+
+static lv_obj_t *s_set_periph_screen;
+static lv_obj_t *s_set_periph_gps_switch;
+static lv_obj_t *s_set_periph_bt_switch;
+
+static lv_obj_t *s_set_sound_screen;
+static lv_obj_t *s_set_sound_alarm_switch;
+static lv_obj_t *s_set_sound_notify_switch;
+
+static lv_obj_t *s_set_info_screen;
+static lv_obj_t *s_set_info_batt_label;
+static lv_obj_t *s_set_info_sd_label;
+
+/* Local swipe-right-to-go-back gesture, shared by every Settings sub-page
+ * (section 9.2: "Swipe von links nach rechts") - distance-threshold only,
+ * registered per-sub-page-root with the sub-page's own back callback as
+ * user data (so one handler serves all 5 pages). */
+static void settings_sub_swipe_cb(lv_event_t *e);
 
 /* GNSS control runs off the LVGL task (m10q_power blocks for seconds during
  * baud probing/config); the UI issues a request and a worker task applies it. */
@@ -229,9 +248,9 @@ static lv_obj_t *s_watch_screen;
 static uint32_t s_last_touch_tick;   /* lv_tick_get() at last touch */
 
 static void swipe_event_cb(lv_event_t *e);
+static void watch_face_long_press_cb(lv_event_t *e);
 static void gps_track_btn_cb(lv_event_t *e);
 static void gps_pwr_switch_cb(lv_event_t *e);
-static void lvgl_build_power_screen(void);
 static void lvgl_build_bhi_screen(void);
 static void lvgl_build_gps_screen(void);
 static void lvgl_build_mesh_screen(void);
@@ -252,6 +271,16 @@ static void lvgl_build_timer_screen(void);
 static void alarm_list_refresh(void);
 static void lvgl_build_ring_screen(void);
 static void lvgl_build_settings_screen(void);
+static void lvgl_build_settings_tz_screen(void);
+static void settings_tz_refresh(void);
+static void lvgl_build_settings_disp_screen(void);
+static void lvgl_show_settings_disp(void);
+static void lvgl_build_settings_periph_screen(void);
+static void settings_periph_refresh(lv_timer_t *timer);
+static void lvgl_build_settings_sound_screen(void);
+static void settings_sound_refresh(void);
+static void lvgl_build_settings_info_screen(void);
+static void settings_info_refresh(lv_timer_t *timer);
 
 /* Round invalidated areas to even coordinates (SH8601 requirement) BEFORE
  * LVGL renders, so the buffer content always matches the flushed area. */
@@ -705,230 +734,6 @@ static void boot_to_watch_face(lv_timer_t *timer)
     lv_timer_delete(timer);
     lv_obj_clean(lv_screen_active());
     lvgl_build_watch_face();
-}
-
-/* ---- Power management screen ---- */
-
-static void power_screen_update(lv_timer_t *timer)
-{
-    (void)timer;
-    if (!s_pw_batt_label) {
-        return;
-    }
-    /* The timer fires every second forever; skip the AXP I2C reads when the
-     * power screen is not active (saves battery + bus traffic). */
-    if (lv_screen_active() != s_power_screen) {
-        return;
-    }
-
-    char buf[64];
-    sensor_cache_t cache;
-    sensor_cache_get(&cache);
-
-    uint8_t pct = cache.batt_pct;
-    uint16_t mv = cache.batt_mv;
-    snprintf(buf, sizeof(buf), "Battery  %u%%  %.3f V", pct, mv / 1000.0f);
-    lv_label_set_text(s_pw_batt_label, buf);
-
-    if (cache.valid) {
-        const char *s;
-        switch (cache.chg_state) {
-        case AXP2101_CHG_TRI: s = "Trickle"; break;
-        case AXP2101_CHG_PRE: s = "Pre-charge"; break;
-        case AXP2101_CHG_CC:  s = "Charging CC"; break;
-        case AXP2101_CHG_CV:  s = "Charging CV"; break;
-        case AXP2101_CHG_DONE: s = "Charged"; break;
-        default:              s = "Not charging"; break;
-        }
-        snprintf(buf, sizeof(buf), "%s%s  %umA", s, cache.chg_enabled ? "" : " (disabled)",
-                 cache.chg_ma);
-        lv_label_set_text(s_pw_chg_label, buf);
-
-        /* Runtime / charge-time from the background battery gauge estimate. */
-        battery_estimate_t est;
-        battery_estimate_get(&est);
-        if (s_pw_runtime_label) {
-            if (est.estimate_valid && est.runtime_h > 0) {
-                uint32_t mins = (uint32_t)(est.runtime_h * 60.0f);
-                snprintf(buf, sizeof(buf), "Runtime: ~%uh %02um", (unsigned)(mins / 60), (unsigned)(mins % 60));
-            } else {
-                snprintf(buf, sizeof(buf), "Runtime: --");
-            }
-            lv_label_set_text(s_pw_runtime_label, buf);
-        }
-
-        int16_t tc = cache.batt_temp_c10;
-        snprintf(buf, sizeof(buf), "Battery temp  %d.%d C", tc / 10, abs(tc % 10));
-        lv_label_set_text(s_pw_temp_label, buf);
-
-        /* Keep switch/current buttons reflecting hardware state. */
-        if (lv_obj_has_state(s_pw_chg_switch, LV_STATE_CHECKED) != cache.chg_enabled) {
-            if (cache.chg_enabled) {
-                lv_obj_add_state(s_pw_chg_switch, LV_STATE_CHECKED);
-            } else {
-                lv_obj_remove_state(s_pw_chg_switch, LV_STATE_CHECKED);
-            }
-        }
-        /* Keep the config switches reflecting the persisted settings. */
-        if (lv_obj_has_state(s_pw_night_switch, LV_STATE_CHECKED) != power_mgmt_get_night_mode_auto()) {
-            if (power_mgmt_get_night_mode_auto()) {
-                lv_obj_add_state(s_pw_night_switch, LV_STATE_CHECKED);
-            } else {
-                lv_obj_remove_state(s_pw_night_switch, LV_STATE_CHECKED);
-            }
-        }
-        if (lv_obj_has_state(s_pw_usb_switch, LV_STATE_CHECKED) != power_mgmt_get_skip_sleep_on_usb()) {
-            if (power_mgmt_get_skip_sleep_on_usb()) {
-                lv_obj_add_state(s_pw_usb_switch, LV_STATE_CHECKED);
-            } else {
-                lv_obj_remove_state(s_pw_usb_switch, LV_STATE_CHECKED);
-            }
-        }
-        bool cur100 = (cache.chg_ma <= 150);
-        lv_obj_add_state(s_pw_cur_100, LV_STATE_CHECKED);
-        lv_obj_add_state(s_pw_cur_400, LV_STATE_CHECKED);
-        lv_obj_clear_state(cur100 ? s_pw_cur_100 : s_pw_cur_400, LV_STATE_CHECKED);
-    }
-}
-
-static void power_chg_switch_cb(lv_event_t *e)
-{
-    (void)e;
-    bool en = lv_obj_has_state(s_pw_chg_switch, LV_STATE_CHECKED);
-    axp2101_set_charge_enabled(twatch_pmu_dev, en);
-}
-
-static void power_night_switch_cb(lv_event_t *e)
-{
-    (void)e;
-    power_mgmt_set_night_mode_auto(lv_obj_has_state(s_pw_night_switch, LV_STATE_CHECKED));
-}
-
-static void power_usb_switch_cb(lv_event_t *e)
-{
-    (void)e;
-    power_mgmt_set_skip_sleep_on_usb(lv_obj_has_state(s_pw_usb_switch, LV_STATE_CHECKED));
-}
-
-static void power_cur_btn_cb(lv_event_t *e)
-{
-    (void)e;
-    uint16_t ma = (uint16_t)(uintptr_t)lv_event_get_user_data(e);
-    axp2101_set_charge_current_ma(twatch_pmu_dev, ma);
-    lv_obj_add_state(s_pw_cur_100, LV_STATE_CHECKED);
-    lv_obj_add_state(s_pw_cur_400, LV_STATE_CHECKED);
-    lv_obj_clear_state(ma == 100 ? s_pw_cur_100 : s_pw_cur_400, LV_STATE_CHECKED);
-}
-
-static void lvgl_build_power_screen(void)
-{
-    s_power_screen = screen_new();
-    lv_obj_set_style_bg_color(s_power_screen, lv_color_hex(0x0A1030), 0);
-
-    lv_obj_t *title = lv_label_create(s_power_screen);
-    lv_label_set_text(title, "Power Management");
-    lv_obj_set_style_text_font(title, s_font_small, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
-
-    s_pw_batt_label = lv_label_create(s_power_screen);
-    lv_label_set_text(s_pw_batt_label, "");
-    lv_obj_set_style_text_font(s_pw_batt_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_pw_batt_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_pw_batt_label, LV_ALIGN_TOP_MID, 0, 60);
-
-    s_pw_chg_label = lv_label_create(s_power_screen);
-    lv_label_set_text(s_pw_chg_label, "");
-    lv_obj_set_style_text_font(s_pw_chg_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_pw_chg_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_pw_chg_label, LV_ALIGN_TOP_MID, 0, 100);
-
-    s_pw_temp_label = lv_label_create(s_power_screen);
-    lv_label_set_text(s_pw_temp_label, "");
-    lv_obj_set_style_text_font(s_pw_temp_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_pw_temp_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_pw_temp_label, LV_ALIGN_TOP_MID, 0, 140);
-
-    s_pw_runtime_label = lv_label_create(s_power_screen);
-    lv_label_set_text(s_pw_runtime_label, "");
-    lv_obj_set_style_text_font(s_pw_runtime_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_pw_runtime_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_pw_runtime_label, LV_ALIGN_TOP_MID, 0, 170);
-
-    /* Charging enable switch. */
-    lv_obj_t *sw_lbl = lv_label_create(s_power_screen);
-    lv_label_set_text(sw_lbl, "Charging");
-    lv_obj_set_style_text_font(sw_lbl, s_font_small, 0);
-    lv_obj_set_style_text_color(sw_lbl, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(sw_lbl, LV_ALIGN_TOP_LEFT, 40, 200);
-
-    s_pw_chg_switch = lv_switch_create(s_power_screen);
-    lv_obj_align(s_pw_chg_switch, LV_ALIGN_TOP_RIGHT, -40, 200);
-    lv_obj_add_event_cb(s_pw_chg_switch, power_chg_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    /* Charging current: two fixed settings (100 mA default / 400 mA max). */
-    lv_obj_t *cur_lbl = lv_label_create(s_power_screen);
-    lv_label_set_text(cur_lbl, "Charge current");
-    lv_obj_set_style_text_font(cur_lbl, s_font_small, 0);
-    lv_obj_set_style_text_color(cur_lbl, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(cur_lbl, LV_ALIGN_TOP_LEFT, 40, 260);
-
-    s_pw_cur_100 = lv_button_create(s_power_screen);
-    lv_obj_set_size(s_pw_cur_100, 160, 44);
-    lv_obj_align(s_pw_cur_100, LV_ALIGN_TOP_LEFT, 40, 310);
-    lv_obj_t *l100 = lv_label_create(s_pw_cur_100);
-    lv_label_set_text(l100, "100mA");
-    lv_obj_set_style_text_font(l100, s_font_small, 0);
-    lv_obj_center(l100);
-    lv_obj_add_flag(s_pw_cur_100, LV_OBJ_FLAG_CHECKABLE);
-    lv_obj_add_event_cb(s_pw_cur_100, power_cur_btn_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)100);
-
-    s_pw_cur_400 = lv_button_create(s_power_screen);
-    lv_obj_set_size(s_pw_cur_400, 160, 44);
-    lv_obj_align(s_pw_cur_400, LV_ALIGN_TOP_RIGHT, -40, 310);
-    lv_obj_t *l400 = lv_label_create(s_pw_cur_400);
-    lv_label_set_text(l400, "400mA");
-    lv_obj_set_style_text_font(l400, s_font_small, 0);
-    lv_obj_center(l400);
-    lv_obj_add_flag(s_pw_cur_400, LV_OBJ_FLAG_CHECKABLE);
-    lv_obj_add_event_cb(s_pw_cur_400, power_cur_btn_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)400);
-
-    /* Night mode auto switch. */
-    lv_obj_t *night_lbl = lv_label_create(s_power_screen);
-    lv_label_set_text(night_lbl, "Night mode auto");
-    lv_obj_set_style_text_font(night_lbl, s_font_small, 0);
-    lv_obj_set_style_text_color(night_lbl, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(night_lbl, LV_ALIGN_TOP_LEFT, 40, 380);
-
-    s_pw_night_switch = lv_switch_create(s_power_screen);
-    lv_obj_align(s_pw_night_switch, LV_ALIGN_TOP_RIGHT, -40, 380);
-    lv_obj_add_event_cb(s_pw_night_switch, power_night_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    /* Do-not-sleep-on-USB switch. Vertical offset 436, not 416: at 416 this
-     * switch's touch target sat only 6px below the night-mode switch's
-     * (rows 380-409 vs 416-445 measured in the sim), well inside a single
-     * fingertip's contact area on the real capacitive touchscreen and easy
-     * to mis-tap. 436 opens a ~26px gap, using margin that was previously
-     * just empty space above the hint text. */
-    lv_obj_t *usb_lbl = lv_label_create(s_power_screen);
-    lv_label_set_text(usb_lbl, "No sleep on USB");
-    lv_obj_set_style_text_font(usb_lbl, s_font_small, 0);
-    lv_obj_set_style_text_color(usb_lbl, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(usb_lbl, LV_ALIGN_TOP_LEFT, 40, 436);
-
-    s_pw_usb_switch = lv_switch_create(s_power_screen);
-    lv_obj_align(s_pw_usb_switch, LV_ALIGN_TOP_RIGHT, -40, 436);
-    lv_obj_add_event_cb(s_pw_usb_switch, power_usb_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    /* Hint. */
-    lv_obj_t *hint = lv_label_create(s_power_screen);
-    lv_label_set_text(hint, "swipe down to go back");
-    lv_obj_set_style_text_font(hint, s_font_small, 0);
-    lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -6);
-
-    lv_timer_create(power_screen_update, 1000, NULL);
-    power_screen_update(NULL);   /* populate instantly from the cached snapshot */
 }
 
 /* ---- BHI260AP status screen ---- */
@@ -1593,6 +1398,14 @@ static void mesh_screen_update(lv_timer_t *timer)
         lv_label_set_text(s_mesh_row_label[i], buf);
     }
 
+    if (s_mesh_preset_label[0]) {
+        for (int i = 0; i < MESH_PRESET_COUNT; i++) {
+            char buf[MESH_PRESET_MAX_LEN + 1];
+            mesh_preset_get(i, buf, sizeof(buf));
+            lv_label_set_text(s_mesh_preset_label[i], buf);
+        }
+    }
+
     update_status_bar(&s_status_bar[2]);
 }
 
@@ -1699,8 +1512,10 @@ static void lvgl_build_mesh_screen(void)
         s_mesh_row_label[i] = l;
     }
 
-    /* Preset buttons (inert, see mesh_preset_btn_cb()) - 2x2 grid. */
-    static const char *presets[4] = { "Bin ok", "Verzoegerung", "Notfall", "Standort senden" };
+    /* Preset buttons (inert, see mesh_preset_btn_cb()) - 2x2 grid. Text
+     * comes from mesh_preset_get() (NVS-backed, editable via the debug
+     * console's `presetset` - see mesh_log.h) and is refreshed on every
+     * mesh_screen_update() tick so a console edit shows up live. */
     for (int i = 0; i < 4; i++) {
         int col = i % 2;
         int row = i / 2;
@@ -1709,9 +1524,9 @@ static void lvgl_build_mesh_screen(void)
         lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 15 + col * 195, 330 + row * 44);
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x3A3226), 0);
         lv_obj_t *l = lv_label_create(btn);
-        lv_label_set_text(l, presets[i]);
         lv_obj_set_style_text_font(l, s_font_micro, 0);
         lv_obj_set_style_text_color(l, lv_color_hex(0x888888), 0);
+        s_mesh_preset_label[i] = l;
         lv_obj_center(l);
         lv_obj_add_event_cb(btn, mesh_preset_btn_cb, LV_EVENT_CLICKED, NULL);
     }
@@ -1862,10 +1677,13 @@ void lvgl_mesh_screen_show(void)
 }
 
 /* ---- Settings screen (docs/application.md section 9) ----
- * Minimal Phase 1 stub: just enough to complete the 5-screen nav ring and be
- * swipe-reachable/exitable correctly. Real nested-category content
- * (time/TZ, display, peripherals, sound/vibration, Ultra-Sparmodus, presets,
- * info - absorbing today's Power screen along the way) is a later phase. */
+ * Category list (nav-ring slot 3) + 5 local sub-pages: Zeit & Zeitzone,
+ * Display, Peripherie, Ton & Vibration, Info. "Presets verwalten" and
+ * "Ultra-Sparmodus" are deferred (see Phase 5 plan) - LoRa preset text is
+ * still editable, just via the `presetset` debug command instead of a
+ * Settings category (this project deliberately has no on-watch text
+ * keyboard). Everything here applies immediately except the display
+ * timeout, which is flagged as taking effect after a restart. */
 static void settings_screen_status_bar_update(lv_timer_t *timer)
 {
     (void)timer;
@@ -1873,6 +1691,75 @@ static void settings_screen_status_bar_update(lv_timer_t *timer)
         return;
     }
     update_status_bar(&s_status_bar[3]);
+}
+
+static void settings_sub_swipe_cb(lv_event_t *e)
+{
+    lv_indev_t *indev = lv_indev_active();
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+
+    static lv_point_t start;
+    static bool active;
+
+    if (lv_event_get_code(e) == LV_EVENT_PRESSED) {
+        start = p;
+        active = true;
+        return;
+    }
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED || !active) {
+        return;
+    }
+    active = false;
+    int dx = p.x - start.x;
+    int dy = p.y - start.y;
+    if (dx < SWIPE_DIST || abs(dx) <= abs(dy)) {
+        return;   /* only a left-to-right swipe counts as "back" (section 9.2) */
+    }
+    void (*back_cb)(lv_event_t *) = (void (*)(lv_event_t *))lv_event_get_user_data(e);
+    back_cb(e);
+}
+
+/* Category row -> sub-page dispatch, shared by all 5 rows (index in
+ * user_data). Each sub-page is lazily built on first visit, same pattern as
+ * every other local sub-screen in this file. */
+static void settings_row_click_cb(lv_event_t *e)
+{
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    switch (idx) {
+    case 0:
+        if (!s_set_tz_screen) { lvgl_build_settings_tz_screen(); }
+        lv_scr_load(s_set_tz_screen);
+        settings_tz_refresh();
+        break;
+    case 1:
+        lvgl_show_settings_disp();
+        break;
+    case 2:
+        if (!s_set_periph_screen) { lvgl_build_settings_periph_screen(); }
+        lv_scr_load(s_set_periph_screen);
+        settings_periph_refresh(NULL);
+        break;
+    case 3:
+        if (!s_set_sound_screen) { lvgl_build_settings_sound_screen(); }
+        lv_scr_load(s_set_sound_screen);
+        settings_sound_refresh();
+        break;
+    case 4:
+        if (!s_set_info_screen) { lvgl_build_settings_info_screen(); }
+        lv_scr_load(s_set_info_screen);
+        settings_info_refresh(NULL);
+        break;
+    default:
+        break;
+    }
+}
+
+static void settings_back_cb(lv_event_t *e)
+{
+    (void)e;
+    lv_scr_load(s_settings_screen);
+    settings_screen_status_bar_update(NULL);
 }
 
 static void lvgl_build_settings_screen(void)
@@ -1888,14 +1775,491 @@ static void lvgl_build_settings_screen(void)
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
 
-    lv_obj_t *placeholder = lv_label_create(s_settings_screen);
-    lv_label_set_text(placeholder, "Coming soon");
-    lv_obj_set_style_text_font(placeholder, s_font_small, 0);
-    lv_obj_set_style_text_color(placeholder, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(placeholder, LV_ALIGN_CENTER, 0, 0);
+    static const char *cat_names[5] = {
+        "Zeit & Zeitzone", "Display", "Peripherie", "Ton & Vibration", "Info",
+    };
+
+    lv_obj_t *list_cont = lv_obj_create(s_settings_screen);
+    lv_obj_set_size(list_cont, 370, 380);
+    lv_obj_align(list_cont, LV_ALIGN_TOP_MID, 0, 80);
+    lv_obj_set_flex_flow(list_cont, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list_cont, 8, 0);
+    lv_obj_set_style_bg_opa(list_cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(list_cont, 0, 0);
+    lv_obj_set_style_pad_all(list_cont, 2, 0);
+
+    for (int i = 0; i < 5; i++) {
+        lv_obj_t *row = lv_obj_create(list_cont);
+        lv_obj_set_size(row, LV_PCT(100), 50);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_bg_color(row, lv_color_hex(0x202020), 0);
+        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_set_style_radius(row, 6, 0);
+        lv_obj_set_style_pad_all(row, 10, 0);
+        lv_obj_add_event_cb(row, settings_row_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+
+        lv_obj_t *l = lv_label_create(row);
+        lv_label_set_text(l, cat_names[i]);
+        lv_obj_set_style_text_font(l, s_font_small, 0);
+        lv_obj_set_style_text_color(l, lv_color_hex(0xE0E0E0), 0);
+        lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
+    }
 
     update_status_bar(&s_status_bar[3]);
     lv_timer_create(settings_screen_status_bar_update, 1000, NULL);
+}
+
+/* ---- Zeit & Zeitzone (info-only: no TZ auto-detect infra exists, see
+ * Phase 5 plan) ---- */
+
+static void settings_tz_refresh(void)
+{
+    if (!s_set_tz_abbrev_label) {
+        return;
+    }
+    time_t now = time(NULL);
+    struct tm tmv;
+    localtime_r(&now, &tmv);
+    char abbrev[16];
+    strftime(abbrev, sizeof(abbrev), "%Z", &tmv);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "Zone: %s", abbrev);
+    lv_label_set_text(s_set_tz_abbrev_label, buf);
+
+    /* struct tm on this toolchain has no tm_gmtoff (picolibc) and there's
+     * no timegm() either - derive the UTC offset from the local vs. UTC
+     * wall-clock fields directly instead, day-wrap handled via tm_yday
+     * (works for any offset in -24h..+24h, which covers every real zone). */
+    struct tm utcv;
+    gmtime_r(&now, &utcv);
+    long local_secs = tmv.tm_hour * 3600L + tmv.tm_min * 60L + tmv.tm_sec;
+    long utc_secs = utcv.tm_hour * 3600L + utcv.tm_min * 60L + utcv.tm_sec;
+    long day_diff = tmv.tm_yday - utcv.tm_yday;
+    if (tmv.tm_year != utcv.tm_year) {
+        day_diff = (tmv.tm_year > utcv.tm_year) ? 1 : -1;
+    } else if (day_diff > 1) {
+        day_diff = -1;
+    } else if (day_diff < -1) {
+        day_diff = 1;
+    }
+    long off_s = (local_secs - utc_secs) + day_diff * 86400L;
+    snprintf(buf, sizeof(buf), "UTC%+03ld:%02ld", off_s / 3600, labs(off_s % 3600) / 60);
+    lv_label_set_text(s_set_tz_offset_label, buf);
+}
+
+static void lvgl_build_settings_tz_screen(void)
+{
+    s_set_tz_screen = screen_new();
+    lv_obj_set_style_bg_color(s_set_tz_screen, lv_color_hex(0x000000), 0);
+    lv_obj_add_event_cb(s_set_tz_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_back_cb);
+    lv_obj_add_event_cb(s_set_tz_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_back_cb);
+
+    lv_obj_t *back = lv_button_create(s_set_tz_screen);
+    lv_obj_set_size(back, 70, 36);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, "< Back");
+    lv_obj_set_style_text_font(bl, s_font_micro, 0);
+    lv_obj_center(bl);
+    lv_obj_add_event_cb(back, settings_back_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *title = lv_label_create(s_set_tz_screen);
+    lv_label_set_text(title, "TIME & TIMEZONE");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    s_set_tz_abbrev_label = lv_label_create(s_set_tz_screen);
+    lv_obj_set_style_text_font(s_set_tz_abbrev_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_set_tz_abbrev_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_set_tz_abbrev_label, LV_ALIGN_CENTER, 0, -20);
+
+    s_set_tz_offset_label = lv_label_create(s_set_tz_screen);
+    lv_obj_set_style_text_font(s_set_tz_offset_label, s_font_small, 0);
+    lv_obj_set_style_text_color(s_set_tz_offset_label, lv_color_hex(0x9E9E9E), 0);
+    lv_obj_align(s_set_tz_offset_label, LV_ALIGN_CENTER, 0, 20);
+
+    settings_tz_refresh();
+}
+
+/* ---- Display: timeout (persists, takes effect after restart) + brightness
+ * (applies immediately) ---- */
+
+static const uint32_t s_disp_timeout_opts[] = { 5, 10, 15, 20, 30, 60 };
+#define DISP_TIMEOUT_OPT_COUNT (sizeof(s_disp_timeout_opts) / sizeof(s_disp_timeout_opts[0]))
+static const uint8_t s_disp_bright_opts[] = { 64, 128, 192, 255 };
+#define DISP_BRIGHT_OPT_COUNT (sizeof(s_disp_bright_opts) / sizeof(s_disp_bright_opts[0]))
+
+static void settings_disp_refresh(void)
+{
+    if (!s_set_disp_timeout_label) {
+        return;
+    }
+    char buf[48];
+    snprintf(buf, sizeof(buf), "Timeout: %us (after restart)",
+             (unsigned)power_mgmt_get_display_timeout_s());
+    lv_label_set_text(s_set_disp_timeout_label, buf);
+
+    uint8_t level = power_mgmt_get_brightness();
+    snprintf(buf, sizeof(buf), "Brightness: %u%%", (unsigned)(level * 100 / 255));
+    lv_label_set_text(s_set_disp_bright_label, buf);
+}
+
+static void settings_disp_timeout_btn_cb(lv_event_t *e)
+{
+    int delta = (int)(intptr_t)lv_event_get_user_data(e);
+    uint32_t cur = power_mgmt_get_display_timeout_s();
+    int idx = 0;
+    for (size_t i = 0; i < DISP_TIMEOUT_OPT_COUNT; i++) {
+        if (s_disp_timeout_opts[i] == cur) { idx = (int)i; break; }
+    }
+    idx = (idx + (int)DISP_TIMEOUT_OPT_COUNT + delta) % (int)DISP_TIMEOUT_OPT_COUNT;
+    power_mgmt_set_display_timeout_s(s_disp_timeout_opts[idx]);
+    settings_disp_refresh();
+}
+
+static void settings_disp_bright_btn_cb(lv_event_t *e)
+{
+    int delta = (int)(intptr_t)lv_event_get_user_data(e);
+    uint8_t cur = power_mgmt_get_brightness();
+    int idx = 0;
+    for (size_t i = 0; i < DISP_BRIGHT_OPT_COUNT; i++) {
+        if (s_disp_bright_opts[i] == cur) { idx = (int)i; break; }
+    }
+    idx = (idx + (int)DISP_BRIGHT_OPT_COUNT + delta) % (int)DISP_BRIGHT_OPT_COUNT;
+    power_mgmt_set_brightness(s_disp_bright_opts[idx]);
+    settings_disp_refresh();
+}
+
+static void lvgl_build_settings_disp_screen(void)
+{
+    s_set_disp_screen = screen_new();
+    lv_obj_set_style_bg_color(s_set_disp_screen, lv_color_hex(0x000000), 0);
+    lv_obj_add_event_cb(s_set_disp_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_back_cb);
+    lv_obj_add_event_cb(s_set_disp_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_back_cb);
+
+    lv_obj_t *back = lv_button_create(s_set_disp_screen);
+    lv_obj_set_size(back, 70, 36);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, "< Back");
+    lv_obj_set_style_text_font(bl, s_font_micro, 0);
+    lv_obj_center(bl);
+    lv_obj_add_event_cb(back, settings_back_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *title = lv_label_create(s_set_disp_screen);
+    lv_label_set_text(title, "DISPLAY");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    s_set_disp_timeout_label = lv_label_create(s_set_disp_screen);
+    lv_obj_set_style_text_font(s_set_disp_timeout_label, s_font_micro, 0);
+    lv_obj_set_style_text_color(s_set_disp_timeout_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_set_disp_timeout_label, LV_ALIGN_TOP_MID, 0, 90);
+
+    lv_obj_t *t_minus = lv_button_create(s_set_disp_screen);
+    lv_obj_set_size(t_minus, 150, 64);
+    lv_obj_align(t_minus, LV_ALIGN_TOP_LEFT, 20, 130);
+    lv_obj_t *tml = lv_label_create(t_minus);
+    lv_label_set_text(tml, "-");
+    lv_obj_set_style_text_font(tml, s_font_small, 0);
+    lv_obj_center(tml);
+    lv_obj_add_event_cb(t_minus, settings_disp_timeout_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
+
+    lv_obj_t *t_plus = lv_button_create(s_set_disp_screen);
+    lv_obj_set_size(t_plus, 150, 64);
+    lv_obj_align(t_plus, LV_ALIGN_TOP_RIGHT, -20, 130);
+    lv_obj_t *tpl = lv_label_create(t_plus);
+    lv_label_set_text(tpl, "+");
+    lv_obj_set_style_text_font(tpl, s_font_small, 0);
+    lv_obj_center(tpl);
+    lv_obj_add_event_cb(t_plus, settings_disp_timeout_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)1);
+
+    s_set_disp_bright_label = lv_label_create(s_set_disp_screen);
+    lv_obj_set_style_text_font(s_set_disp_bright_label, s_font_micro, 0);
+    lv_obj_set_style_text_color(s_set_disp_bright_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_set_disp_bright_label, LV_ALIGN_TOP_MID, 0, 230);
+
+    lv_obj_t *b_minus = lv_button_create(s_set_disp_screen);
+    lv_obj_set_size(b_minus, 150, 64);
+    lv_obj_align(b_minus, LV_ALIGN_TOP_LEFT, 20, 270);
+    lv_obj_t *bml = lv_label_create(b_minus);
+    lv_label_set_text(bml, "-");
+    lv_obj_set_style_text_font(bml, s_font_small, 0);
+    lv_obj_center(bml);
+    lv_obj_add_event_cb(b_minus, settings_disp_bright_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
+
+    lv_obj_t *b_plus = lv_button_create(s_set_disp_screen);
+    lv_obj_set_size(b_plus, 150, 64);
+    lv_obj_align(b_plus, LV_ALIGN_TOP_RIGHT, -20, 270);
+    lv_obj_t *bpl = lv_label_create(b_plus);
+    lv_label_set_text(bpl, "+");
+    lv_obj_set_style_text_font(bpl, s_font_small, 0);
+    lv_obj_center(bpl);
+    lv_obj_add_event_cb(b_plus, settings_disp_bright_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)1);
+
+    settings_disp_refresh();
+}
+
+/* Reachable both from the Settings category list and via tap-and-hold on
+ * the watch face (docs/application.md section 9.3). */
+static void lvgl_show_settings_disp(void)
+{
+    if (!s_set_disp_screen) {
+        lvgl_build_settings_disp_screen();
+    }
+    lv_scr_load(s_set_disp_screen);
+    settings_disp_refresh();
+    s_last_touch_tick = lv_tick_get();
+}
+
+/* ---- Peripherie: GPS/Bluetooth real toggles, LoRa/WiFi shown disabled
+ * (no toggle capability exists for either yet, see Phase 5 plan) ---- */
+
+static void settings_gps_switch_cb(lv_event_t *e)
+{
+    (void)e;
+    lvgl_gps_set_enabled(lv_obj_has_state(s_set_periph_gps_switch, LV_STATE_CHECKED));
+}
+
+static void settings_bt_switch_cb(lv_event_t *e)
+{
+    (void)e;
+    ble_debug_set_advertising(lv_obj_has_state(s_set_periph_bt_switch, LV_STATE_CHECKED));
+}
+
+/* Mirrors the GPS screen's own switch state formula (s_gps_powered &&
+ * m10q_get_state() != M10Q_STATE_OFF, lvgl_app.c's gps_screen_update()) so
+ * the two switches never disagree about what "on" means. */
+static void settings_periph_refresh(lv_timer_t *timer)
+{
+    (void)timer;
+    if (lv_screen_active() != s_set_periph_screen) {
+        return;
+    }
+    bool gps_on = s_gps_powered && m10q_get_state() != M10Q_STATE_OFF;
+    if (lv_obj_has_state(s_set_periph_gps_switch, LV_STATE_CHECKED) != gps_on) {
+        if (gps_on) { lv_obj_add_state(s_set_periph_gps_switch, LV_STATE_CHECKED); }
+        else { lv_obj_clear_state(s_set_periph_gps_switch, LV_STATE_CHECKED); }
+    }
+    bool bt_on = ble_debug_is_advertising();
+    if (lv_obj_has_state(s_set_periph_bt_switch, LV_STATE_CHECKED) != bt_on) {
+        if (bt_on) { lv_obj_add_state(s_set_periph_bt_switch, LV_STATE_CHECKED); }
+        else { lv_obj_clear_state(s_set_periph_bt_switch, LV_STATE_CHECKED); }
+    }
+}
+
+static void lvgl_build_settings_periph_screen(void)
+{
+    s_set_periph_screen = screen_new();
+    lv_obj_set_style_bg_color(s_set_periph_screen, lv_color_hex(0x000000), 0);
+    lv_obj_add_event_cb(s_set_periph_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_back_cb);
+    lv_obj_add_event_cb(s_set_periph_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_back_cb);
+
+    lv_obj_t *back = lv_button_create(s_set_periph_screen);
+    lv_obj_set_size(back, 70, 36);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, "< Back");
+    lv_obj_set_style_text_font(bl, s_font_micro, 0);
+    lv_obj_center(bl);
+    lv_obj_add_event_cb(back, settings_back_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *title = lv_label_create(s_set_periph_screen);
+    lv_label_set_text(title, "PERIPHERIE");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    lv_obj_t *gps_lbl = lv_label_create(s_set_periph_screen);
+    lv_label_set_text(gps_lbl, "GPS");
+    lv_obj_set_style_text_font(gps_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(gps_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(gps_lbl, LV_ALIGN_TOP_LEFT, 20, 90);
+    s_set_periph_gps_switch = lv_switch_create(s_set_periph_screen);
+    lv_obj_align(s_set_periph_gps_switch, LV_ALIGN_TOP_RIGHT, -20, 88);
+    lv_obj_add_event_cb(s_set_periph_gps_switch, settings_gps_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *bt_lbl = lv_label_create(s_set_periph_screen);
+    lv_label_set_text(bt_lbl, "Bluetooth");
+    lv_obj_set_style_text_font(bt_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(bt_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(bt_lbl, LV_ALIGN_TOP_LEFT, 20, 150);
+    s_set_periph_bt_switch = lv_switch_create(s_set_periph_screen);
+    lv_obj_align(s_set_periph_bt_switch, LV_ALIGN_TOP_RIGHT, -20, 148);
+    lv_obj_add_event_cb(s_set_periph_bt_switch, settings_bt_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *lora_lbl = lv_label_create(s_set_periph_screen);
+    lv_label_set_text(lora_lbl, "LoRa");
+    lv_obj_set_style_text_font(lora_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(lora_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(lora_lbl, LV_ALIGN_TOP_LEFT, 20, 210);
+    lv_obj_t *lora_sw = lv_switch_create(s_set_periph_screen);
+    lv_obj_align(lora_sw, LV_ALIGN_TOP_RIGHT, -20, 208);
+    lv_obj_add_state(lora_sw, LV_STATE_CHECKED | LV_STATE_DISABLED);
+    lv_obj_t *lora_cap = lv_label_create(s_set_periph_screen);
+    lv_label_set_text(lora_cap, "always on (rail hardwired)");
+    lv_obj_set_style_text_font(lora_cap, s_font_micro, 0);
+    lv_obj_set_style_text_color(lora_cap, lv_color_hex(0x707070), 0);
+    lv_obj_align(lora_cap, LV_ALIGN_TOP_LEFT, 20, 240);
+
+    lv_obj_t *wifi_lbl = lv_label_create(s_set_periph_screen);
+    lv_label_set_text(wifi_lbl, "WiFi");
+    lv_obj_set_style_text_font(wifi_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(wifi_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(wifi_lbl, LV_ALIGN_TOP_LEFT, 20, 280);
+    lv_obj_t *wifi_sw = lv_switch_create(s_set_periph_screen);
+    lv_obj_align(wifi_sw, LV_ALIGN_TOP_RIGHT, -20, 278);
+    lv_obj_add_state(wifi_sw, LV_STATE_DISABLED);
+    lv_obj_t *wifi_cap = lv_label_create(s_set_periph_screen);
+    lv_label_set_text(wifi_cap, "not available yet");
+    lv_obj_set_style_text_font(wifi_cap, s_font_micro, 0);
+    lv_obj_set_style_text_color(wifi_cap, lv_color_hex(0x707070), 0);
+    lv_obj_align(wifi_cap, LV_ALIGN_TOP_LEFT, 20, 310);
+
+    settings_periph_refresh(NULL);
+    lv_timer_create(settings_periph_refresh, 1000, NULL);
+}
+
+/* ---- Ton & Vibration ---- */
+
+static void settings_alarm_sound_switch_cb(lv_event_t *e)
+{
+    (void)e;
+    alarm_set_sound_enabled(lv_obj_has_state(s_set_sound_alarm_switch, LV_STATE_CHECKED));
+}
+
+static void settings_notify_switch_cb(lv_event_t *e)
+{
+    (void)e;
+    mesh_log_set_notify_enabled(lv_obj_has_state(s_set_sound_notify_switch, LV_STATE_CHECKED));
+}
+
+static void settings_sound_refresh(void)
+{
+    if (!s_set_sound_alarm_switch) {
+        return;
+    }
+    if (alarm_get_sound_enabled()) { lv_obj_add_state(s_set_sound_alarm_switch, LV_STATE_CHECKED); }
+    else { lv_obj_clear_state(s_set_sound_alarm_switch, LV_STATE_CHECKED); }
+    if (mesh_log_get_notify_enabled()) { lv_obj_add_state(s_set_sound_notify_switch, LV_STATE_CHECKED); }
+    else { lv_obj_clear_state(s_set_sound_notify_switch, LV_STATE_CHECKED); }
+}
+
+static void lvgl_build_settings_sound_screen(void)
+{
+    s_set_sound_screen = screen_new();
+    lv_obj_set_style_bg_color(s_set_sound_screen, lv_color_hex(0x000000), 0);
+    lv_obj_add_event_cb(s_set_sound_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_back_cb);
+    lv_obj_add_event_cb(s_set_sound_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_back_cb);
+
+    lv_obj_t *back = lv_button_create(s_set_sound_screen);
+    lv_obj_set_size(back, 70, 36);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, "< Back");
+    lv_obj_set_style_text_font(bl, s_font_micro, 0);
+    lv_obj_center(bl);
+    lv_obj_add_event_cb(back, settings_back_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *title = lv_label_create(s_set_sound_screen);
+    lv_label_set_text(title, "TON & VIBRATION");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    lv_obj_t *alarm_lbl = lv_label_create(s_set_sound_screen);
+    lv_label_set_text(alarm_lbl, "Alarm sound");
+    lv_obj_set_style_text_font(alarm_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(alarm_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(alarm_lbl, LV_ALIGN_TOP_LEFT, 20, 100);
+    s_set_sound_alarm_switch = lv_switch_create(s_set_sound_screen);
+    lv_obj_align(s_set_sound_alarm_switch, LV_ALIGN_TOP_RIGHT, -20, 98);
+    lv_obj_add_event_cb(s_set_sound_alarm_switch, settings_alarm_sound_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *notify_lbl = lv_label_create(s_set_sound_screen);
+    lv_label_set_text(notify_lbl, "LoRa notify vibr.");
+    lv_obj_set_style_text_font(notify_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(notify_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(notify_lbl, LV_ALIGN_TOP_LEFT, 20, 160);
+    s_set_sound_notify_switch = lv_switch_create(s_set_sound_screen);
+    lv_obj_align(s_set_sound_notify_switch, LV_ALIGN_TOP_RIGHT, -20, 158);
+    lv_obj_add_event_cb(s_set_sound_notify_switch, settings_notify_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    settings_sound_refresh();
+}
+
+/* ---- Info ---- */
+
+static void settings_info_refresh(lv_timer_t *timer)
+{
+    (void)timer;
+    if (lv_screen_active() != s_set_info_screen) {
+        return;
+    }
+    sensor_cache_t cache;
+    sensor_cache_get(&cache);
+    char buf[48];
+    if (cache.valid) {
+        snprintf(buf, sizeof(buf), "Battery: %u%%", (unsigned)cache.batt_pct);
+    } else {
+        snprintf(buf, sizeof(buf), "Battery: --");
+    }
+    lv_label_set_text(s_set_info_batt_label, buf);
+
+    uint64_t total = 0, free = 0;
+    if (sd_log_get_space(&total, &free) == ESP_OK) {
+        snprintf(buf, sizeof(buf), "SD: %.1f / %.1f GB free",
+                 free / 1073741824.0, total / 1073741824.0);
+    } else {
+        snprintf(buf, sizeof(buf), "SD: not available");
+    }
+    lv_label_set_text(s_set_info_sd_label, buf);
+}
+
+static void lvgl_build_settings_info_screen(void)
+{
+    s_set_info_screen = screen_new();
+    lv_obj_set_style_bg_color(s_set_info_screen, lv_color_hex(0x000000), 0);
+    lv_obj_add_event_cb(s_set_info_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_back_cb);
+    lv_obj_add_event_cb(s_set_info_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_back_cb);
+
+    lv_obj_t *back = lv_button_create(s_set_info_screen);
+    lv_obj_set_size(back, 70, 36);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, "< Back");
+    lv_obj_set_style_text_font(bl, s_font_micro, 0);
+    lv_obj_center(bl);
+    lv_obj_add_event_cb(back, settings_back_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *title = lv_label_create(s_set_info_screen);
+    lv_label_set_text(title, "INFO");
+    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    lv_obj_t *fw_label = lv_label_create(s_set_info_screen);
+    char fw_buf[48];
+    snprintf(fw_buf, sizeof(fw_buf), "Firmware: v%s", esp_app_get_description()->version);
+    lv_label_set_text(fw_label, fw_buf);
+    lv_obj_set_style_text_font(fw_label, s_font_micro, 0);
+    lv_obj_set_style_text_color(fw_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(fw_label, LV_ALIGN_TOP_LEFT, 20, 100);
+
+    s_set_info_batt_label = lv_label_create(s_set_info_screen);
+    lv_obj_set_style_text_font(s_set_info_batt_label, s_font_micro, 0);
+    lv_obj_set_style_text_color(s_set_info_batt_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_set_info_batt_label, LV_ALIGN_TOP_LEFT, 20, 140);
+
+    s_set_info_sd_label = lv_label_create(s_set_info_screen);
+    lv_obj_set_style_text_font(s_set_info_sd_label, s_font_micro, 0);
+    lv_obj_set_style_text_color(s_set_info_sd_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(s_set_info_sd_label, LV_ALIGN_TOP_LEFT, 20, 180);
+
+    settings_info_refresh(NULL);
+    lv_timer_create(settings_info_refresh, 1000, NULL);
 }
 
 /* ---- NFC screen (chained off BHI: swipe left again) ---- */
@@ -3058,6 +3422,15 @@ static void swipe_event_cb(lv_event_t *e)
     nav_ring_go(next);
 }
 
+static void watch_face_long_press_cb(lv_event_t *e)
+{
+    (void)e;
+    if (lv_screen_active() != s_watch_screen) {
+        return;
+    }
+    lvgl_show_settings_disp();
+}
+
 /* ---- Menu inactivity timeout ----
  * Any non-watch-face screen returns to the watch face after MENU_TIMEOUT_MS
  * without a touch. The BHI sensor screen keeps its orientation cube up for
@@ -3068,7 +3441,9 @@ static void menu_timeout_cb(lv_timer_t *timer)
     (void)timer;
     lv_obj_t *cur = lv_screen_active();
     if (cur == s_gps_screen || cur == s_alarm_screen || cur == s_ring_screen ||
-        cur == s_alarm_edit_screen || cur == s_timer_screen || cur == s_node_screen) {
+        cur == s_alarm_edit_screen || cur == s_timer_screen || cur == s_node_screen ||
+        cur == s_settings_screen || cur == s_set_tz_screen || cur == s_set_disp_screen ||
+        cur == s_set_periph_screen || cur == s_set_sound_screen || cur == s_set_info_screen) {
         return;
     }
     if (cur == s_watch_screen) {
@@ -3166,12 +3541,18 @@ esp_err_t lvgl_app_start(void)
 {
     mount_assets();
 
+    /* Load display timeout/brightness (+ the rest of power_mgmt's persisted
+     * settings) now: esp_lv_adapter_init() below needs the timeout
+     * immediately, well before power_mgmt_init()'s own (heavier, GPIO/task)
+     * setup runs later in this function. Safe to load twice. */
+    power_mgmt_load_config();
+
     const esp_lv_adapter_config_t adapter_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG();
     esp_lv_adapter_config_t adapter_cfg_mut = adapter_cfg;
     /* Auto light sleep: pause LVGL after idle, then tickless light sleep. */
     adapter_cfg_mut.auto_sleep.enable = true;
     adapter_cfg_mut.auto_sleep.mode = ESP_LV_ADAPTER_AUTO_SLEEP_MODE_PAUSE;
-    adapter_cfg_mut.auto_sleep.idle_timeout_ms = 5000;
+    adapter_cfg_mut.auto_sleep.idle_timeout_ms = power_mgmt_get_display_timeout_s() * 1000;
     adapter_cfg_mut.auto_sleep.callbacks.on_enter_sleep = power_mgmt_enter_sleep;
     adapter_cfg_mut.auto_sleep.callbacks.on_exit_sleep = power_mgmt_exit_sleep;
     ESP_RETURN_ON_ERROR(esp_lv_adapter_init(&adapter_cfg_mut), TAG, "adapter init");
@@ -3250,6 +3631,11 @@ esp_err_t lvgl_app_start(void)
              * which widget/screen is active. */
             lv_indev_add_event_cb(s_touch_indev, swipe_event_cb, LV_EVENT_PRESSED, NULL);
             lv_indev_add_event_cb(s_touch_indev, swipe_event_cb, LV_EVENT_RELEASED, NULL);
+            /* Tap-and-hold on the watch face -> Display settings (section
+             * 9.3). LVGL's default long-press time (~400ms) is used as-is.
+             * A near-zero-movement long-press never crosses SWIPE_DIST, so
+             * this never fires the ring-swipe logic above too. */
+            lv_indev_add_event_cb(s_touch_indev, watch_face_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
         } else {
             ESP_LOGE(TAG, "touch registration failed");
         }

@@ -77,6 +77,7 @@ static TaskHandle_t s_ring_task;
 static SemaphoreHandle_t s_ring_cmd;      /* binary: signals ring start */
 static int s_ring_mode_pending;           /* -1 = none, 0=dismiss, 1=snooze */
 static alarm_ring_cb_t s_ring_cb;
+static bool s_sound_enabled = true;       /* global mute, see alarm_set_sound_enabled() */
 
 static void alarm_recompute_next(void);
 
@@ -102,6 +103,10 @@ static void cfg_load(void)
             /* First boot (or old single-alarm blob under a different key/size
              * that we deliberately don't try to migrate): all slots empty. */
             memset(s_entries, 0, sizeof(s_entries));
+        }
+        uint8_t v = 1;
+        if (nvs_get_u8(h, "sound_en", &v) == ESP_OK) {
+            s_sound_enabled = (v != 0);
         }
         nvs_close(h);
     }
@@ -273,12 +278,20 @@ static void ring_task(void *arg)
         if (s_ring_cb) {
             s_ring_cb(true, s_ring_source);
         }
-        ESP_LOGI(TAG, "ringing source=%d mode=%u armed_idx=%d",
-                 (int)s_ring_source, (unsigned)s_ring_mode_active, s_armed_idx);
-        ring_set_outputs(true);
+        ESP_LOGI(TAG, "ringing source=%d mode=%u armed_idx=%d sound=%d",
+                 (int)s_ring_source, (unsigned)s_ring_mode_active, s_armed_idx,
+                 (int)s_sound_enabled);
+        /* Global mute: screen/dismiss/snooze/auto-snooze timing all still
+         * work normally, just silently - a master off-switch, not a mode
+         * change to the ringing entry's own Beep/Vib/Both. */
+        if (s_sound_enabled) {
+            ring_set_outputs(true);
+        }
 
-        bool beep = (s_ring_mode_active == ALARM_RING_BEEP || s_ring_mode_active == ALARM_RING_BOTH);
-        bool vib  = (s_ring_mode_active == ALARM_RING_VIB || s_ring_mode_active == ALARM_RING_BOTH);
+        bool beep = s_sound_enabled &&
+                    (s_ring_mode_active == ALARM_RING_BEEP || s_ring_mode_active == ALARM_RING_BOTH);
+        bool vib  = s_sound_enabled &&
+                    (s_ring_mode_active == ALARM_RING_VIB || s_ring_mode_active == ALARM_RING_BOTH);
 
         /* Ring until dismiss or snooze. The melody cycle is written in a tight
          * loop so the I2S DMA stays continuously fed (no underrun crackle);
@@ -498,6 +511,25 @@ int alarm_get_ringing_index(void)
 bool alarm_is_ringing(void)
 {
     return s_ringing;
+}
+
+bool alarm_get_sound_enabled(void)
+{
+    return s_sound_enabled;
+}
+
+void alarm_set_sound_enabled(bool enabled)
+{
+    if (enabled == s_sound_enabled) {
+        return;
+    }
+    s_sound_enabled = enabled;
+    nvs_handle_t h;
+    if (nvs_open(ALARM_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u8(h, "sound_en", enabled ? 1 : 0);
+        nvs_commit(h);
+        nvs_close(h);
+    }
 }
 
 bool alarm_is_snoozing(void)

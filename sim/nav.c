@@ -81,14 +81,8 @@ static void swipe_event_cb(lv_event_t *e)
             } else {             /* right -> GPS */
                 sim_gps_screen_build();
             }
-        } else if (dy > 0) {     /* down  -> Power Management */
-            sim_power_screen_build();
         } else if (dy < 0) {     /* up   -> Alarm */
             sim_alarm_screen_build();
-        }
-    } else if (cur == s_power_screen) {
-        if (!horiz && dy < 0) {  /* up -> clock */
-            sim_show_watch_face();
         }
     } else if (cur == s_alarm_screen) {
         if (!horiz && dy > 0) {  /* down -> clock */
@@ -120,7 +114,8 @@ static void menu_timeout_cb(lv_timer_t *timer)
 {
     (void)timer;
     lv_obj_t *cur = lv_screen_active();
-    if (cur == s_gps_screen || cur == s_alarm_screen || cur == s_ring_screen) {
+    if (cur == s_gps_screen || cur == s_alarm_screen || cur == s_ring_screen ||
+        cur == s_settings_screen) {
         return;
     }
     if (cur == s_watch_screen) {
@@ -132,6 +127,17 @@ static void menu_timeout_cb(lv_timer_t *timer)
     }
 }
 
+/* Tap-and-hold on the watch face -> Display settings (docs/application.md
+ * section 9.3), mirroring main/lvgl_app.c's watch_face_long_press_cb(). */
+static void watch_face_long_press_cb(lv_event_t *e)
+{
+    (void)e;
+    if (lv_screen_active() != s_watch_screen) {
+        return;
+    }
+    sim_settings_disp_screen_build();
+}
+
 void sim_nav_init(lv_indev_t *touch_indev)
 {
     if (touch_indev) {
@@ -139,6 +145,7 @@ void sim_nav_init(lv_indev_t *touch_indev)
          * which widget/screen is active. */
         lv_indev_add_event_cb(touch_indev, swipe_event_cb, LV_EVENT_PRESSED, NULL);
         lv_indev_add_event_cb(touch_indev, swipe_event_cb, LV_EVENT_RELEASED, NULL);
+        lv_indev_add_event_cb(touch_indev, watch_face_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
     }
     /* Menu inactivity timeout (runs forever; no-op on the watch face). */
     lv_timer_create(menu_timeout_cb, 500, NULL);

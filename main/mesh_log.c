@@ -14,6 +14,7 @@
 #include "pcf85063a.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -38,6 +39,13 @@ static SemaphoreHandle_t s_mux;
  * from mesh_log_task() (writer) or a UI timer (reader), never nested. */
 static mesh_node_t s_nodes[MESH_NODE_TABLE_MAX];
 static size_t s_node_count;
+
+#define MESH_NVS_NS "mesh"
+
+static bool s_notify_enabled = true;
+static char s_presets[MESH_PRESET_COUNT][MESH_PRESET_MAX_LEN + 1] = {
+    "Bin ok", "Verzoegerung", "Notfall", "Standort senden",
+};
 
 /* Inserts/refreshes the entry for `from`, evicting the least-recently-seen
  * node if the table is full. `name` is NULL to leave an existing name
@@ -214,7 +222,9 @@ static void mesh_log_task(void *arg)
              * (NodeInfo, telemetry, unknown channel, ...) are logged for
              * visibility but don't interrupt - only a real message does. */
             lvgl_mesh_screen_show();
-            drv2605_play(twatch_haptic_dev, 47);   /* strong click, same as alarm.c */
+            if (s_notify_enabled) {
+                drv2605_play(twatch_haptic_dev, 47);   /* strong click, same as alarm.c */
+            }
         } else if (m.kind == MESH_MSG_OTHER) {
             ESP_LOGI(TAG, "packet from !%08lx ch=0x%02x rssi=%ddBm snr=%ddB: %s",
                     (unsigned long)m.from, (unsigned)m.channel_hash,
@@ -293,10 +303,72 @@ void mesh_log_node_name(uint32_t node_id, char *out, size_t outlen)
     }
 }
 
+bool mesh_log_get_notify_enabled(void)
+{
+    return s_notify_enabled;
+}
+
+void mesh_log_set_notify_enabled(bool enabled)
+{
+    if (enabled == s_notify_enabled) {
+        return;
+    }
+    s_notify_enabled = enabled;
+    nvs_handle_t h;
+    if (nvs_open(MESH_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u8(h, "notify_en", enabled ? 1 : 0);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+void mesh_preset_get(int idx, char *out, size_t outlen)
+{
+    if (outlen > 0) {
+        out[0] = '\0';
+    }
+    if (idx < 0 || idx >= MESH_PRESET_COUNT) {
+        return;
+    }
+    snprintf(out, outlen, "%s", s_presets[idx]);
+}
+
+void mesh_preset_set(int idx, const char *text)
+{
+    if (idx < 0 || idx >= MESH_PRESET_COUNT || !text) {
+        return;
+    }
+    snprintf(s_presets[idx], sizeof(s_presets[idx]), "%s", text);
+    nvs_handle_t h;
+    if (nvs_open(MESH_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_blob(h, "presets", s_presets, sizeof(s_presets));
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+static void mesh_config_load(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(MESH_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        uint8_t v = 1;
+        if (nvs_get_u8(h, "notify_en", &v) == ESP_OK) {
+            s_notify_enabled = (v != 0);
+        }
+        size_t len = sizeof(s_presets);
+        char tmp[sizeof(s_presets)];
+        if (nvs_get_blob(h, "presets", tmp, &len) == ESP_OK && len == sizeof(s_presets)) {
+            memcpy(s_presets, tmp, sizeof(s_presets));
+        }
+        nvs_close(h);
+    }
+}
+
 void mesh_log_init(void)
 {
     if (!s_mux) {
         s_mux = xSemaphoreCreateMutex();
     }
+    mesh_config_load();
     xTaskCreate(mesh_log_task, "mesh_log", 4096, NULL, 3, NULL);
 }

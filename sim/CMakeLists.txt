@@ -18,12 +18,12 @@ add_executable(uwatch_sim
     main.c
     nav.c
     watch_face.c
-    power_screen.c
     bhi_screen.c
     gps_screen.c
     mesh_screen.c
     alarm_screen.c
     ring_screen.c
+    settings_screen.c
     mock_hw.c
     ../main/cascadia_72.c
     ../main/cascadia_36.c

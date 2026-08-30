@@ -32,6 +32,11 @@ esp_err_t sd_log_unmount(void);
 /* True if the SD card is mounted and writable. */
 bool sd_log_available(void);
 
+/* Total/free bytes on the card, via esp_vfs_fat_info(). ESP_ERR_NOT_FOUND
+ * if no card is mounted (check sd_log_available() first, or just handle
+ * the error). */
+esp_err_t sd_log_get_space(uint64_t *total_bytes, uint64_t *free_bytes);
+
 /* Write a screenshot (RGB565 little-endian, w*h pixels) to
  * /sdcard/shot/shot_NNNN.png. Returns ESP_OK on success, ESP_ERR_NOT_FOUND
  * if no card. */

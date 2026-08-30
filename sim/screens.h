@@ -25,12 +25,12 @@ extern "C" {
 #endif
 
 extern lv_obj_t *s_watch_screen;
-extern lv_obj_t *s_power_screen;
 extern lv_obj_t *s_bhi_screen;
 extern lv_obj_t *s_gps_screen;
 extern lv_obj_t *s_mesh_screen;
 extern lv_obj_t *s_alarm_screen;
 extern lv_obj_t *s_ring_screen;
+extern lv_obj_t *s_settings_screen;
 
 /* Watch face (watch_face.c). */
 void sim_watch_face_start(void);
@@ -38,12 +38,15 @@ void sim_watch_face_start(void);
  * right after nav.c loads it back onto screen. */
 void sim_watch_face_refresh(void);
 
-/* Lazy build-or-reuse + lv_scr_load() for each of the other five screens. */
-void sim_power_screen_build(void);
+/* Lazy build-or-reuse + lv_scr_load() for each of the other screens. */
 void sim_bhi_screen_build(void);
 void sim_gps_screen_build(void);
 void sim_mesh_screen_build(void);
 void sim_alarm_screen_build(void);
+void sim_settings_screen_build(void);
+/* Reachable both from the Settings category list and via tap-and-hold on
+ * the watch face - exposed separately since it's the long-press target. */
+void sim_settings_disp_screen_build(void);
 /* source picks which ring-screen variant to preview: ALARM_RING_SOURCE_ALARM
  * (shows a configured time, offers Snooze) or ALARM_RING_SOURCE_TIMER (shows
  * "Time's up", no Snooze) - see ring_screen.c's header comment. */

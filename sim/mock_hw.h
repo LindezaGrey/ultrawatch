@@ -89,6 +89,10 @@ bool power_mgmt_get_night_mode_auto(void);
 void power_mgmt_set_night_mode_auto(bool on);
 bool power_mgmt_get_skip_sleep_on_usb(void);
 void power_mgmt_set_skip_sleep_on_usb(bool yes);
+uint32_t power_mgmt_get_display_timeout_s(void);
+void power_mgmt_set_display_timeout_s(uint32_t seconds);
+uint8_t power_mgmt_get_brightness(void);
+void power_mgmt_set_brightness(uint8_t level);
 
 /* --- m10q.h subset --- */
 #define M10Q_MAX_SATS 24
@@ -240,6 +244,8 @@ typedef struct {
 size_t mesh_log_get_nodes(mesh_node_t *out, size_t max);
 size_t mesh_log_node_count(void);
 void mesh_log_node_name(uint32_t node_id, char *out, size_t outlen);
+bool mesh_log_get_notify_enabled(void);
+void mesh_log_set_notify_enabled(bool enabled);
 
 /* --- alarm.h subset (multi-alarm + shared ring engine, 2026-08-29 overhaul) --- */
 #define ALARM_RING_BEEP  0
@@ -274,6 +280,8 @@ size_t alarm_get_all(alarm_entry_t *out, size_t max);
 int alarm_get_ringing_index(void);
 esp_err_t alarm_dismiss(void);
 esp_err_t alarm_snooze(void);
+bool alarm_get_sound_enabled(void);
+void alarm_set_sound_enabled(bool enabled);
 
 /* --- cd_timer.h subset --- */
 esp_err_t cdtimer_start(uint32_t seconds);
@@ -290,6 +298,15 @@ void sim_cdtimer_tick(void);
 bool sd_log_available(void);
 bool twatch_sd_card_seated(void);
 bool ble_debug_is_connected(void);
+bool ble_debug_is_advertising(void);
+void ble_debug_set_advertising(bool on);
+esp_err_t sd_log_get_space(uint64_t *total_bytes, uint64_t *free_bytes);
+
+/* --- lvgl_app.h subset (Settings/Peripherie screen) ---
+ * Real lvgl_gps_set_enabled() drives the GNSS power task; the sim has no
+ * task, so this mock just calls mock_gnss_set_enabled() directly (same
+ * substitution gps_screen.c's own gps_pwr_switch_cb() already makes). */
+void lvgl_gps_set_enabled(bool on);
 
 #ifdef __cplusplus
 }

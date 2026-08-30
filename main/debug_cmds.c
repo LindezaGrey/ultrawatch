@@ -696,6 +696,28 @@ void debug_cmd_meshcat(const char *args)
     fclose(f);
 }
 
+void debug_cmd_presetset(const char *args)
+{
+    int idx = -1;
+    int consumed = 0;
+    if (sscanf(args, "%d %n", &idx, &consumed) < 1 || idx < 0 || idx >= MESH_PRESET_COUNT) {
+        printf("presetset: usage presetset <0-%d> <text>\n", MESH_PRESET_COUNT - 1);
+        for (int i = 0; i < MESH_PRESET_COUNT; i++) {
+            char cur[MESH_PRESET_MAX_LEN + 1];
+            mesh_preset_get(i, cur, sizeof(cur));
+            printf("  [%d] %s\n", i, cur);
+        }
+        return;
+    }
+    const char *text = args + consumed;
+    if (text[0] == '\0') {
+        printf("presetset: usage presetset <0-%d> <text>\n", MESH_PRESET_COUNT - 1);
+        return;
+    }
+    mesh_preset_set(idx, text);
+    printf("presetset: [%d] = \"%s\"\n", idx, text);
+}
+
 void debug_cmd_alarmring(const char *args)
 {
     (void)args;

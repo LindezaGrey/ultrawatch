@@ -3,6 +3,7 @@
  */
 #pragma once
 
+#include <stdint.h>
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -10,6 +11,15 @@ extern "C" {
 #endif
 
 void power_mgmt_init(void);
+
+/* Loads the NVS-persisted settings (night mode, USB-sleep, display timeout,
+ * brightness) without touching GPIOs/tasks/ISRs. power_mgmt_init() already
+ * calls this itself; exposed separately so lvgl_app_start() can load
+ * power_mgmt_get_display_timeout_s() *before* esp_lv_adapter_init() (which
+ * needs it immediately, ahead of where power_mgmt_init()'s heavier GPIO/task
+ * setup has to run relative to sensor_cache_init()/alarm_init()). Safe to
+ * call twice - power_mgmt_init() calling it again is a harmless re-load. */
+void power_mgmt_load_config(void);
 
 /* Adapter auto-sleep callbacks (PAUSE mode). */
 esp_err_t power_mgmt_enter_sleep(void *ctx);
@@ -59,6 +69,21 @@ void power_mgmt_set_night_mode_auto(bool on);
  * sleep even when plugged in. Persisted in NVS. */
 bool power_mgmt_get_skip_sleep_on_usb(void);
 void power_mgmt_set_skip_sleep_on_usb(bool yes);
+
+/* Display auto-off timeout, in seconds (default 5). Persisted in NVS, but
+ * NOT applied live: it only takes effect via esp_lv_adapter_init()'s
+ * auto_sleep.idle_timeout_ms at next boot - the adapter component exposes
+ * no runtime reconfigure API. Documented exception to this project's usual
+ * immediate-apply convention. */
+uint32_t power_mgmt_get_display_timeout_s(void);
+void power_mgmt_set_display_timeout_s(uint32_t seconds);
+
+/* Normal (non-night-mode) display brightness, 0-255 (default 0x80).
+ * Persisted in NVS and applied immediately via co5300_set_brightness()
+ * unless night mode is currently active (in which case it takes effect the
+ * next time night mode exits). */
+uint8_t power_mgmt_get_brightness(void);
+void power_mgmt_set_brightness(uint8_t level);
 
 #ifdef __cplusplus
 }

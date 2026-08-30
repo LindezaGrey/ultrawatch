@@ -94,6 +94,13 @@ int alarm_get_ringing_index(void);
 bool alarm_is_ringing(void);
 bool alarm_is_snoozing(void);
 
+/* Global mute: when disabled, a ring never enables beep/vibration outputs
+ * regardless of the ringing alarm's own per-entry ring_mode (or the
+ * timer's fixed BOTH mode) - a master off-switch, not a mode change.
+ * Persisted in NVS (namespace "alarm", same as the alarm list itself). */
+bool alarm_get_sound_enabled(void);
+void alarm_set_sound_enabled(bool enabled);
+
 /* Called on every 1 Hz UI tick: starts the ring if the RTC alarm or snooze
  * timer fired. Safe to call from any task. */
 esp_err_t alarm_check(void);

@@ -418,6 +418,11 @@ bool ble_debug_is_connected(void)
 }
 
 /* Enable/disable BLE advertising at runtime. */
+bool ble_debug_is_advertising(void)
+{
+    return s_adv_active;
+}
+
 void ble_debug_set_advertising(bool on)
 {
     if (on) {

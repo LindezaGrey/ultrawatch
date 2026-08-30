@@ -38,6 +38,12 @@ bool ble_debug_is_connected(void);
  * the GNSS front-end on this board). */
 void ble_debug_set_advertising(bool on);
 
+/* Current live on-air state (false while connected, even if advertising was
+ * "on" before the connection - matches ble_debug_set_advertising()'s own
+ * semantics). Not persisted across reboot: advertising always restarts at
+ * boot via ble_debug_init() regardless of the last Settings toggle. */
+bool ble_debug_is_advertising(void);
+
 #ifdef __cplusplus
 }
 #endif

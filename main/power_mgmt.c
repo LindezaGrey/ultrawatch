@@ -56,9 +56,13 @@ static const char *TAG = "power_mgmt";
 #define PM_NVS_NS         "pm"
 #define PM_NVS_KEY_NIGHT  "night_auto"
 #define PM_NVS_KEY_USB    "skip_usb"
+#define PM_NVS_KEY_DISP_TO "disp_to"
+#define PM_NVS_KEY_BRIGHT  "bright"
 
 static bool s_night_mode_auto = true;    /* default: auto-enter night mode */
 static bool s_skip_sleep_on_usb = true;  /* default: never sleep on USB */
+static uint32_t s_display_timeout_s = 5; /* default: matches the historical 5000 ms literal */
+static uint8_t s_brightness = 0x80;      /* default: matches the historical 0x80 literal */
 
 /* RTC-capable GPIO wakeup for the touch line is armed here. */
 static volatile uint32_t s_wake_sources;   /* bitmask of PM_WAKE_*, ISR-writer/task-reader */
@@ -130,6 +134,8 @@ static void pm_config_save(void)
     if (nvs_open(PM_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
         nvs_set_u8(h, PM_NVS_KEY_NIGHT, s_night_mode_auto ? 1 : 0);
         nvs_set_u8(h, PM_NVS_KEY_USB, s_skip_sleep_on_usb ? 1 : 0);
+        nvs_set_u32(h, PM_NVS_KEY_DISP_TO, s_display_timeout_s);
+        nvs_set_u8(h, PM_NVS_KEY_BRIGHT, s_brightness);
         nvs_commit(h);
         nvs_close(h);
     }
@@ -147,7 +153,46 @@ static void pm_config_load(void)
         if (nvs_get_u8(h, PM_NVS_KEY_USB, &v) == ESP_OK) {
             s_skip_sleep_on_usb = (v != 0);
         }
+        uint32_t to = 0;
+        if (nvs_get_u32(h, PM_NVS_KEY_DISP_TO, &to) == ESP_OK && to > 0) {
+            s_display_timeout_s = to;
+        }
+        v = 0;
+        if (nvs_get_u8(h, PM_NVS_KEY_BRIGHT, &v) == ESP_OK && v > 0) {
+            s_brightness = v;
+        }
         nvs_close(h);
+    }
+}
+
+uint32_t power_mgmt_get_display_timeout_s(void)
+{
+    return s_display_timeout_s;
+}
+
+void power_mgmt_set_display_timeout_s(uint32_t seconds)
+{
+    if (seconds == 0 || seconds == s_display_timeout_s) {
+        return;
+    }
+    s_display_timeout_s = seconds;
+    pm_config_save();
+}
+
+uint8_t power_mgmt_get_brightness(void)
+{
+    return s_brightness;
+}
+
+void power_mgmt_set_brightness(uint8_t level)
+{
+    if (level == 0 || level == s_brightness) {
+        return;
+    }
+    s_brightness = level;
+    pm_config_save();
+    if (!s_night_mode) {
+        co5300_set_brightness(s_brightness);
     }
 }
 
@@ -191,7 +236,7 @@ static void pm_apply_night_mode(bool night)
     ESP_LOGI(TAG, "night mode %s", night ? "on" : "off");
 
     /* Dim to ~10% (night) or restore normal brightness. */
-    co5300_set_brightness(night ? PM_NIGHT_BRIGHTNESS : 0x80);
+    co5300_set_brightness(night ? PM_NIGHT_BRIGHTNESS : s_brightness);
 
     /* Touch input remains enabled at night so navigation works while the
      * watch is awake; only the light-sleep wake source is gated in
@@ -587,7 +632,7 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     bhi260ap_ap_resume();
 
     co5300_wake();
-    co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : 0x80);
+    co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : s_brightness);
 
     /* GRAM was blanked before sleep; force a full repaint so the screen shows
      * the current UI instead of staying black (SPI path doesn't auto-refresh).
@@ -601,9 +646,14 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     return ESP_OK;
 }
 
-void power_mgmt_init(void)
+void power_mgmt_load_config(void)
 {
     pm_config_load();
+}
+
+void power_mgmt_init(void)
+{
+    power_mgmt_load_config();
     /* Apply the persisted night-mode setting on boot. */
     pm_apply_night_mode(pm_is_night_time());
     /* DFS + automatic light sleep (tickless). */

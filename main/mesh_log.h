@@ -84,6 +84,25 @@ size_t mesh_log_node_count(void);
  * would race between them. */
 void mesh_log_node_name(uint32_t node_id, char *out, size_t outlen);
 
+/* Vibration on a new real text message (main/lvgl_app.c's lvgl_mesh_screen_show()
+ * + drv2605_play(), see mesh_log_task()) - on by default, persisted in NVS. */
+bool mesh_log_get_notify_enabled(void);
+void mesh_log_set_notify_enabled(bool enabled);
+
+/* ---- LoRa message presets ----
+ * Four short canned messages offered on the Mesh screen (main/lvgl_app.c,
+ * Phase 4 - still inert there, sending is out of scope). NVS-blob-backed so
+ * they're editable from the debug console (`presetset`) without an
+ * on-watch text keyboard, which this project deliberately doesn't have. */
+#define MESH_PRESET_COUNT   4
+#define MESH_PRESET_MAX_LEN 31   /* + 1 for the NUL, matches the storage array below */
+
+/* Copies preset `idx` into `out` ("" if idx is out of range). */
+void mesh_preset_get(int idx, char *out, size_t outlen);
+
+/* Sets preset `idx` (0..MESH_PRESET_COUNT-1) and persists it. */
+void mesh_preset_set(int idx, const char *text);
+
 #ifdef __cplusplus
 }
 #endif

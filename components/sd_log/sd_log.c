@@ -221,6 +221,24 @@ bool sd_log_available(void)
     return s_sd_ready;
 }
 
+esp_err_t sd_log_get_space(uint64_t *total_bytes, uint64_t *free_bytes)
+{
+    if (!s_sd_ready) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    uint64_t total = 0, free = 0;
+    esp_err_t err = esp_vfs_fat_info(SD_LOG_BASE, &total, &free);
+    if (err == ESP_OK) {
+        if (total_bytes) {
+            *total_bytes = total;
+        }
+        if (free_bytes) {
+            *free_bytes = free;
+        }
+    }
+    return err;
+}
+
 esp_err_t sd_log_clear(void)
 {
     if (!s_sd_ready) {
