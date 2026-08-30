@@ -190,6 +190,31 @@ static void timer_add_btn_cb(lv_event_t *e)
     lv_scr_load(s_timer_screen);
 }
 
+/* Public entry points for screenshot/dev-shortcut use (see main.c's
+ * UWATCH_SIM_SCREEN env var) - both sub-screens are normally reached by
+ * tapping a control on the Alarms list, not a direct swipe. */
+void sim_alarm_edit_screen_build(void)
+{
+    s_alarm_edit_idx = -1;
+    s_alarm_edit_hour = 7;
+    s_alarm_edit_min = 0;
+    s_alarm_edit_mode = ALARM_RING_BEEP;
+    s_alarm_edit_wmask = ALARM_WEEKDAY_ALL;
+    if (!s_alarm_edit_screen) {
+        lvgl_build_alarm_edit_screen();
+    }
+    lv_obj_add_flag(s_alarm_edit_delete_btn, LV_OBJ_FLAG_HIDDEN);
+    lv_scr_load(s_alarm_edit_screen);
+}
+
+void sim_timer_screen_build(void)
+{
+    if (!s_timer_screen) {
+        lvgl_build_timer_screen();
+    }
+    lv_scr_load(s_timer_screen);
+}
+
 void sim_alarm_screen_build(void)
 {
     if (s_alarm_screen) {
@@ -375,11 +400,11 @@ static void lvgl_build_alarm_edit_screen(void)
     lv_obj_set_style_bg_color(s_alarm_edit_screen, lv_color_hex(0x201020), 0);
 
     lv_obj_t *back = lv_button_create(s_alarm_edit_screen);
-    lv_obj_set_size(back, 70, 36);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_set_size(back, 92, 46);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
     lv_obj_t *bl = lv_label_create(back);
     lv_label_set_text(bl, "< Back");
-    lv_obj_set_style_text_font(bl, s_font_micro, 0);
+    lv_obj_set_style_text_font(bl, s_font_small, 0);
     lv_obj_center(bl);
     lv_obj_add_event_cb(back, alarm_edit_back_btn_cb, LV_EVENT_CLICKED, NULL);
 
@@ -443,7 +468,7 @@ static void lvgl_build_alarm_edit_screen(void)
         lv_obj_align(wb, LV_ALIGN_TOP_LEFT, 20 + i * 52, 285);
         lv_obj_t *wl = lv_label_create(wb);
         lv_label_set_text(wl, wday_names[i]);
-        lv_obj_set_style_text_font(wl, s_font_micro, 0);
+        lv_obj_set_style_text_font(wl, s_font_small, 0);
         lv_obj_center(wl);
         lv_obj_add_flag(wb, LV_OBJ_FLAG_CHECKABLE);
         lv_obj_add_event_cb(wb, alarm_edit_wday_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
@@ -536,17 +561,17 @@ static void lvgl_build_timer_screen(void)
     lv_obj_set_style_bg_color(s_timer_screen, lv_color_hex(0x102020), 0);
 
     lv_obj_t *back = lv_button_create(s_timer_screen);
-    lv_obj_set_size(back, 70, 36);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_set_size(back, 92, 46);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
     lv_obj_t *bl = lv_label_create(back);
     lv_label_set_text(bl, "< Back");
-    lv_obj_set_style_text_font(bl, s_font_micro, 0);
+    lv_obj_set_style_text_font(bl, s_font_small, 0);
     lv_obj_center(bl);
     lv_obj_add_event_cb(back, timer_back_btn_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *title = lv_label_create(s_timer_screen);
     lv_label_set_text(title, "TIMER");
-    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
 
@@ -555,12 +580,12 @@ static void lvgl_build_timer_screen(void)
         int row = i / 2;
         lv_obj_t *btn = lv_button_create(s_timer_screen);
         lv_obj_set_size(btn, 170, 70);
-        lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 20 + col * 190, 80 + row * 90);
+        lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 20 + col * 190, 90 + row * 90);
         lv_obj_t *l = lv_label_create(btn);
         char buf[16];
         snprintf(buf, sizeof(buf), "%u min", s_timer_presets_min[i]);
         lv_label_set_text(l, buf);
-        lv_obj_set_style_text_font(l, s_font_small, 0);
+        lv_obj_set_style_text_font(l, s_font_sec, 0);
         lv_obj_center(l);
         lv_obj_add_event_cb(btn, timer_preset_btn_cb, LV_EVENT_CLICKED,
                             (void *)(uintptr_t)s_timer_presets_min[i]);

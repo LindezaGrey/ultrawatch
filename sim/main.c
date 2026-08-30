@@ -74,8 +74,14 @@ int main(void)
             sim_gps_screen_build();
         } else if (strcmp(screen_name, "mesh") == 0) {
             sim_mesh_screen_build();
+        } else if (strcmp(screen_name, "node") == 0) {
+            sim_node_screen_build();
         } else if (strcmp(screen_name, "alarm") == 0) {
             sim_alarm_screen_build();
+        } else if (strcmp(screen_name, "alarm_edit") == 0) {
+            sim_alarm_edit_screen_build();
+        } else if (strcmp(screen_name, "timer") == 0) {
+            sim_timer_screen_build();
         } else if (strcmp(screen_name, "bhi") == 0) {
             sim_bhi_screen_build();
         } else if (strcmp(screen_name, "ring_alarm") == 0) {

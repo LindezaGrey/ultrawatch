@@ -283,19 +283,19 @@ static void lvgl_build_node_screen(void)
     lv_obj_set_style_bg_color(s_node_screen, lv_color_hex(0x102018), 0);
 
     lv_obj_t *back = lv_button_create(s_node_screen);
-    lv_obj_set_size(back, 70, 36);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_set_size(back, 92, 46);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
     lv_obj_t *bl = lv_label_create(back);
     lv_label_set_text(bl, "< Back");
-    lv_obj_set_style_text_font(bl, s_font_micro, 0);
+    lv_obj_set_style_text_font(bl, s_font_small, 0);
     lv_obj_center(bl);
     lv_obj_add_event_cb(back, node_back_btn_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *title = lv_label_create(s_node_screen);
     lv_label_set_text(title, "NODES");
-    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
 
     s_node_empty_label = lv_label_create(s_node_screen);
     lv_label_set_text(s_node_empty_label, "No nodes seen yet");
@@ -304,8 +304,8 @@ static void lvgl_build_node_screen(void)
     lv_obj_align(s_node_empty_label, LV_ALIGN_CENTER, 0, 0);
 
     lv_obj_t *list_cont = lv_obj_create(s_node_screen);
-    lv_obj_set_size(list_cont, 380, 400);
-    lv_obj_align(list_cont, LV_ALIGN_TOP_MID, 0, 60);
+    lv_obj_set_size(list_cont, 380, 320);
+    lv_obj_align(list_cont, LV_ALIGN_TOP_MID, 0, 140);
     lv_obj_set_flex_flow(list_cont, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list_cont, 4, 0);
     lv_obj_set_style_bg_opa(list_cont, LV_OPA_TRANSP, 0);
@@ -336,6 +336,14 @@ static void lvgl_show_node_overview(void)
      * s_node_screen is already active, same as main/lvgl_app.c. */
     lv_scr_load(s_node_screen);
     node_screen_update(NULL);
+}
+
+/* Public entry point for screenshot/dev-shortcut use (see main.c's
+ * UWATCH_SIM_SCREEN env var) - the node overview is reached by an upward
+ * fling from Mesh on real hardware, not a swipe the sim's nav.c wires up. */
+void sim_node_screen_build(void)
+{
+    lvgl_show_node_overview();
 }
 
 void sim_mesh_screen_build(void)

@@ -42,7 +42,10 @@ void sim_watch_face_refresh(void);
 void sim_bhi_screen_build(void);
 void sim_gps_screen_build(void);
 void sim_mesh_screen_build(void);
+void sim_node_screen_build(void);
 void sim_alarm_screen_build(void);
+void sim_alarm_edit_screen_build(void);
+void sim_timer_screen_build(void);
 void sim_settings_screen_build(void);
 /* Reachable both from the Settings category list and via tap-and-hold on
  * the watch face - exposed separately since it's the long-press target. */

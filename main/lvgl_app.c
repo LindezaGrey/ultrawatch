@@ -1610,20 +1610,26 @@ static void lvgl_build_node_screen(void)
     s_node_screen = screen_new();
     lv_obj_set_style_bg_color(s_node_screen, lv_color_hex(0x102018), 0);
 
+    /* High-DPI sizing + the same rounded-corner back-button fix as
+     * Settings (AGENT.md "Display density & UI sizing"; the button
+     * position was measured against the actual safe-area mask, see
+     * commit cfb7307). The per-node rows stay at cascadia_18 - dense,
+     * LONG_CLIP-fixed table data like GPS's diagnostics line or Mesh's
+     * message rows, would overflow at a bigger font. */
     lv_obj_t *back = lv_button_create(s_node_screen);
-    lv_obj_set_size(back, 70, 36);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_set_size(back, 92, 46);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
     lv_obj_t *bl = lv_label_create(back);
     lv_label_set_text(bl, "< Back");
-    lv_obj_set_style_text_font(bl, s_font_micro, 0);
+    lv_obj_set_style_text_font(bl, s_font_small, 0);
     lv_obj_center(bl);
     lv_obj_add_event_cb(back, node_back_btn_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *title = lv_label_create(s_node_screen);
     lv_label_set_text(title, "NODES");
-    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
 
     s_node_empty_label = lv_label_create(s_node_screen);
     lv_label_set_text(s_node_empty_label, "No nodes seen yet");
@@ -1632,8 +1638,8 @@ static void lvgl_build_node_screen(void)
     lv_obj_align(s_node_empty_label, LV_ALIGN_CENTER, 0, 0);
 
     lv_obj_t *list_cont = lv_obj_create(s_node_screen);
-    lv_obj_set_size(list_cont, 380, 400);
-    lv_obj_align(list_cont, LV_ALIGN_TOP_MID, 0, 60);
+    lv_obj_set_size(list_cont, 380, 320);
+    lv_obj_align(list_cont, LV_ALIGN_TOP_MID, 0, 140);
     lv_obj_set_flex_flow(list_cont, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list_cont, 4, 0);
     lv_obj_set_style_bg_opa(list_cont, LV_OPA_TRANSP, 0);
@@ -3126,12 +3132,18 @@ static void lvgl_build_alarm_edit_screen(void)
     s_alarm_edit_screen = screen_new();
     lv_obj_set_style_bg_color(s_alarm_edit_screen, lv_color_hex(0x201020), 0);
 
+    /* Back button uses the same rounded-corner-safe position/size as
+     * Settings (AGENT.md "Display density & UI sizing", commit cfb7307).
+     * Everything else on this screen (time/stepper/weekday/mode/save
+     * buttons) is already packed with no vertical slack - see the
+     * comment at the weekday row below for what could still be sized up
+     * safely without cascading the whole layout. */
     lv_obj_t *back = lv_button_create(s_alarm_edit_screen);
-    lv_obj_set_size(back, 70, 36);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_set_size(back, 92, 46);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
     lv_obj_t *bl = lv_label_create(back);
     lv_label_set_text(bl, "< Back");
-    lv_obj_set_style_text_font(bl, s_font_micro, 0);
+    lv_obj_set_style_text_font(bl, s_font_small, 0);
     lv_obj_center(bl);
     lv_obj_add_event_cb(back, alarm_edit_back_btn_cb, LV_EVENT_CLICKED, NULL);
 
@@ -3188,6 +3200,8 @@ static void lvgl_build_alarm_edit_screen(void)
     lv_obj_set_style_text_color(wday_lbl, lv_color_hex(0xE0E0E0), 0);
     lv_obj_align(wday_lbl, LV_ALIGN_TOP_LEFT, 20, 260);
 
+    /* 2-char labels fit comfortably at cascadia_22 (fixed box size unchanged -
+     * no cascading effect on the tightly-packed rows below/above). */
     static const char *wday_names[7] = { "Su", "Mo", "Tu", "We", "Th", "Fr", "Sa" };
     for (int i = 0; i < 7; i++) {
         lv_obj_t *wb = lv_button_create(s_alarm_edit_screen);
@@ -3195,7 +3209,7 @@ static void lvgl_build_alarm_edit_screen(void)
         lv_obj_align(wb, LV_ALIGN_TOP_LEFT, 20 + i * 52, 285);
         lv_obj_t *wl = lv_label_create(wb);
         lv_label_set_text(wl, wday_names[i]);
-        lv_obj_set_style_text_font(wl, s_font_micro, 0);
+        lv_obj_set_style_text_font(wl, s_font_small, 0);
         lv_obj_center(wl);
         lv_obj_add_flag(wb, LV_OBJ_FLAG_CHECKABLE);
         lv_obj_add_event_cb(wb, alarm_edit_wday_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
@@ -3287,18 +3301,23 @@ static void lvgl_build_timer_screen(void)
     s_timer_screen = screen_new();
     lv_obj_set_style_bg_color(s_timer_screen, lv_color_hex(0x102020), 0);
 
+    /* Back button: same rounded-corner-safe position/size as Settings
+     * (AGENT.md "Display density & UI sizing", commit cfb7307). Title
+     * stays centered so it doesn't need to move (no horizontal overlap
+     * with the button regardless of y); the preset grid shifts down 10px
+     * to clear the now-taller button. */
     lv_obj_t *back = lv_button_create(s_timer_screen);
-    lv_obj_set_size(back, 70, 36);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_set_size(back, 92, 46);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
     lv_obj_t *bl = lv_label_create(back);
     lv_label_set_text(bl, "< Back");
-    lv_obj_set_style_text_font(bl, s_font_micro, 0);
+    lv_obj_set_style_text_font(bl, s_font_small, 0);
     lv_obj_center(bl);
     lv_obj_add_event_cb(back, timer_back_btn_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *title = lv_label_create(s_timer_screen);
     lv_label_set_text(title, "TIMER");
-    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
 
@@ -3307,12 +3326,12 @@ static void lvgl_build_timer_screen(void)
         int row = i / 2;
         lv_obj_t *btn = lv_button_create(s_timer_screen);
         lv_obj_set_size(btn, 170, 70);
-        lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 20 + col * 190, 80 + row * 90);
+        lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 20 + col * 190, 90 + row * 90);
         lv_obj_t *l = lv_label_create(btn);
         char buf[16];
         snprintf(buf, sizeof(buf), "%u min", s_timer_presets_min[i]);
         lv_label_set_text(l, buf);
-        lv_obj_set_style_text_font(l, s_font_small, 0);
+        lv_obj_set_style_text_font(l, s_font_sec, 0);
         lv_obj_center(l);
         lv_obj_add_event_cb(btn, timer_preset_btn_cb, LV_EVENT_CLICKED,
                             (void *)(uintptr_t)s_timer_presets_min[i]);
