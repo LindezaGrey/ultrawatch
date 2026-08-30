@@ -394,6 +394,47 @@ void sim_settings_disp_screen_build(void)
     settings_disp_refresh();
 }
 
+/* Direct entry points for the remaining 4 sub-pages, exposed for
+ * screenshot/dev-shortcut use (see main.c's UWATCH_SIM_SCREEN env var) -
+ * none of these are reachable via swipe in the sim (nav.c still mirrors
+ * the pre-nav-ring tree, see this file's header comment), so a click chain
+ * through the category list isn't a robust way to reach them headlessly. */
+void sim_settings_tz_screen_build(void)
+{
+    if (!s_set_tz_screen) {
+        lvgl_build_settings_tz_screen();
+    }
+    lv_scr_load(s_set_tz_screen);
+    settings_tz_refresh();
+}
+
+void sim_settings_periph_screen_build(void)
+{
+    if (!s_set_periph_screen) {
+        lvgl_build_settings_periph_screen();
+    }
+    lv_scr_load(s_set_periph_screen);
+    settings_periph_refresh(NULL);
+}
+
+void sim_settings_sound_screen_build(void)
+{
+    if (!s_set_sound_screen) {
+        lvgl_build_settings_sound_screen();
+    }
+    lv_scr_load(s_set_sound_screen);
+    settings_sound_refresh();
+}
+
+void sim_settings_info_screen_build(void)
+{
+    if (!s_set_info_screen) {
+        lvgl_build_settings_info_screen();
+    }
+    lv_scr_load(s_set_info_screen);
+    settings_info_refresh(NULL);
+}
+
 /* ---- Peripherie ---- */
 
 static void settings_gps_switch_cb(lv_event_t *e)

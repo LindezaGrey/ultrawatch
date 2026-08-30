@@ -24,6 +24,7 @@ add_executable(uwatch_sim
     alarm_screen.c
     ring_screen.c
     settings_screen.c
+    screenshot.c
     mock_hw.c
     ../main/cascadia_72.c
     ../main/cascadia_36.c
