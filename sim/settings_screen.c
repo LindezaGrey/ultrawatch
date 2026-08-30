@@ -238,7 +238,7 @@ static void lvgl_build_settings_tz_screen(void)
 
     lv_obj_t *back = lv_button_create(s_set_tz_screen);
     lv_obj_set_size(back, 92, 46);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
     lv_obj_t *bl = lv_label_create(back);
     lv_label_set_text(bl, "< Back");
     lv_obj_set_style_text_font(bl, s_font_small, 0);
@@ -249,17 +249,17 @@ static void lvgl_build_settings_tz_screen(void)
     lv_label_set_text(title, "TIME & TIMEZONE");
     lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 64);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
 
     s_set_tz_abbrev_label = lv_label_create(s_set_tz_screen);
     lv_obj_set_style_text_font(s_set_tz_abbrev_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_set_tz_abbrev_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_set_tz_abbrev_label, LV_ALIGN_TOP_MID, 0, 220);
+    lv_obj_align(s_set_tz_abbrev_label, LV_ALIGN_TOP_MID, 0, 252);
 
     s_set_tz_offset_label = lv_label_create(s_set_tz_screen);
     lv_obj_set_style_text_font(s_set_tz_offset_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_set_tz_offset_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_set_tz_offset_label, LV_ALIGN_TOP_MID, 0, 280);
+    lv_obj_align(s_set_tz_offset_label, LV_ALIGN_TOP_MID, 0, 312);
 
     settings_tz_refresh();
 }
@@ -321,7 +321,7 @@ static void lvgl_build_settings_disp_screen(void)
 
     lv_obj_t *back = lv_button_create(s_set_disp_screen);
     lv_obj_set_size(back, 92, 46);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
     lv_obj_t *bl = lv_label_create(back);
     lv_label_set_text(bl, "< Back");
     lv_obj_set_style_text_font(bl, s_font_small, 0);
@@ -332,16 +332,16 @@ static void lvgl_build_settings_disp_screen(void)
     lv_label_set_text(title, "DISPLAY");
     lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 64);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
 
     s_set_disp_timeout_label = lv_label_create(s_set_disp_screen);
     lv_obj_set_style_text_font(s_set_disp_timeout_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_set_disp_timeout_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_set_disp_timeout_label, LV_ALIGN_TOP_MID, 0, 132);
+    lv_obj_align(s_set_disp_timeout_label, LV_ALIGN_TOP_MID, 0, 164);
 
     lv_obj_t *t_minus = lv_button_create(s_set_disp_screen);
     lv_obj_set_size(t_minus, 165, 72);
-    lv_obj_align(t_minus, LV_ALIGN_TOP_LEFT, 20, 172);
+    lv_obj_align(t_minus, LV_ALIGN_TOP_LEFT, 20, 204);
     lv_obj_t *tml = lv_label_create(t_minus);
     lv_label_set_text(tml, "-");
     lv_obj_set_style_text_font(tml, s_font_sec, 0);
@@ -350,7 +350,7 @@ static void lvgl_build_settings_disp_screen(void)
 
     lv_obj_t *t_plus = lv_button_create(s_set_disp_screen);
     lv_obj_set_size(t_plus, 165, 72);
-    lv_obj_align(t_plus, LV_ALIGN_TOP_RIGHT, -20, 172);
+    lv_obj_align(t_plus, LV_ALIGN_TOP_RIGHT, -20, 204);
     lv_obj_t *tpl = lv_label_create(t_plus);
     lv_label_set_text(tpl, "+");
     lv_obj_set_style_text_font(tpl, s_font_sec, 0);
@@ -360,11 +360,11 @@ static void lvgl_build_settings_disp_screen(void)
     s_set_disp_bright_label = lv_label_create(s_set_disp_screen);
     lv_obj_set_style_text_font(s_set_disp_bright_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_set_disp_bright_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_set_disp_bright_label, LV_ALIGN_TOP_MID, 0, 288);
+    lv_obj_align(s_set_disp_bright_label, LV_ALIGN_TOP_MID, 0, 320);
 
     lv_obj_t *b_minus = lv_button_create(s_set_disp_screen);
     lv_obj_set_size(b_minus, 165, 72);
-    lv_obj_align(b_minus, LV_ALIGN_TOP_LEFT, 20, 328);
+    lv_obj_align(b_minus, LV_ALIGN_TOP_LEFT, 20, 360);
     lv_obj_t *bml = lv_label_create(b_minus);
     lv_label_set_text(bml, "-");
     lv_obj_set_style_text_font(bml, s_font_sec, 0);
@@ -373,7 +373,7 @@ static void lvgl_build_settings_disp_screen(void)
 
     lv_obj_t *b_plus = lv_button_create(s_set_disp_screen);
     lv_obj_set_size(b_plus, 165, 72);
-    lv_obj_align(b_plus, LV_ALIGN_TOP_RIGHT, -20, 328);
+    lv_obj_align(b_plus, LV_ALIGN_TOP_RIGHT, -20, 360);
     lv_obj_t *bpl = lv_label_create(b_plus);
     lv_label_set_text(bpl, "+");
     lv_obj_set_style_text_font(bpl, s_font_sec, 0);
@@ -476,7 +476,7 @@ static void lvgl_build_settings_periph_screen(void)
 
     lv_obj_t *back = lv_button_create(s_set_periph_screen);
     lv_obj_set_size(back, 92, 46);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
     lv_obj_t *bl = lv_label_create(back);
     lv_label_set_text(bl, "< Back");
     lv_obj_set_style_text_font(bl, s_font_small, 0);
@@ -487,15 +487,15 @@ static void lvgl_build_settings_periph_screen(void)
     lv_label_set_text(title, "PERIPHERIE");
     lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 64);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
 
     /* Each toggle sits in its own dark rounded card (same treatment as the
      * category list's rows) instead of floating label+switch pairs on bare
      * black - fills the panel's width properly and gives every row a
      * fingertip-sized tap target, not just the switch itself. */
     lv_obj_t *gps_row = lv_obj_create(s_set_periph_screen);
-    lv_obj_set_size(gps_row, 386, 64);
-    lv_obj_align(gps_row, LV_ALIGN_TOP_MID, 0, 120);
+    lv_obj_set_size(gps_row, 386, 58);
+    lv_obj_align(gps_row, LV_ALIGN_TOP_MID, 0, 152);
     lv_obj_clear_flag(gps_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(gps_row, lv_color_hex(0x202020), 0);
     lv_obj_set_style_border_width(gps_row, 0, 0);
@@ -512,8 +512,8 @@ static void lvgl_build_settings_periph_screen(void)
     lv_obj_add_event_cb(s_set_periph_gps_switch, settings_gps_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_obj_t *bt_row = lv_obj_create(s_set_periph_screen);
-    lv_obj_set_size(bt_row, 386, 64);
-    lv_obj_align(bt_row, LV_ALIGN_TOP_MID, 0, 192);
+    lv_obj_set_size(bt_row, 386, 58);
+    lv_obj_align(bt_row, LV_ALIGN_TOP_MID, 0, 216);
     lv_obj_clear_flag(bt_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(bt_row, lv_color_hex(0x202020), 0);
     lv_obj_set_style_border_width(bt_row, 0, 0);
@@ -530,8 +530,8 @@ static void lvgl_build_settings_periph_screen(void)
     lv_obj_add_event_cb(s_set_periph_bt_switch, settings_bt_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_obj_t *lora_row = lv_obj_create(s_set_periph_screen);
-    lv_obj_set_size(lora_row, 386, 92);
-    lv_obj_align(lora_row, LV_ALIGN_TOP_MID, 0, 264);
+    lv_obj_set_size(lora_row, 386, 84);
+    lv_obj_align(lora_row, LV_ALIGN_TOP_MID, 0, 280);
     lv_obj_clear_flag(lora_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(lora_row, lv_color_hex(0x202020), 0);
     lv_obj_set_style_border_width(lora_row, 0, 0);
@@ -553,8 +553,8 @@ static void lvgl_build_settings_periph_screen(void)
     lv_obj_add_state(lora_sw, LV_STATE_CHECKED | LV_STATE_DISABLED);
 
     lv_obj_t *wifi_row = lv_obj_create(s_set_periph_screen);
-    lv_obj_set_size(wifi_row, 386, 92);
-    lv_obj_align(wifi_row, LV_ALIGN_TOP_MID, 0, 364);
+    lv_obj_set_size(wifi_row, 386, 84);
+    lv_obj_align(wifi_row, LV_ALIGN_TOP_MID, 0, 370);
     lv_obj_clear_flag(wifi_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(wifi_row, lv_color_hex(0x202020), 0);
     lv_obj_set_style_border_width(wifi_row, 0, 0);
@@ -613,7 +613,7 @@ static void lvgl_build_settings_sound_screen(void)
 
     lv_obj_t *back = lv_button_create(s_set_sound_screen);
     lv_obj_set_size(back, 92, 46);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
     lv_obj_t *bl = lv_label_create(back);
     lv_label_set_text(bl, "< Back");
     lv_obj_set_style_text_font(bl, s_font_small, 0);
@@ -624,11 +624,11 @@ static void lvgl_build_settings_sound_screen(void)
     lv_label_set_text(title, "TON & VIBRATION");
     lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 64);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
 
     lv_obj_t *alarm_row = lv_obj_create(s_set_sound_screen);
     lv_obj_set_size(alarm_row, 386, 76);
-    lv_obj_align(alarm_row, LV_ALIGN_TOP_MID, 0, 140);
+    lv_obj_align(alarm_row, LV_ALIGN_TOP_MID, 0, 172);
     lv_obj_clear_flag(alarm_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(alarm_row, lv_color_hex(0x202020), 0);
     lv_obj_set_style_border_width(alarm_row, 0, 0);
@@ -646,7 +646,7 @@ static void lvgl_build_settings_sound_screen(void)
 
     lv_obj_t *notify_row = lv_obj_create(s_set_sound_screen);
     lv_obj_set_size(notify_row, 386, 76);
-    lv_obj_align(notify_row, LV_ALIGN_TOP_MID, 0, 240);
+    lv_obj_align(notify_row, LV_ALIGN_TOP_MID, 0, 272);
     lv_obj_clear_flag(notify_row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(notify_row, lv_color_hex(0x202020), 0);
     lv_obj_set_style_border_width(notify_row, 0, 0);
@@ -702,7 +702,7 @@ static void lvgl_build_settings_info_screen(void)
 
     lv_obj_t *back = lv_button_create(s_set_info_screen);
     lv_obj_set_size(back, 92, 46);
-    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
     lv_obj_t *bl = lv_label_create(back);
     lv_label_set_text(bl, "< Back");
     lv_obj_set_style_text_font(bl, s_font_small, 0);
@@ -713,23 +713,23 @@ static void lvgl_build_settings_info_screen(void)
     lv_label_set_text(title, "INFO");
     lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 64);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
 
     lv_obj_t *fw_label = lv_label_create(s_set_info_screen);
     lv_label_set_text(fw_label, "Firmware: sim");
     lv_obj_set_style_text_font(fw_label, s_font_small, 0);
     lv_obj_set_style_text_color(fw_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(fw_label, LV_ALIGN_TOP_LEFT, 20, 140);
+    lv_obj_align(fw_label, LV_ALIGN_TOP_LEFT, 20, 172);
 
     s_set_info_batt_label = lv_label_create(s_set_info_screen);
     lv_obj_set_style_text_font(s_set_info_batt_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_set_info_batt_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_set_info_batt_label, LV_ALIGN_TOP_LEFT, 20, 196);
+    lv_obj_align(s_set_info_batt_label, LV_ALIGN_TOP_LEFT, 20, 228);
 
     s_set_info_sd_label = lv_label_create(s_set_info_screen);
     lv_obj_set_style_text_font(s_set_info_sd_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_set_info_sd_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_set_info_sd_label, LV_ALIGN_TOP_LEFT, 20, 252);
+    lv_obj_align(s_set_info_sd_label, LV_ALIGN_TOP_LEFT, 20, 284);
 
     settings_info_refresh(NULL);
     lv_timer_create(settings_info_refresh, 1000, NULL);
