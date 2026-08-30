@@ -59,6 +59,8 @@ CONFIG_LV_DRAW_THREAD_STACK_SIZE=32768
 CONFIG_LV_USE_SNAPSHOT=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_22=y
+# 28: watch face's own status bar (double-size icons, see build_status_bar_big()).
+CONFIG_LV_FONT_MONTSERRAT_28=y
 
 # Console over USB-Serial-JTAG only (no UART): frees UART0/GPIO43-44 for GNSS.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

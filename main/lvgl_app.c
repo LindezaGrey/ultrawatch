@@ -57,10 +57,7 @@ static lv_obj_t *s_tz_label;    /* timezone abbreviation, e.g. "CEST" - docs/app
 static lv_obj_t *s_time_label;
 static lv_obj_t *s_sec_label;
 static lv_obj_t *s_date_label;
-static lv_obj_t *s_batt_label;
-static lv_obj_t *s_batt_fill;
 static lv_obj_t *s_steps_label; /* step count on the watch face */
-static lv_obj_t *s_gps_icon;   /* satellite status icon (grey/red/green) */
 static lv_obj_t *s_track_dot;  /* solid red dot: tracking session active */
 static lv_obj_t *s_snooze_icon; /* "Zz" shown while snoozing */
 
@@ -366,14 +363,20 @@ static status_bar_t s_status_bar[5];
  * built-in glyph and stay as short text: GPX-tracking (closest built-in,
  * a generic loop/record glyph, read worse than the word) and LoRa (no
  * antenna/radio symbol exists in this set at all). */
-static lv_obj_t *status_icon_create(lv_obj_t *parent, const char *text, lv_align_t align, lv_coord_t x)
+static lv_obj_t *status_icon_create_ex(lv_obj_t *parent, const char *text, lv_align_t align,
+                                        lv_coord_t x, lv_coord_t y, const lv_font_t *font)
 {
     lv_obj_t *l = lv_label_create(parent);
     lv_label_set_text(l, text);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(l, font, 0);
     lv_obj_set_style_text_color(l, STATUS_COLOR_GREY, 0);
-    lv_obj_align(l, align, x, STATUS_BAR_Y);
+    lv_obj_align(l, align, x, y);
     return l;
+}
+
+static lv_obj_t *status_icon_create(lv_obj_t *parent, const char *text, lv_align_t align, lv_coord_t x)
+{
+    return status_icon_create_ex(parent, text, align, x, STATUS_BAR_Y, &lv_font_montserrat_14);
 }
 
 /* Builds one status bar instance into `parent` (a screen about to be shown
@@ -394,6 +397,25 @@ static void build_status_bar(lv_obj_t *parent, status_bar_t *out)
      * battery string ("<icon> 100%") to its right - see update_status_bar(). */
     out->chg  = status_icon_create(parent, LV_SYMBOL_CHARGE,    LV_ALIGN_TOP_RIGHT, -115);
     out->batt = status_icon_create(parent, LV_SYMBOL_BATTERY_EMPTY " --%", LV_ALIGN_TOP_RIGHT, -40);
+}
+
+/* Watch-face-only variant: double-size icons (montserrat_28 vs. the other
+ * four nav-ring screens' montserrat_14), spread over two rows since the
+ * doubled glyphs/text no longer fit one row within the safe area. Feeds
+ * the same status_bar_t/update_status_bar() - only construction differs,
+ * refresh logic is font-size-agnostic. */
+#define STATUS_BAR_Y_ROW2 (STATUS_BAR_Y + 44)
+static void build_status_bar_big(lv_obj_t *parent, status_bar_t *out)
+{
+    const lv_font_t *f = &lv_font_montserrat_28;
+    out->sd   = status_icon_create_ex(parent, LV_SYMBOL_SD_CARD,   LV_ALIGN_TOP_LEFT,  40, STATUS_BAR_Y,      f);
+    out->gps  = status_icon_create_ex(parent, LV_SYMBOL_GPS,       LV_ALIGN_TOP_LEFT,  120, STATUS_BAR_Y,     f);
+    out->gpx  = status_icon_create_ex(parent, "GPX",               LV_ALIGN_TOP_LEFT,  200, STATUS_BAR_Y,     f);
+    out->chg  = status_icon_create_ex(parent, LV_SYMBOL_CHARGE,    LV_ALIGN_TOP_RIGHT, -90, STATUS_BAR_Y,    f);
+    out->lora = status_icon_create_ex(parent, "LoRa",              LV_ALIGN_TOP_LEFT,  40, STATUS_BAR_Y_ROW2, f);
+    out->bt   = status_icon_create_ex(parent, LV_SYMBOL_BLUETOOTH, LV_ALIGN_TOP_LEFT,  120, STATUS_BAR_Y_ROW2, f);
+    out->wifi = status_icon_create_ex(parent, LV_SYMBOL_WIFI,      LV_ALIGN_TOP_LEFT,  200, STATUS_BAR_Y_ROW2, f);
+    out->batt = status_icon_create_ex(parent, LV_SYMBOL_BATTERY_EMPTY " --%", LV_ALIGN_TOP_RIGHT, -40, STATUS_BAR_Y_ROW2, f);
 }
 
 /* Refreshes one status bar instance. Safe to call even if `bar->sd` (or any
@@ -591,17 +613,13 @@ static void watch_face_update(lv_timer_t *timer)
      * are hidden/shown every tick (not just on the edge that toggles
      * Sparmodus) so leaving the mode self-corrects on the next tick with
      * no separate restore path. */
-    lv_obj_t *bar_container = lv_obj_get_parent(s_batt_fill);
     if (sparmodus) {
         snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
         lv_label_set_text(s_time_label, buf);
         if (s_tz_label) { lv_obj_add_flag(s_tz_label, LV_OBJ_FLAG_HIDDEN); }
         if (s_sec_label) { lv_obj_add_flag(s_sec_label, LV_OBJ_FLAG_HIDDEN); }
         if (s_date_label) { lv_obj_add_flag(s_date_label, LV_OBJ_FLAG_HIDDEN); }
-        if (s_batt_label) { lv_obj_add_flag(s_batt_label, LV_OBJ_FLAG_HIDDEN); }
-        if (bar_container) { lv_obj_add_flag(bar_container, LV_OBJ_FLAG_HIDDEN); }
         if (s_steps_label) { lv_obj_add_flag(s_steps_label, LV_OBJ_FLAG_HIDDEN); }
-        if (s_gps_icon) { lv_obj_add_flag(s_gps_icon, LV_OBJ_FLAG_HIDDEN); }
         if (s_track_dot) { lv_obj_add_flag(s_track_dot, LV_OBJ_FLAG_HIDDEN); }
         if (s_snooze_icon) { lv_obj_add_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN); }
         status_bar_set_hidden(&s_status_bar[0], true);
@@ -611,8 +629,6 @@ static void watch_face_update(lv_timer_t *timer)
     if (s_tz_label) { lv_obj_clear_flag(s_tz_label, LV_OBJ_FLAG_HIDDEN); }
     if (s_sec_label) { lv_obj_clear_flag(s_sec_label, LV_OBJ_FLAG_HIDDEN); }
     if (s_date_label) { lv_obj_clear_flag(s_date_label, LV_OBJ_FLAG_HIDDEN); }
-    if (s_batt_label) { lv_obj_clear_flag(s_batt_label, LV_OBJ_FLAG_HIDDEN); }
-    if (bar_container) { lv_obj_clear_flag(bar_container, LV_OBJ_FLAG_HIDDEN); }
     status_bar_set_hidden(&s_status_bar[0], false);
 
     snprintf(buf, sizeof(buf), "%02d:%02d:%02d", lt.tm_hour, lt.tm_min, lt.tm_sec);
@@ -629,15 +645,6 @@ static void watch_face_update(lv_timer_t *timer)
              wday[lt.tm_wday], lt.tm_mday, mon[lt.tm_mon], lt.tm_year + 1900);
     lv_label_set_text(s_date_label, buf);
 
-    sensor_cache_t cache;
-    sensor_cache_get(&cache);
-    uint8_t pct = cache.batt_pct;
-    if (cache.valid && pct <= 100) {
-        snprintf(buf, sizeof(buf), "%u%%", pct);
-        lv_label_set_text(s_batt_label, buf);
-        lv_obj_set_width(s_batt_fill, (lv_coord_t)(140 * pct / 100));
-    }
-
     /* Step count from the BHI260AP (cached in the driver, no I2C here). */
     if (s_steps_label) {
         uint32_t steps = 0;
@@ -647,22 +654,6 @@ static void watch_face_update(lv_timer_t *timer)
             snprintf(buf, sizeof(buf), "Steps: --");
         }
         lv_label_set_text(s_steps_label, buf);
-    }
-
-    /* Satellite status: green = 3D fix, red = on/no fix, grey = off. */
-    if (s_gps_icon) {
-        m10q_state_t st = m10q_get_state();
-        m10q_fix_t fix;
-        m10q_get_fix(&fix);
-        lv_color_t c;
-        if (st == M10Q_STATE_FIXED && fix.valid && fix.fix_3d) {
-            c = lv_color_hex(0x00E676);   /* green */
-        } else if (st == M10Q_STATE_ACQUIRING || (st == M10Q_STATE_FIXED && !fix.fix_3d)) {
-            c = lv_color_hex(0xFF5252);   /* red */
-        } else {
-            c = lv_color_hex(0x888888);   /* grey */
-        }
-        lv_obj_set_style_text_color(s_gps_icon, c, 0);
     }
 
     /* Tracking dot: visible only while a tracking session is active. */
@@ -691,28 +682,22 @@ static void lvgl_build_watch_face(void)
     s_watch_screen = lv_screen_active();
     lv_obj_set_style_bg_color(s_watch_screen, lv_color_hex(0x000000), 0);
 
-    build_status_bar(s_watch_screen, &s_status_bar[0]);
+    build_status_bar_big(s_watch_screen, &s_status_bar[0]);
 
     s_date_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_date_label, "");
-    lv_obj_set_style_text_font(s_date_label, s_font_small, 0);
+    lv_obj_set_style_text_font(s_date_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_date_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_date_label, LV_ALIGN_CENTER, 0, -100);
-
-    /* GNSS satellite status icon: grey = receiver off, red = on/no fix,
-     * green = 3D fix. Uses the built-in symbol font for the satellite glyph
-     * (LV_SYMBOL_GPS, 0xF124), which the FreeType fonts do not contain. */
-    s_gps_icon = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_gps_icon, LV_SYMBOL_GPS);
-    lv_obj_set_style_text_font(s_gps_icon, &lv_font_montserrat_22, 0);
-    lv_obj_set_style_text_color(s_gps_icon, lv_color_hex(0x888888), 0);
-    lv_obj_align(s_gps_icon, LV_ALIGN_TOP_MID, 0, 24);
+    lv_obj_align(s_date_label, LV_ALIGN_TOP_MID, 0, 145);
 
     /* Tracking indicator: solid red dot, visible only while a tracking
-     * session is active. */
+     * session is active. The satellite fix icon used to sit here too, but
+     * it duplicated the status bar's own GPS icon (both color-code fix
+     * state independently) - removed once that icon got bigger/more
+     * prominent in the two-row status bar. */
     s_track_dot = lv_obj_create(lv_screen_active());
     lv_obj_set_size(s_track_dot, 12, 12);
-    lv_obj_align(s_track_dot, LV_ALIGN_TOP_MID, 40, 24);
+    lv_obj_align(s_track_dot, LV_ALIGN_TOP_MID, 0, 24);
     lv_obj_clear_flag(s_track_dot, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(s_track_dot, lv_color_hex(0xFF2020), 0);
     lv_obj_set_style_radius(s_track_dot, 6, 0);
@@ -731,12 +716,14 @@ static void lvgl_build_watch_face(void)
      * process TZ is already set at boot (main/uwatch_main.c) and
      * watch_face_update() already computes localtime_r() for the primary
      * display, so strftime("%Z", ...) gives this for free, no new TZ
-     * plumbing needed. */
+     * plumbing needed. Positioned with a clear gap above the big time font
+     * below it (cascadia_72's glyphs reach well above s_time_label's own
+     * y) - this used to overlap before the gap was widened. */
     s_tz_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_tz_label, "");
     lv_obj_set_style_text_font(s_tz_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_tz_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_tz_label, LV_ALIGN_CENTER, 0, -40);
+    lv_obj_align(s_tz_label, LV_ALIGN_TOP_MID, 0, 190);
 
     s_time_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_time_label, "--:--:--");
@@ -744,44 +731,19 @@ static void lvgl_build_watch_face(void)
     lv_obj_set_style_text_color(s_time_label, lv_color_hex(0xFFFFFF), 0);
     /* Tighten the monospace cells so the full-width colons don't sprawl. */
     lv_obj_set_style_text_letter_space(s_time_label, -6, 0);
-    lv_obj_align(s_time_label, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_align(s_time_label, LV_ALIGN_TOP_MID, 0, 225);
 
     s_sec_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_sec_label, "UTC --:--");
     lv_obj_set_style_text_font(s_sec_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_sec_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_sec_label, LV_ALIGN_CENTER, 0, 65);
-
-    /* Battery bar. */
-    lv_obj_t *bar = lv_obj_create(lv_screen_active());
-    lv_obj_set_size(bar, 140, 12);
-    lv_obj_align(bar, LV_ALIGN_CENTER, 0, 185);
-    lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(0x111111), 0);
-    lv_obj_set_style_border_color(bar, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_border_width(bar, 2, 0);
-    lv_obj_set_style_radius(bar, 6, 0);
-    lv_obj_set_style_pad_all(bar, 0, 0);
-
-    s_batt_fill = lv_obj_create(bar);
-    lv_obj_set_size(s_batt_fill, 0, 8);
-    lv_obj_align(s_batt_fill, LV_ALIGN_LEFT_MID, 0, 0);
-    lv_obj_clear_flag(s_batt_fill, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(s_batt_fill, lv_color_hex(0x00E676), 0);
-    lv_obj_set_style_radius(s_batt_fill, 4, 0);
-    lv_obj_set_style_pad_all(s_batt_fill, 0, 0);
-
-    s_batt_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_batt_label, "--");
-    lv_obj_set_style_text_font(s_batt_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_batt_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_batt_label, LV_ALIGN_CENTER, 0, 208);
+    lv_obj_align(s_sec_label, LV_ALIGN_TOP_MID, 0, 325);
 
     s_steps_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_steps_label, "Steps: --");
     lv_obj_set_style_text_font(s_steps_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_steps_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_steps_label, LV_ALIGN_CENTER, 0, 150);
+    lv_obj_align(s_steps_label, LV_ALIGN_TOP_MID, 0, 375);
 
     watch_face_update(NULL);
     lv_timer_create(watch_face_update, 1000, NULL);
