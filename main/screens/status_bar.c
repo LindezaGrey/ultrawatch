@@ -147,13 +147,13 @@ void update_status_bar(const status_bar_t *bar)
         lv_label_set_text(bar->batt, buf);
         lv_obj_set_style_text_color(bar->batt, cache.batt_pct <= 15 ? STATUS_COLOR_RED : lv_color_hex(0xE0E0E0), 0);
 
+        /* Always visible, colored like every other status icon here (grey
+         * = off/absent, green = active) - was hidden outright when not
+         * charging, the only icon in this row that did that instead of
+         * just going grey (reported live: unplugging USB made the icon
+         * vanish instead of leaving a grey flash behind). */
         bool charging = (cache.chg_state != AXP2101_CHG_STOP);
-        if (charging) {
-            lv_obj_clear_flag(bar->chg, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_style_text_color(bar->chg, STATUS_COLOR_GREEN, 0);
-        } else {
-            lv_obj_add_flag(bar->chg, LV_OBJ_FLAG_HIDDEN);
-        }
+        lv_obj_set_style_text_color(bar->chg, charging ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
     }
 }
 
