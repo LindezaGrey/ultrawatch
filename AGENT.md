@@ -109,6 +109,41 @@ load
 - FreeRTOS-aware debugging: `xtensa-esp32s3-elf-gdb` from ESP-IDF has FreeRTOS task awareness built in via `task` commands (`task list`, `task current`).
 - Common GDB commands: `continue`, `break`, `b <file>:<line>`, `p *pxCurrentTCB`, `thread`, `task list`.
 
+## Simulator (`sim/`)
+
+An LVGL PC simulator (SDL2-backed) mirrors the watch's screens on the host, without hardware. Each screen is ported from `main/lvgl_app.c` into its own `sim/*_screen.c` file, run against mocked drivers (`sim/mock_hw.c`/`.h`) instead of the real ESP-IDF/I2C/SPI code. Not built by `idf.py` — it's a separate plain-CMake project.
+
+```bash
+cd sim
+mkdir -p build && cd build
+cmake .. && make -j$(nproc)
+./uwatch_sim
+```
+
+Standard workflow for a new/changed screen: build it in the sim first, verify it looks right, **then** flash real hardware — much faster than round-tripping through a full `idf.py flash` for every UI tweak. Keep `sim/*_screen.c` in sync with `main/lvgl_app.c` by hand; there's no build-time link between the two.
+
+Interactive dev-shortcut keys (see `sim/main.c`): `R`/`T` preview the alarm/timer ringing screen, `A` jumps to the Alarms list, `S` jumps to the Settings category list, `P` dumps a screenshot to `/tmp/uwatch_sim_shot_NNN.ppm`.
+
+### Screenshot capture
+
+**⚠️ Do NOT use system/OS-level screenshot tools** (`import`/ImageMagick, `ffmpeg -f x11grab`, `spectacle`, `scrot`, `xwd`, etc.) to capture the sim window. In a sandboxed/headless X11 setup (e.g. rootless XWayland with no real root pixmap, common in CI/agent sandboxes) these all silently return a blank black or white image instead of erroring — easy to mistake for "the UI is broken" when it's actually just a broken capture path. Confirmed broken this way in this project's dev sandbox: `import -window <id>`, `ffmpeg x11grab` (root and per-window), and even KDE's `spectacle -a` (window content came back blank white despite correctly identifying the window).
+
+Use the simulator's own framebuffer capture instead (`sim/screenshot.c`/`.h`, `sim_screenshot_take()`): it reads pixels straight back from the SDL renderer via `SDL_RenderReadPixels`, bypassing the window manager/compositor entirely, so it works even when the window isn't visibly composited anywhere.
+
+- Interactive: press `P` while the sim is running (writes `/tmp/uwatch_sim_shot_NNN.ppm`).
+- Headless/scripted (preferred for agent verification — no mouse/keyboard driving needed):
+  ```bash
+  UWATCH_SIM_SCREEN=<name> UWATCH_SIM_SHOT=/tmp/shot.ppm ./uwatch_sim
+  magick /tmp/shot.ppm /tmp/shot.png   # PPM -> PNG, no display needed
+  ```
+  `UWATCH_SIM_SCREEN` jumps straight to a screen by name before capturing (see the `strcmp` chain in `sim/main.c` for the full list — `watch`, `settings`, `settings_tz`, `settings_disp`, `settings_periph`, `settings_sound`, `settings_info`, `gps`, `mesh`, `alarm`, `bhi`, `ring_alarm`, `ring_timer`); `UWATCH_SIM_SHOT` takes one screenshot after a few render cycles and exits immediately. Useful for screens not (yet) reachable via swipe in the sim.
+
+**In this project's sandbox, also set `SDL_RENDER_DRIVER=software`** — the default accelerated SDL renderer produces no visible pixels here (neither in the window nor when read back via `SDL_RenderReadPixels`), for reasons unrelated to the app code. Full example:
+```bash
+SDL_RENDER_DRIVER=software UWATCH_SIM_SCREEN=settings UWATCH_SIM_SHOT=/tmp/settings.ppm ./uwatch_sim
+```
+If screenshots ever come back blank again after this, suspect the renderer/capture path first (try `SDL_RENDER_DRIVER=software` again, confirm the sim process is actually alive and the write succeeded per its stdout log line) before concluding the UI itself is broken.
+
 ## Style-Guide:
 
 Since we want to create an POC and evaluate and learn the code, do NOT:
