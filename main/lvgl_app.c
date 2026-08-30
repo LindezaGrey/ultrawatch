@@ -1468,17 +1468,25 @@ static void lvgl_build_mesh_screen(void)
 
     build_status_bar(s_mesh_screen, &s_status_bar[2]);
 
+    /* High-DPI sizing (AGENT.md "Display density & UI sizing"): title
+     * promotes to cascadia_36 and conn_label to cascadia_22, same as
+     * Settings/GPS. The message list itself (8 rows, LONG_CLIP-fixed) and
+     * the preset labels (user-editable, up to 31 chars) stay at
+     * cascadia_18 - both are dense/variable-length content that would
+     * overflow their fixed-width slots at a bigger font, same reasoning
+     * as GPS's diagnostics line. Everything below the title shifts down
+     * to make room for the now-taller title. */
     lv_obj_t *title = lv_label_create(s_mesh_screen);
     lv_label_set_text(title, "MESH");
-    lv_obj_set_style_text_font(title, s_font_small, 0);
+    lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
 
     s_mesh_conn_label = lv_label_create(s_mesh_screen);
     lv_label_set_text(s_mesh_conn_label, "");
-    lv_obj_set_style_text_font(s_mesh_conn_label, s_font_micro, 0);
+    lv_obj_set_style_text_font(s_mesh_conn_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_mesh_conn_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_mesh_conn_label, LV_ALIGN_TOP_MID, 0, 46);
+    lv_obj_align(s_mesh_conn_label, LV_ALIGN_TOP_MID, 0, 62);
 
     s_mesh_empty_label = lv_label_create(s_mesh_screen);
     lv_label_set_text(s_mesh_empty_label, "No messages yet");
@@ -1491,7 +1499,7 @@ static void lvgl_build_mesh_screen(void)
      * hosts the fling-vs-scroll gesture above. */
     s_mesh_list_cont = lv_obj_create(s_mesh_screen);
     lv_obj_set_size(s_mesh_list_cont, 380, 250);
-    lv_obj_align(s_mesh_list_cont, LV_ALIGN_TOP_MID, 0, 70);
+    lv_obj_align(s_mesh_list_cont, LV_ALIGN_TOP_MID, 0, 96);
     lv_obj_set_flex_flow(s_mesh_list_cont, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(s_mesh_list_cont, 4, 0);
     lv_obj_set_style_bg_opa(s_mesh_list_cont, LV_OPA_TRANSP, 0);
@@ -1529,8 +1537,8 @@ static void lvgl_build_mesh_screen(void)
         int col = i % 2;
         int row = i / 2;
         lv_obj_t *btn = lv_button_create(s_mesh_screen);
-        lv_obj_set_size(btn, 180, 36);
-        lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 15 + col * 195, 330 + row * 44);
+        lv_obj_set_size(btn, 180, 44);
+        lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 15 + col * 195, 356 + row * 52);
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x3A3226), 0);
         lv_obj_t *l = lv_label_create(btn);
         lv_obj_set_style_text_font(l, s_font_micro, 0);
@@ -3457,6 +3465,13 @@ static void nav_ring_go(int index)
     }
     if (*entry->screen) {
         lv_scr_load(*entry->screen);
+        /* mesh_screen_update() gates on lv_screen_active() == s_mesh_screen
+         * (unlike GPS/alarm's update functions, which are unconditional),
+         * so reaching Mesh via a ring-swipe left its conn/message labels
+         * stale until the next 1s timer tick - same "load first, then
+         * refresh" bug class as Phase 4's node-overview fix. Harmless
+         * no-op for every other screen (same guard). */
+        mesh_screen_update(NULL);
     }
 }
 
