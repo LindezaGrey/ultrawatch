@@ -54,6 +54,14 @@ typedef struct {
 /* Starts the background listener task. Call once after twatch_board_init(). */
 void mesh_log_init(void);
 
+/* Same clock received_at_us is stamped with (esp_timer_get_time() - us since
+ * boot). Exists so the Mesh screen's age-in-seconds display (now - received)
+ * - shared between the firmware and the host sim, see
+ * main/screens/mesh_screen.c - can call one portable name instead of the
+ * ESP-only esp_timer_get_time() directly; the sim mocks this to its own
+ * "time since start" tick instead. */
+int64_t mesh_log_now_us(void);
+
 /* Copies up to `max` of the most recent messages (newest first) into `out`.
  * Returns the number actually copied. */
 size_t mesh_log_get_recent(mesh_msg_t *out, size_t max);

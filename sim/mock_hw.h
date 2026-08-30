@@ -215,6 +215,12 @@ void lvgl_tracking_stop(void);
 #define MESH_LOG_COUNT     8
 #define MESH_LOG_TEXT_MAX  200
 
+/* Same clock the mock's received_at_us values are stamped with
+ * (mock_now_s()*1e6, see mesh_log_get_recent()'s mock in mock_hw.c) -
+ * lets the shared mesh_screen.c call one portable name instead of the
+ * real esp_timer_get_time(). */
+int64_t mesh_log_now_us(void);
+
 typedef enum {
     MESH_MSG_UNKNOWN = 0,
     MESH_MSG_TEXT,
@@ -232,6 +238,17 @@ typedef struct {
 } mesh_msg_t;
 
 size_t mesh_log_get_recent(mesh_msg_t *out, size_t max);
+
+/* ---- LoRa message presets (mesh_log.h subset) ---- */
+#define MESH_PRESET_COUNT   4
+#define MESH_PRESET_MAX_LEN 31
+
+/* Copies preset `idx` into `out` ("" if idx is out of range). Mock keeps
+ * the same 4 in-memory strings the real defaults use (not NVS-backed -
+ * mesh_preset_set() edits are lost on restart, same as every other
+ * mocked "on" state in this file). */
+void mesh_preset_get(int idx, char *out, size_t outlen);
+void mesh_preset_set(int idx, const char *text);
 
 #define MESH_NODE_TABLE_MAX 32
 

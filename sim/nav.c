@@ -61,6 +61,25 @@ void sim_gps_screen_build(void)
     lv_scr_load(s_gps_screen);
 }
 
+/* Mesh screen + Node overview: now shared (main/screens/mesh_screen.c). */
+void sim_mesh_screen_build(void)
+{
+    if (!s_mesh_screen) {
+        lvgl_build_mesh_screen();
+    }
+    lv_scr_load(s_mesh_screen);
+    mesh_screen_update(NULL);
+}
+
+/* Public entry point for screenshot/dev-shortcut use (see main.c's
+ * UWATCH_SIM_SCREEN env var) - the node overview is reached by an upward
+ * fling from Mesh on real hardware, not a swipe this file's own
+ * swipe_event_cb wires up. */
+void sim_node_screen_build(void)
+{
+    lvgl_show_node_overview();
+}
+
 static void swipe_event_cb(lv_event_t *e)
 {
     lv_indev_t *indev = lv_indev_active();
@@ -115,6 +134,8 @@ static void swipe_event_cb(lv_event_t *e)
     } else if (cur == s_mesh_screen) {
         if (horiz && dx < 0) {   /* left -> GPS */
             sim_gps_screen_build();
+        } else if (!horiz && dy < 0) {   /* up -> Node overview */
+            lvgl_show_node_overview();
         }
     }
 }

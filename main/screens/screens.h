@@ -46,6 +46,21 @@ void gps_screen_update(lv_timer_t *timer);
 bool gps_screen_is_powered(void);
 void gps_screen_set_powered(bool on);
 
+/* Mesh screen + its Node-Overview sub-screen (main/screens/mesh_screen.c).
+ * s_node_screen is extern since main/lvgl_app.c's menu_timeout_cb() (the
+ * shared nav-ring inactivity timeout) checks it alongside every other
+ * screen handle. lvgl_mesh_screen_show() (lvgl_app.c, firmware-only -
+ * called from mesh_log.c's background listener) calls
+ * lvgl_build_mesh_screen()/mesh_screen_update() below directly; the
+ * Node-Overview sub-screen has no external entry point (only reachable
+ * via the Mesh screen's own fling gesture), so it stays unexported. */
+extern lv_obj_t *s_mesh_screen;
+extern lv_obj_t *s_node_screen;
+
+void lvgl_build_mesh_screen(void);
+void mesh_screen_update(lv_timer_t *timer);
+void lvgl_show_node_overview(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -471,6 +471,11 @@ size_t mesh_log_get_recent(mesh_msg_t *out, size_t max)
     return n;
 }
 
+int64_t mesh_log_now_us(void)
+{
+    return (int64_t)(mock_now_s() * 1e6);
+}
+
 /* ---- mesh node table ----
  * Static synthetic nodes, matching some of mesh_log_get_recent()'s fake
  * senders above (0x2ee119ab has a name from its NodeInfo message; the
@@ -518,6 +523,27 @@ void mesh_log_node_name(uint32_t node_id, char *out, size_t outlen)
             break;
         }
     }
+}
+
+static char s_mesh_presets[MESH_PRESET_COUNT][MESH_PRESET_MAX_LEN + 1] = {
+    "Bin ok", "Verzoegerung", "Notfall", "Standort senden",
+};
+
+void mesh_preset_get(int idx, char *out, size_t outlen)
+{
+    if (idx < 0 || idx >= MESH_PRESET_COUNT || outlen == 0) {
+        if (outlen > 0) { out[0] = '\0'; }
+        return;
+    }
+    snprintf(out, outlen, "%s", s_mesh_presets[idx]);
+}
+
+void mesh_preset_set(int idx, const char *text)
+{
+    if (idx < 0 || idx >= MESH_PRESET_COUNT) {
+        return;
+    }
+    snprintf(s_mesh_presets[idx], sizeof(s_mesh_presets[idx]), "%s", text);
 }
 
 /* ---- alarm / alarms-timers screens ----

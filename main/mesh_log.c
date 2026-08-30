@@ -364,6 +364,11 @@ static void mesh_config_load(void)
     }
 }
 
+int64_t mesh_log_now_us(void)
+{
+    return esp_timer_get_time();
+}
+
 void mesh_log_init(void)
 {
     if (!s_mux) {

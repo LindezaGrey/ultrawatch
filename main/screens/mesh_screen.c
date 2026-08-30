@@ -1,64 +1,43 @@
 /*
- * mesh_screen.c - the Mesh screen + its Node-Overview sub-screen from
- * main/lvgl_app.c (2026-08-29 Phase 4 rework: compact rows, connection
- * details line, scrollable row container with a fling-vs-scroll gesture,
- * inert preset grid, separate node table), copied verbatim and run against
- * mock_hw.c's mesh_log_get_recent()/mesh_log_get_nodes() instead of the
- * real ring buffer/node table.
+ * mesh_screen.c - Mesh screen (last few received Meshtastic messages) +
+ * its Node-Overview sub-screen. Shared between the firmware and the host
+ * sim - see watch_face.c's header comment for the mechanism.
  *
- * Deviations from the firmware original:
- *   - screen_new() copied in here too, same as every non-watch-face screen.
- *   - esp_timer_get_time() (ESP-IDF, unavailable on the host) replaced with
- *     lv_tick_get() * 1000 (ms -> us), the same "time since start" tick the
- *     sim already drives from SDL_GetTicks() (see main.c); mock_hw.c's
- *     mesh_log_get_recent()/mesh_log_get_nodes() use the matching
- *     mock_now_s()*1e6 clock so the age-in-seconds math still comes out
- *     sane.
- *   - The fling-vs-scroll gesture math (mesh_gesture_cb) is copied
- *     unmodified - it only uses lv_tick_get()/lv_indev_get_point(), both
- *     already available here.
- *
- * Keep this in sync with main/lvgl_app.c by hand: there's no build-time
- * link between the two.
+ * The background listener task (mesh_log.c) runs always-on, independent
+ * of whether this screen is open; mesh_screen_update() only pulls a
+ * snapshot to display. lvgl_mesh_screen_show() (main/lvgl_app.c) - called
+ * from that background task when a new message arrives - stays
+ * firmware-only (needs esp_lv_adapter_lock()/request_wake(), no sim
+ * equivalent) and calls into lvgl_build_mesh_screen()/mesh_screen_update()
+ * here.
  */
+#include "screens.h"
+#include "status_bar.h"
 #include <stdio.h>
 #include <time.h>
-#include "lvgl.h"
 #include "cascadia_fonts.h"
-#include "mock_hw.h"
-#include "screens.h"
+#include "mesh_log.h"
+#include "sensor_cache.h"
+#include "pcf85063a.h"
 
+static const lv_font_t *s_font_sec   = &cascadia_36;
 static const lv_font_t *s_font_small = &cascadia_22;
 static const lv_font_t *s_font_micro = &cascadia_18;
-static const lv_font_t *s_font_sec   = &cascadia_36;
 
-/* Not static: declared extern in screens.h. */
 lv_obj_t *s_mesh_screen;
+lv_obj_t *s_node_screen;
 
 static lv_obj_t *s_mesh_empty_label;
-static lv_obj_t *s_mesh_conn_label;
-static lv_obj_t *s_mesh_list_cont;
+static lv_obj_t *s_mesh_conn_label;    /* channel + node count */
+static lv_obj_t *s_mesh_list_cont;     /* scrollable row container */
 static lv_obj_t *s_mesh_row_label[MESH_LOG_COUNT];
-static lv_point_t s_mesh_press;
-static uint32_t s_mesh_press_tick;
+static lv_obj_t *s_mesh_preset_label[MESH_PRESET_COUNT];
+static status_bar_t s_status_bar;
 
-static lv_obj_t *s_node_screen;
 static lv_obj_t *s_node_empty_label;
 static lv_obj_t *s_node_row_label[MESH_NODE_TABLE_MAX];
 
-static void lvgl_build_node_screen(void);
-static void lvgl_show_node_overview(void);
-static void mesh_screen_update(lv_timer_t *timer);
-
-static lv_obj_t *screen_new(void)
-{
-    lv_obj_t *scr = lv_obj_create(NULL);
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
-    return scr;
-}
-
-static void mesh_screen_update(lv_timer_t *timer)
+void mesh_screen_update(lv_timer_t *timer)
 {
     (void)timer;
     if (lv_screen_active() != s_mesh_screen) {
@@ -74,6 +53,8 @@ static void mesh_screen_update(lv_timer_t *timer)
         lv_obj_add_flag(s_mesh_empty_label, LV_OBJ_FLAG_HIDDEN);
     }
 
+    /* Connection details: channel + reachable node count, from the most
+     * recent message and the node table (docs/application.md 7.2 point 3). */
     if (s_mesh_conn_label) {
         char cbuf[40];
         if (n > 0) {
@@ -85,11 +66,15 @@ static void mesh_screen_update(lv_timer_t *timer)
         lv_label_set_text(s_mesh_conn_label, cbuf);
     }
 
+    /* Wall-clock HH:MM of receipt, derived from the current RTC time minus
+     * each message's age - avoids adding a wall-clock field to mesh_msg_t
+     * (which only stores a monotonic mesh_log_now_us() stamp) just for
+     * this row's display. */
     pcf85063a_time_t rtc;
     bool have_rtc = sensor_cache_get_rtc(&rtc);
     time_t now_epoch = have_rtc ? pcf85063a_time_to_epoch(&rtc) : 0;
 
-    int64_t now_us = (int64_t)lv_tick_get() * 1000;
+    int64_t now_us = mesh_log_now_us();
     for (size_t i = 0; i < MESH_LOG_COUNT; i++) {
         if (i >= n) {
             lv_label_set_text(s_mesh_row_label[i], "");
@@ -116,55 +101,69 @@ static void mesh_screen_update(lv_timer_t *timer)
             lv_obj_set_style_text_color(s_mesh_row_label[i], lv_color_hex(0xE0E0E0), 0);
             break;
         case MESH_MSG_OTHER:
+            /* Known channel, decrypted fine, just not a text message (e.g.
+             * NodeInfo, telemetry) - a distinct blue-grey from both a real
+             * message (light) and an unknown channel (dim), since this one
+             * genuinely was decrypted successfully. */
             snprintf(buf, sizeof(buf), "%s  %s  (node info)", tbuf, sender);
             lv_obj_set_style_text_color(s_mesh_row_label[i], lv_color_hex(0x8FB0D0), 0);
             break;
         case MESH_MSG_UNKNOWN:
         default:
+            /* channel_hash matched none of our known channels, or the
+             * decrypt didn't parse as a valid Data message - still shown
+             * (always show headers), dimmed to set it apart from content we
+             * actually got something out of. */
             snprintf(buf, sizeof(buf), "%s  %s  (unknown)", tbuf, sender);
             lv_obj_set_style_text_color(s_mesh_row_label[i], lv_color_hex(0x777766), 0);
             break;
         }
         lv_label_set_text(s_mesh_row_label[i], buf);
     }
+
+    if (s_mesh_preset_label[0]) {
+        for (int i = 0; i < MESH_PRESET_COUNT; i++) {
+            char buf[MESH_PRESET_MAX_LEN + 1];
+            mesh_preset_get(i, buf, sizeof(buf));
+            lv_label_set_text(s_mesh_preset_label[i], buf);
+        }
+    }
+
+    update_status_bar(&s_status_bar);
 }
 
+/* Preset buttons are visually complete per docs/application.md 7.2 point 5
+ * but functionally inert: LoRa sending is out of scope until a
+ * separately-scoped TX-stack project ships (see the Phase 1 planning
+ * notes) - tapping one is a no-op, not a stub that pretends to send. */
 static void mesh_preset_btn_cb(lv_event_t *e)
 {
     (void)e;
 }
 
-#define MESH_FLING_MIN_DIST_PX 60
-#define MESH_FLING_MAX_MS      400
-#define MESH_FLING_MIN_VEL     0.5f
+/* Mesh -> Node overview is now handled at the indev level (an upward swipe
+ * anywhere on the Mesh screen), same as every other nav-ring gesture - see
+ * main/lvgl_app.c's swipe_event_cb(). A per-object PRESSED/RELEASED
+ * callback registered directly on the message list's own (natively
+ * scrollable) container used to live here, but was reported unreliable
+ * in practice - most likely LVGL's own scroll-gesture recognition on that
+ * scrollable object competing for the same press/release sequence. */
 
-static void mesh_gesture_cb(lv_event_t *e)
-{
-    lv_indev_t *indev = lv_indev_active();
-    lv_point_t p;
-    lv_indev_get_point(indev, &p);
-
-    if (lv_event_get_code(e) == LV_EVENT_PRESSED) {
-        s_mesh_press = p;
-        s_mesh_press_tick = lv_tick_get();
-        return;
-    }
-    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
-        return;
-    }
-    int dy = p.y - s_mesh_press.y;
-    uint32_t elapsed = lv_tick_get() - s_mesh_press_tick;
-    if (dy < -MESH_FLING_MIN_DIST_PX && elapsed > 0 && elapsed < MESH_FLING_MAX_MS &&
-            (-dy / (float)elapsed) > MESH_FLING_MIN_VEL) {
-        lvgl_show_node_overview();
-    }
-}
-
-static void lvgl_build_mesh_screen(void)
+void lvgl_build_mesh_screen(void)
 {
     s_mesh_screen = screen_new();
     lv_obj_set_style_bg_color(s_mesh_screen, lv_color_hex(0x201810), 0);
 
+    build_status_bar(s_mesh_screen, &s_status_bar);
+
+    /* High-DPI sizing (AGENT.md "Display density & UI sizing"): title
+     * promotes to cascadia_36 and conn_label to cascadia_22, same as
+     * Settings/GPS. The message list itself (8 rows, LONG_CLIP-fixed) and
+     * the preset labels (user-editable, up to 31 chars) stay at
+     * cascadia_18 - both are dense/variable-length content that would
+     * overflow their fixed-width slots at a bigger font, same reasoning
+     * as GPS's diagnostics line. Everything below the title shifts down
+     * to make room for the now-taller title. */
     lv_obj_t *title = lv_label_create(s_mesh_screen);
     lv_label_set_text(title, "MESH");
     lv_obj_set_style_text_font(title, s_font_sec, 0);
@@ -183,6 +182,8 @@ static void lvgl_build_mesh_screen(void)
     lv_obj_set_style_text_color(s_mesh_empty_label, lv_color_hex(0x9E9E9E), 0);
     lv_obj_align(s_mesh_empty_label, LV_ALIGN_CENTER, 0, 0);
 
+    /* Scrollable row container - future-proofs the list if MESH_LOG_COUNT
+     * ever grows past 8 (little practical effect today). */
     s_mesh_list_cont = lv_obj_create(s_mesh_screen);
     lv_obj_set_size(s_mesh_list_cont, 380, 250);
     lv_obj_align(s_mesh_list_cont, LV_ALIGN_TOP_MID, 0, 96);
@@ -191,9 +192,18 @@ static void lvgl_build_mesh_screen(void)
     lv_obj_set_style_bg_opa(s_mesh_list_cont, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_mesh_list_cont, 0, 0);
     lv_obj_set_style_pad_all(s_mesh_list_cont, 2, 0);
-    lv_obj_add_event_cb(s_mesh_list_cont, mesh_gesture_cb, LV_EVENT_PRESSED, NULL);
-    lv_obj_add_event_cb(s_mesh_list_cont, mesh_gesture_cb, LV_EVENT_RELEASED, NULL);
 
+    /* One single-line label per ring-buffer slot, newest first, stacked top
+     * to bottom. Fixed size + CLIP long-mode so an over-length message is
+     * silently cropped within its own row instead of wrapping/spilling into
+     * the next one. LV_LABEL_LONG_DOT was tried first but hangs the software
+     * render thread forever (confirmed live via JTAG/GDB: CPU1 gets stuck
+     * permanently inside lv_draw_label_iterate_characters, looping the same
+     * line without progress) when a label is shorter than its content height
+     * and contains an explicit "\n" - the DOT ellipsis-placement math doesn't
+     * handle that combination. A 26px row (one cascadia_18 line, no forced
+     * "\n" in the formatted text - see mesh_screen_update()) avoids both the
+     * DOT hang and the two-line-in-a-one-line-box overlap that followed it. */
     for (int i = 0; i < MESH_LOG_COUNT; i++) {
         lv_obj_t *l = lv_label_create(s_mesh_list_cont);
         lv_label_set_text(l, "");
@@ -204,7 +214,10 @@ static void lvgl_build_mesh_screen(void)
         s_mesh_row_label[i] = l;
     }
 
-    static const char *presets[4] = { "Bin ok", "Verzoegerung", "Notfall", "Standort senden" };
+    /* Preset buttons (inert, see mesh_preset_btn_cb()) - 2x2 grid. Text
+     * comes from mesh_preset_get() (NVS-backed, editable via the debug
+     * console's `presetset` - see mesh_log.h) and is refreshed on every
+     * mesh_screen_update() tick so a console edit shows up live. */
     for (int i = 0; i < 4; i++) {
         int col = i % 2;
         int row = i / 2;
@@ -213,9 +226,9 @@ static void lvgl_build_mesh_screen(void)
         lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 15 + col * 195, 356 + row * 52);
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x3A3226), 0);
         lv_obj_t *l = lv_label_create(btn);
-        lv_label_set_text(l, presets[i]);
         lv_obj_set_style_text_font(l, s_font_micro, 0);
         lv_obj_set_style_text_color(l, lv_color_hex(0x888888), 0);
+        s_mesh_preset_label[i] = l;
         lv_obj_center(l);
         lv_obj_add_event_cb(btn, mesh_preset_btn_cb, LV_EVENT_CLICKED, NULL);
     }
@@ -230,7 +243,7 @@ static void lvgl_build_mesh_screen(void)
     lv_timer_create(mesh_screen_update, 1000, NULL);
 }
 
-/* ---- Node-Overview sub-screen ---- */
+/* ---- Node-Overview sub-screen (local, not in the nav ring) ---- */
 
 static void node_screen_update(lv_timer_t *timer)
 {
@@ -247,7 +260,7 @@ static void node_screen_update(lv_timer_t *timer)
         lv_obj_add_flag(s_node_empty_label, LV_OBJ_FLAG_HIDDEN);
     }
 
-    int64_t now_us = (int64_t)lv_tick_get() * 1000;
+    int64_t now_us = mesh_log_now_us();
     for (size_t i = 0; i < MESH_NODE_TABLE_MAX; i++) {
         if (i >= n) {
             lv_obj_add_flag(s_node_row_label[i], LV_OBJ_FLAG_HIDDEN);
@@ -282,6 +295,12 @@ static void lvgl_build_node_screen(void)
     s_node_screen = screen_new();
     lv_obj_set_style_bg_color(s_node_screen, lv_color_hex(0x102018), 0);
 
+    /* High-DPI sizing + the same rounded-corner back-button fix as
+     * Settings (AGENT.md "Display density & UI sizing"; the button
+     * position was measured against the actual safe-area mask, see
+     * commit cfb7307). The per-node rows stay at cascadia_18 - dense,
+     * LONG_CLIP-fixed table data like GPS's diagnostics line or Mesh's
+     * message rows, would overflow at a bigger font. */
     lv_obj_t *back = lv_button_create(s_node_screen);
     lv_obj_set_size(back, 92, 46);
     lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
@@ -327,30 +346,19 @@ static void lvgl_build_node_screen(void)
     lv_timer_create(node_screen_update, 1000, NULL);
 }
 
-static void lvgl_show_node_overview(void)
+/* Not static: sim/main.c's UWATCH_SIM_SCREEN dev shortcut calls this
+ * directly, since node overview is only reachable on real hardware via
+ * an upward fling on the Mesh screen - not a swipe sim/nav.c wires up. */
+void lvgl_show_node_overview(void)
 {
     if (!s_node_screen) {
         lvgl_build_node_screen();
     }
-    /* Load first, refresh after - node_screen_update() no-ops unless
-     * s_node_screen is already active, same as main/lvgl_app.c. */
+    /* Load first, refresh after: node_screen_update() no-ops unless
+     * s_node_screen is already the active screen (same guard every other
+     * screen's update function uses), so calling it before the load here
+     * would silently do nothing and leave stale/empty rows up to 1s until
+     * the periodic timer corrects it. */
     lv_scr_load(s_node_screen);
     node_screen_update(NULL);
-}
-
-/* Public entry point for screenshot/dev-shortcut use (see main.c's
- * UWATCH_SIM_SCREEN env var) - the node overview is reached by an upward
- * fling from Mesh on real hardware, not a swipe the sim's nav.c wires up. */
-void sim_node_screen_build(void)
-{
-    lvgl_show_node_overview();
-}
-
-void sim_mesh_screen_build(void)
-{
-    if (!s_mesh_screen) {
-        lvgl_build_mesh_screen();
-    }
-    lv_scr_load(s_mesh_screen);
-    mesh_screen_update(NULL);
 }
