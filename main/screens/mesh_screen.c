@@ -195,16 +195,19 @@ void lvgl_build_mesh_screen(void)
      * permanently inside lv_draw_label_iterate_characters, looping the same
      * line without progress) when a label is shorter than its content height
      * and contains an explicit "\n" - the DOT ellipsis-placement math doesn't
-     * handle that combination. A 26px row (one cascadia_18 line, no forced
-     * "\n" in the formatted text - see mesh_screen_update()) avoids both the
-     * DOT hang and the two-line-in-a-one-line-box overlap that followed it. */
+     * handle that combination. Promoted from cascadia_18 to cascadia_22
+     * (s_font_small) per explicit feedback that it read too small - the
+     * container is natively scrollable (never disabled), so the row height
+     * growing from 26 to 32px just means fewer of the 8 rows are visible
+     * without scrolling, not an overflow risk the way a fixed-height box
+     * would be. */
     for (int i = 0; i < MESH_LOG_COUNT; i++) {
         lv_obj_t *l = lv_label_create(s_mesh_list_cont);
         lv_label_set_text(l, "");
-        lv_obj_set_style_text_font(l, s_font_micro, 0);
+        lv_obj_set_style_text_font(l, s_font_small, 0);
         lv_obj_set_style_text_color(l, lv_color_hex(0xE0E0E0), 0);
         lv_label_set_long_mode(l, LV_LABEL_LONG_CLIP);
-        lv_obj_set_size(l, 370, 26);
+        lv_obj_set_size(l, 370, 32);
         s_mesh_row_label[i] = l;
     }
 

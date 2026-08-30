@@ -815,15 +815,16 @@ static void alarm_ring_cb(bool ringing, alarm_ring_source_t source)
     esp_lv_adapter_unlock();
 }
 
-/* ---- 5-screen nav ring (docs/application.md section 4.3) ----
+/* ---- 4-screen nav ring (docs/application.md section 4.3) ----
  *
- * A single closed ring, not the tree this file used to have: swipe left
- * advances (Main -> GPS -> LoRa -> Settings -> Alarms -> Main -> ...), swipe
- * right retreats - the spec's own closing line ("swiping continuously in one
- * direction passes through all five before returning to Main") is exactly a
- * modular index walk, so that's what this is, replacing the old per-screen
- * if/else tree entirely. Vertical swipes are unassigned on all five ring
- * screens (spec: reserved, not built yet).
+ * A single closed ring: swipe left advances (Main -> GPS -> Mesh -> Alarms ->
+ * Main -> ...), swipe right retreats - a modular index walk, replacing the
+ * old per-screen if/else tree entirely. Settings is deliberately NOT in this
+ * ring (moved out per explicit feedback: it now sits below Main on its own
+ * vertical axis - swipe down from Main to enter, swipe up from Settings back
+ * to Main - see the vertical-swipe handling in swipe_event_cb() below and
+ * docs/application.md section 4.3/9.3). Vertical swipes are otherwise
+ * unassigned on the ring screens themselves (spec: reserved, not built yet).
  *
  * The BHI (sensor), NFC, and Power screens are NOT in this ring (the spec
  * doesn't mention them) - their build functions and debug-console entry
@@ -841,7 +842,6 @@ static const nav_ring_entry_t s_nav_ring[] = {
     { &s_watch_screen,    NULL },
     { &s_gps_screen,      lvgl_build_gps_screen },
     { &s_mesh_screen,     lvgl_build_mesh_screen },
-    { &s_settings_screen, lvgl_build_settings_screen },
     { &s_alarm_screen,    lvgl_build_alarm_screen },
 };
 #define NAV_RING_COUNT (sizeof(s_nav_ring) / sizeof(s_nav_ring[0]))
@@ -903,6 +903,15 @@ static void swipe_event_cb(lv_event_t *e)
     if (abs(dx) < SWIPE_DIST && abs(dy) < SWIPE_DIST) {
         return;
     }
+    /* A real swipe this large should never also register as a tap on
+     * whatever widget happens to be under the release point (reported
+     * live: swiping on the Settings category list kept opening whichever
+     * full-width row the finger lifted over, since the release point is
+     * still "inside" that same wide row even after a large horizontal
+     * drag). Indev-level callbacks run before the event reaches the
+     * widget, so stopping processing here suppresses the widget's own
+     * PRESSED/RELEASED/CLICKED for this touch entirely. */
+    lv_indev_stop_processing(indev);
     bool horiz = abs(dx) > abs(dy);
     if (!horiz) {
         /* Mesh -> Node overview: the only vertical gesture on a ring
@@ -917,6 +926,21 @@ static void swipe_event_cb(lv_event_t *e)
          * unreliability - see docs/application.md 7.2 point 4. */
         if (lv_screen_active() == s_mesh_screen && dy < -SWIPE_DIST) {
             lvgl_show_node_overview();
+            return;
+        }
+        /* Main <-> Settings: Settings lives outside the horizontal ring on
+         * its own vertical axis - swipe down from Main to enter, swipe up
+         * from Settings' own category list back to Main. Only the category
+         * list itself; the 6 sub-pages keep their own local swipe-back to
+         * the category list (settings_sub_swipe_cb, settings_screen.c),
+         * unrelated to this indev-level handler entirely. */
+        if (lv_screen_active() == s_watch_screen && dy > SWIPE_DIST) {
+            if (!s_settings_screen) {
+                lvgl_build_settings_screen();
+            }
+            lv_scr_load(s_settings_screen);
+        } else if (lv_screen_active() == s_settings_screen && dy < -SWIPE_DIST) {
+            lvgl_show_watch_face();
         }
         return;
     }

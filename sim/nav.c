@@ -230,6 +230,10 @@ static void swipe_event_cb(lv_event_t *e)
     if (abs(dx) < SWIPE_DIST && abs(dy) < SWIPE_DIST) {
         return;
     }
+    /* See main/lvgl_app.c's swipe_event_cb() - a real swipe this large
+     * should never also register as a tap on whatever widget is under
+     * the release point. */
+    lv_indev_stop_processing(indev);
     bool horiz = abs(dx) > abs(dy);
     lv_obj_t *cur = lv_screen_active();
 
