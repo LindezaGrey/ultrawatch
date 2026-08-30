@@ -375,5 +375,14 @@ void mesh_log_init(void)
         s_mux = xSemaphoreCreateMutex();
     }
     mesh_config_load();
-    xTaskCreate(mesh_log_task, "mesh_log", 4096, NULL, 3, NULL);
+    /* 8192, not 4096: on a text message this task calls
+     * lvgl_mesh_screen_show() directly, which - the first time the Mesh
+     * screen hasn't been built yet this boot - synchronously constructs
+     * the full screen (scrollable list, 8 message rows, 4 preset
+     * buttons, event callbacks) on this same stack. Confirmed via a
+     * live crash report: "stack overflow in task mesh_log" on an
+     * incoming LoRa message, PC inside LVGL widget-creation code. No
+     * other background task in this app builds a full LVGL screen
+     * directly on its own stack this way. */
+    xTaskCreate(mesh_log_task, "mesh_log", 8192, NULL, 3, NULL);
 }
