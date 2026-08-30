@@ -688,7 +688,7 @@ static void lvgl_build_watch_face(void)
     lv_label_set_text(s_date_label, "");
     lv_obj_set_style_text_font(s_date_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_date_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_date_label, LV_ALIGN_TOP_MID, 0, 145);
+    lv_obj_align(s_date_label, LV_ALIGN_TOP_MID, 0, 420);
 
     /* Tracking indicator: solid red dot, visible only while a tracking
      * session is active. The satellite fix icon used to sit here too, but
@@ -723,7 +723,7 @@ static void lvgl_build_watch_face(void)
     lv_label_set_text(s_tz_label, "");
     lv_obj_set_style_text_font(s_tz_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_tz_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_tz_label, LV_ALIGN_TOP_MID, 0, 190);
+    lv_obj_align(s_tz_label, LV_ALIGN_TOP_MID, 0, 140);
 
     s_time_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_time_label, "--:--:--");
@@ -731,19 +731,19 @@ static void lvgl_build_watch_face(void)
     lv_obj_set_style_text_color(s_time_label, lv_color_hex(0xFFFFFF), 0);
     /* Tighten the monospace cells so the full-width colons don't sprawl. */
     lv_obj_set_style_text_letter_space(s_time_label, -6, 0);
-    lv_obj_align(s_time_label, LV_ALIGN_TOP_MID, 0, 225);
+    lv_obj_align(s_time_label, LV_ALIGN_TOP_MID, 0, 175);
 
     s_sec_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_sec_label, "UTC --:--");
     lv_obj_set_style_text_font(s_sec_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_sec_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_sec_label, LV_ALIGN_TOP_MID, 0, 325);
+    lv_obj_align(s_sec_label, LV_ALIGN_TOP_MID, 0, 275);
 
     s_steps_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_steps_label, "Steps: --");
     lv_obj_set_style_text_font(s_steps_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_steps_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_steps_label, LV_ALIGN_TOP_MID, 0, 375);
+    lv_obj_align(s_steps_label, LV_ALIGN_TOP_MID, 0, 325);
 
     watch_face_update(NULL);
     lv_timer_create(watch_face_update, 1000, NULL);

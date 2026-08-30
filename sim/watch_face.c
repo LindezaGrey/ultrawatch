@@ -200,7 +200,7 @@ void sim_watch_face_start(void)
     lv_label_set_text(s_date_label, "");
     lv_obj_set_style_text_font(s_date_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_date_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_date_label, LV_ALIGN_TOP_MID, 0, 145);
+    lv_obj_align(s_date_label, LV_ALIGN_TOP_MID, 0, 420);
 
     s_track_dot = lv_obj_create(lv_screen_active());
     lv_obj_set_size(s_track_dot, 12, 12);
@@ -223,19 +223,19 @@ void sim_watch_face_start(void)
     lv_obj_set_style_text_font(s_time_label, s_font_time, 0);
     lv_obj_set_style_text_color(s_time_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_letter_space(s_time_label, -6, 0);
-    lv_obj_align(s_time_label, LV_ALIGN_TOP_MID, 0, 225);
+    lv_obj_align(s_time_label, LV_ALIGN_TOP_MID, 0, 175);
 
     s_sec_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_sec_label, "UTC --:--");
     lv_obj_set_style_text_font(s_sec_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_sec_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_sec_label, LV_ALIGN_TOP_MID, 0, 325);
+    lv_obj_align(s_sec_label, LV_ALIGN_TOP_MID, 0, 275);
 
     s_steps_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_steps_label, "Steps: --");
     lv_obj_set_style_text_font(s_steps_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_steps_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_steps_label, LV_ALIGN_TOP_MID, 0, 375);
+    lv_obj_align(s_steps_label, LV_ALIGN_TOP_MID, 0, 325);
 
     watch_face_update(NULL);
     lv_timer_create(watch_face_update, 1000, NULL);
