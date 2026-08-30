@@ -85,6 +85,17 @@ void power_mgmt_set_display_timeout_s(uint32_t seconds);
 uint8_t power_mgmt_get_brightness(void);
 void power_mgmt_set_brightness(uint8_t level);
 
+/* Ultra-Sparmodus (docs/application.md section 10): the persisted "user
+ * wants this mode" flag, backed by NVS (survives a normal reboot) - NOT
+ * the same as the RTC_DATA_ATTR flag in main/uwatch_main.c that survives a
+ * *deep sleep* wake (this one is only read at boot/from Settings to decide
+ * whether to start the deep-sleep cycle in the first place; the RTC one is
+ * what a post-wake app_main() actually branches on, since NVS is far too
+ * slow/heavy to touch on every silent per-minute wake). Stage 1 of Phase 6:
+ * only the flag + Settings toggle exist so far, no real sleep/wake yet. */
+bool power_mgmt_get_sparmodus_active(void);
+void power_mgmt_set_sparmodus_active(bool on);
+
 #ifdef __cplusplus
 }
 #endif

@@ -70,6 +70,8 @@ int main(void)
             sim_settings_sound_screen_build();
         } else if (strcmp(screen_name, "settings_info") == 0) {
             sim_settings_info_screen_build();
+        } else if (strcmp(screen_name, "settings_sparmodus") == 0) {
+            sim_settings_sparmodus_screen_build();
         } else if (strcmp(screen_name, "gps") == 0) {
             sim_gps_screen_build();
         } else if (strcmp(screen_name, "mesh") == 0) {

@@ -148,6 +148,10 @@ void power_mgmt_set_display_timeout_s(uint32_t seconds) { s_pm_display_timeout_s
 uint8_t power_mgmt_get_brightness(void) { return s_pm_brightness; }
 void power_mgmt_set_brightness(uint8_t level) { s_pm_brightness = level; }
 
+static bool s_pm_sparmodus_active = false;
+bool power_mgmt_get_sparmodus_active(void) { return s_pm_sparmodus_active; }
+void power_mgmt_set_sparmodus_active(bool on) { s_pm_sparmodus_active = on; }
+
 /* ---- m10q / GPS screen ----
  * GNSS defaults OFF (matches the firmware's default persisted setting) and is
  * only "powered" via mock_gnss_set_enabled(), driven by the GPS screen's

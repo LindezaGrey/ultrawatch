@@ -93,6 +93,8 @@ uint32_t power_mgmt_get_display_timeout_s(void);
 void power_mgmt_set_display_timeout_s(uint32_t seconds);
 uint8_t power_mgmt_get_brightness(void);
 void power_mgmt_set_brightness(uint8_t level);
+bool power_mgmt_get_sparmodus_active(void);
+void power_mgmt_set_sparmodus_active(bool on);
 
 /* --- m10q.h subset --- */
 #define M10Q_MAX_SATS 24

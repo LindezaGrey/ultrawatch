@@ -58,11 +58,13 @@ static const char *TAG = "power_mgmt";
 #define PM_NVS_KEY_USB    "skip_usb"
 #define PM_NVS_KEY_DISP_TO "disp_to"
 #define PM_NVS_KEY_BRIGHT  "bright"
+#define PM_NVS_KEY_SPARMODUS "sparmodus"
 
 static bool s_night_mode_auto = true;    /* default: auto-enter night mode */
 static bool s_skip_sleep_on_usb = true;  /* default: never sleep on USB */
 static uint32_t s_display_timeout_s = 5; /* default: matches the historical 5000 ms literal */
 static uint8_t s_brightness = 0x80;      /* default: matches the historical 0x80 literal */
+static bool s_sparmodus_active = false;  /* Ultra-Sparmodus, docs/application.md section 10 */
 
 /* RTC-capable GPIO wakeup for the touch line is armed here. */
 static volatile uint32_t s_wake_sources;   /* bitmask of PM_WAKE_*, ISR-writer/task-reader */
@@ -136,6 +138,7 @@ static void pm_config_save(void)
         nvs_set_u8(h, PM_NVS_KEY_USB, s_skip_sleep_on_usb ? 1 : 0);
         nvs_set_u32(h, PM_NVS_KEY_DISP_TO, s_display_timeout_s);
         nvs_set_u8(h, PM_NVS_KEY_BRIGHT, s_brightness);
+        nvs_set_u8(h, PM_NVS_KEY_SPARMODUS, s_sparmodus_active ? 1 : 0);
         nvs_commit(h);
         nvs_close(h);
     }
@@ -160,6 +163,10 @@ static void pm_config_load(void)
         v = 0;
         if (nvs_get_u8(h, PM_NVS_KEY_BRIGHT, &v) == ESP_OK && v > 0) {
             s_brightness = v;
+        }
+        v = 0;
+        if (nvs_get_u8(h, PM_NVS_KEY_SPARMODUS, &v) == ESP_OK) {
+            s_sparmodus_active = (v != 0);
         }
         nvs_close(h);
     }
@@ -194,6 +201,23 @@ void power_mgmt_set_brightness(uint8_t level)
     if (!s_night_mode) {
         co5300_set_brightness(s_brightness);
     }
+}
+
+bool power_mgmt_get_sparmodus_active(void)
+{
+    return s_sparmodus_active;
+}
+
+/* Stage 1 of Phase 6: persists the flag only. Real deep-sleep entry (arming
+ * wake sources, shutting peripherals down, esp_deep_sleep_start()) lands in
+ * a later stage - see the Phase 6 plan. */
+void power_mgmt_set_sparmodus_active(bool on)
+{
+    if (on == s_sparmodus_active) {
+        return;
+    }
+    s_sparmodus_active = on;
+    pm_config_save();
 }
 
 bool power_mgmt_get_night_mode_auto(void)

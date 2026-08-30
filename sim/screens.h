@@ -54,6 +54,7 @@ void sim_settings_tz_screen_build(void);
 void sim_settings_periph_screen_build(void);
 void sim_settings_sound_screen_build(void);
 void sim_settings_info_screen_build(void);
+void sim_settings_sparmodus_screen_build(void);
 /* source picks which ring-screen variant to preview: ALARM_RING_SOURCE_ALARM
  * (shows a configured time, offers Snooze) or ALARM_RING_SOURCE_TIMER (shows
  * "Time's up", no Snooze) - see ring_screen.c's header comment. */

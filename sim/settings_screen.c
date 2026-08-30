@@ -55,6 +55,9 @@ static lv_obj_t *s_set_info_screen;
 static lv_obj_t *s_set_info_batt_label;
 static lv_obj_t *s_set_info_sd_label;
 
+static lv_obj_t *s_set_sparmodus_screen;
+static lv_obj_t *s_set_sparmodus_switch;
+
 static void lvgl_build_settings_tz_screen(void);
 static void settings_tz_refresh(void);
 static void lvgl_build_settings_disp_screen(void);
@@ -65,6 +68,8 @@ static void lvgl_build_settings_sound_screen(void);
 static void settings_sound_refresh(void);
 static void lvgl_build_settings_info_screen(void);
 static void settings_info_refresh(lv_timer_t *timer);
+static void lvgl_build_settings_sparmodus_screen(void);
+static void settings_sparmodus_refresh(void);
 
 static lv_obj_t *screen_new(void)
 {
@@ -141,6 +146,11 @@ static void settings_row_click_cb(lv_event_t *e)
         lv_scr_load(s_set_info_screen);
         settings_info_refresh(NULL);
         break;
+    case 5:
+        if (!s_set_sparmodus_screen) { lvgl_build_settings_sparmodus_screen(); }
+        lv_scr_load(s_set_sparmodus_screen);
+        settings_sparmodus_refresh();
+        break;
     default:
         break;
     }
@@ -157,22 +167,23 @@ static void lvgl_build_settings_screen(void)
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 16);
 
-    static const char *cat_names[5] = {
+    static const char *cat_names[6] = {
         "Zeit & Zeitzone", "Display", "Peripherie", "Ton & Vibration", "Info",
+        "Ultra-Sparmodus",
     };
 
     lv_obj_t *list_cont = lv_obj_create(s_settings_screen);
-    lv_obj_set_size(list_cont, 386, 380);
-    lv_obj_align(list_cont, LV_ALIGN_TOP_MID, 0, 96);
+    lv_obj_set_size(list_cont, 386, 352);
+    lv_obj_align(list_cont, LV_ALIGN_TOP_MID, 0, 90);
     lv_obj_set_flex_flow(list_cont, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(list_cont, 10, 0);
+    lv_obj_set_style_pad_row(list_cont, 8, 0);
     lv_obj_set_style_bg_opa(list_cont, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(list_cont, 0, 0);
     lv_obj_set_style_pad_all(list_cont, 0, 0);
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 6; i++) {
         lv_obj_t *row = lv_obj_create(list_cont);
-        lv_obj_set_size(row, LV_PCT(100), 64);
+        lv_obj_set_size(row, LV_PCT(100), 52);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_style_bg_color(row, lv_color_hex(0x202020), 0);
         lv_obj_set_style_border_width(row, 0, 0);
@@ -433,6 +444,15 @@ void sim_settings_info_screen_build(void)
     }
     lv_scr_load(s_set_info_screen);
     settings_info_refresh(NULL);
+}
+
+void sim_settings_sparmodus_screen_build(void)
+{
+    if (!s_set_sparmodus_screen) {
+        lvgl_build_settings_sparmodus_screen();
+    }
+    lv_scr_load(s_set_sparmodus_screen);
+    settings_sparmodus_refresh();
 }
 
 /* ---- Peripherie ---- */
@@ -733,4 +753,81 @@ static void lvgl_build_settings_info_screen(void)
 
     settings_info_refresh(NULL);
     lv_timer_create(settings_info_refresh, 1000, NULL);
+}
+
+/* ---- Ultra-Sparmodus (docs/application.md section 10, Phase 6) ----
+ * Sim-only note: this sub-page is screenshot-verifiable like every other
+ * Settings screen, but the actual deep-sleep entry/exit/wake-source logic
+ * that power_mgmt_set_sparmodus_active() will eventually drive is
+ * firmware-only - the sim has no hardware to sleep, same reasoning as
+ * why GNSS-power-task specifics or BLE advertising are mocked here
+ * instead of ported. Stage 1 of Phase 6: the toggle just flips the mock
+ * flag, nothing else happens yet. */
+
+static void settings_sparmodus_switch_cb(lv_event_t *e)
+{
+    (void)e;
+    power_mgmt_set_sparmodus_active(lv_obj_has_state(s_set_sparmodus_switch, LV_STATE_CHECKED));
+}
+
+static void settings_sparmodus_refresh(void)
+{
+    if (!s_set_sparmodus_switch) {
+        return;
+    }
+    if (power_mgmt_get_sparmodus_active()) {
+        lv_obj_add_state(s_set_sparmodus_switch, LV_STATE_CHECKED);
+    } else {
+        lv_obj_clear_state(s_set_sparmodus_switch, LV_STATE_CHECKED);
+    }
+}
+
+static void lvgl_build_settings_sparmodus_screen(void)
+{
+    s_set_sparmodus_screen = screen_new();
+    lv_obj_set_style_bg_color(s_set_sparmodus_screen, lv_color_hex(0x000000), 0);
+    lv_obj_add_event_cb(s_set_sparmodus_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_back_cb);
+    lv_obj_add_event_cb(s_set_sparmodus_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_back_cb);
+
+    lv_obj_t *back = lv_button_create(s_set_sparmodus_screen);
+    lv_obj_set_size(back, 92, 46);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, "< Back");
+    lv_obj_set_style_text_font(bl, s_font_small, 0);
+    lv_obj_center(bl);
+    lv_obj_add_event_cb(back, settings_back_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *title = lv_label_create(s_set_sparmodus_screen);
+    lv_label_set_text(title, "ULTRA-SPARMODUS");
+    lv_obj_set_style_text_font(title, s_font_sec, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
+
+    lv_obj_t *sw_row = lv_obj_create(s_set_sparmodus_screen);
+    lv_obj_set_size(sw_row, 386, 64);
+    lv_obj_align(sw_row, LV_ALIGN_TOP_MID, 0, 160);
+    lv_obj_clear_flag(sw_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(sw_row, lv_color_hex(0x202020), 0);
+    lv_obj_set_style_border_width(sw_row, 0, 0);
+    lv_obj_set_style_radius(sw_row, 10, 0);
+    lv_obj_set_style_pad_all(sw_row, 14, 0);
+    lv_obj_t *sw_lbl = lv_label_create(sw_row);
+    lv_label_set_text(sw_lbl, "Active");
+    lv_obj_set_style_text_font(sw_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(sw_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(sw_lbl, LV_ALIGN_LEFT_MID, 0, 0);
+    s_set_sparmodus_switch = lv_switch_create(sw_row);
+    lv_obj_set_size(s_set_sparmodus_switch, 66, 36);
+    lv_obj_align(s_set_sparmodus_switch, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_event_cb(s_set_sparmodus_switch, settings_sparmodus_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t *hint = lv_label_create(s_set_sparmodus_screen);
+    lv_label_set_text(hint, "Below 10% battery, this\nturns on automatically.");
+    lv_obj_set_style_text_font(hint, s_font_small, 0);
+    lv_obj_set_style_text_color(hint, lv_color_hex(0x707070), 0);
+    lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_align(hint, LV_ALIGN_TOP_LEFT, 20, 240);
+
+    settings_sparmodus_refresh();
 }
