@@ -175,12 +175,36 @@ static void area_rounder_cb(lv_event_t *e)
  * the panel): each pixel is 2 bytes, byte0 = MSB = RRRRR GGG, byte1 = GGG BBBBB.
  * Keeping only the red channel zeroes green/blue. Applied in-place; the blit is
  * synchronous, so the buffer is safe to mutate before esp_lcd_panel_draw_bitmap. */
+/* See lvgl_app.h's header comment on these two getters - the "did a real
+ * flush happen" diagnostic for the recurring white-screen-after-wake
+ * reports. Updated unconditionally at the top of every call, success or
+ * failure, so a stuck count/growing age proves the flush pipeline itself
+ * never ran, not just that this one band failed. */
+static volatile uint32_t s_flush_count;
+static volatile int64_t s_last_flush_us = -1;
+
+uint32_t lvgl_flush_count_get(void)
+{
+    return s_flush_count;
+}
+
+uint32_t lvgl_flush_age_ms_get(void)
+{
+    if (s_last_flush_us < 0) {
+        return UINT32_MAX;
+    }
+    int64_t age_us = esp_timer_get_time() - s_last_flush_us;
+    return (age_us < 0) ? 0 : (uint32_t)(age_us / 1000);
+}
+
 static esp_err_t night_mode_draw_bitmap(lv_display_t *disp, esp_lcd_panel_handle_t panel,
                                         int x_start, int y_start, int x_end, int y_end,
                                         const void *color_map, void *user_ctx)
 {
     (void)disp;
     (void)user_ctx;
+    s_flush_count++;
+    s_last_flush_us = esp_timer_get_time();
     /* Ultra-Sparmodus's explicit-wake display (docs/application.md section
      * 10.3) reuses this same red-only transform as night mode - both want
      * "red instead of white", just for different reasons and without
@@ -232,10 +256,26 @@ static esp_err_t night_mode_draw_bitmap(lv_display_t *disp, esp_lcd_panel_handle
  * throttling was needed here beyond the retry already in the draw callback. */
 void lvgl_force_redraw(void)
 {
-    if (esp_lv_adapter_lock(-1) == ESP_OK) {
-        lv_obj_invalidate(lv_screen_active());
-        esp_lv_adapter_unlock();
+    esp_err_t lock_err = esp_lv_adapter_lock(-1);
+    /* Diagnostic for the recurring white-screen-after-wake reports: a
+     * live incident showed the wake path's own lvgl_force_redraw() +
+     * co5300_display_on() call reporting no error anywhere, yet the
+     * screen stayed white - meaning if this ever fails or invalidates a
+     * NULL/unexpected screen, it currently does so completely silently.
+     * ESP_LOGW only (not every call - lvgl_force_redraw() also runs on
+     * ordinary night-mode toggles, not just wake), so this stays quiet
+     * on the success path most callers hit. */
+    if (lock_err != ESP_OK) {
+        ESP_LOGW(TAG, "lvgl_force_redraw: lock failed: %s", esp_err_to_name(lock_err));
+        return;
     }
+    lv_obj_t *scr = lv_screen_active();
+    if (!scr) {
+        ESP_LOGW(TAG, "lvgl_force_redraw: lv_screen_active() is NULL");
+    } else {
+        lv_obj_invalidate(scr);
+    }
+    esp_lv_adapter_unlock();
 }
 
 /* On a night-mode change, invalidate the whole screen so every pixel is

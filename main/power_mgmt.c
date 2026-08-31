@@ -10,6 +10,8 @@
  */
 #include "power_mgmt.h"
 #include <time.h>
+#include <stdio.h>
+#include <string.h>
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "esp_sleep.h"
@@ -54,6 +56,72 @@ static const char *TAG = "power_mgmt";
  * fires once axp2101_enable_vbus_irq() has unmasked it - see Phase 6's
  * Ultra-Sparmodus deep-sleep wake handling. */
 #define AXP_IRQ_VBUS_INSERT (1u << 15)
+
+/* Every other named bit in the combined 24-bit IRQ status, from
+ * Datasheets/AXP2101_datasheet.pdf REG40/41/42 ("IRQ Enable 0/1/2" - the
+ * status registers REG48/49/4A share the same bit layout, INTSTS0 at
+ * bits 0-7, INTSTS1 at 8-15, INTSTS2 at 16-23). GPIO7 (PM_GPIO_PWRKEY)
+ * is the AXP's single shared IRQ output pin - ANY of these, not just a
+ * power-key press, can wake the ESP32 through it. Added after a live
+ * "white screen after wake" report turned out to correlate with
+ * chgdn_irq (battery charge done), not the power key at all - the old
+ * code only ever decoded PEK bits, so every other cause looked
+ * unexplained. Decoding all of them now so the next occurrence's real
+ * trigger is a log line, not a guess. */
+#define AXP_IRQ_BWUT       (1u << 0)    /* battery under-temp, work mode */
+#define AXP_IRQ_BWOT       (1u << 1)    /* battery over-temp, work mode */
+#define AXP_IRQ_BCUT       (1u << 2)    /* battery under-temp, charge mode */
+#define AXP_IRQ_BCOT       (1u << 3)    /* battery over-temp, charge mode */
+#define AXP_IRQ_LOWSOC     (1u << 4)    /* gauge: new SOC reading */
+#define AXP_IRQ_GWDT       (1u << 5)    /* gauge watchdog timeout */
+#define AXP_IRQ_SOCWL1     (1u << 6)    /* SOC dropped to warning level 1 */
+#define AXP_IRQ_SOCWL2     (1u << 7)    /* SOC dropped to warning level 2 */
+#define AXP_IRQ_PEK_POS    (1u << 8)    /* power key positive edge (press) */
+#define AXP_IRQ_PEK_NEG    (1u << 9)    /* power key negative edge (release) */
+#define AXP_IRQ_PEK_SHORT  (1u << 11)   /* power key short press */
+#define AXP_IRQ_BAT_REMOVE (1u << 12)
+#define AXP_IRQ_BAT_INSERT (1u << 13)
+#define AXP_IRQ_VBUS_REMOVE (1u << 14)
+#define AXP_IRQ_BOVP       (1u << 16)   /* battery over-voltage protection */
+#define AXP_IRQ_CHGTE      (1u << 17)   /* charger safety timer expired */
+#define AXP_IRQ_DOTL1      (1u << 18)   /* die over-temp level 1 */
+#define AXP_IRQ_CHGST      (1u << 19)   /* charge started */
+#define AXP_IRQ_CHGDN      (1u << 20)   /* charge done */
+#define AXP_IRQ_LDOOC       (1u << 22)  /* LDO over-current */
+#define AXP_IRQ_WDEXP      (1u << 23)   /* watchdog expired */
+
+/* Renders every set bit's name into `out` (space-separated), or "none" if
+ * irq is 0. Only for the log line above - not performance-sensitive. */
+static void axp_irq_describe(uint32_t irq, char *out, size_t out_len)
+{
+    static const struct { uint32_t bit; const char *name; } bits[] = {
+        { AXP_IRQ_BWUT, "bwut" }, { AXP_IRQ_BWOT, "bwot" },
+        { AXP_IRQ_BCUT, "bcut" }, { AXP_IRQ_BCOT, "bcot" },
+        { AXP_IRQ_LOWSOC, "lowsoc" }, { AXP_IRQ_GWDT, "gwdt" },
+        { AXP_IRQ_SOCWL1, "socwl1" }, { AXP_IRQ_SOCWL2, "socwl2" },
+        { AXP_IRQ_PEK_POS, "pek_press" }, { AXP_IRQ_PEK_NEG, "pek_release" },
+        { AXP_IRQ_PEK_LONG, "pek_long" }, { AXP_IRQ_PEK_SHORT, "pek_short" },
+        { AXP_IRQ_BAT_REMOVE, "bat_remove" }, { AXP_IRQ_BAT_INSERT, "bat_insert" },
+        { AXP_IRQ_VBUS_REMOVE, "vbus_remove" }, { AXP_IRQ_VBUS_INSERT, "vbus_insert" },
+        { AXP_IRQ_BOVP, "bovp" }, { AXP_IRQ_CHGTE, "chgte" },
+        { AXP_IRQ_DOTL1, "dotl1" }, { AXP_IRQ_CHGST, "chgst" },
+        { AXP_IRQ_CHGDN, "chgdn" }, { AXP_IRQ_LDOOC, "ldooc" },
+        { AXP_IRQ_WDEXP, "wdexp" },
+    };
+    out[0] = '\0';
+    if (irq == 0) {
+        snprintf(out, out_len, "none");
+        return;
+    }
+    for (size_t i = 0; i < sizeof(bits) / sizeof(bits[0]); i++) {
+        if (irq & bits[i].bit) {
+            if (out[0] != '\0') {
+                strlcat(out, " ", out_len);
+            }
+            strlcat(out, bits[i].name, out_len);
+        }
+    }
+}
 
 /* Night-mode clock check period while the watch is idle. */
 #define PM_NIGHT_CHECK_MS  60000
@@ -703,8 +771,9 @@ static void pm_wake_task(void *arg)
             uint32_t irq = 0;
             axp2101_get_irq_status(twatch_pmu_dev, &irq);
             axp2101_clear_irq(twatch_pmu_dev);
-            ESP_LOGI(TAG, "power key: irq=0x%06lx (bit8 press, bit10 long, bit11 short)",
-                     (unsigned long)irq);
+            char irq_desc[160];
+            axp_irq_describe(irq, irq_desc, sizeof(irq_desc));
+            ESP_LOGI(TAG, "AXP IRQ wake: irq=0x%06lx (%s)", (unsigned long)irq, irq_desc);
             if (irq & AXP_IRQ_PEK_LONG) {
                 power_mgmt_shutdown();
                 /* Falls through (no continue/return) rather than skip the

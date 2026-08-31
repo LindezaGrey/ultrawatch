@@ -4,6 +4,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,6 +21,22 @@ const char *uwatch_firmware_version(void);
 /* Invalidate the active LVGL screen so it repaints fully (used after wake,
  * when the panel GRAM was blanked during sleep). Safe to call from any task. */
 void lvgl_force_redraw(void);
+
+/* Diagnostics for the recurring "white screen after wake" reports (see
+ * night_mode_draw_bitmap()'s own comment): a live incident showed the
+ * panel-command retry logic (co5300_wake/display_on) reporting success
+ * with no draw_bitmap warning either, yet the screen stayed white until a
+ * later manual redraw - meaning the failure is happening somewhere
+ * upstream of any existing log line. These let a debug command answer
+ * "did a real pixel flush happen recently" without guessing:
+ *   - lvgl_flush_count_get(): total esp_lcd_panel_draw_bitmap() attempts
+ *     since boot (incremented regardless of success/failure) - compare a
+ *     reading from before a white screen against one taken right when
+ *     it's reported to see whether any flush was even attempted meanwhile.
+ *   - lvgl_flush_age_ms_get(): ms since the last flush attempt, or
+ *     UINT32_MAX if none has happened yet this boot. */
+uint32_t lvgl_flush_count_get(void);
+uint32_t lvgl_flush_age_ms_get(void);
 
 /* Capture the active LVGL screen and print it to the console as base64 RGB565
  * between ==SHOT:WxH== and ==ENDSHOT== markers (debug). Call from any task. */

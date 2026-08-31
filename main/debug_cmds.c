@@ -617,6 +617,16 @@ void debug_cmd_dispchk(const char *args)
     printf("disp: LDO_ONOFF0=0x%02x (ALDO2=%d) ALDO2_vol=0x%02x "
            "XL9555=0x%04x (DISP_PWR=%d)\n",
            ldo0, (ldo0 >> 1) & 1, aldo2_vol, xl, (xl >> 7) & 1);
+    /* "Did a real pixel flush happen recently" - see lvgl_app.h's header
+     * comment on these two getters. Printed here (not just "heap") since
+     * this command is specifically the display-diagnostic one. */
+    uint32_t flushes = lvgl_flush_count_get();
+    uint32_t age_ms = lvgl_flush_age_ms_get();
+    if (age_ms == UINT32_MAX) {
+        printf("disp: flushes=%lu age=never\n", (unsigned long)flushes);
+    } else {
+        printf("disp: flushes=%lu age=%lums\n", (unsigned long)flushes, (unsigned long)age_ms);
+    }
 }
 
 void debug_cmd_disppwr(const char *args)
