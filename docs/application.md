@@ -530,3 +530,51 @@ Keine offenen Architektur- oder Detailfragen mehr. Alle in diesem Dokument
 aufgeworfenen Punkte sind geklärt. Weitere Klärungsbedarfe entstehen erst,
 sobald mit der konkreten Implementierung begonnen wird (z. B. exakte
 Pin-Belegung, Timing-Feinabstimmung, konkrete UI-Assets).
+
+---
+
+## 12. Bekannte Hardware-Einschränkung: interner DMA-RAM
+
+Der ESP32-S3 hat 8 MB PSRAM (extern, per QSPI), das für die meisten
+Anwendungszwecke reichlich Platz bietet - aber die Funkmodule (BLE-
+Controller, WiFi-Treiber) und die Display-DMA-Übertragung können **nur
+auf internen SRAM zugreifen, nicht auf PSRAM** (Hardware-Limitierung des
+DMA-Controllers, kein Konfigurationsschalter). Dieser interne,
+DMA-fähige Speicher ist auf diesem Board chronisch knapp: Display-
+Draw-Buffer, LVGL und die Treiber-Allokationen beanspruchen den
+Großteil davon bereits im Normalbetrieb - live gemessen (Debug-Kommando
+`heap`) liegen nur ca. 33-45 KB frei, je nach Zeitpunkt.
+
+**Konkrete Auswirkungen:**
+- Der BLE-Debug-Bridge (`ble_debug.c`) ist deshalb dauerhaft deaktiviert
+  (`ble_debug_init()` in `uwatch_main.c` auskommentiert) - der
+  BT-Controller reserviert DMA-Speicher, der mit dem Display-Buffer
+  kollidiert.
+- Ein Versuch, einen reinen BLE-Scan-Screen (Bluetooth-Geräte auflisten,
+  ohne Verbindungsaufbau) hinzuzufügen, endete live auf echter Hardware
+  in einem reproduzierbaren Absturz: `BLE_INIT: Malloc failed` beim
+  Initialisieren des BT-Controllers, gefolgt von einem Watchdog-Panic
+  (Interrupt WDT Timeout, Core 0). Die Uhr hat sich danach selbstständig
+  über den Crash-Dump-Mechanismus neu gestartet - kein bleibender Schaden,
+  aber die Funktion wurde daraufhin verworfen/zurückgestellt (siehe
+  Git-Historie, Stash "BLE scan feature").
+- Ein Versuch, durch `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` (IDF-Default
+  16 KB → 1 KB gesenkt) mehr kleine Allokationen (v. a. Task-Stacks) ins
+  PSRAM zu verlagern und so mehr internen Speicher freizugeben, hat den
+  freien DMA-Speicher tatsächlich mehr als verdoppelt (34 KB → 79 KB,
+  live gemessen). Er hat aber gleichzeitig einen realen WLAN-Fehler
+  ausgelöst: bei gleichzeitig aktivem LoRa **und** WLAN schlug WLANs
+  eigene statische RX-Buffer-Allokation fehl (`wifi: malloc buffer
+  fail` → `ESP_ERR_NO_MEM`), und die fehlgeschlagene
+  Deinitialisierung hat ca. 62 KB internen Speicher dauerhaft für den
+  Rest der Boot-Session leakt (kein Absturz, aber WLAN blieb bis zum
+  nächsten Neustart komplett funktionsunfähig). Die Änderung wurde
+  deshalb wieder zurückgenommen (`git revert`).
+
+**Stand:** `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` bleibt auf dem
+IDF-Standardwert (16 KB). Der BLE-Scan-Screen existiert als
+zurückgestellter Code (`git stash`), ist nicht Teil der aktuellen
+Firmware. Eine sauberere Lösung (z. B. gezielt nur unkritische, garantiert
+nicht-DMA-nahe Allokationen ins PSRAM verlagern, oder den WLAN-Treiber
+selbst so patchen/konfigurieren, dass eine fehlgeschlagene Init sauber
+aufräumt statt zu leaken) ist nicht umgesetzt.
