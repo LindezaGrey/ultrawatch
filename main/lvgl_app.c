@@ -869,6 +869,7 @@ typedef struct {
 
 static const nav_ring_entry_t s_nav_ring[] = {
     { &s_watch_screen,    NULL },
+    { &s_activity_screen, lvgl_build_activity_screen },
     { &s_gps_screen,      lvgl_build_gps_screen },
     { &s_mesh_screen,     lvgl_build_mesh_screen },
     { &s_wifi_screen,     lvgl_build_wifi_screen },

@@ -33,6 +33,14 @@ extern lv_obj_t *s_watch_screen;
 void lvgl_build_watch_face(void);
 void watch_face_update(lv_timer_t *timer);
 
+/* Activity screen (main/screens/activity_screen.c): today's step count +
+ * per-activity duration breakdown (BHI260AP activity recognition),
+ * read-only - see main/bhi260ap.h / main/daily_log.h. */
+extern lv_obj_t *s_activity_screen;
+
+void lvgl_build_activity_screen(void);
+void activity_screen_update(lv_timer_t *timer);
+
 /* GPS screen (main/screens/gps_screen.c). */
 extern lv_obj_t *s_gps_screen;
 

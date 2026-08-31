@@ -20,6 +20,7 @@ add_executable(uwatch_sim
     screenshot.c
     mock_hw.c
     ../main/screens/watch_face.c
+    ../main/screens/activity_screen.c
     ../main/screens/status_bar.c
     ../main/screens/status_icons.c
     ../main/screens/gps_screen.c

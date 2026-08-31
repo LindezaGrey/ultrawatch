@@ -50,6 +50,16 @@ void sim_show_watch_face(void)
     watch_face_update(NULL);
 }
 
+/* Activity screen: now shared (main/screens/activity_screen.c). */
+void sim_activity_screen_build(void)
+{
+    if (!s_activity_screen) {
+        lvgl_build_activity_screen();
+    }
+    lv_scr_load(s_activity_screen);
+    activity_screen_update(NULL);
+}
+
 /* GPS screen: now shared (main/screens/gps_screen.c), which - unlike the
  * old hand-ported sim/gps_screen.c - exposes only lvgl_build_gps_screen()/
  * gps_screen_update(), no lazy-build-then-load wrapper (the firmware does
@@ -268,8 +278,8 @@ static void swipe_event_cb(lv_event_t *e)
         if (horiz) {
             if (dx < 0) {        /* left  -> BHI status */
                 sim_bhi_screen_build();
-            } else {             /* right -> GPS */
-                sim_gps_screen_build();
+            } else {             /* right -> Activity */
+                sim_activity_screen_build();
             }
         } else if (dy < 0) {     /* up   -> Alarm */
             sim_alarm_screen_build();
@@ -284,9 +294,15 @@ static void swipe_event_cb(lv_event_t *e)
         if (horiz && dx > 0) {   /* right -> clock */
             sim_show_watch_face();
         }
-    } else if (cur == s_gps_screen) {
+    } else if (cur == s_activity_screen) {
         if (horiz && dx < 0) {   /* left -> clock */
             sim_show_watch_face();
+        } else if (horiz && dx > 0) {   /* right -> GPS */
+            sim_gps_screen_build();
+        }
+    } else if (cur == s_gps_screen) {
+        if (horiz && dx < 0) {   /* left -> Activity */
+            sim_activity_screen_build();
         } else if (horiz && dx > 0) {   /* right -> Mesh */
             sim_mesh_screen_build();
         }

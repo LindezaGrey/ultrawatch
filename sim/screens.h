@@ -42,6 +42,7 @@ extern lv_obj_t *s_settings_screen;
 
 /* Lazy build-or-reuse + lv_scr_load() for each of the other screens. */
 void sim_bhi_screen_build(void);
+void sim_activity_screen_build(void);
 void sim_gps_screen_build(void);
 void sim_mesh_screen_build(void);
 void sim_wifi_screen_build(void);
