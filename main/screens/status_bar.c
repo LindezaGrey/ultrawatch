@@ -26,6 +26,7 @@
 #include "twatch_board.h"
 #include "m10q.h"
 #include "gpx_log.h"
+#include "mesh_log.h"
 #include "ble_debug.h"
 #include "sensor_cache.h"
 #include "axp2101.h"
@@ -144,10 +145,10 @@ void update_status_bar(const status_bar_t *bar)
      * TRACKING_ENABLED in tracking.h). */
     lv_obj_set_style_text_color(bar->gpx, gpx_log_is_active() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
 
-    /* LoRa has no on/off toggle yet (ALDO3 is hard-wired always-on, see
-     * power_mgmt.c) - shows "on" unconditionally until Phase 6 gives it a
-     * real state to reflect. */
-    lv_obj_set_style_image_recolor(bar->lora, STATUS_COLOR_GREEN, 0);
+    /* Reflects the Mesh screen's LoRa on/off switch (mesh_log_set_enabled(),
+     * default off) - green while the radio is switched on, grey while off
+     * (rail cut entirely, see mesh_log.c). */
+    lv_obj_set_style_image_recolor(bar->lora, mesh_log_get_enabled() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
 
     lv_obj_set_style_text_color(bar->bt, ble_debug_is_connected() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
 

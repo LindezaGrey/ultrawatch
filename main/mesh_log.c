@@ -8,6 +8,7 @@
 #include "meshtastic_user.h"
 #include "lvgl_app.h"
 #include "twatch_board.h"
+#include "axp2101.h"
 #include "drv2605.h"
 #include "sd_log.h"
 #include "sensor_cache.h"
@@ -32,6 +33,16 @@ static size_t s_count;     /* valid entries, up to MESH_LOG_COUNT */
 static size_t s_next;      /* next write index (ring) */
 static SemaphoreHandle_t s_mux;
 
+/* Radio shutdown handshake for Ultra-Sparmodus (power_mgmt.c) - see
+ * mesh_log_stop_radio_for_sleep(). The sx1262 driver has no locking of its
+ * own (static s_rx_active/s_recv_task in sx1262.c, touched by both
+ * meshtastic_radio_recv() and meshtastic_radio_stop_rx() with no mutex), so
+ * only mesh_log_task itself - the sole caller of meshtastic_radio_recv() -
+ * may safely call meshtastic_radio_stop_rx(); anything else must ask it to
+ * do so and wait, never call the radio driver directly. */
+static SemaphoreHandle_t s_shutdown_req;
+static SemaphoreHandle_t s_shutdown_done;
+
 #define MESH_TEXT_LOG_PATH "/sdcard/log/mesh.txt"
 
 /* Node table: in-RAM only, upserted from every decoded packet. Guarded by
@@ -41,6 +52,15 @@ static mesh_node_t s_nodes[MESH_NODE_TABLE_MAX];
 static size_t s_node_count;
 
 #define MESH_NVS_NS "mesh"
+
+/* User-facing LoRa/mesh on-off switch (Mesh screen), persisted, default OFF
+ * per explicit feedback - unlike s_notify_enabled (a vibration preference,
+ * defaults on), this gates the radio itself. s_mesh_enabled is the target
+ * state (settable from any task via mesh_log_set_enabled()); s_mesh_rx_active
+ * is mesh_log_task's own record of what's actually powered right now - only
+ * that task ever writes it, so no lock needed for it specifically. */
+static bool s_mesh_enabled;
+static bool s_mesh_rx_active;
 
 static bool s_notify_enabled = true;
 static char s_presets[MESH_PRESET_COUNT][MESH_PRESET_MAX_LEN + 1] = {
@@ -119,21 +139,87 @@ static void mesh_text_log_append(const char *sender, const char *text)
     sd_log_session_end();
 }
 
+/* Powers the SX1262 up (rail + reconfigure) or cleanly down (stop + rail
+ * off) - the config a rail power-cycle wipes doesn't survive being off, so
+ * turning back on needs a full meshtastic_radio_init(), not just start_rx()
+ * (see docs/nfc.md's note on this same chip - a sustained rail-off "may
+ * still require re-running sx1262_configure_lora()"). Only ever called
+ * from mesh_log_task's own context, the sole owner of the radio driver -
+ * see the shutdown-handshake comment on s_shutdown_req/s_shutdown_done
+ * above for why nothing else may touch it directly. */
+static void mesh_radio_power(bool on)
+{
+    if (on) {
+        axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, true);
+        vTaskDelay(pdMS_TO_TICKS(50));   /* settle before SPI, matches sd_log.c's rail-on pattern */
+        meshtastic_radio_init();
+        esp_err_t err = meshtastic_radio_start_rx();
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "start_rx failed: %s", esp_err_to_name(err));
+        }
+        ESP_LOGI(TAG, "LoRa radio on");
+    } else {
+        meshtastic_radio_stop_rx();
+        axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);
+        ESP_LOGI(TAG, "LoRa radio off");
+    }
+}
+
 static void mesh_log_task(void *arg)
 {
     (void)arg;
-    esp_err_t err = meshtastic_radio_start_rx();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "start_rx failed: %s", esp_err_to_name(err));
+    /* Apply the persisted on/off state at boot. ALDO3 defaults ON (see
+     * axp2101_set_default_power()) and twatch_board_init() already ran
+     * meshtastic_radio_init() unconditionally - if the user has the radio
+     * switched off, undo both of those instead of leaving them be, since
+     * "off" here means actually powered down, not just not-listening. */
+    if (s_mesh_enabled) {
+        esp_err_t err = meshtastic_radio_start_rx();
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "start_rx failed: %s", esp_err_to_name(err));
+        }
+        s_mesh_rx_active = true;
+    } else {
+        meshtastic_radio_stop_rx();
+        axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);
+        s_mesh_rx_active = false;
     }
 
     uint8_t buf[RX_BUF_LEN];
     for (;;) {
+        /* Sparmodus shutdown request (see mesh_log_stop_radio_for_sleep()):
+         * checked once per loop iteration, so at most RX_POLL_MS stale -
+         * meshtastic_radio_recv() below always returns within RX_POLL_MS
+         * even with nothing received, bounding how long a request can wait
+         * behind an in-flight receive. This task never loops again after
+         * signaling done - the rail is about to be cut out from under it,
+         * so parking here is correct, not a leak. */
+        if (xSemaphoreTake(s_shutdown_req, 0) == pdTRUE) {
+            if (s_mesh_rx_active) {
+                meshtastic_radio_stop_rx();
+            }
+            xSemaphoreGive(s_shutdown_done);
+            vTaskSuspend(NULL);
+            continue;   /* unreachable: a suspended task never resumes itself */
+        }
+
+        /* User toggle (Mesh screen switch, mesh_log_set_enabled()) - applied
+         * here rather than in the switch's own callback so only this task
+         * ever touches the radio driver or its rail. */
+        if (s_mesh_enabled != s_mesh_rx_active) {
+            mesh_radio_power(s_mesh_enabled);
+            s_mesh_rx_active = s_mesh_enabled;
+        }
+        if (!s_mesh_rx_active) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+
         size_t len = 0;
         int16_t rssi = 0;
         int8_t snr = 0;
         bool crc_ok = false;
-        err = meshtastic_radio_recv(buf, sizeof(buf), &len, &rssi, &snr, &crc_ok, RX_POLL_MS);
+        esp_err_t err = meshtastic_radio_recv(buf, sizeof(buf), &len, &rssi, &snr, &crc_ok, RX_POLL_MS);
         if (err != ESP_OK || !crc_ok) {
             continue;   /* timeout is the normal case; a bad-CRC packet is skipped, not logged */
         }
@@ -308,6 +394,30 @@ void mesh_log_node_name(uint32_t node_id, char *out, size_t outlen)
     }
 }
 
+bool mesh_log_get_enabled(void)
+{
+    return s_mesh_enabled;
+}
+
+/* Async, like gps_power() (main/lvgl_app.c) - just sets the target state.
+ * mesh_log_task() (the only writer of s_mesh_rx_active) notices the
+ * mismatch and does the actual radio/rail transition itself, at most one
+ * loop iteration late (bounded by RX_POLL_MS while receiving, or 100ms
+ * while idle) - never blocks the caller (UI thread). */
+void mesh_log_set_enabled(bool on)
+{
+    if (on == s_mesh_enabled) {
+        return;
+    }
+    s_mesh_enabled = on;
+    nvs_handle_t h;
+    if (nvs_open(MESH_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u8(h, "radio_en", on ? 1 : 0);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
 bool mesh_log_get_notify_enabled(void)
 {
     return s_notify_enabled;
@@ -360,6 +470,10 @@ static void mesh_config_load(void)
         if (nvs_get_u8(h, "notify_en", &v) == ESP_OK) {
             s_notify_enabled = (v != 0);
         }
+        uint8_t radio_v = 0;   /* default off, per explicit feedback */
+        if (nvs_get_u8(h, "radio_en", &radio_v) == ESP_OK) {
+            s_mesh_enabled = (radio_v != 0);
+        }
         size_t len = sizeof(s_presets);
         char tmp[sizeof(s_presets)];
         if (nvs_get_blob(h, "presets", tmp, &len) == ESP_OK && len == sizeof(s_presets)) {
@@ -379,6 +493,10 @@ void mesh_log_init(void)
     if (!s_mux) {
         s_mux = xSemaphoreCreateMutex();
     }
+    if (!s_shutdown_req) {
+        s_shutdown_req = xSemaphoreCreateBinary();
+        s_shutdown_done = xSemaphoreCreateBinary();
+    }
     mesh_config_load();
     /* 8192, not 4096: on a text message this task calls
      * lvgl_mesh_screen_show() directly, which - the first time the Mesh
@@ -390,4 +508,23 @@ void mesh_log_init(void)
      * other background task in this app builds a full LVGL screen
      * directly on its own stack this way. */
     xTaskCreate(mesh_log_task, "mesh_log", 8192, NULL, 3, NULL);
+}
+
+esp_err_t mesh_log_stop_radio_for_sleep(void)
+{
+    if (!s_shutdown_req) {
+        return ESP_ERR_INVALID_STATE;   /* mesh_log_init() never ran */
+    }
+    xSemaphoreGive(s_shutdown_req);
+    /* Bounded above RX_POLL_MS: the task checks the request once per loop
+     * iteration and each iteration blocks for at most RX_POLL_MS inside
+     * meshtastic_radio_recv(), so this always resolves well inside 1.5s
+     * once mesh_log_task actually gets scheduled - it's never stuck
+     * anywhere longer than that by design. Timing out here would mean the
+     * task itself is stuck/starved, not that the request is slow. */
+    if (xSemaphoreTake(s_shutdown_done, pdMS_TO_TICKS(RX_POLL_MS + 500)) != pdTRUE) {
+        ESP_LOGW(TAG, "mesh_log_stop_radio_for_sleep: task didn't confirm in time");
+        return ESP_ERR_TIMEOUT;
+    }
+    return ESP_OK;
 }

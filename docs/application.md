@@ -291,6 +291,11 @@ zum Statusicon aus Abschnitt 3).
    gehalten – mit entsprechendem Datenverlust bei einem Neustart.
 7. **Vibration bei neuer Nachricht**, unabhängig davon, welcher Screen gerade
    aktiv ist (globales Verhalten, ähnlich einer Push-Benachrichtigung).
+8. **Ein-/Aus-Schalter für das LoRa-Funkmodul** direkt auf diesem Screen
+   (gleiche Position/Bauart wie der GNSS-Schalter auf dem GPS-Screen, siehe
+   Abschnitt 6) – **Standard: aus**. Ausgeschaltet ist der SX1262 vollständig
+   abgeschaltet (Rail aus, nicht nur Standby), es wird nichts empfangen und
+   das Statusicon (Abschnitt 3.2) zeigt Grau. Die Wahl wird persistiert.
 
 ---
 

@@ -26,6 +26,7 @@ static const lv_font_t *s_font_micro = &cascadia_18;
 lv_obj_t *s_mesh_screen;
 lv_obj_t *s_node_screen;
 
+static lv_obj_t *s_mesh_pwr_switch;    /* LoRa radio on/off (mesh_log_set_enabled()) */
 static lv_obj_t *s_mesh_empty_label;
 static lv_obj_t *s_mesh_conn_label;    /* channel + node count */
 static lv_obj_t *s_mesh_list_cont;     /* scrollable row container */
@@ -40,6 +41,18 @@ void mesh_screen_update(lv_timer_t *timer)
     (void)timer;
     if (lv_screen_active() != s_mesh_screen) {
         return;
+    }
+
+    /* LoRa on/off switch state. */
+    if (s_mesh_pwr_switch) {
+        bool on = mesh_log_get_enabled();
+        if (lv_obj_has_state(s_mesh_pwr_switch, LV_STATE_CHECKED) != on) {
+            if (on) {
+                lv_obj_add_state(s_mesh_pwr_switch, LV_STATE_CHECKED);
+            } else {
+                lv_obj_clear_state(s_mesh_pwr_switch, LV_STATE_CHECKED);
+            }
+        }
     }
 
     mesh_msg_t msgs[MESH_LOG_COUNT];
@@ -145,6 +158,22 @@ static void mesh_preset_btn_cb(lv_event_t *e)
  * in practice - most likely LVGL's own scroll-gesture recognition on that
  * scrollable object competing for the same press/release sequence. */
 
+/* LoRa on/off switch on the Mesh screen, mirroring the GPS screen's GNSS
+ * switch exactly (main/screens/gps_screen.c's gps_pwr_switch_cb() header
+ * comment explains why the callback only sets the target flag and never
+ * touches switch/screen state itself - same reasoning here:
+ * mesh_log_set_enabled() is async, mesh_log_task applies it and
+ * mesh_screen_update() reflects the result back on its own next tick. */
+static void mesh_pwr_switch_cb(lv_event_t *e)
+{
+    (void)e;
+    if (!s_mesh_pwr_switch) {
+        return;
+    }
+    bool on = lv_obj_has_state(s_mesh_pwr_switch, LV_STATE_CHECKED);
+    mesh_log_set_enabled(on);
+}
+
 void lvgl_build_mesh_screen(void)
 {
     s_mesh_screen = screen_new();
@@ -163,6 +192,18 @@ void lvgl_build_mesh_screen(void)
     lv_obj_set_style_text_font(title, s_font_sec, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
+
+    /* LoRa on/off switch - same row/position convention as the GPS screen's
+     * GNSS switch (main/screens/gps_screen.c). */
+    lv_obj_t *pwr_lbl = lv_label_create(s_mesh_screen);
+    lv_label_set_text(pwr_lbl, "LoRa");
+    lv_obj_set_style_text_font(pwr_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(pwr_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(pwr_lbl, LV_ALIGN_TOP_LEFT, 90, 22);
+    s_mesh_pwr_switch = lv_switch_create(s_mesh_screen);
+    lv_obj_set_size(s_mesh_pwr_switch, 66, 36);
+    lv_obj_align(s_mesh_pwr_switch, LV_ALIGN_TOP_RIGHT, -90, 14);
+    lv_obj_add_event_cb(s_mesh_pwr_switch, mesh_pwr_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     s_mesh_conn_label = lv_label_create(s_mesh_screen);
     lv_label_set_text(s_mesh_conn_label, "");

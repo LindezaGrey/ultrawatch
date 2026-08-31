@@ -449,6 +449,11 @@ static bool s_mesh_notify_enabled = true;
 bool mesh_log_get_notify_enabled(void) { return s_mesh_notify_enabled; }
 void mesh_log_set_notify_enabled(bool enabled) { s_mesh_notify_enabled = enabled; }
 
+/* Default matches the firmware's persisted default (off) - see mesh_log.c. */
+static bool s_mesh_radio_enabled = false;
+bool mesh_log_get_enabled(void) { return s_mesh_radio_enabled; }
+void mesh_log_set_enabled(bool on) { s_mesh_radio_enabled = on; }
+
 size_t mesh_log_get_recent(mesh_msg_t *out, size_t max)
 {
     static const struct { uint32_t from; const char *text; uint8_t channel_hash; mesh_msg_kind_t kind; double age_s; } msgs[] = {

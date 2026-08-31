@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "esp_err.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,6 +54,14 @@ typedef struct {
 
 /* Starts the background listener task. Call once after twatch_board_init(). */
 void mesh_log_init(void);
+
+/* Ultra-Sparmodus deep-sleep entry (power_mgmt.c): stops the SX1262 RX
+ * cleanly from mesh_log_task's own context (the only safe caller of the
+ * radio driver's stop function - see mesh_log.c) and waits for
+ * confirmation before it's safe to cut the LoRa rail. Returns ESP_OK once
+ * confirmed, ESP_ERR_TIMEOUT if mesh_log_task didn't respond in time
+ * (proceed with the rail cut anyway - see the caller). */
+esp_err_t mesh_log_stop_radio_for_sleep(void);
 
 /* Same clock received_at_us is stamped with (esp_timer_get_time() - us since
  * boot). Exists so the Mesh screen's age-in-seconds display (now - received)
@@ -96,6 +105,16 @@ void mesh_log_node_name(uint32_t node_id, char *out, size_t outlen);
  * + drv2605_play(), see mesh_log_task()) - on by default, persisted in NVS. */
 bool mesh_log_get_notify_enabled(void);
 void mesh_log_set_notify_enabled(bool enabled);
+
+/* User-facing LoRa/mesh radio on-off switch (Mesh screen) - OFF by default,
+ * persisted in NVS. When off, the SX1262 is stopped and its rail (ALDO3)
+ * cut entirely, same as Ultra-Sparmodus's shutdown; when switched back on,
+ * mesh_log_task re-runs meshtastic_radio_init() (a rail power-cycle wipes
+ * the chip's config) before resuming RX. mesh_log_set_enabled() is async -
+ * it only sets the target state, mesh_log_task applies it on its own
+ * schedule (see mesh_log.c), so it's safe to call from the UI task. */
+bool mesh_log_get_enabled(void);
+void mesh_log_set_enabled(bool on);
 
 /* ---- LoRa message presets ----
  * Four short canned messages offered on the Mesh screen (main/lvgl_app.c,

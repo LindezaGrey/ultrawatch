@@ -265,6 +265,8 @@ size_t mesh_log_node_count(void);
 void mesh_log_node_name(uint32_t node_id, char *out, size_t outlen);
 bool mesh_log_get_notify_enabled(void);
 void mesh_log_set_notify_enabled(bool enabled);
+bool mesh_log_get_enabled(void);
+void mesh_log_set_enabled(bool on);
 
 /* --- alarm.h subset (multi-alarm + shared ring engine, 2026-08-29 overhaul) --- */
 #define ALARM_RING_BEEP  0
