@@ -15,21 +15,22 @@
  * 3.1): grey = off/absent, orange = transitioning/warning, green = active
  * at target state, red = active-but-notable (kept per-icon, not applied
  * uniformly - see below). Most icons are short colored text labels/symbol
- * glyphs; GNSS and LoRa are small hand-drawn bitmaps (status_icons.h) tinted
+ * glyphs; GNSS and LoRa are small bitmap icons (status_icons.h) tinted
  * the same way via lv_obj_set_style_image_recolor() instead of text color -
  * LVGL's built-in symbol font has no satellite or mesh-network glyph.
  */
 #include "status_bar.h"
 #include "status_icons.h"
-#include <stdio.h>
 #include "sd_log.h"
 #include "twatch_board.h"
 #include "m10q.h"
 #include "gpx_log.h"
 #include "mesh_log.h"
+#include "wifi_scan.h"
 #include "ble_debug.h"
 #include "sensor_cache.h"
 #include "axp2101.h"
+#include "alarm.h"
 
 #define STATUS_COLOR_GREY   lv_color_hex(0x888888)
 #define STATUS_COLOR_ORANGE lv_color_hex(0xFFB300)
@@ -38,14 +39,17 @@
 
 /* Row y and left/right-aligned x offsets are chosen from a measured safe-area
  * scan of assets/ui/safe_area_transparent.png (410x502 panel, rounded
- * corners physically clip/hide content there): at y~54 the corner cutout
- * requires roughly x >= 34 from either edge (straight-edge margin is ~16px,
- * but the corner radius is ~90-100px and dominates this close to the top),
- * so every icon in this row is kept clear of x < 40 / x > 410-40 - see
- * docs/application.md's "Abgerundete Ecken beachten" section. y=54 also
- * clears every ring screen's title (TOP_MID, y=18, ends ~y=44) and the GPS
- * screen's GNSS switch row (y=22, ends ~y=48) with a few px to spare. */
-#define STATUS_BAR_Y 54
+ * corners physically clip/hide content there): at y~30 the corner cutout
+ * requires roughly x >= 45 from either edge (straight-edge margin is ~16px,
+ * but the corner radius is ~90-100px and dominates this close to the top) -
+ * both rows' first column now starts at x=55 (see build_status_bar_big()),
+ * clearing this with a few px to spare - see docs/application.md's "Abgerundete
+ * Ecken beachten" section. Moved up further per explicit feedback ("move
+ * them up") - the old value's other justification (clearing ring-screen
+ * titles/the GPS switch row) is moot now that this is watch-face-only, no
+ * other screen builds a status bar at all. Verified clear of the corner
+ * mask at this height via the sim's safe-area overlay. */
+#define STATUS_BAR_Y 30
 
 /* LVGL's built-in Montserrat glyph set (FontAwesome-derived, see
  * lv_symbol_def.h) ships real icons for SD/BT/WiFi. GPX-tracking has no good
@@ -64,7 +68,7 @@ static lv_obj_t *status_icon_create_ex(lv_obj_t *parent, const char *text, lv_al
     return l;
 }
 
-/* GNSS/LoRa: small hand-drawn bitmaps (status_icons.h), tinted via image
+/* GNSS/LoRa: small bitmap icons (status_icons.h), tinted via image
  * recolor instead of text color - same grey/orange/green/red states, just a
  * different LVGL style property since these are lv_image_t, not labels. */
 static lv_obj_t *status_image_create(lv_obj_t *parent, const lv_image_dsc_t *src,
@@ -88,32 +92,40 @@ static lv_obj_t *status_image_create(lv_obj_t *parent, const lv_image_dsc_t *src
  * Row grouping (per explicit feedback): row 1 is every RF-carrying
  * subsystem (Bluetooth, WiFi, GNSS, LoRa/Meshtastic) so a glance at the top
  * row alone answers "is anything transmitting/receiving"; row 2 is
- * everything else (SD card, GPX file logging, charge state, battery). */
-#define STATUS_BAR_Y_ROW2 (STATUS_BAR_Y + 44)
+ * everything else (SD card, GPX file logging, charge state, battery).
+ * Tightened from +44 to +34 per explicit feedback ("a small but distinct
+ * margin") - the montserrat_28 icons/28px bitmap icons are ~30px tall, so
+ * this still leaves a few px of visible gap, just not the more generous
+ * spacing the original number left. */
+#define STATUS_BAR_Y_ROW2 (STATUS_BAR_Y + 34)
 void build_status_bar_big(lv_obj_t *parent, status_bar_t *out)
 {
     const lv_font_t *f = &lv_font_montserrat_28;
-    /* Requested order: Bluetooth, WiFi, GNSS, LoRa. LoRa's mesh-icon bitmap
-     * (28x28, the widest thing in this row) goes last, where it has the
-     * most room before the right safe-area edge (x<=370, see STATUS_BAR_Y's
-     * comment). */
-    out->bt   = status_icon_create_ex(parent, LV_SYMBOL_BLUETOOTH, LV_ALIGN_TOP_LEFT,  40, STATUS_BAR_Y,       f);
-    out->wifi = status_icon_create_ex(parent, LV_SYMBOL_WIFI,      LV_ALIGN_TOP_LEFT,  120, STATUS_BAR_Y,      f);
-    out->gps  = status_image_create(parent, &status_icon_satellite, LV_ALIGN_TOP_LEFT, 200, STATUS_BAR_Y);
-    out->lora = status_image_create(parent, &status_icon_mesh,      LV_ALIGN_TOP_LEFT, 280, STATUS_BAR_Y);
-    /* CHG left-aligned with SD/GPX rather than paired right-aligned next to
-     * Batt (the original layout, before this pass's row split, had them on
-     * separate rows entirely so this never collided): Batt's text is
-     * variable-width ("<icon> 100%" is noticeably wider than "<icon> 8%"),
-     * and a fixed right-aligned CHG offset overlapped it at the wide end -
-     * reported live ("the usb connected flash is now overlapping the
-     * battery"). Left-aligning CHG at a fixed position and giving Batt sole
-     * ownership of the right side removes the collision regardless of how
-     * wide the percentage text gets. */
-    out->sd   = status_icon_create_ex(parent, LV_SYMBOL_SD_CARD,   LV_ALIGN_TOP_LEFT,  40, STATUS_BAR_Y_ROW2,  f);
-    out->gpx  = status_icon_create_ex(parent, LV_SYMBOL_GPS,       LV_ALIGN_TOP_LEFT,  120, STATUS_BAR_Y_ROW2, f);
-    out->chg  = status_icon_create_ex(parent, LV_SYMBOL_CHARGE,    LV_ALIGN_TOP_LEFT,  200, STATUS_BAR_Y_ROW2, f);
-    out->batt = status_icon_create_ex(parent, LV_SYMBOL_BATTERY_EMPTY " --%", LV_ALIGN_TOP_RIGHT, -40, STATUS_BAR_Y_ROW2, f);
+    /* Row 1: 4-column grid, 90px pitch, per explicit feedback (BT was too
+     * tight against the left edge at the original x=40/pitch=80). LoRa's
+     * right edge at column 4 (325+28=353) stays clear of the x<=370
+     * safe-area limit (see STATUS_BAR_Y's comment). */
+    out->bt   = status_icon_create_ex(parent, LV_SYMBOL_BLUETOOTH, LV_ALIGN_TOP_LEFT,  55, STATUS_BAR_Y,       f);
+    out->wifi = status_icon_create_ex(parent, LV_SYMBOL_WIFI,      LV_ALIGN_TOP_LEFT,  145, STATUS_BAR_Y,      f);
+    out->gps  = status_image_create(parent, &status_icon_satellite, LV_ALIGN_TOP_LEFT, 235, STATUS_BAR_Y);
+    out->lora = status_image_create(parent, &status_icon_mesh,      LV_ALIGN_TOP_LEFT, 325, STATUS_BAR_Y);
+
+    /* Row 2: 5-column grid (SD, GPX, Alarm, CHG, Batt), widened per explicit
+     * feedback (SD/Batt allowed to sit close to the edges, like row 1's
+     * original BT/LoRa spacing) - 73px pitch, SD's left edge at x=45 and
+     * Batt's right edge at 337+28=365. Row 2 sits further from the top
+     * corners than row 1 (STATUS_BAR_Y_ROW2 > STATUS_BAR_Y), so the corner
+     * cutout demands less x-clearance here than row 1's measured x>=45 at
+     * y~30 (see STATUS_BAR_Y's comment) - verified clear of the mask via
+     * the sim's safe-area overlay. The middle column (Alarm) sits at
+     * x=191, whose icon center (191+14=205) lands exactly on the panel's
+     * own horizontal center (410/2). LVGL has no literal alarm-clock
+     * glyph; LV_SYMBOL_BELL is the closest built-in. */
+    out->sd    = status_icon_create_ex(parent, LV_SYMBOL_SD_CARD,   LV_ALIGN_TOP_LEFT, 45,  STATUS_BAR_Y_ROW2, f);
+    out->gpx   = status_icon_create_ex(parent, LV_SYMBOL_GPS,       LV_ALIGN_TOP_LEFT, 118, STATUS_BAR_Y_ROW2, f);
+    out->alarm = status_icon_create_ex(parent, LV_SYMBOL_BELL,      LV_ALIGN_TOP_LEFT, 191, STATUS_BAR_Y_ROW2, f);
+    out->chg   = status_icon_create_ex(parent, LV_SYMBOL_CHARGE,    LV_ALIGN_TOP_LEFT, 264, STATUS_BAR_Y_ROW2, f);
+    out->batt  = status_icon_create_ex(parent, LV_SYMBOL_BATTERY_EMPTY, LV_ALIGN_TOP_LEFT, 337, STATUS_BAR_Y_ROW2, f);
 }
 
 void update_status_bar(const status_bar_t *bar)
@@ -152,20 +164,29 @@ void update_status_bar(const status_bar_t *bar)
 
     lv_obj_set_style_text_color(bar->bt, ble_debug_is_connected() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
 
-    /* WiFi has no subsystem behind it at all (see docs/application.md
-     * scoping decision) - permanently off/grey. */
-    lv_obj_set_style_text_color(bar->wifi, STATUS_COLOR_GREY, 0);
+    /* Reflects the WiFi screen's power switch (wifi_scan_set_enabled(),
+     * default off - see wifi_scan.h). Green once switched on and at least
+     * one network has been seen, orange while switched on but still
+     * scanning/no networks found yet, grey while off - same
+     * grey/orange/green convention as GPS's fix-state icon above. */
+    wifi_scan_result_t wifi_probe[1];
+    bool wifi_on = wifi_scan_get_enabled();
+    bool wifi_has_results = wifi_on && wifi_scan_get_results(wifi_probe, 1) > 0;
+    lv_obj_set_style_text_color(bar->wifi,
+        wifi_has_results ? STATUS_COLOR_GREEN :
+        wifi_on ? STATUS_COLOR_ORANGE : STATUS_COLOR_GREY, 0);
 
     sensor_cache_t cache;
     sensor_cache_get(&cache);
     if (cache.valid) {
+        /* Icon only, no numeric percentage - per explicit feedback, the
+         * number is moving elsewhere. The fill-level glyph alone still
+         * conveys a rough state at a glance. */
         const char *icon = cache.batt_pct > 87 ? LV_SYMBOL_BATTERY_FULL :
                             cache.batt_pct > 62 ? LV_SYMBOL_BATTERY_3 :
                             cache.batt_pct > 37 ? LV_SYMBOL_BATTERY_2 :
                             cache.batt_pct > 12 ? LV_SYMBOL_BATTERY_1 : LV_SYMBOL_BATTERY_EMPTY;
-        char buf[16];
-        snprintf(buf, sizeof(buf), "%s %u%%", icon, cache.batt_pct);
-        lv_label_set_text(bar->batt, buf);
+        lv_label_set_text(bar->batt, icon);
         lv_obj_set_style_text_color(bar->batt, cache.batt_pct <= 15 ? STATUS_COLOR_RED : lv_color_hex(0xE0E0E0), 0);
 
         /* Always visible, colored like every other status icon here (grey
@@ -176,6 +197,14 @@ void update_status_bar(const status_bar_t *bar)
         bool charging = (cache.chg_state != AXP2101_CHG_STOP);
         lv_obj_set_style_text_color(bar->chg, charging ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
     }
+
+    /* Alarm: red while snoozing (most notable - it's about to ring again),
+     * green while at least one alarm is armed (whether or not it's the one
+     * currently snoozing, that case is already covered by red), grey when
+     * none are set at all. Checked in that order since snoozing implies
+     * armed. */
+    lv_obj_set_style_text_color(bar->alarm, alarm_is_snoozing() ? STATUS_COLOR_RED :
+                                (alarm_is_armed() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY), 0);
 }
 
 void status_bar_set_hidden(const status_bar_t *bar, bool hidden)
@@ -184,7 +213,7 @@ void status_bar_set_hidden(const status_bar_t *bar, bool hidden)
         return;
     }
     lv_obj_t *icons[] = { bar->sd, bar->gps, bar->gpx, bar->lora,
-                           bar->bt, bar->wifi, bar->batt, bar->chg };
+                           bar->bt, bar->wifi, bar->batt, bar->chg, bar->alarm };
     for (size_t i = 0; i < sizeof(icons) / sizeof(icons[0]); i++) {
         if (hidden) {
             lv_obj_add_flag(icons[i], LV_OBJ_FLAG_HIDDEN);

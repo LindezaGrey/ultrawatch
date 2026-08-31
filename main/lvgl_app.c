@@ -193,7 +193,49 @@ static esp_err_t night_mode_draw_bitmap(lv_display_t *disp, esp_lcd_panel_handle
             buf[i * 2 + 1]  = 0x00;   /* drop green/blue */
         }
     }
-    return esp_lcd_panel_draw_bitmap(panel, x_start, y_start, x_end, y_end, color_map);
+    /* A burst of full-screen redraws (multiple 48-row DMA bands queued in
+     * quick succession) can transiently exhaust the ~113 KB internal
+     * DMA-capable RAM pool the draw buffers live in (see
+     * esp_lv_adapter_display_config_t's buffer_height comment at the
+     * registration site) - esp_lcd_panel_draw_bitmap() then fails with
+     * ESP_ERR_NO_MEM for that one band. Previously this error was just
+     * passed straight back up with nothing retrying it: LVGL still marks
+     * the frame flushed and moves on, leaving that band's GRAM content
+     * whatever it was before (commonly white/garbage on a fresh boot or a
+     * just-woken panel) - a real live report of a "white screen that
+     * recovered by itself" on the next real redraw is consistent with
+     * exactly this. A short retry loop gives the DMA pool a moment to
+     * free up (earlier bands in the same flush cycle complete and release
+     * their buffers) rather than silently dropping the band. */
+    esp_err_t err = ESP_FAIL;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        err = esp_lcd_panel_draw_bitmap(panel, x_start, y_start, x_end, y_end, color_map);
+        if (err == ESP_OK) {
+            break;
+        }
+        ESP_LOGW(TAG, "draw_bitmap attempt %d failed: %s", attempt + 1, esp_err_to_name(err));
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    return err;
+}
+
+/* Full-screen redraw (e.g. after waking from sleep, when co5300_blank() left
+ * the GRAM black and the adapter's SPI path does not auto-refresh on
+ * resume). Audited live alongside the DMA-retry fix in
+ * night_mode_draw_bitmap() above (a real report of a "white screen that
+ * recovered by itself"): every full-screen invalidate in this file funnels
+ * through this one function now (night_mode_changed() below used to
+ * duplicate the same three lines instead of calling it) - its callers
+ * (pm_apply_night_mode() via night_mode_changed(), and power_mgmt.c's
+ * wake-from-sleep/debug_cmds.c's redraw command directly) are all
+ * edge-triggered/one-shot, not fired repeatedly in a burst, so no separate
+ * throttling was needed here beyond the retry already in the draw callback. */
+void lvgl_force_redraw(void)
+{
+    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+        lv_obj_invalidate(lv_screen_active());
+        esp_lv_adapter_unlock();
+    }
 }
 
 /* On a night-mode change, invalidate the whole screen so every pixel is
@@ -202,20 +244,7 @@ static esp_err_t night_mode_draw_bitmap(lv_display_t *disp, esp_lcd_panel_handle
 static void night_mode_changed(bool night)
 {
     (void)night;
-    if (esp_lv_adapter_lock(-1) == ESP_OK) {
-        lv_obj_invalidate(lv_screen_active());
-        esp_lv_adapter_unlock();
-    }
-}
-
-/* Full-screen redraw (e.g. after waking from sleep, when co5300_blank() left
- * the GRAM black and the adapter's SPI path does not auto-refresh on resume). */
-void lvgl_force_redraw(void)
-{
-    if (esp_lv_adapter_lock(-1) == ESP_OK) {
-        lv_obj_invalidate(lv_screen_active());
-        esp_lv_adapter_unlock();
-    }
+    lvgl_force_redraw();
 }
 
 static void lvgl_build_boot_screen(void)
@@ -842,6 +871,7 @@ static const nav_ring_entry_t s_nav_ring[] = {
     { &s_watch_screen,    NULL },
     { &s_gps_screen,      lvgl_build_gps_screen },
     { &s_mesh_screen,     lvgl_build_mesh_screen },
+    { &s_wifi_screen,     lvgl_build_wifi_screen },
     { &s_alarm_screen,    lvgl_build_alarm_screen },
 };
 #define NAV_RING_COUNT (sizeof(s_nav_ring) / sizeof(s_nav_ring[0]))
@@ -975,7 +1005,8 @@ static void menu_timeout_cb(lv_timer_t *timer)
     if (cur == s_gps_screen || cur == s_alarm_screen || cur == s_ring_screen ||
         cur == s_alarm_edit_screen || cur == s_timer_screen || cur == s_node_screen ||
         cur == s_settings_screen || cur == s_set_tz_screen || cur == s_set_disp_screen ||
-        cur == s_set_periph_screen || cur == s_set_sound_screen || cur == s_set_info_screen) {
+        cur == s_set_periph_screen || cur == s_set_sound_screen || cur == s_set_info_screen ||
+        cur == s_set_vib_screen) {
         return;
     }
     if (cur == s_watch_screen) {
@@ -1096,15 +1127,22 @@ esp_err_t lvgl_app_start(void)
 
     /* Draw buffers in internal DMA-capable RAM: PSRAM buffers would need a
      * temp internal-DMA copy per band flush, and rapid redraws exhaust the
-     * ~113 KB internal DMA pool (ESP_ERR_NO_MEM -> corrupted screen). A single
-     * 48-row band (38 KB) fits internal RAM and DMA reads it directly. */
+     * ~113 KB internal DMA pool (ESP_ERR_NO_MEM -> corrupted screen, now
+     * also retried a few times in night_mode_draw_bitmap() rather than
+     * just dropped - see that function). Shrunk from 48 rows (38 KB/band)
+     * to 32 rows (~26 KB/band) after a live "white screen, recovered by
+     * itself" report - smaller bands mean more of them in flight can fit
+     * in the 113 KB pool at once, giving real headroom instead of relying
+     * on the retry alone to paper over exhaustion. More DMA transactions
+     * per full-screen redraw as a result, but each is smaller; not
+     * expected to be visible for UI-scale content on this panel. */
     esp_lv_adapter_display_config_t display_cfg = ESP_LV_ADAPTER_DISPLAY_SPI_WITHOUT_PSRAM_DEFAULT_CONFIG(
         co5300_get_panel(),
         co5300_get_panel_io(),
         CO5300_RES_X,
         CO5300_RES_Y,
         ESP_LV_ADAPTER_ROTATE_0);   /* rotation not supported for QSPI */
-    display_cfg.profile.buffer_height = 48;   /* partial bands; full frame exceeds SPI DMA max */
+    display_cfg.profile.buffer_height = 32;   /* partial bands; full frame exceeds SPI DMA max */
 
     lv_display_t *disp = esp_lv_adapter_register_display(&display_cfg);
     if (!disp) {

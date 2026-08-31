@@ -1,14 +1,14 @@
 /*
- * status_icons.h - two small hand-drawn placeholder glyphs for the status
- * bar's RF row (see status_bar.c): a satellite icon for GNSS and a 3-node
- * mesh-network icon for LoRa/Meshtastic. Plain LVGL image data, no ESP-IDF
- * dependency, so this compiles unchanged in both the firmware and the sim.
+ * status_icons.h - two small glyphs for the status bar's RF row (see
+ * status_bar.c): a satellite icon for GNSS and a mesh-network node icon
+ * for LoRa/Meshtastic. Plain LVGL image data, no ESP-IDF dependency, so
+ * this compiles unchanged in both the firmware and the sim.
  *
- * These are NOT the real Meshtastic logo - deliberately generic placeholder
- * art (per explicit request) to sidestep the licensing question a real
- * trademarked logo would raise. Swap in real assets later by replacing the
- * two lv_image_dsc_t below; every call site just references these symbols
- * by name.
+ * Generated (see status_icons.c) from user-provided source art -
+ * assets/ui/satellite.png and assets/ui/network.png, both transparent-
+ * background black line icons, not the official Meshtastic logo. Swap in
+ * different source art later by re-running the same conversion against a
+ * new PNG; every call site just references these symbols by name.
  */
 #pragma once
 

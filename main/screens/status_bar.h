@@ -23,6 +23,7 @@ typedef struct {
     lv_obj_t *wifi;
     lv_obj_t *batt;
     lv_obj_t *chg;
+    lv_obj_t *alarm;
 } status_bar_t;
 
 /* Builds one status bar instance into `parent` (a screen about to be shown

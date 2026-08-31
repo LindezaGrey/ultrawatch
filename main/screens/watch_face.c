@@ -31,14 +31,12 @@
 #include "alarm.h"
 #include "cd_timer.h"
 
-static const lv_font_t *s_font_time = &cascadia_72;   /* HH:MM:SS */
-static const lv_font_t *s_font_sec  = &cascadia_36;   /* UTC time */
-static const lv_font_t *s_font_small = &cascadia_22;  /* body text */
+static const lv_font_t *s_font_time = &cascadia_88;   /* HH:MM:SS - the hero element */
+static const lv_font_t *s_font_sec  = &cascadia_36;   /* UTC time / steps / date */
 
 lv_obj_t *s_watch_screen;
 
 static status_bar_t s_status_bar;
-static lv_obj_t *s_tz_label;
 static lv_obj_t *s_time_label;
 static lv_obj_t *s_sec_label;
 static lv_obj_t *s_date_label;
@@ -70,11 +68,6 @@ void watch_face_update(lv_timer_t *timer)
     localtime_r(&epoch, &lt);
 
     char buf[32];
-    if (s_tz_label) {
-        char tz[8] = { 0 };
-        strftime(tz, sizeof(tz), "%Z", &lt);
-        lv_label_set_text(s_tz_label, tz);
-    }
 
     bool sparmodus = power_mgmt_get_sparmodus_active();
 
@@ -87,7 +80,6 @@ void watch_face_update(lv_timer_t *timer)
     if (sparmodus) {
         snprintf(buf, sizeof(buf), "%02d:%02d", lt.tm_hour, lt.tm_min);
         lv_label_set_text(s_time_label, buf);
-        if (s_tz_label) { lv_obj_add_flag(s_tz_label, LV_OBJ_FLAG_HIDDEN); }
         if (s_sec_label) { lv_obj_add_flag(s_sec_label, LV_OBJ_FLAG_HIDDEN); }
         if (s_date_label) { lv_obj_add_flag(s_date_label, LV_OBJ_FLAG_HIDDEN); }
         if (s_steps_label) { lv_obj_add_flag(s_steps_label, LV_OBJ_FLAG_HIDDEN); }
@@ -97,7 +89,6 @@ void watch_face_update(lv_timer_t *timer)
         return;
     }
 
-    if (s_tz_label) { lv_obj_clear_flag(s_tz_label, LV_OBJ_FLAG_HIDDEN); }
     if (s_sec_label) { lv_obj_clear_flag(s_sec_label, LV_OBJ_FLAG_HIDDEN); }
     if (s_date_label) { lv_obj_clear_flag(s_date_label, LV_OBJ_FLAG_HIDDEN); }
     status_bar_set_hidden(&s_status_bar, false);
@@ -109,11 +100,12 @@ void watch_face_update(lv_timer_t *timer)
     snprintf(buf, sizeof(buf), "UTC %02d:%02d", t.hour, t.min);
     lv_label_set_text(s_sec_label, buf);
 
+    /* Weekday + DD.MM.YY, per explicit feedback (a correction of an
+     * earlier "DD:MM:YY, no weekday" request - was weekday + "31 AUG
+     * 2026" before that). */
     static const char *wday[] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
-    static const char *mon[] = { "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-                                 "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
-    snprintf(buf, sizeof(buf), "%s  %02d %s %d",
-             wday[lt.tm_wday], lt.tm_mday, mon[lt.tm_mon], lt.tm_year + 1900);
+    snprintf(buf, sizeof(buf), "%s %02d.%02d.%02d",
+             wday[lt.tm_wday], lt.tm_mday, lt.tm_mon + 1, (lt.tm_year + 1900) % 100);
     lv_label_set_text(s_date_label, buf);
 
     /* Step count from the BHI260AP (cached in the driver, no I2C here). */
@@ -155,11 +147,13 @@ void lvgl_build_watch_face(void)
 
     build_status_bar_big(s_watch_screen, &s_status_bar);
 
+    /* Date (weekday DD.MM.YY) - above the time, swapped with UTC per explicit
+     * feedback. */
     s_date_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_date_label, "");
     lv_obj_set_style_text_font(s_date_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_date_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_date_label, LV_ALIGN_TOP_MID, 0, 420);
+    lv_obj_align(s_date_label, LV_ALIGN_TOP_MID, 0, 145);
 
     /* Tracking indicator: solid red dot, visible only while a tracking
      * session is active. The satellite fix icon used to sit here too, but
@@ -183,38 +177,34 @@ void lvgl_build_watch_face(void)
     lv_obj_align(s_snooze_icon, LV_ALIGN_TOP_LEFT, 70, 40);
     lv_obj_add_flag(s_snooze_icon, LV_OBJ_FLAG_HIDDEN);
 
-    /* Timezone abbreviation (e.g. "CEST"/"CET") above the local time - the
-     * process TZ is already set at boot (main/uwatch_main.c) and
-     * watch_face_update() already computes localtime_r() for the primary
-     * display, so strftime("%Z", ...) gives this for free, no new TZ
-     * plumbing needed. Positioned with a clear gap above the big time font
-     * below it (cascadia_72's glyphs reach well above s_time_label's own
-     * y) - this used to overlap before the gap was widened. */
-    s_tz_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_tz_label, "");
-    lv_obj_set_style_text_font(s_tz_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_tz_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_tz_label, LV_ALIGN_TOP_MID, 0, 140);
+    /* UTC time - directly below the time (swapped with Steps per explicit
+     * feedback). Date sits above the time (see the date_label comment
+     * above, itself swapped with UTC's original position); Steps now sits
+     * lowest, closest to the bottom edge. */
+    s_sec_label = lv_label_create(lv_screen_active());
+    lv_label_set_text(s_sec_label, "UTC --:--");
+    lv_obj_set_style_text_font(s_sec_label, s_font_sec, 0);
+    lv_obj_set_style_text_color(s_sec_label, lv_color_hex(0x80D8FF), 0);
+    lv_obj_align(s_sec_label, LV_ALIGN_TOP_MID, 0, 305);
 
     s_time_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_time_label, "--:--:--");
     lv_obj_set_style_text_font(s_time_label, s_font_time, 0);
     lv_obj_set_style_text_color(s_time_label, lv_color_hex(0xFFFFFF), 0);
-    /* Tighten the monospace cells so the full-width colons don't sprawl. */
+    /* Tighten the monospace cells so the full-width colons don't sprawl -
+     * cascadia_100 is wide enough at -6 already to nearly span the panel
+     * width (410px) with "HH:MM:SS", per explicit feedback. */
     lv_obj_set_style_text_letter_space(s_time_label, -6, 0);
-    lv_obj_align(s_time_label, LV_ALIGN_TOP_MID, 0, 175);
+    lv_obj_align(s_time_label, LV_ALIGN_CENTER, 0, 0);
 
-    s_sec_label = lv_label_create(lv_screen_active());
-    lv_label_set_text(s_sec_label, "UTC --:--");
-    lv_obj_set_style_text_font(s_sec_label, s_font_sec, 0);
-    lv_obj_set_style_text_color(s_sec_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_sec_label, LV_ALIGN_TOP_MID, 0, 275);
-
+    /* Promoted from s_font_small to s_font_sec (cascadia_22 -> 36) per
+     * explicit feedback that it read too small - matches the UTC/date
+     * rows' size now instead of being the odd one out. */
     s_steps_label = lv_label_create(lv_screen_active());
     lv_label_set_text(s_steps_label, "Steps: --");
-    lv_obj_set_style_text_font(s_steps_label, s_font_small, 0);
+    lv_obj_set_style_text_font(s_steps_label, s_font_sec, 0);
     lv_obj_set_style_text_color(s_steps_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_steps_label, LV_ALIGN_TOP_MID, 0, 325);
+    lv_obj_align(s_steps_label, LV_ALIGN_TOP_MID, 0, 420);
 
     watch_face_update(NULL);
     lv_timer_create(watch_face_update, 1000, NULL);
