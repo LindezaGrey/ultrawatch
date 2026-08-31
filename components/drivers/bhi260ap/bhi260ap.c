@@ -328,6 +328,31 @@ static void parse_activity(const struct bhy2_fifo_parse_data_info *callback_info
         new_activity = BHI260AP_ACTIVITY_IN_VEHICLE;
     } else if (activity & BHY2_TILTING_ACTIVITY_STARTED) {
         new_activity = BHI260AP_ACTIVITY_TILTING;
+    } else {
+        /* No STARTED bit in this event - per the datasheet, the chip can
+         * also report an ENDED-only event (low-confidence transitional
+         * motion between classes, nothing new confidently recognized yet).
+         * Without this check the code below would keep crediting duration
+         * to s_activity's class forever, even though it has actually
+         * ended - fall back to UNKNOWN instead, but only if the ENDED bit
+         * actually names the class that's currently active (an ENDED bit
+         * for some other, already-inactive class is not a real transition
+         * and should be ignored, same as an event with no relevant bits
+         * at all - new_activity stays s_activity, a no-op). */
+        static const struct { bhi260ap_activity_t cls; uint16_t ended_bit; } ended_map[] = {
+            { BHI260AP_ACTIVITY_STILL,      BHY2_STILL_ACTIVITY_ENDED },
+            { BHI260AP_ACTIVITY_WALKING,    BHY2_WALKING_ACTIVITY_ENDED },
+            { BHI260AP_ACTIVITY_RUNNING,    BHY2_RUNNING_ACTIVITY_ENDED },
+            { BHI260AP_ACTIVITY_ON_BICYCLE, BHY2_ON_BICYCLE_ACTIVITY_ENDED },
+            { BHI260AP_ACTIVITY_IN_VEHICLE, BHY2_IN_VEHICLE_ACTIVITY_ENDED },
+            { BHI260AP_ACTIVITY_TILTING,    BHY2_TILTING_ACTIVITY_ENDED },
+        };
+        for (size_t i = 0; i < sizeof(ended_map) / sizeof(ended_map[0]); i++) {
+            if (ended_map[i].cls == s_activity && (activity & ended_map[i].ended_bit)) {
+                new_activity = BHI260AP_ACTIVITY_UNKNOWN;
+                break;
+            }
+        }
     }
 
     /* Blocking take (not a 0-timeout try): if this silently failed to take
