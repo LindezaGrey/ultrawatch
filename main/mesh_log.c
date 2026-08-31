@@ -9,7 +9,7 @@
 #include "lvgl_app.h"
 #include "twatch_board.h"
 #include "axp2101.h"
-#include "drv2605.h"
+#include "haptic.h"
 #include "sd_log.h"
 #include "sensor_cache.h"
 #include "pcf85063a.h"
@@ -314,7 +314,14 @@ static void mesh_log_task(void *arg)
              * visibility but don't interrupt - only a real message does. */
             lvgl_mesh_screen_show();
             if (s_notify_enabled) {
-                drv2605_play(twatch_haptic_dev, 47);   /* strong click, same as alarm.c */
+                /* Unlike alarm.c's ring loop (which enables HAPTIC_EN once
+                 * for the whole ring cycle), a single notification tap has
+                 * to gate the rail itself - haptic_play_test() does exactly
+                 * this self-contained enable/play/disable sequence, despite
+                 * its name (there's nothing test-specific about it besides
+                 * ignoring the persisted pattern, which this call doesn't
+                 * need to either - haptic_get_wave_id() supplies it). */
+                haptic_play_test(haptic_get_wave_id());
             }
         } else if (m.kind == MESH_MSG_OTHER) {
             ESP_LOGI(TAG, "packet from !%08lx ch=0x%02x rssi=%ddBm snr=%ddB: %s",

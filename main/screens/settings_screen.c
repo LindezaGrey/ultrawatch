@@ -21,8 +21,10 @@
 #include "ble_debug.h"
 #include "alarm.h"
 #include "mesh_log.h"
+#include "haptic.h"
 #include "sensor_cache.h"
 #include "sd_log.h"
+#include "portable_log.h"
 
 static const lv_font_t *s_font_small = &cascadia_22;  /* body text */
 static const lv_font_t *s_font_sec   = &cascadia_36;  /* titles/prominent labels - high-DPI sizing */
@@ -45,6 +47,10 @@ lv_obj_t *s_set_sound_screen;
 static lv_obj_t *s_set_sound_alarm_switch;
 static lv_obj_t *s_set_sound_notify_switch;
 
+lv_obj_t *s_set_vib_screen;
+static lv_obj_t *s_vib_row[HAPTIC_PATTERN_COUNT];
+static lv_obj_t *s_vib_row_label[HAPTIC_PATTERN_COUNT];
+
 lv_obj_t *s_set_info_screen;
 static lv_obj_t *s_set_info_batt_label;
 static lv_obj_t *s_set_info_sd_label;
@@ -60,6 +66,11 @@ static void settings_periph_refresh(lv_timer_t *timer);
 static void lvgl_build_settings_periph_screen(void);
 static void settings_sound_refresh(void);
 static void lvgl_build_settings_sound_screen(void);
+static void settings_vib_refresh(void);
+static void lvgl_build_settings_vib_screen(void);
+static void settings_vib_row_open_cb(lv_event_t *e);
+static void settings_vib_pattern_click_cb(lv_event_t *e);
+static void settings_vib_back_cb(lv_event_t *e);
 static void settings_info_refresh(lv_timer_t *timer);
 static void lvgl_build_settings_info_screen(void);
 static void settings_sparmodus_refresh(void);
@@ -414,7 +425,9 @@ void lvgl_show_settings_disp(void)
 static void settings_gps_switch_cb(lv_event_t *e)
 {
     (void)e;
-    lvgl_gps_set_enabled(lv_obj_has_state(s_set_periph_gps_switch, LV_STATE_CHECKED));
+    bool on = lv_obj_has_state(s_set_periph_gps_switch, LV_STATE_CHECKED);
+    ESP_LOGI("settings_screen", "settings_gps_switch_cb: on=%d", (int)on);
+    lvgl_gps_set_enabled(on);
 }
 
 static void settings_bt_switch_cb(lv_event_t *e)
@@ -640,7 +653,133 @@ static void lvgl_build_settings_sound_screen(void)
     lv_obj_align(s_set_sound_notify_switch, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_add_event_cb(s_set_sound_notify_switch, settings_notify_switch_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
+    /* Third row navigates to a nested sub-page (like a category row does
+     * from the top-level list) rather than holding its own control here -
+     * a list of HAPTIC_PATTERN_COUNT presets needs more room than this
+     * screen's remaining space allows. */
+    lv_obj_t *vib_row = lv_obj_create(s_set_sound_screen);
+    lv_obj_set_size(vib_row, 386, 76);
+    lv_obj_align(vib_row, LV_ALIGN_TOP_MID, 0, 372);
+    lv_obj_clear_flag(vib_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(vib_row, lv_color_hex(0x202020), 0);
+    lv_obj_set_style_border_width(vib_row, 0, 0);
+    lv_obj_set_style_radius(vib_row, 10, 0);
+    lv_obj_set_style_pad_all(vib_row, 16, 0);
+    lv_obj_t *vib_lbl = lv_label_create(vib_row);
+    lv_label_set_text(vib_lbl, "Vibration pattern >");
+    lv_obj_set_style_text_font(vib_lbl, s_font_small, 0);
+    lv_obj_set_style_text_color(vib_lbl, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(vib_lbl, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_add_event_cb(vib_row, settings_vib_row_open_cb, LV_EVENT_CLICKED, NULL);
+
     settings_sound_refresh();
+}
+
+/* Not static: sim/nav.c's UWATCH_SIM_SCREEN dev shortcut calls this
+ * directly too, same reason settings_open_subpage() is exported. */
+void settings_open_vib_screen(void)
+{
+    if (!s_set_vib_screen) { lvgl_build_settings_vib_screen(); }
+    lv_scr_load(s_set_vib_screen);
+    settings_vib_refresh();
+}
+
+static void settings_vib_row_open_cb(lv_event_t *e)
+{
+    (void)e;
+    settings_open_vib_screen();
+}
+
+static void settings_vib_back_cb(lv_event_t *e)
+{
+    (void)e;
+    lv_scr_load(s_set_sound_screen);
+}
+
+/* Tapping a pattern both selects it (persisted) and fires it immediately -
+ * the tap itself is the "Test" action, no separate button needed: you feel
+ * the difference the instant you pick it. */
+static void settings_vib_pattern_click_cb(lv_event_t *e)
+{
+    size_t idx = (size_t)(intptr_t)lv_event_get_user_data(e);
+    haptic_set_pattern_index(idx);
+    /* haptic_play_test() does ~420ms of vTaskDelay() around the real I2C
+     * play - calling it directly here would block the whole UI for that
+     * long, since this callback runs on the LVGL task while
+     * esp_lv_adapter_lock() is held (every other screen's timers/redraws/
+     * touch input stall too, not just this one). Fire it on a short-lived
+     * task instead - haptic_play_test() is already self-contained
+     * (enable/play/disable), nothing here needs to wait for it to finish. */
+    haptic_play_test_async(HAPTIC_PATTERNS[idx].wave_id);
+    settings_vib_refresh();
+}
+
+static void settings_vib_refresh(void)
+{
+    if (!s_vib_row[0]) {
+        return;
+    }
+    size_t sel = haptic_get_pattern_index();
+    for (size_t i = 0; i < HAPTIC_PATTERN_COUNT; i++) {
+        lv_obj_set_style_bg_color(s_vib_row[i],
+            (i == sel) ? lv_color_hex(0x2E4A2E) : lv_color_hex(0x202020), 0);
+        lv_obj_set_style_text_color(s_vib_row_label[i],
+            (i == sel) ? lv_color_hex(0x80FF80) : lv_color_hex(0xE0E0E0), 0);
+    }
+}
+
+static void lvgl_build_settings_vib_screen(void)
+{
+    s_set_vib_screen = screen_new();
+    lv_obj_set_style_bg_color(s_set_vib_screen, lv_color_hex(0x000000), 0);
+    /* Swipe-back returns to the Sound screen, not the category list - a
+     * nested sub-page, same one-level-up convention as Mesh's Node
+     * overview swiping back to Mesh rather than the watch face. */
+    lv_obj_add_event_cb(s_set_vib_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_vib_back_cb);
+    lv_obj_add_event_cb(s_set_vib_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_vib_back_cb);
+
+    lv_obj_t *back = lv_button_create(s_set_vib_screen);
+    lv_obj_set_size(back, 92, 46);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 34, 36);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, "< Back");
+    lv_obj_set_style_text_font(bl, s_font_small, 0);
+    lv_obj_center(bl);
+    lv_obj_add_event_cb(back, settings_vib_back_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *title = lv_label_create(s_set_vib_screen);
+    lv_label_set_text(title, "VIBRATION PATTERN");
+    lv_obj_set_style_text_font(title, s_font_sec, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
+
+    lv_obj_t *list_cont = lv_obj_create(s_set_vib_screen);
+    lv_obj_set_size(list_cont, 386, 320);
+    lv_obj_align(list_cont, LV_ALIGN_TOP_MID, 0, 160);
+    lv_obj_set_flex_flow(list_cont, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list_cont, 8, 0);
+    lv_obj_set_style_bg_opa(list_cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(list_cont, 0, 0);
+    lv_obj_set_style_pad_all(list_cont, 0, 0);
+
+    for (size_t i = 0; i < HAPTIC_PATTERN_COUNT; i++) {
+        lv_obj_t *row = lv_obj_create(list_cont);
+        lv_obj_set_size(row, LV_PCT(100), 52);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_set_style_radius(row, 10, 0);
+        lv_obj_set_style_pad_all(row, 14, 0);
+        lv_obj_add_event_cb(row, settings_vib_pattern_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        s_vib_row[i] = row;
+
+        lv_obj_t *l = lv_label_create(row);
+        lv_label_set_text(l, HAPTIC_PATTERNS[i].name);
+        lv_obj_set_style_text_font(l, s_font_small, 0);
+        lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
+        s_vib_row_label[i] = l;
+    }
+
+    settings_vib_refresh();
 }
 
 /* ---- Info ---- */

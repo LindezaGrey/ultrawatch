@@ -32,6 +32,7 @@
 #include "xl9555.h"
 #include "pcf85063a.h"
 #include "drv2605.h"
+#include "haptic.h"
 #include "max98357a.h"
 #include "esp_lv_adapter.h"
 #include "power_mgmt.h"
@@ -256,7 +257,7 @@ static void ring_set_outputs(bool on)
 
 static void ring_vibrate(void)
 {
-    drv2605_play(twatch_haptic_dev, 47);   /* strong click */
+    drv2605_play(twatch_haptic_dev, haptic_get_wave_id());
 }
 
 static void ring_task(void *arg)
