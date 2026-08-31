@@ -6,6 +6,7 @@
 #include "esp_netif.h"
 #include "esp_event.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -17,11 +18,19 @@ static const char *TAG = "wifi_scan";
 
 #define WIFI_NVS_NS "wifi"
 #define WIFI_RESCAN_INTERVAL_MS 8000
+/* Below this much free DMA-capable RAM, don't even attempt
+ * esp_wifi_init() - a failed init/start has been observed to leak ~60KB
+ * of it permanently for the rest of the boot session (the driver's own
+ * cleanup on that path is incomplete), so refusing up front is safer
+ * than trying and leaking. Same convention/threshold as ble_scan.c's
+ * BLE_SCAN_MIN_FREE_DMA_BYTES - see docs/application.md section 12. */
+#define WIFI_SCAN_MIN_FREE_DMA_BYTES (45 * 1024)
 
 static bool s_wifi_enabled;   /* target state, persisted, default off */
 static bool s_wifi_active;    /* actual state - only wifi_scan_task writes this */
 static volatile bool s_scanning;
 static bool s_netif_inited;   /* netif/event-loop scaffolding, set up once, never torn down */
+static bool s_low_mem;        /* last power-on attempt was refused for low memory */
 
 static SemaphoreHandle_t s_mux;
 static wifi_scan_result_t s_results[WIFI_SCAN_MAX_RESULTS];
@@ -51,8 +60,10 @@ static void wifi_ensure_netif(void)
 /* The actual radio power transition - esp_wifi_init()/deinit() is what
  * reserves/releases the driver's internal DMA-capable RAM (see wifi_scan.h's
  * header comment on why this only ever happens on an explicit user toggle,
- * never at boot). Only ever called from wifi_scan_task's own context. */
-static void wifi_power(bool on)
+ * never at boot). Only ever called from wifi_scan_task's own context.
+ * Returns whether the transition actually succeeded - the caller must not
+ * mark the radio active on a failed attempt (see wifi_scan_task()). */
+static bool wifi_power(bool on)
 {
     if (on) {
         wifi_ensure_netif();
@@ -60,14 +71,20 @@ static void wifi_power(bool on)
         esp_err_t err = esp_wifi_init(&cfg);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "esp_wifi_init: %s", esp_err_to_name(err));
-            return;
+            return false;
         }
         esp_wifi_set_mode(WIFI_MODE_STA);
         err = esp_wifi_start();
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "esp_wifi_start: %s", esp_err_to_name(err));
+            /* esp_wifi_init() already grabbed its buffers - deinit to at
+             * least attempt handing them back rather than leaking them for
+             * the rest of the boot session. */
+            esp_wifi_deinit();
+            return false;
         }
         ESP_LOGI(TAG, "WiFi radio on");
+        return true;
     } else {
         esp_wifi_stop();
         esp_wifi_deinit();
@@ -76,6 +93,7 @@ static void wifi_power(bool on)
             xSemaphoreGive(s_mux);
         }
         ESP_LOGI(TAG, "WiFi radio off");
+        return true;
     }
 }
 
@@ -122,8 +140,37 @@ static void wifi_scan_task(void *arg)
     (void)arg;
     for (;;) {
         if (s_wifi_enabled != s_wifi_active) {
-            wifi_power(s_wifi_enabled);
-            s_wifi_active = s_wifi_enabled;
+            if (!s_wifi_enabled) {
+                wifi_power(false);
+                s_wifi_active = false;
+            } else {
+                /* Preflight, same convention as ble_scan_task() - refuse
+                 * up front rather than risk the leak-on-failure path in
+                 * wifi_power() above. */
+                size_t free_dma = heap_caps_get_free_size(MALLOC_CAP_DMA);
+                if (free_dma < WIFI_SCAN_MIN_FREE_DMA_BYTES) {
+                    ESP_LOGW(TAG, "refusing to start: only %u bytes free DMA RAM (need %u)",
+                             (unsigned)free_dma, (unsigned)WIFI_SCAN_MIN_FREE_DMA_BYTES);
+                    s_low_mem = true;
+                    s_wifi_enabled = false;   /* bounce the switch back off */
+                    vTaskDelay(pdMS_TO_TICKS(200));
+                    continue;
+                }
+                s_low_mem = false;
+                if (wifi_power(true)) {
+                    s_wifi_active = true;
+                } else {
+                    /* Passed the preflight check but esp_wifi_init()/start()
+                     * still failed (a real bug this replaces: the old code
+                     * marked the radio "active" here regardless, so every
+                     * scan attempt failed forever with
+                     * ESP_ERR_WIFI_NOT_INIT and nothing ever retried the
+                     * power-on). Leave s_wifi_active false so this branch
+                     * is retried next loop instead. */
+                    vTaskDelay(pdMS_TO_TICKS(WIFI_RESCAN_INTERVAL_MS));
+                    continue;
+                }
+            }
         }
         if (s_wifi_active) {
             wifi_do_scan();
@@ -156,6 +203,11 @@ void wifi_scan_set_enabled(bool on)
 bool wifi_scan_is_scanning(void)
 {
     return s_scanning;
+}
+
+bool wifi_scan_low_mem(void)
+{
+    return s_low_mem;
 }
 
 size_t wifi_scan_get_results(wifi_scan_result_t *out, size_t max)

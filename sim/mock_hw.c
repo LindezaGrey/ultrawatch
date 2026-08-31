@@ -564,6 +564,7 @@ static bool s_wifi_enabled = false;
 bool wifi_scan_get_enabled(void) { return s_wifi_enabled; }
 void wifi_scan_set_enabled(bool on) { s_wifi_enabled = on; }
 bool wifi_scan_is_scanning(void) { return false; }
+bool wifi_scan_low_mem(void) { return false; }
 
 size_t wifi_scan_get_results(wifi_scan_result_t *out, size_t max)
 {

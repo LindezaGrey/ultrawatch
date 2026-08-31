@@ -47,6 +47,12 @@ void wifi_scan_set_enabled(bool on);
 /* True while a scan is actively in progress (for a "Scanning..." label). */
 bool wifi_scan_is_scanning(void);
 
+/* True if the last power-on attempt was refused for lack of free
+ * DMA-capable RAM (see WIFI_SCAN_MIN_FREE_DMA_BYTES in wifi_scan.c) - the
+ * switch is bounced back off in that case, same convention as
+ * ble_scan_low_mem(). For a "Not enough memory right now" label. */
+bool wifi_scan_low_mem(void);
+
 /* Copies up to `max` most-recently-seen networks (by RSSI, strongest
  * first) into `out`. Returns the number actually copied. Safe to call at
  * any time, including while disabled (returns 0 - the cache is cleared on

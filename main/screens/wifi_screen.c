@@ -58,9 +58,11 @@ void wifi_screen_update(lv_timer_t *timer)
     size_t n = wifi_scan_get_enabled() ? wifi_scan_get_results(results, WIFI_SCAN_MAX_RESULTS) : 0;
 
     if (n == 0) {
-        const char *msg = wifi_scan_get_enabled()
-            ? (wifi_scan_is_scanning() ? "Scanning..." : "No networks found")
-            : "WiFi off";
+        const char *msg = wifi_scan_low_mem()
+            ? "Not enough memory right now"
+            : wifi_scan_get_enabled()
+                ? (wifi_scan_is_scanning() ? "Scanning..." : "No networks found")
+                : "WiFi off";
         lv_label_set_text(s_wifi_empty_label, msg);
         lv_obj_clear_flag(s_wifi_empty_label, LV_OBJ_FLAG_HIDDEN);
     } else {
