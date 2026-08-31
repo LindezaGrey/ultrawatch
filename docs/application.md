@@ -106,7 +106,7 @@ bei Ein-/Ausblenden – stattdessen Graustufe für "inaktiv").
 | WLAN        | off           | Grau   | WLAN ausgeschaltet                          |
 | WLAN        | verbindet     | Orange | WLAN sucht/verbindet mit Netzwerk           |
 | WLAN        | verbunden     | Grün   | WLAN aktiv und verbunden                    |
-| Akkustand   | –             | –      | **Grafisches Batteriesymbol kombiniert mit Prozentzahl** (z. B. Icon mit Füllstand + kleine "73%"-Beschriftung daneben); Farbe ggf. nur bei kritischem Stand (Rot) für zusätzliche Aufmerksamkeit |
+| Akkustand   | –             | –      | **Nur grafisches Füllstand-Symbol**, keine Prozentzahl in der Statusleiste (per explizitem Feedback entfernt – die genaue Zahl bekommt einen anderen Platz auf dem Hauptscreen); Farbe rot bei kritischem Stand (≤15 %) |
 | Ladezustand | nicht ladend  | – (Icon ausgeblendet oder grau) | Kein Ladekabel angeschlossen |
 | Ladezustand | ladend        | Grün (z. B. Blitz-Symbol) | Ladekabel angeschlossen, Akku lädt |
 
@@ -141,10 +141,12 @@ bei Ein-/Ausblenden – stattdessen Graustufe für "inaktiv").
     Mesh-Symbol, daher wurde dafür eine kleine Bild-Asset-Pipeline eingeführt
     (`main/screens/status_icons.h/.c`, 28×28 A8-Alpha-Bitmaps, per
     `lv_obj_set_style_image_recolor()` genauso eingefärbt wie die übrigen
-    Text-Icons). **Beide Icons sind bewusst einfache, selbst gezeichnete
-    Platzhalter** (kein reales Meshtastic-Logo – Markenrechtsfrage bewusst
-    umgangen); ein echtes Logo kann später eingesetzt werden, indem nur die
-    beiden `lv_image_dsc_t` in `status_icons.c` ersetzt werden.
+    Text-Icons). Beide Icons stammen aus bereitgestellter Quellgrafik
+    (`assets/ui/satellite.png`, `assets/ui/network.png` – transparente
+    schwarze Strichzeichnungen, nicht das offizielle Meshtastic-Logo,
+    Markenrechtsfrage bewusst umgangen); ein anderes Logo kann später
+    eingesetzt werden, indem dieselbe Konvertierung auf eine neue PNG-Datei
+    angewendet wird.
 - Größe: klein genug, um nicht abzulenken, aber eindeutig erkennbar (Vorschlag:
   16×16 px bei aktueller Displayauflösung, anpassbar).
 - Icons ohne aktiven/relevanten Zustand können optional komplett ausgeblendet
@@ -363,6 +365,15 @@ per Tap eine eigene Unterseite mit den zugehörigen Optionen.
 4. **Ton & Vibration**
    - Alarme
    - Benachrichtigungen (z. B. neue LoRa-Nachricht)
+   - **Vibrationsmuster** (Unterseite "Vibration pattern"): eine global
+     geltende Auswahl aus 6 kuratierten DRV2605-Effekten (Strong Click,
+     Sharp Click, Double Click, Triple Click, Soft Bump, Buzz) - der
+     DRV2605-Chip bietet insgesamt 123 Effekte in seiner Waveform-Library,
+     die Auswahl beschränkt sich bewusst auf spürbar unterschiedliche
+     Muster. Antippen eines Eintrags wählt ihn aus (persistiert) und löst
+     ihn sofort als Vorschau aus. Gilt für Alarm-/Timer-Klingeln und
+     LoRa-Benachrichtigung gleichermaßen (ein Setting, kein separates pro
+     Kontext).
 5. **Ultra-Sparmodus**
    - Schwellwert (Prozent)
    - Verhalten beim Verlassen (automatische Reaktivierung der Peripherie ja/nein)
