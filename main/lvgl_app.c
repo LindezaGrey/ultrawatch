@@ -872,6 +872,7 @@ static const nav_ring_entry_t s_nav_ring[] = {
     { &s_gps_screen,      lvgl_build_gps_screen },
     { &s_mesh_screen,     lvgl_build_mesh_screen },
     { &s_wifi_screen,     lvgl_build_wifi_screen },
+    { &s_ble_screen,      lvgl_build_ble_screen },
     { &s_alarm_screen,    lvgl_build_alarm_screen },
 };
 #define NAV_RING_COUNT (sizeof(s_nav_ring) / sizeof(s_nav_ring[0]))
@@ -1228,7 +1229,13 @@ esp_err_t lvgl_app_start(void)
      * is on (default off); enabling it starts one long-lived power-on session
      * that survives sleep (see lvgl_gps_enabled()). */
     if (s_gps_ctrl_task == NULL) {
-        xTaskCreate(gps_ctrl_task, "gps_ctrl", 8192, NULL,
+        /* REVERTED to 8192: the 3072 cut (based on an idle-only high-water-mark
+     * measurement) overflowed live the first time this task's real GNSS
+     * power-on path (deep ubxlib call chains) actually ran - clean
+     * stack-canary panic + reboot, not silent corruption, but a real
+     * regression. Idle-snapshot stack sizing is not safe for tasks with
+     * deep, rarely-exercised branches - see docs/application.md section 12. */
+    xTaskCreate(gps_ctrl_task, "gps_ctrl", 8192, NULL,
                     ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, &s_gps_ctrl_task);
     }
     s_gps_enabled = gps_load_enabled();

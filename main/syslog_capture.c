@@ -106,19 +106,15 @@ static void syslog_flush(void)
     sd_log_session_end();
 }
 
-static void syslog_flush_task(void *arg)
+void syslog_capture_service(uint32_t timeout_ms)
 {
-    (void)arg;
-    for (;;) {
-        xSemaphoreTake(s_flush_wake, pdMS_TO_TICKS(SYSLOG_FLUSH_INTERVAL_MS));
-        syslog_flush();
-    }
+    xSemaphoreTake(s_flush_wake, pdMS_TO_TICKS(timeout_ms));
+    syslog_flush();
 }
 
 void syslog_capture_init(void)
 {
     s_mux = xSemaphoreCreateMutex();
     s_flush_wake = xSemaphoreCreateBinary();
-    xTaskCreate(syslog_flush_task, "syslog_flush", 3072, NULL, 2, NULL);
     s_prev_vprintf = esp_log_set_vprintf(syslog_vprintf);
 }

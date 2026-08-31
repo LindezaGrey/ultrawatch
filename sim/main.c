@@ -81,6 +81,8 @@ int main(void)
             sim_mesh_screen_build();
         } else if (strcmp(screen_name, "wifi") == 0) {
             sim_wifi_screen_build();
+        } else if (strcmp(screen_name, "ble") == 0) {
+            sim_ble_screen_build();
         } else if (strcmp(screen_name, "node") == 0) {
             sim_node_screen_build();
         } else if (strcmp(screen_name, "alarm") == 0) {

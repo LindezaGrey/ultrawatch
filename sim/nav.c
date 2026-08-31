@@ -82,6 +82,16 @@ void sim_wifi_screen_build(void)
     wifi_screen_update(NULL);
 }
 
+/* Bluetooth screen: now shared (main/screens/ble_screen.c). */
+void sim_ble_screen_build(void)
+{
+    if (!s_ble_screen) {
+        lvgl_build_ble_screen();
+    }
+    lv_scr_load(s_ble_screen);
+    ble_screen_update(NULL);
+}
+
 /* Public entry point for screenshot/dev-shortcut use (see main.c's
  * UWATCH_SIM_SCREEN env var) - the node overview is reached by an upward
  * fling from Mesh on real hardware, not a swipe this file's own
@@ -267,8 +277,8 @@ static void swipe_event_cb(lv_event_t *e)
     } else if (cur == s_alarm_screen) {
         if (!horiz && dy > 0) {  /* down -> clock */
             sim_show_watch_face();
-        } else if (horiz && dx < 0) {   /* left -> WiFi */
-            sim_wifi_screen_build();
+        } else if (horiz && dx < 0) {   /* left -> Bluetooth */
+            sim_ble_screen_build();
         }
     } else if (cur == s_bhi_screen) {
         if (horiz && dx > 0) {   /* right -> clock */
@@ -291,6 +301,12 @@ static void swipe_event_cb(lv_event_t *e)
     } else if (cur == s_wifi_screen) {
         if (horiz && dx < 0) {   /* left -> Mesh */
             sim_mesh_screen_build();
+        } else if (horiz && dx > 0) {   /* right -> Bluetooth */
+            sim_ble_screen_build();
+        }
+    } else if (cur == s_ble_screen) {
+        if (horiz && dx < 0) {   /* left -> WiFi */
+            sim_wifi_screen_build();
         } else if (horiz && dx > 0) {   /* right -> Alarm */
             sim_alarm_screen_build();
         }

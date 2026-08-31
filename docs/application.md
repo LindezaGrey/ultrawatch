@@ -550,14 +550,13 @@ Großteil davon bereits im Normalbetrieb - live gemessen (Debug-Kommando
   (`ble_debug_init()` in `uwatch_main.c` auskommentiert) - der
   BT-Controller reserviert DMA-Speicher, der mit dem Display-Buffer
   kollidiert.
-- Ein Versuch, einen reinen BLE-Scan-Screen (Bluetooth-Geräte auflisten,
-  ohne Verbindungsaufbau) hinzuzufügen, endete live auf echter Hardware
-  in einem reproduzierbaren Absturz: `BLE_INIT: Malloc failed` beim
-  Initialisieren des BT-Controllers, gefolgt von einem Watchdog-Panic
-  (Interrupt WDT Timeout, Core 0). Die Uhr hat sich danach selbstständig
-  über den Crash-Dump-Mechanismus neu gestartet - kein bleibender Schaden,
-  aber die Funktion wurde daraufhin verworfen/zurückgestellt (siehe
-  Git-Historie, Stash "BLE scan feature").
+- Ein erster Versuch, einen reinen BLE-Scan-Screen (Bluetooth-Geräte
+  auflisten, ohne Verbindungsaufbau) hinzuzufügen, endete live auf echter
+  Hardware in einem reproduzierbaren Absturz: `BLE_INIT: Malloc failed`
+  beim Initialisieren des BT-Controllers, gefolgt von einem
+  Watchdog-Panic (Interrupt WDT Timeout, Core 0). Die Uhr hat sich danach
+  selbstständig über den Crash-Dump-Mechanismus neu gestartet - kein
+  bleibender Schaden.
 - Ein Versuch, durch `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` (IDF-Default
   16 KB → 1 KB gesenkt) mehr kleine Allokationen (v. a. Task-Stacks) ins
   PSRAM zu verlagern und so mehr internen Speicher freizugeben, hat den
@@ -569,12 +568,60 @@ Großteil davon bereits im Normalbetrieb - live gemessen (Debug-Kommando
   Deinitialisierung hat ca. 62 KB internen Speicher dauerhaft für den
   Rest der Boot-Session leakt (kein Absturz, aber WLAN blieb bis zum
   nächsten Neustart komplett funktionsunfähig). Die Änderung wurde
-  deshalb wieder zurückgenommen (`git revert`).
+  deshalb wieder zurückgenommen (`git revert`); `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL`
+  bleibt auf dem IDF-Standardwert (16 KB).
 
-**Stand:** `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` bleibt auf dem
-IDF-Standardwert (16 KB). Der BLE-Scan-Screen existiert als
-zurückgestellter Code (`git stash`), ist nicht Teil der aktuellen
-Firmware. Eine sauberere Lösung (z. B. gezielt nur unkritische, garantiert
-nicht-DMA-nahe Allokationen ins PSRAM verlagern, oder den WLAN-Treiber
-selbst so patchen/konfigurieren, dass eine fehlgeschlagene Init sauber
-aufräumt statt zu leaken) ist nicht umgesetzt.
+**Sicher umgesetzte Gegenmaßnahmen** (jeweils live verifiziert, kein
+Regressionsrisiko):
+- `CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT` von 2 auf 1 gesenkt: LVGL braucht pro
+  Render-Worker einen eigenen 32 KB-Thread-Stack (durch FreeType/ThorVG
+  erzwungenes Minimum, siehe `esp_lvgl_adapter`-CMakeLists). Ein zweiter
+  Worker bringt hier keinen Nutzen (kein PPA aktiviert, einfache UI) -
+  die Halbierung sparte 32 KB internen Speicher komplett ohne
+  funktionalen Verlust (live gemessen: freier DMA-Speicher sprang um
+  denselben Betrag nach oben, sauberer Boot).
+- `CONFIG_BT_CTRL_BLE_MAX_ACT` von 6 auf 1 gesenkt: der reine
+  Scan-Screen (Observer-Rolle, keine Verbindungen) braucht nur eine
+  gleichzeitige BLE-"Activity", nicht sechs.
+- Zusammen mit einem Preflight-Check (`BLE_SCAN_MIN_FREE_DMA_BYTES` in
+  `ble_scan.c`, `heap_caps_get_free_size(MALLOC_CAP_DMA)` vor jedem
+  `nimble_port_init()`) konnte der BLE-Scan-Screen danach sicher
+  eingeführt werden: bei zu wenig freiem DMA-Speicher verweigert er sich
+  kontrolliert (UI-Meldung "Not enough memory right now") statt
+  abzustürzen. Ist Teil der aktuellen Firmware.
+- **Task-Konsolidierung** (`main/housekeeping.c`): `daily_log.c`,
+  `gpx_log.c` und `syslog_capture.c` liefen ursprünglich als drei
+  eigene, dauerhaft laufende FreeRTOS-Tasks mit identischer Form (kurz
+  aufwachen, wenig I/O, wieder schlafen) - zu drei separaten Task-Stacks
+  für wenig CPU-Bedarf. Zusammengelegt in einen gemeinsamen
+  `housekeeping`-Task (4096 Byte Stack) spart das zwei volle Task-Stacks
+  (~6 KB) direkt beim Task-Count statt bei der Größe eines einzelnen
+  Stacks - live verifiziert (kein Absturz, alle drei Subsysteme feuern
+  weiter nach Plan: Tageslog ~60s, GPX ~30s, Syslog-Flush ~10s).
+
+**Als unsicher erwiesen und zurückgenommen:** einzelne Task-Stack-Größen
+anhand einer Idle-Messung (`stacks`-Debug-Kommando) nach unten zu
+schätzen. `gps_ctrl_task`s Stack wurde probeweise von 8192 auf 3072 Byte
+gesenkt (Idle-Messung zeigte nur ~960 Byte Nutzung) - der reale, tiefe
+Aufruf-Pfad beim tatsächlichen GNSS-Einschalten (ubxlib
+`uDeviceOpen()`/`uGnssPwrOn()`/`mga_ini_seed()`) blieb dabei
+unberücksichtigt und führte beim ersten echten Einschalten zu einem
+Stack-Overflow-Absturz (`***ERROR*** A stack overflow in task gps_ctrl
+has been detected.`) - und weil der GNSS-Zustand in NVS persistiert und
+beim Boot automatisch wiederhergestellt wird, zu einer Boot-Crash-Loop.
+Alle sieben in derselben Runde probeweise gesenkten Task-Stacks (u. a.
+`gps_ctrl`, `mesh_log`, `pm_wake`, `alarm_ring`, `rtccal`) wurden
+vollständig auf ihre ursprünglichen Werte zurückgesetzt. **Lehre:** eine
+Idle-Momentaufnahme ist für Tasks mit tiefen, selten ausgeführten
+Zweigen keine verlässliche Grundlage für eine Stack-Größe - Speicher
+lieber über Task-Anzahl (Konsolidierung) statt über Einzelstack-Größe
+zurückgewinnen, und wenn doch an einer Einzelgröße gedreht wird, den
+echten Worst-Case-Pfad vorher auslösen und großzügig Marge (1.5-2x)
+lassen.
+
+**Stand:** BLE-Scan-Screen ist Teil der aktuellen Firmware (mit
+Preflight-Guard). `housekeeping.c` konsolidiert drei ehemals
+eigenständige Tasks. `CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL` bleibt auf
+IDF-Standard. Weitere Einzelstack-Reduktionen sind nicht geplant, bevor
+nicht der jeweilige Worst-Case-Pfad live unter realer Last gemessen
+wurde.

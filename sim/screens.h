@@ -45,6 +45,7 @@ void sim_bhi_screen_build(void);
 void sim_gps_screen_build(void);
 void sim_mesh_screen_build(void);
 void sim_wifi_screen_build(void);
+void sim_ble_screen_build(void);
 void sim_node_screen_build(void);
 void sim_alarm_screen_build(void);
 void sim_alarm_edit_screen_build(void);

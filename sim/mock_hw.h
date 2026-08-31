@@ -283,6 +283,22 @@ void wifi_scan_set_enabled(bool on);
 bool wifi_scan_is_scanning(void);
 size_t wifi_scan_get_results(wifi_scan_result_t *out, size_t max);
 
+/* --- ble_scan.h subset --- */
+#define BLE_SCAN_MAX_RESULTS 20
+#define BLE_SCAN_NAME_MAX    31
+
+typedef struct {
+    char name[BLE_SCAN_NAME_MAX + 1];
+    uint8_t addr[6];
+    int8_t rssi_dbm;
+} ble_scan_result_t;
+
+bool ble_scan_get_enabled(void);
+void ble_scan_set_enabled(bool on);
+bool ble_scan_is_scanning(void);
+bool ble_scan_low_mem(void);
+size_t ble_scan_get_results(ble_scan_result_t *out, size_t max);
+
 /* --- haptic.h subset --- */
 typedef struct {
     const char *name;

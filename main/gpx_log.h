@@ -20,8 +20,10 @@
 extern "C" {
 #endif
 
-/* Starts the background task. Call once at boot, after sd_log_mount(). */
-void gpx_log_init(void);
+/* One tick: called every 30s from the shared housekeeping task
+ * (main/housekeeping.c), not its own task - see that file's header
+ * comment. */
+void gpx_log_tick(void);
 
 /* Begins a new session: creates /sdcard/log/gpx (if needed) and a new
  * track_<YYYYMMDD_HHMMSS>.gpx file with the GPX header written. */

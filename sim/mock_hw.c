@@ -587,6 +587,56 @@ size_t wifi_scan_get_results(wifi_scan_result_t *out, size_t max)
     return n;
 }
 
+/* ---- ble screen ----
+ * Default off, same convention as WiFi above. A few static synthetic
+ * devices are "found" once switched on; unlike WiFi's continuous rescan,
+ * the real thing is a bounded 30s scan that auto-switches back off, so
+ * the mock does the same after a short mock delay instead of staying on
+ * forever. */
+static bool s_ble_enabled = false;
+static double s_ble_scan_started_s;
+
+bool ble_scan_get_enabled(void)
+{
+    if (s_ble_enabled && mock_now_s() - s_ble_scan_started_s > 3.0) {
+        s_ble_enabled = false;   /* mock "scan complete" after 3s, not the real 30s */
+    }
+    return s_ble_enabled;
+}
+
+void ble_scan_set_enabled(bool on)
+{
+    if (on && !s_ble_enabled) {
+        s_ble_scan_started_s = mock_now_s();
+    }
+    s_ble_enabled = on;
+}
+
+bool ble_scan_is_scanning(void) { return s_ble_enabled; }
+bool ble_scan_low_mem(void) { return false; }   /* no real memory ceiling on the host */
+
+size_t ble_scan_get_results(ble_scan_result_t *out, size_t max)
+{
+    static const struct { const char *name; uint8_t addr[6]; int8_t rssi; } devs[] = {
+        { "Pixel Buds",  { 0x11, 0x22, 0x33, 0x44, 0x55, 0x66 }, -55 },
+        { "",            { 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff }, -78 },
+        { "Car Stereo",  { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 }, -63 },
+    };
+    if (!ble_scan_get_enabled()) {
+        return 0;
+    }
+    size_t n = sizeof(devs) / sizeof(devs[0]);
+    if (n > max) {
+        n = max;
+    }
+    for (size_t i = 0; i < n; i++) {
+        snprintf(out[i].name, sizeof(out[i].name), "%s", devs[i].name);
+        memcpy(out[i].addr, devs[i].addr, 6);
+        out[i].rssi_dbm = devs[i].rssi;
+    }
+    return n;
+}
+
 /* ---- vibration pattern picker (haptic.h) ----
  * No real motor on the host - selection persists only for the session
  * (in-RAM, not NVS, same as every other mocked "on" state here) and the

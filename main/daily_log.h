@@ -41,8 +41,10 @@ typedef enum {
     DAILY_ACT_COUNT,
 } daily_activity_t;
 
-/* Start the daily logging task. Call once after sd_log_mount(). */
-void daily_log_init(void);
+/* One sample: called every 60s from the shared housekeeping task
+ * (main/housekeeping.c), not its own task - see that file's header
+ * comment. */
+void daily_log_tick(void);
 
 /* Today's step total (daily counter, resets at midnight). */
 esp_err_t daily_log_get_steps(uint32_t *steps);

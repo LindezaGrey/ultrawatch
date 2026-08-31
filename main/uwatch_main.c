@@ -22,12 +22,12 @@
 #include "power_mgmt.h"
 #include "lvgl_app.h"
 #include "crash_dump.h"
-#include "daily_log.h"
-#include "gpx_log.h"
+#include "housekeeping.h"
 #include "mesh_log.h"
 #include "haptic.h"
 #include "syslog_capture.h"
 #include "wifi_scan.h"
+#include "ble_scan.h"
 #include "uwatch_main.h"
 #include "debug_audio.h"
 #include "debug_bhi.h"
@@ -130,6 +130,7 @@ static const debug_cmd_entry_t s_commands[] = {
     { "synclog",        debug_cmd_synclog },
     { "sdclear",        debug_cmd_sdclear },
     { "heap",           debug_cmd_heap },
+    { "stacks",         debug_cmd_stacks },
     { "bhi",            debug_bhi_bhi },
     { "suspend",        debug_bhi_suspend },
     { "resume",         debug_bhi_resume },
@@ -284,17 +285,15 @@ void app_main(void)
      * persistent boot-time mount, so the card sits unmounted (and safe from
      * an unclean power loss) whenever nothing is actively being written. */
 
-    /* Per-minute steps + activity logging to the SD card (daily_log.h). */
     /* Global vibration pattern selection (Settings > Ton & Vibration),
      * shared by alarm/timer ring and LoRa notification (haptic.h) - must
      * come before either of those can possibly fire. */
     haptic_init();
 
-    daily_log_init();
-
-    /* GPX track logging to the SD card, started/stopped from the GPS
-     * screen (gpx_log.h). */
-    gpx_log_init();
+    /* Shared background task for per-minute steps/activity logging
+     * (daily_log.h), 30s GPX trackpoint logging (gpx_log.h), and syslog
+     * flushing - must come after syslog_capture_init() above (housekeeping.h). */
+    housekeeping_init();
 
     /* Always-on background Meshtastic listener (mesh_log.h). */
     mesh_log_init();
@@ -302,6 +301,12 @@ void app_main(void)
     /* WiFi scanning, off by default (wifi_scan.h) - started/stopped from
      * the WiFi screen's power switch. */
     wifi_scan_init();
+
+    /* Bluetooth scan, off by default (ble_scan.h) - started/stopped from
+     * the Bluetooth screen's power switch. Brings up the NimBLE host
+     * stack only on first use, not at boot - see ble_scan.h's header
+     * comment on the DMA-conflict risk this carries. */
+    ble_scan_init();
 
     /* If the previous boot crashed, decode the flash core dump to the SD card
      * (report + raw ELF) before the UI starts. */

@@ -19,6 +19,13 @@ CONFIG_FREERTOS_HZ=1000
 CONFIG_FREERTOS_UNICORE=n
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
+# Lets the "stacks" debug command (main/debug_cmds.c) enumerate every task's
+# real high-water-mark stack usage via uxTaskGetSystemState() - needed to
+# right-size task stacks empirically instead of guessing, since internal
+# DMA-capable RAM is chronically tight here (see docs/application.md
+# section 12) and every task stack claims a piece of it.
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+
 # App version (shown on the boot screen with the git commit hash)
 CONFIG_APP_PROJECT_VER_FROM_CONFIG=y
 CONFIG_APP_PROJECT_VER="1.0.0"
@@ -50,7 +57,14 @@ CONFIG_LV_USE_CLIB_STRING=y
 CONFIG_LV_USE_CLIB_SPRINTF=y
 CONFIG_LV_DEF_REFR_PERIOD=15
 CONFIG_LV_OBJ_STYLE_CACHE=y
-CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=2
+# 2 -> 1: each SW draw-render thread needs LV_DRAW_THREAD_STACK_SIZE
+# (32 KB below, required by FreeType/high-DPI fonts, not reducible) - a
+# second parallel render worker doubles that to 64 KB, the single
+# biggest internal-RAM consumer found on this board (bigger than every
+# app task stack combined, see docs/application.md section 12). This UI
+# (status bar, clock, lists) isn't draw-heavy enough to need 2-way
+# parallel rendering; 1 halves the cost to 32 KB.
+CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=1
 
 # High-DPI fonts: FreeType (vector) for the ~315 PPI AMOLED
 CONFIG_ESP_LVGL_ADAPTER_ENABLE_FREETYPE=y
@@ -75,7 +89,15 @@ CONFIG_BT_NIMBLE_ENABLED=y
 CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
 CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
 CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
-CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
 CONFIG_BT_NIMBLE_NVS_PERSIST=y
 CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
 CONFIG_BT_NIMBLE_LOG_LEVEL_DEBUG=y
+# The controller's own buffers (BLE_INIT, below the NimBLE host layer
+# above) can't use PSRAM at all - confirmed live: a scan-only Observer
+# role still failed its static RX buffer allocation against internal RAM
+# alone (BLE_INIT: Malloc failed -> watchdog panic). BLE_MAX_ACT reserves
+# per-activity (connection+scan+advertise) memory; a scan-only feature
+# never needs more than 1 concurrent activity, down from the IDF default
+# of 6.
+CONFIG_BT_CTRL_BLE_MAX_ACT=1

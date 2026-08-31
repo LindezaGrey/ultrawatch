@@ -514,6 +514,12 @@ void mesh_log_init(void)
      * incoming LoRa message, PC inside LVGL widget-creation code. No
      * other background task in this app builds a full LVGL screen
      * directly on its own stack this way. */
+    /* REVERTED to 8192: a sibling stack cut (gps_ctrl) overflowed live the
+     * first time its real, rarely-exercised code path ran - idle-snapshot
+     * high-water-mark isn't a safe basis for sizing a task whose deepest
+     * call chains (real packet parsing) may not have been exercised in
+     * that snapshot either. Not worth the same risk here without much
+     * more thorough live testing - see docs/application.md section 12. */
     xTaskCreate(mesh_log_task, "mesh_log", 8192, NULL, 3, NULL);
 }
 

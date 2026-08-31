@@ -25,8 +25,6 @@
 #include "m10q.h"
 #include "sd_log.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -152,18 +150,12 @@ static void append_trackpoint(void)
     s_point_count++;
 }
 
-static void gpx_log_task(void *arg)
+/* One tick: called every GPX_LOG_INTERVAL_MS (30s) from the shared
+ * housekeeping task (main/housekeeping.c), not its own task - see that
+ * file's header comment. */
+void gpx_log_tick(void)
 {
-    (void)arg;
-    for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(GPX_LOG_INTERVAL_MS));
-        if (s_active) {
-            append_trackpoint();
-        }
+    if (s_active) {
+        append_trackpoint();
     }
-}
-
-void gpx_log_init(void)
-{
-    xTaskCreate(gpx_log_task, "gpx_log", 3072, NULL, 2, NULL);
 }

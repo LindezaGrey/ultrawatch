@@ -125,11 +125,41 @@ void debug_cmd_sdclear(const char *args)
 
 void debug_cmd_heap(const char *args)
 {
-    (void)args;
     printf("heap: free=%lu min=%lu dma=%lu\n",
            (unsigned long)esp_get_free_heap_size(),
            (unsigned long)esp_get_minimum_free_heap_size(),
            (unsigned long)heap_caps_get_free_size(MALLOC_CAP_DMA));
+    /* "heap frag": also dump per-region fragmentation for the DMA-capable
+     * pool (free/allocated block counts and sizes, largest free block) -
+     * see docs/application.md section 12 on why this pool specifically is
+     * worth watching closely on this board. */
+    if (strcmp(args, "frag") == 0) {
+        heap_caps_print_heap_info(MALLOC_CAP_DMA);
+    }
+}
+
+void debug_cmd_stacks(const char *args)
+{
+    (void)args;
+    /* Real, empirical high-water-mark stack usage per task - the actual
+     * unused margin, not the configured stack size - so task stacks can
+     * be right-sized instead of guessed. Needs
+     * CONFIG_FREERTOS_USE_TRACE_FACILITY (sdkconfig.defaults). */
+    UBaseType_t n = uxTaskGetNumberOfTasks();
+    TaskStatus_t *list = pvPortMalloc(n * sizeof(TaskStatus_t));
+    if (!list) {
+        printf("stacks: out of memory (need %u bytes)\n",
+               (unsigned)(n * sizeof(TaskStatus_t)));
+        return;
+    }
+    n = uxTaskGetSystemState(list, n, NULL);
+    printf("stacks: %u task(s), unused = high-water-mark (bytes never touched)\n", (unsigned)n);
+    for (UBaseType_t i = 0; i < n; i++) {
+        printf("stacks: %-16s prio=%2u unused=%5u bytes\n",
+               list[i].pcTaskName, (unsigned)list[i].uxCurrentPriority,
+               (unsigned)(list[i].usStackHighWaterMark * sizeof(StackType_t)));
+    }
+    vPortFree(list);
 }
 
 void debug_cmd_crashinfo(const char *args)

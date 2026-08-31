@@ -9,8 +9,6 @@
 #include "pcf85063a.h"
 #include "sd_log.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -100,70 +98,69 @@ static void append_lines(const struct tm *lt, uint32_t lifetime)
     }
 }
 
-static void daily_log_task(void *arg)
+static bool s_have_last;
+static uint32_t s_last_ymd;
+
+/* One sample: called every DAILY_LOG_INTERVAL_MS from the shared
+ * housekeeping task (main/housekeeping.c) - this used to be its own
+ * always-running task's loop body; consolidated to reclaim a whole task
+ * stack (see docs/application.md section 12). */
+void daily_log_tick(void)
 {
-    (void)arg;
-    vTaskDelay(pdMS_TO_TICKS(2000));   /* let boot settle */
-
-    bool have_last = false;
-    uint32_t last_ymd = 0;
-
-    for (;;) {
-        pcf85063a_time_t rtc;
-        if (sensor_cache_get_rtc(&rtc)) {
-            /* The RTC stores UTC; "day" for the daily counters/CSV means the
-             * wearer's LOCAL calendar day, so convert before computing ymd. */
-            time_t epoch = pcf85063a_time_to_epoch(&rtc);
-            struct tm lt;
-            localtime_r(&epoch, &lt);
-            uint32_t ymd = (uint32_t)(lt.tm_year + 1900) * 10000u
-                           + (uint32_t)(lt.tm_mon + 1) * 100u + (uint32_t)lt.tm_mday;
-
-            /* Get the lifetime total first: it drives the daily counter and
-             * the CSV row alike. */
-            uint32_t lifetime = 0;
-            bhi260ap_get_step_count(&lifetime);
-
-            /* One mounted session covers every SD touch this tick (day-roll
-             * marker, header-on-first-run, the steps/activity rows) rather
-             * than mounting/unmounting separately for each - they always
-             * happen together, once a minute. */
-            bool sd_ok = (sd_log_session_begin() == ESP_OK);
-
-            if (have_last && ymd != last_ymd) {
-                ESP_LOGI(TAG, "new day %lu", (unsigned long)ymd);
-                if (sd_ok) {
-                    FILE *s = fopen(STEPS_CSV, "a");
-                    if (s) {
-                        fprintf(s, "# day %04u-%02u-%02u\n",
-                                (unsigned)(lt.tm_year + 1900),
-                                (unsigned)(lt.tm_mon + 1), (unsigned)lt.tm_mday);
-                        fclose(s);
-                    }
-                }
-            }
-            last_ymd = ymd;
-            have_last = true;
-
-            /* Feed lifetime + day id into the daily counter (reboot-safe),
-             * then cache today's total for display/logging. Same call also
-             * resets the BHI260AP driver's activity-duration tally on a day
-             * rollover (bhi260ap_daily_sample()), so there's one place
-             * deciding "is it a new day" for both day-scoped counters. */
-            bhi260ap_daily_sample(lifetime, ymd);
-            bhi260ap_get_daily_steps(&s_steps);
-
-            if (sd_ok) {
-                if (!s_log_ready) {
-                    ensure_header();
-                    s_log_ready = true;
-                }
-                append_lines(&lt, lifetime);
-            }
-            sd_log_session_end();
-        }
-        vTaskDelay(pdMS_TO_TICKS(LOG_INTERVAL_MS));
+    pcf85063a_time_t rtc;
+    if (!sensor_cache_get_rtc(&rtc)) {
+        return;
     }
+    /* The RTC stores UTC; "day" for the daily counters/CSV means the
+     * wearer's LOCAL calendar day, so convert before computing ymd. */
+    time_t epoch = pcf85063a_time_to_epoch(&rtc);
+    struct tm lt;
+    localtime_r(&epoch, &lt);
+    uint32_t ymd = (uint32_t)(lt.tm_year + 1900) * 10000u
+                   + (uint32_t)(lt.tm_mon + 1) * 100u + (uint32_t)lt.tm_mday;
+
+    /* Get the lifetime total first: it drives the daily counter and
+     * the CSV row alike. */
+    uint32_t lifetime = 0;
+    bhi260ap_get_step_count(&lifetime);
+
+    /* One mounted session covers every SD touch this tick (day-roll
+     * marker, header-on-first-run, the steps/activity rows) rather
+     * than mounting/unmounting separately for each - they always
+     * happen together, once a minute. */
+    bool sd_ok = (sd_log_session_begin() == ESP_OK);
+
+    if (s_have_last && ymd != s_last_ymd) {
+        ESP_LOGI(TAG, "new day %lu", (unsigned long)ymd);
+        if (sd_ok) {
+            FILE *s = fopen(STEPS_CSV, "a");
+            if (s) {
+                fprintf(s, "# day %04u-%02u-%02u\n",
+                        (unsigned)(lt.tm_year + 1900),
+                        (unsigned)(lt.tm_mon + 1), (unsigned)lt.tm_mday);
+                fclose(s);
+            }
+        }
+    }
+    s_last_ymd = ymd;
+    s_have_last = true;
+
+    /* Feed lifetime + day id into the daily counter (reboot-safe),
+     * then cache today's total for display/logging. Same call also
+     * resets the BHI260AP driver's activity-duration tally on a day
+     * rollover (bhi260ap_daily_sample()), so there's one place
+     * deciding "is it a new day" for both day-scoped counters. */
+    bhi260ap_daily_sample(lifetime, ymd);
+    bhi260ap_get_daily_steps(&s_steps);
+
+    if (sd_ok) {
+        if (!s_log_ready) {
+            ensure_header();
+            s_log_ready = true;
+        }
+        append_lines(&lt, lifetime);
+    }
+    sd_log_session_end();
 }
 
 esp_err_t daily_log_get_steps(uint32_t *steps)
@@ -212,7 +209,3 @@ void daily_log_flush(void)
     /* No buffered ring for CSV: lines are written directly per minute. */
 }
 
-void daily_log_init(void)
-{
-    xTaskCreate(daily_log_task, "daily_log", 3072, NULL, 2, NULL);
-}

@@ -13,13 +13,25 @@
  */
 #pragma once
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* Call once at boot, after twatch_board_init() (needs the SD card's ALDO1
- * rail bookkeeping and NVS ready, same as every other SD-backed logger). */
+ * rail bookkeeping and NVS ready, same as every other SD-backed logger).
+ * Only sets up the mutex/wake-semaphore and installs the vprintf hook -
+ * does not start a task of its own, see syslog_capture_service() below. */
 void syslog_capture_init(void);
+
+/* Blocks up to timeout_ms (or returns early if the buffer filled - see
+ * syslog_vprintf()'s high-water-mark wake), then flushes whatever's
+ * pending. Called in a loop from the shared housekeeping task
+ * (main/housekeeping.c) instead of this module owning its own task -
+ * reclaims a whole task stack (see docs/application.md section 12). Pass
+ * 10000 (10s) to match this module's original standalone cadence. */
+void syslog_capture_service(uint32_t timeout_ms);
 
 #ifdef __cplusplus
 }

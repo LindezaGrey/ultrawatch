@@ -68,6 +68,14 @@ extern lv_obj_t *s_wifi_screen;
 void lvgl_build_wifi_screen(void);
 void wifi_screen_update(lv_timer_t *timer);
 
+/* Bluetooth screen (main/screens/ble_screen.c): power switch + one-shot
+ * 30s device scan, read-only (no pair/connect flow) - see
+ * main/ble_scan.h. */
+extern lv_obj_t *s_ble_screen;
+
+void lvgl_build_ble_screen(void);
+void ble_screen_update(lv_timer_t *timer);
+
 /* Settings category list + its 6 sub-pages (main/screens/settings_screen.c).
  * All 7 screen handles are extern: main/lvgl_app.c's menu_timeout_cb()
  * (nav-ring inactivity timeout) and nav-ring array both check/reference
