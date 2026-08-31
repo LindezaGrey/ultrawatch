@@ -25,6 +25,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <string.h>
 #include <math.h>
 
@@ -97,6 +98,18 @@ static uint32_t s_daily_id;
 
 static uint32_t s_step_at_base;
 static SemaphoreHandle_t s_step_mux;   /* guards step fold/total arithmetic */
+
+/* Guards every call into the Bosch bhy2/bhy2_hif API (s_bhy2's HIF sequence
+ * counters and internal read/parse buffers are not reentrant). Without this,
+ * bhi260_task's own polling loop, power_mgmt.c's suspend/resume calls (a
+ * different task, invoked from the sleep/wake path), and debug_bhi.c's
+ * console commands (a third task) could all call into s_bhy2 concurrently -
+ * a real hazard, not just a theoretical one, since bhi260ap_ap_suspend()
+ * flips s_ap_suspended only partway through its own body, leaving a window
+ * where bhi260_task's poll and a concurrent suspend can race on the same I2C
+ * handshake. Recursive: bhi260ap_ap_suspend() calls bhi260ap_drain_wakeup_fifo(),
+ * which also takes this same lock. */
+static SemaphoreHandle_t s_bhy2_mux;
 
 static void step_base_load(void)
 {
@@ -425,7 +438,9 @@ static esp_err_t load_firmware(uint8_t **out, size_t *out_len)
     return ESP_OK;
 }
 
-esp_err_t bhi260ap_init(i2c_master_dev_handle_t dev)
+/* Actual init body, run under s_bhy2_mux (see bhi260ap_init() below) - not
+ * called directly by anything else. */
+static esp_err_t bhi260ap_init_locked(i2c_master_dev_handle_t dev)
 {
     int8_t rslt;
     uint8_t product_id = 0;
@@ -599,14 +614,27 @@ esp_err_t bhi260ap_init(i2c_master_dev_handle_t dev)
     return ESP_OK;
 }
 
+esp_err_t bhi260ap_init(i2c_master_dev_handle_t dev)
+{
+    if (!s_bhy2_mux) {
+        s_bhy2_mux = xSemaphoreCreateRecursiveMutex();
+    }
+    xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
+    esp_err_t err = bhi260ap_init_locked(dev);
+    xSemaphoreGiveRecursive(s_bhy2_mux);
+    return err;
+}
+
 /* Poll the FIFO once; returns ESP_OK on success. */
 esp_err_t bhi260ap_process_fifo(void)
 {
     if (!s_initialized || s_ap_suspended) {
         return ESP_ERR_INVALID_STATE;
     }
+    xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
     uint8_t work[BHY2_FIFO_BUFFER_SIZE];
     int8_t rslt = bhy2_get_and_process_fifo(work, sizeof(work), &s_bhy2);
+    xSemaphoreGiveRecursive(s_bhy2_mux);
     return (rslt == BHY2_OK) ? ESP_OK : ESP_FAIL;
 }
 
@@ -621,12 +649,15 @@ esp_err_t bhi260ap_drain_wakeup_fifo(void)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
+    xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
     for (int attempt = 0; attempt < 5 && gpio_get_level(GPIO_NUM_8) == 0; attempt++) {
         uint8_t drain[BHY2_FIFO_BUFFER_SIZE];
         bhy2_get_and_process_fifo(drain, sizeof(drain), &s_bhy2);
         vTaskDelay(pdMS_TO_TICKS(20));
     }
-    return (gpio_get_level(GPIO_NUM_8) == 1) ? ESP_OK : ESP_ERR_TIMEOUT;
+    esp_err_t ret = (gpio_get_level(GPIO_NUM_8) == 1) ? ESP_OK : ESP_ERR_TIMEOUT;
+    xSemaphoreGiveRecursive(s_bhy2_mux);
+    return ret;
 }
 
 /* Tell the BHI260AP the host (ESP32) is going to sleep. It then runs only the
@@ -644,6 +675,7 @@ esp_err_t bhi260ap_ap_suspend(void)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
+    xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
     step_fold();   /* persist steps accumulated since the last fold */
     bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_GLANCE_GESTURE, 0.0f, 0, &s_bhy2);
     bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_PICKUP_GESTURE, 0.0f, 0, &s_bhy2);
@@ -654,6 +686,7 @@ esp_err_t bhi260ap_ap_suspend(void)
     int8_t rslt = bhy2_set_host_intf_ctrl(BHY2_HIF_CTRL_AP_SUSPENDED, &s_bhy2);
     if (rslt != BHY2_OK) {
         ESP_LOGW(TAG, "AP suspend failed: %d", rslt);
+        xSemaphoreGiveRecursive(s_bhy2_mux);
         return ESP_FAIL;
     }
 
@@ -669,14 +702,36 @@ esp_err_t bhi260ap_ap_suspend(void)
 
     ESP_LOGI(TAG, "AP suspend (host sleeping) intr_ctrl=0x%02x gpio8=%d",
              (unsigned)intr_ctrl, (int)gpio_get_level(GPIO_NUM_8));
+    xSemaphoreGiveRecursive(s_bhy2_mux);
     return ESP_OK;
 }
 
-/* Host is awake again; resume the normal (non-wakeup) sensor streams. */
+/* Host is awake again; resume the normal (non-wakeup) sensor streams.
+ *
+ * Called from power_mgmt.c's wake path, BEFORE the panel is woken - a
+ * live incident showed the display stuck white after a GPIO wake, with the
+ * rest of the system (console, scheduler) still responsive, and a full
+ * panel-level recovery (power-cycle the display rail, resend wake commands)
+ * unable to bring it back. Root cause wasn't conclusively pinned down (the
+ * device had to be rebooted to restore it before more diagnostics could be
+ * taken), but this function sitting ahead of co5300_wake() in the wake
+ * sequence means anything that makes it block would delay the panel wake
+ * indefinitely - so unlike every other bhy2 entry point here, this one
+ * takes the lock with a bounded wait rather than portMAX_DELAY: if it can't
+ * get in quickly (bhi260_task mid-poll, or worse, wedged), skip resuming
+ * the IMU cleanly rather than risk blocking the caller (and therefore the
+ * panel wake) forever. A skipped resume just means gesture sensitivity
+ * stays at its suspended settings for one cycle - not user-visible the way
+ * a stuck white screen is. See power_mgmt.c's wake function, which also
+ * now wakes the panel first regardless. */
 esp_err_t bhi260ap_ap_resume(void)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
+    }
+    if (xSemaphoreTakeRecursive(s_bhy2_mux, pdMS_TO_TICKS(200)) != pdTRUE) {
+        ESP_LOGW(TAG, "AP resume: bhy2 busy, skipping this cycle");
+        return ESP_ERR_TIMEOUT;
     }
     /* No data flowed while the chip was in AP-suspend (by design), so the
      * staleness clock reads old. Reset it so the FIFO re-init logic doesn't
@@ -687,6 +742,7 @@ esp_err_t bhi260ap_ap_resume(void)
     bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_PICKUP_GESTURE, 1.0f, 0, &s_bhy2);
     int8_t rslt = bhy2_set_host_intf_ctrl(0, &s_bhy2);
     s_ap_suspended = false;
+    xSemaphoreGiveRecursive(s_bhy2_mux);
     if (rslt != BHY2_OK) {
         ESP_LOGW(TAG, "AP resume failed: %d", rslt);
         return ESP_FAIL;
@@ -1018,7 +1074,9 @@ esp_err_t bhi260ap_set_sensor_rate(uint8_t id, float rate)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
+    xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
     int8_t rslt = bhy2_set_virt_sensor_cfg(id, rate, 0, &s_bhy2);
+    xSemaphoreGiveRecursive(s_bhy2_mux);
     return (rslt == BHY2_OK) ? ESP_OK : ESP_FAIL;
 }
 
@@ -1033,6 +1091,7 @@ int8_t bhi260ap_gnss_inject_probe(void)
     if (!s_initialized) {
         return BHY2_E_NULL_PTR;
     }
+    xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
     uint8_t v_gps = bhy2_is_sensor_available(BHY2_SENSOR_ID_GPS, &s_bhy2);
     uint8_t p_gps = bhy2_is_sensor_available(BHY2_PHYS_SENSOR_ID_GPS, &s_bhy2);
     ESP_LOGI(TAG, "gnss probe: virtual_gps=%u physical_gps=%u",
@@ -1041,6 +1100,7 @@ int8_t bhi260ap_gnss_inject_probe(void)
     int8_t rslt = bhy2_set_data_injection_mode(BHY2_REAL_TIME_INJECTION, &s_bhy2);
     ESP_LOGI(TAG, "gnss probe: set inject mode rslt=%d", (int)rslt);
     if (rslt != BHY2_OK) {
+        xSemaphoreGiveRecursive(s_bhy2_mux);
         return rslt;
     }
 
@@ -1069,6 +1129,7 @@ int8_t bhi260ap_gnss_inject_probe(void)
                                           : "no GPS injection request seen");
 
     bhy2_set_data_injection_mode(BHY2_NORMAL_MODE, &s_bhy2);
+    xSemaphoreGiveRecursive(s_bhy2_mux);
     return found ? BHY2_OK : BHY2_E_INVALID_PARAM;
 }
 
@@ -1110,9 +1171,11 @@ void bhi260ap_dump_sensor_list(void)
         { BHY2_SENSOR_ID_BARO, "baro" },
     };
     ESP_LOGI(TAG, "sensor list:");
+    xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
     for (size_t i = 0; i < sizeof(known) / sizeof(known[0]); i++) {
         if (bhy2_is_sensor_available(known[i].id, &s_bhy2)) {
             ESP_LOGI(TAG, "  present: %-14s id=%u", known[i].name, (unsigned)known[i].id);
         }
     }
+    xSemaphoreGiveRecursive(s_bhy2_mux);
 }

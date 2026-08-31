@@ -955,10 +955,22 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
      * sd_log.h), not for the whole awake session, so there's nothing to
      * restore just because the watch woke up. */
 
-    /* Resume the IMU wake-up streams before waking the panel. */
-    bhi260ap_ap_resume();
-
-    /* Every co5300 call below used to have its esp_err_t discarded - a
+    /* Wake the panel FIRST, before touching the IMU. Used to be the other
+     * way around (IMU resume, then co5300_wake()) - a live incident showed
+     * the display stuck white after a GPIO wake, system otherwise still
+     * responsive (console/scheduler fine), and even a full panel-level
+     * recovery (power-cycle the display rail, resend wake commands from a
+     * completely separate code path) couldn't bring it back. Root cause
+     * wasn't conclusively pinned down before the device had to be rebooted
+     * to restore it, but bhi260ap_ap_resume() sitting ahead of the panel
+     * wake meant anything that made IT slow or stuck would delay the most
+     * user-visible part of waking - the screen - for no good reason: the
+     * IMU and the display don't depend on each other. Panel first now, so
+     * a slow/stuck sensor resume can never hold the screen hostage; see
+     * bhi260ap_ap_resume()'s own header comment for the matching bounded-
+     * wait change on the BHI260AP side.
+     *
+     * Every co5300 call below used to have its esp_err_t discarded - a
      * transient SPI hiccup on SLPOUT or DISPON (co5300_send_cmd() itself
      * never logs a failure, see co5300.c) would leave the panel in an
      * inconsistent state with zero trace anywhere, while the rest of this
@@ -997,6 +1009,11 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
         ESP_LOGW(TAG, "co5300_display_on attempt %d failed: %s", attempt + 1, esp_err_to_name(on_err));
         vTaskDelay(pdMS_TO_TICKS(10));
     }
+
+    /* Resume the IMU wake-up streams now that the panel is up - see the
+     * comment above co5300_wake() for why this moved to run after, not
+     * before, the panel wake. */
+    bhi260ap_ap_resume();
 
     /* Safety net: clear any pending AXP IRQ (de-asserts the GPIO7 line).
      * Detailed power-key reporting happens in pm_wake_task. */
