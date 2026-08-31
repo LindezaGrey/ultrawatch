@@ -10,6 +10,19 @@ CONFIG_ESP32S3_SPIRAM_SUPPORT=y
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_SPEED_80M=y
+# Internal DMA-capable RAM is chronically tight on this board (display draw
+# buffers + LVGL + every driver's own allocations already claim most of it -
+# confirmed live: only ~33-45 KB free at any given moment, which is what
+# made the BT controller's own buffer allocation fail outright). The IDF
+# default (16 KB) forces every allocation under that size internal even
+# when it doesn't need to be - most task stacks (2-8 KB each) and small
+# app-level buffers fall under that threshold and were eating internal RAM
+# for no reason. Lowered so only genuinely small (<1 KB) or explicitly
+# MALLOC_CAP_DMA/MALLOC_CAP_INTERNAL allocations stay internal; everything
+# else prefers PSRAM. RESERVE_INTERNAL (already 32 KB, IDF default) keeps a
+# floor of internal RAM malloc() will never hand to a PSRAM-eligible
+# request, so this can't fully starve DMA-only needs either.
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024
 
 # CPU
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
