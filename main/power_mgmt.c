@@ -1051,13 +1051,39 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
      * just at the panel-command level instead of the pixel-data level.
      * Retry + log now, so if this recurs there's real evidence in
      * synclog next time instead of nothing. */
+    /* Full re-initialization on wake, not a bare co5300_wake().
+     *
+     * co5300_wake() only sends SLPOUT + brightness. Established by live
+     * reproduction (2026-08-31): once the panel is in the "white screen"
+     * state it still scans at 60 Hz and still accepts commands (DISPOFF
+     * blanks it), but pixel writes stop landing - and re-sending the whole
+     * init command list plus a forced full repaint does NOT recover it.
+     * Only a hardware RST pulse followed by re-init does, reproducibly.
+     * So the old wake path could never heal a panel that went wedged while
+     * the host was asleep; it would come back white and stay white.
+     *
+     * Doing it here is close to free: the screen is off at this point and a
+     * full repaint follows anyway, so the reset is invisible. It costs the
+     * panel's SLPOUT/DISPON settling (~250 ms) on each wake, which is the
+     * price of a display that always comes back. The LVGL lock is held so
+     * the flush task cannot push pixels at a panel that is mid-reset.
+     *
+     * NOTE: the underlying trigger is still not root-caused - it is NOT
+     * simply mechanical shock (the panel has gone white with the watch
+     * unplugged and undisturbed), and synthetic SLPIN/SLPOUT cycling does
+     * not reproduce it. This makes the failure self-healing rather than
+     * preventing it. See the `dispfix` debug command for manual recovery. */
     esp_err_t wake_err = ESP_FAIL;
     for (int attempt = 0; attempt < 3; attempt++) {
-        wake_err = co5300_wake();
+        bool locked = (esp_lv_adapter_lock(1000) == ESP_OK);
+        wake_err = co5300_reinit(true, /*leave_display_off=*/true);
+        if (locked) {
+            esp_lv_adapter_unlock();
+        }
         if (wake_err == ESP_OK) {
             break;
         }
-        ESP_LOGW(TAG, "co5300_wake attempt %d failed: %s", attempt + 1, esp_err_to_name(wake_err));
+        ESP_LOGW(TAG, "co5300_reinit attempt %d failed: %s", attempt + 1, esp_err_to_name(wake_err));
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     esp_err_t bri_err = co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : s_brightness);

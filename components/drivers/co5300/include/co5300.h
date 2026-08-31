@@ -14,6 +14,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -44,6 +45,11 @@ extern "C" {
 
 esp_err_t co5300_init(void);
 esp_err_t co5300_deinit(void);
+
+/* Re-run the full panel bring-up (hardware reset + init command list + gap +
+ * display on) on the existing panel handle, to recover a panel that stopped
+ * reflecting what it is sent. Caller must hold the LVGL lock. */
+esp_err_t co5300_reinit(bool with_hw_reset, bool leave_display_off);
 
 /* Panel sleep (SLPIN) / wake (SLPOUT + DISPON + brightness). */
 esp_err_t co5300_sleep(void);

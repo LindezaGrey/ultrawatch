@@ -272,7 +272,7 @@ static void parse_step_counter(const struct bhy2_fifo_parse_data_info *callback_
     if (need_fold) {
         step_fold();   /* re-takes the mutex + NVS save */
     }
-    ESP_LOGI(TAG, "step counter: %lu (total %lu)",
+    ESP_LOGD(TAG, "step counter: %lu (total %lu)",
              (unsigned long)steps, (unsigned long)total);
 }
 
@@ -818,6 +818,23 @@ esp_err_t bhi260ap_ap_resume(void)
  * power-cycled (auto-sleep), after which the chip must be brought up again. */
 void bhi260ap_deinit(void)
 {
+    /* Take the same lock every other entry point here takes. s_initialized is
+     * checked *before* the lock by the public API, so a suspend/drain call
+     * from power_mgmt.c can already be past its own check and mid-I2C on
+     * s_bhy2 when this runs; clearing state underneath it would corrupt the
+     * transfer in progress. Unbounded wait is fine (unlike
+     * bhi260ap_ap_resume()'s bounded one): this runs on bhi260_task, which
+     * nothing user-visible is waiting on. */
+    bool bhy2_locked = (s_bhy2_mux != NULL) &&
+                       (xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY) == pdTRUE);
+    /* The step/activity counters below are the ones s_step_mux guards; take it
+     * too so a concurrent parse_activity()/get_activity_ms() can't observe
+     * s_activity and s_activity_since_us half-reset. Proceed even if the take
+     * times out - leaving the driver marked initialized after a rail
+     * power-cycle is the worse outcome. */
+    bool step_locked = (s_step_mux != NULL) &&
+                       (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) == pdTRUE);
+
     s_initialized = false;
     s_ap_suspended = false;
     s_step_count = 0;
@@ -839,6 +856,13 @@ void bhi260ap_deinit(void)
     s_glance_gesture = false;
     s_pickup_gesture = false;
     s_tilt_detector = false;
+
+    if (step_locked) {
+        xSemaphoreGive(s_step_mux);
+    }
+    if (bhy2_locked) {
+        xSemaphoreGiveRecursive(s_bhy2_mux);
+    }
 }
 
 esp_err_t bhi260ap_get_step_count(uint32_t *steps)
@@ -860,6 +884,11 @@ esp_err_t bhi260ap_get_daily_steps(uint32_t *steps)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
+    /* Seed the default before the take, not inside it: a timed-out take used
+     * to leave *steps untouched while still returning ESP_OK, handing the
+     * caller back whatever was in its own variable. Same shape as
+     * bhi260ap_get_status(), which reports a known value either way. */
+    *steps = 0;
     if (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
         *steps = s_daily_total;
         xSemaphoreGive(s_step_mux);
@@ -1108,6 +1137,18 @@ void bhi260ap_meta_print(uint32_t n)
 
 void bhi260ap_meta_hist_get(uint8_t idx, uint8_t *key, uint8_t *count)
 {
+    /* idx comes from a console command, so it is not necessarily bounded by
+     * the len this module last reported. Read out of range would walk past
+     * the arrays into whatever follows them. */
+    if (idx >= s_meta_hist_len || idx >= META_HIST_MAX) {
+        if (key) {
+            *key = 0;
+        }
+        if (count) {
+            *count = 0;
+        }
+        return;
+    }
     *key = s_meta_hist_keys[idx];
     *count = s_meta_hist_counts[idx];
 }

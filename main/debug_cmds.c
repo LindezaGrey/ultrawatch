@@ -34,6 +34,8 @@
 #include "st25r3916.h"
 #include "spi2_power.h"
 #include "ndef.h"
+#include "esp_lv_adapter.h"
+#include "driver/gpio.h"
 #include "debug_cmds.h"
 
 void debug_cmd_shot(const char *args)
@@ -684,6 +686,222 @@ void debug_cmd_disppwr(const char *args)
     co5300_display_on();
     co5300_set_brightness(0x80);
     printf("disppwr: display power cycled\n");
+}
+
+/* Recover a panel that stopped reflecting what it is sent (the shake-triggered
+ * white screen), by re-running the full bring-up sequence rather than just the
+ * wake commands disppwr sends. Deliberately does NOT cycle the DISP_PWR rail:
+ * running this alone, after a disppwr that did not help, separates "the panel
+ * controller lost its configuration" from "the panel is not being driven" -
+ * only the first is fixable in software.
+ *
+ * Holds the LVGL lock across the re-init so the flush task cannot push pixels
+ * at a panel that is mid-reset, then forces a full repaint (GRAM contents are
+ * undefined after a reset, and LVGL would otherwise only redraw dirty areas). */
+/* Probe whether the panel's configuration can be read back over the QSPI link.
+ * If it can, the white-screen fault becomes directly detectable (compare the
+ * pixel-format / power-mode registers against what co5300_init() set) instead
+ * of having to be inferred from the physical shock that causes it.
+ *
+ * Reads use the 0x03 command prefix (the CO5300 read encoding) where writes
+ * use 0x02 - see co5300_send_cmd(). Readback may simply not work while the IO
+ * is in quad mode; that is exactly what this command is here to establish, so
+ * it reports the error rather than assuming either way. */
+/* Count edges on the panel's TE (tearing-effect) output, GPIO6.
+ *
+ * The init list sends 0x35 (TE ON); after a controller reset TE defaults back
+ * to OFF. So a live ~60 Hz edge rate means the panel still holds the
+ * configuration co5300_init() gave it, and a flat line means the controller
+ * has reset and lost it. That distinguishes "the panel reset" from "the pixel
+ * data is being misinterpreted" without needing register readback (which this
+ * panel does not support in quad mode - see dispreg). */
+/* Full-screen repaint ONLY - no panel commands, no reset, no rail cycle.
+ *
+ * The control for dispfix: that command re-sends the panel configuration AND
+ * forces a repaint, so a recovery there cannot tell the two apart. TE staying
+ * at 60 Hz through the fault shows the controller never lost its config, which
+ * makes the repaint the more likely half. If this alone recovers the panel,
+ * the panel is fine and the real bug is that LVGL only ever redraws dirty
+ * regions - so whatever corrupts GRAM is never painted over. */
+/* Send a single panel command and nothing else, to test whether the panel is
+ * still decoding commands at all while the screen is stuck.
+ *
+ * This is the discriminator for the white-screen fault. TE keeps running at
+ * 60 Hz through it and re-sending the init list changes nothing, but a
+ * hardware RST pulse recovers it - which fits the QSPI command interface being
+ * desynchronized (the panel no longer recognizes transactions as commands and
+ * swallows them, while its display timing generator keeps scanning).
+ *
+ *   dispcmd off  -> 0x28 DISPOFF: screen must go black if commands are heard
+ *   dispcmd on   -> 0x29 DISPON
+ *   dispcmd bri0 -> 0x51 brightness 0: screen must dim if commands are heard
+ *   dispcmd bri  -> 0x51 brightness back to 0x80
+ *
+ * If "off" and "bri0" both leave the panel unchanged, the command interface is
+ * deaf and the fault is below the command layer - not something any command
+ * sequence can fix, which is why only RST works. */
+void debug_cmd_dispcmd(const char *args)
+{
+    if (!args || !*args) {
+        printf("dispcmd: usage dispcmd <off|on|bri0|bri>\n");
+        return;
+    }
+    esp_err_t err;
+    if (strcmp(args, "off") == 0) {
+        err = co5300_display_off();
+    } else if (strcmp(args, "on") == 0) {
+        err = co5300_display_on();
+    } else if (strcmp(args, "bri0") == 0) {
+        err = co5300_set_brightness(0x00);
+    } else if (strcmp(args, "bri") == 0) {
+        err = co5300_set_brightness(0x80);
+    } else {
+        printf("dispcmd: unknown command: %s\n", args);
+        return;
+    }
+    printf("dispcmd %s -> %s (SPI write %s; watch the screen for the answer)\n",
+           args, (err == ESP_OK) ? "sent" : esp_err_to_name(err),
+           (err == ESP_OK) ? "succeeded" : "failed");
+}
+
+void debug_cmd_disprepaint(const char *args)
+{
+    (void)args;
+    lvgl_force_redraw();
+    printf("disprepaint: full repaint requested (no panel commands sent)\n");
+}
+
+void debug_cmd_dispte(const char *args)
+{
+    (void)args;
+    const gpio_config_t cfg = {
+        .pin_bit_mask = 1ULL << CO5300_PIN_TE,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&cfg);
+
+    const int64_t window_us = 200000;   /* 200 ms -> ~12 edges at 60 Hz */
+    int64_t t0 = esp_timer_get_time();
+    int last = gpio_get_level(CO5300_PIN_TE);
+    int high = last, low = !last, edges = 0;
+    while (esp_timer_get_time() - t0 < window_us) {
+        int now = gpio_get_level(CO5300_PIN_TE);
+        if (now != last) {
+            edges++;
+            last = now;
+        }
+        if (now) { high = 1; } else { low = 1; }
+    }
+    printf("dispte: edges=%d in 200ms (~%d Hz) level=%d seen_high=%d seen_low=%d\n",
+           edges, edges * 5 / 2, gpio_get_level(CO5300_PIN_TE), high, low);
+    printf("dispte: %s\n", edges > 2
+           ? "TE alive -> panel still configured"
+           : "TE FLAT -> panel controller has reset / lost config");
+}
+
+/* Cycle the panel's sleep/wake transition N times, to test whether the wake
+ * path itself is what wedges the panel.
+ *
+ * power_mgmt_exit_sleep() wakes the panel with co5300_wake() = SLPOUT +
+ * brightness only. It never re-sends the init list and never pulses RST -
+ * exactly the sequence we proved cannot recover a wedged panel. If repeating
+ * that transition reproduces the white screen with the watch sitting still,
+ * the trigger is the wake path, not mechanical shock, and the fix is to make
+ * waking re-initialize properly.
+ *
+ *   dispcycle <n>        LVGL lock held across each transition (no flush races)
+ *   dispcycle <n> flush  lock released, so the flush task pushes pixels at the
+ *                        panel while it is asleep / mid-wake - the racy case
+ *
+ * Watch the screen afterwards: if it is white, the cycling reproduced it. */
+void debug_cmd_dispcycle(const char *args)
+{
+    if (!args || !*args) {
+        printf("dispcycle: usage dispcycle <count> [flush]\n");
+        return;
+    }
+    int n = atoi(args);
+    if (n <= 0 || n > 2000) {
+        printf("dispcycle: count must be 1..2000\n");
+        return;
+    }
+    bool racy = (strstr(args, "flush") != NULL);
+    printf("dispcycle: %d cycles, mode=%s\n", n, racy ? "flush-during-sleep" : "locked");
+
+    for (int i = 0; i < n; i++) {
+        if (!racy) {
+            if (esp_lv_adapter_lock(1000) != ESP_OK) {
+                printf("dispcycle: lock failed at cycle %d\n", i);
+                return;
+            }
+        }
+        co5300_display_off();
+        co5300_sleep();
+        vTaskDelay(pdMS_TO_TICKS(60));
+        co5300_wake();          /* SLPOUT + brightness, exactly as the wake path does */
+        co5300_display_on();
+        if (!racy) {
+            esp_lv_adapter_unlock();
+        }
+        vTaskDelay(pdMS_TO_TICKS(60));
+        if (((i + 1) % 25) == 0) {
+            printf("dispcycle: %d/%d\n", i + 1, n);
+        }
+    }
+    lvgl_force_redraw();
+    printf("dispcycle: done (%d cycles) - check the screen\n", n);
+}
+
+void debug_cmd_dispreg(const char *args)
+{
+    (void)args;
+    esp_lcd_panel_io_handle_t io = co5300_get_panel_io();
+    if (!io) {
+        printf("dispreg: no panel io\n");
+        return;
+    }
+    static const struct { uint8_t cmd; const char *name; const char *expect; } regs[] = {
+        { 0x0A, "RDDPM   (power mode)",   "0x9c if SLPOUT+DISPON" },
+        { 0x0C, "RDDCOLMOD (pixel fmt)",  "0x55 for RGB565" },
+        { 0x09, "RDDST   (status)",       "-" },
+        { 0x0B, "RDDMADCTL",              "-" },
+    };
+    for (size_t i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
+        uint8_t v[4] = { 0, 0, 0, 0 };
+        int lcd_cmd = (int)((0x03UL << 24) | ((uint32_t)regs[i].cmd << 8));
+        esp_err_t err = esp_lcd_panel_io_rx_param(io, lcd_cmd, v, sizeof(v));
+        if (err == ESP_OK) {
+            printf("dispreg: %-22s 0x%02x = %02x %02x %02x %02x   [%s]\n",
+                   regs[i].name, regs[i].cmd, v[0], v[1], v[2], v[3], regs[i].expect);
+        } else {
+            printf("dispreg: %-22s 0x%02x -> %s\n",
+                   regs[i].name, regs[i].cmd, esp_err_to_name(err));
+        }
+    }
+}
+
+void debug_cmd_dispfix(const char *args)
+{
+    (void)args;
+    esp_err_t lock_err = esp_lv_adapter_lock(1000);
+    if (lock_err != ESP_OK) {
+        printf("dispfix: LVGL lock failed: %s\n", esp_err_to_name(lock_err));
+        return;
+    }
+    bool with_reset = !(args && strcmp(args, "cmds") == 0);
+    esp_err_t err = co5300_reinit(with_reset, /*leave_display_off=*/false);
+    esp_lv_adapter_unlock();
+    printf("dispfix: reinit(%s) -> %s\n", with_reset ? "rst+cmds" : "cmds-only",
+           (err == ESP_OK) ? "ok" : esp_err_to_name(err));
+    if (err != ESP_OK) {
+        return;
+    }
+    lvgl_force_redraw();
+    co5300_set_brightness(0x80);
+    printf("dispfix: repainted\n");
 }
 
 /* Prints wmask as e.g. "Daily", "Mon-Fri", or a comma list of 3-letter

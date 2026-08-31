@@ -71,6 +71,50 @@ esp_err_t co5300_init(void)
     return ESP_OK;
 }
 
+/* Full panel bring-up on the EXISTING handle, for recovering a panel that
+ * stopped reflecting what it is sent (the shake-triggered white screen).
+ *
+ * debug_cmd_disppwr() cycles the DISP_PWR rail and then sends only
+ * SLPOUT/DISPON/brightness. That is not enough: after a power cycle the
+ * CO5300 is back in its OTP defaults, so MADCTL/COLMOD and the vendor init
+ * list above (0xFE/0xC4/0x35/0x53/0x63) are gone, and LVGL keeps pushing
+ * RGB565 at a controller that may no longer be in 16bpp mode. This redoes
+ * the whole sequence co5300_init() performs after the handle exists -
+ * hardware reset, init commands, column gap, display on.
+ *
+ * Deliberately does NOT delete/recreate the panel handle: esp_lv_adapter was
+ * given co5300_get_panel() once at display registration (see lvgl_app.c), so
+ * a new handle would leave the flush path using a freed pointer. The caller
+ * must hold the LVGL lock so no flush runs against a half-initialized panel. */
+esp_err_t co5300_reinit(bool with_hw_reset, bool leave_display_off)
+{
+    if (!s_initialized || !s_panel) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    /* with_hw_reset=false re-sends the configuration without pulsing the RST
+     * pin. If that alone recovers the panel, the QSPI link is intact and the
+     * controller had merely lost its register configuration - which is the
+     * difference between "the data path glitched" and "the panel reset". */
+    if (with_hw_reset) {
+        ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "panel reset");
+    }
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "panel init");
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_set_gap(s_panel, CO5300_X_GAP, 0), TAG, "set gap");
+    /* A reset panel's GRAM is undefined, and the init command list above ends
+     * with 0x29 DISPON - so turning the display on here would show whatever
+     * noise the reset left behind until the next repaint lands. Callers that
+     * repaint afterwards (the wake path) pass leave_display_off=true and send
+     * DISPON themselves once the frame is in, preserving the "no stale frame
+     * flashes" ordering power_mgmt_exit_sleep() has always relied on. */
+    if (leave_display_off) {
+        ESP_RETURN_ON_ERROR(co5300_display_off(), TAG, "display off");
+    } else {
+        ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "display on");
+    }
+    ESP_LOGI(TAG, "panel re-initialized (display %s)", leave_display_off ? "off" : "on");
+    return ESP_OK;
+}
+
 esp_err_t co5300_deinit(void)
 {
     if (s_panel) {
