@@ -240,6 +240,12 @@ void app_main(void)
     if (power_mgmt_sparmodus_should_resleep_silently()) {
         power_mgmt_sparmodus_resleep();
     }
+    /* Snapshot this BEFORE any other init: power_mgmt_init() (inside
+     * lvgl_app_start() below) clears the underlying RTC_DATA_ATTR flag as
+     * part of the normal "this boot is proceeding past the silent-resleep
+     * fork" bookkeeping, so it has to be read now or the information is
+     * gone by the time it's needed after lvgl_app_start() returns. */
+    bool sparmodus_explicit_wake = power_mgmt_sparmodus_was_deep_sleep_wake();
 
     /* Set the local timezone so UTC<->local conversions (RTC sync from GNSS,
      * MGA-INI aiding) are correct. */
@@ -284,6 +290,16 @@ void app_main(void)
     err = lvgl_app_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "lvgl start failed: %s", esp_err_to_name(err));
+    }
+
+    /* This is an explicit wake out of an active Ultra-Sparmodus deep-sleep
+     * session (not a cold boot) - arms the BOOT-hold-to-exit watcher for
+     * the rest of this awake session (docs/application.md section 10.4).
+     * Returns immediately; how long the watch stays awake before
+     * automatically re-entering deep sleep is the normal auto-sleep idle
+     * timeout, not this call - see power_mgmt_sparmodus_handle_wake(). */
+    if (err == ESP_OK && sparmodus_explicit_wake) {
+        power_mgmt_sparmodus_handle_wake();
     }
 
     /* Debug command loop over USB-Serial-JTAG. */

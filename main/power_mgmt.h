@@ -105,6 +105,16 @@ void power_mgmt_set_sparmodus_active(bool on);
  * one-line fork - see main/uwatch_main.c. */
 bool power_mgmt_sparmodus_should_resleep_silently(void);
 
+/* True if this boot is an explicit wake (touch/PWRKEY/BOOT/RTC-alarm) out
+ * of an active Ultra-Sparmodus deep-sleep session, as opposed to a cold
+ * boot/reset - i.e. power_mgmt_sparmodus_should_resleep_silently() was
+ * already checked and returned false, but the deep-sleep-session flag is
+ * still set. MUST be called before lvgl_app_start() (power_mgmt_init()
+ * clears the underlying flag) and the result kept until after
+ * lvgl_app_start() returns, to gate a power_mgmt_sparmodus_handle_wake()
+ * call - see main/uwatch_main.c. */
+bool power_mgmt_sparmodus_was_deep_sleep_wake(void);
+
 /* Real deep-sleep entry: shuts every peripheral down, arms wake sources
  * (touch/PWRKEY/BOOT/RTC-alarm + the 60s silent timer), and calls
  * esp_deep_sleep_start() - does not return. Currently reachable only via
@@ -116,6 +126,19 @@ void power_mgmt_sparmodus_enter_sleep(void);
  * nothing else - what power_mgmt_sparmodus_should_resleep_silently()
  * returning true means to do. */
 void power_mgmt_sparmodus_resleep(void);
+
+/* Call once, after a full boot completes (lvgl_app_start() returned OK),
+ * ONLY when power_mgmt_sparmodus_was_deep_sleep_wake() returned true
+ * earlier - i.e. this boot is an explicit wake out of an active Sparmodus
+ * deep-sleep session. Returns immediately (never blocks the caller): it
+ * spawns a background watcher for the rest of this awake session that
+ * exits Ultra-Sparmodus on a 3s continuous BOOT hold (only if battery is
+ * above 10%). How long the watch face stays up before automatically
+ * re-entering deep sleep is NOT this function's job - that's the normal
+ * auto-sleep idle timeout (lvgl_app.c), already wired to re-enter Sparmodus
+ * when the flag is still set on timeout. See main/uwatch_main.c for the
+ * call site. */
+void power_mgmt_sparmodus_handle_wake(void);
 
 #ifdef __cplusplus
 }

@@ -28,6 +28,7 @@
 #include "lvgl_app.h"
 #include "alarm.h"
 #include "sd_log.h"
+#include "mesh_log.h"
 
 static const char *TAG = "power_mgmt";
 
@@ -242,22 +243,40 @@ bool power_mgmt_sparmodus_should_resleep_silently(void)
     return s_rtc_sparmodus_active && causes == (1u << ESP_SLEEP_WAKEUP_TIMER);
 }
 
+bool power_mgmt_sparmodus_was_deep_sleep_wake(void)
+{
+    /* Only meaningful once should_resleep_silently() has already been
+     * checked and returned false (a pure timer wake never reaches this) -
+     * at that point s_rtc_sparmodus_active being true means this boot is a
+     * real explicit wake (touch/PWRKEY/BOOT/RTC-alarm) out of an active
+     * deep-sleep session, not a cold boot/reset. Must be called before
+     * power_mgmt_init() (inside lvgl_app_start()) clears the flag - see
+     * main/uwatch_main.c. */
+    return s_rtc_sparmodus_active;
+}
+
 /* 60s "invisible" internal wake (docs/application.md section 10.3) - not
  * every minute on the wall clock, just every 60s of sleep duration; close
  * enough for "roughly once a minute" and avoids needing RTC-alarm-based
  * scheduling for something this loose. */
 #define PM_SPARMODUS_TICK_US (60ULL * 1000000ULL)
+/* Battery percent below which Ultra-Sparmodus auto-activates, and at or
+ * below which a BOOT-long-press exit request is denied (docs/application.md
+ * section 10.2/10.4). */
+#define PM_SPARMODUS_BATT_PCT 10
 
 /* 4 EXT1 pins = every existing light-sleep wake source (touch/PWRKEY/BOOT)
  * plus the RTC alarm line (so a scheduled alarm still reaches the user -
  * see the Phase 6 plan's alarm-during-Sparmodus decision), all active-low
- * (ESP_EXT1_WAKEUP_ANY_LOW), matching the LOW_LEVEL trigger these same 4
- * GPIOs already use for light-sleep wake in pm_arm_gpio_wakeup() below. */
+ * (ESP_EXT1_WAKEUP_ANY_LOW), matching the LOW_LEVEL trigger these same
+ * GPIOs already use for light-sleep wake in pm_arm_gpio_wakeup() below.
+ * Touch is deliberately NOT armed here (per explicit feedback: it read as
+ * too sensitive, e.g. an accidental wrist-brush waking the display) -
+ * PWRKEY/BOOT/RTC-alarm only. */
 static void pm_sparmodus_arm_wake(void)
 {
     esp_sleep_enable_timer_wakeup(PM_SPARMODUS_TICK_US);
-    uint64_t pins = (1ULL << PM_GPIO_TOUCH) | (1ULL << PM_GPIO_PWRKEY) |
-                    (1ULL << PM_GPIO_BOOT) | (1ULL << PM_GPIO_RTC);
+    uint64_t pins = (1ULL << PM_GPIO_PWRKEY) | (1ULL << PM_GPIO_BOOT) | (1ULL << PM_GPIO_RTC);
     esp_sleep_enable_ext1_wakeup_io(pins, ESP_EXT1_WAKEUP_ANY_LOW);
 }
 
@@ -269,8 +288,60 @@ static void pm_sparmodus_arm_wake(void)
 void power_mgmt_sparmodus_enter_sleep(void)
 {
     ESP_LOGI(TAG, "Ultra-Sparmodus: entering deep sleep");
-    lvgl_gps_set_enabled(false);
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);   /* LoRa rail */
+    /* Panel must go dark here - deep sleep means the ESP32 stops driving it
+     * entirely, and an AMOLED panel otherwise just keeps showing its last
+     * latched frame indefinitely (its own GRAM holds it with no refresh
+     * needed). Without this the watch looked "frozen"/unresponsive on a
+     * real explicit wake - reported live and mistaken for a crash - since
+     * the screen stayed lit on stale content while the chip was actually
+     * correctly asleep underneath it. Same three-call sequence
+     * power_mgmt_enter_sleep() already uses for the normal light-sleep
+     * path. */
+    co5300_display_off();
+    co5300_blank();
+    co5300_sleep();
+    lvgl_gps_set_enabled(false);   /* GNSS (BLDO1): clean stop through the driver's own path */
+
+    /* LoRa (ALDO3): unlike the normal light-sleep path (which keeps this
+     * rail on so mesh_log_task can keep listening across sleep), Sparmodus
+     * cuts it - mesh listening is one of the things "ultra" power saving
+     * gives up. mesh_log_task's RX loop runs continuously with no locking
+     * of its own around the sx1262 driver's static state, so the rail
+     * can't just be yanked out from under it (same bug class as the SD
+     * card crash this session already hit) - mesh_log_stop_radio_for_sleep()
+     * asks the task itself to stop cleanly and waits for confirmation
+     * before it's safe to cut power. A timeout is logged and treated as
+     * "proceed anyway" rather than blocking sleep entry indefinitely on a
+     * stuck task. */
+    esp_err_t mesh_stop_err = mesh_log_stop_radio_for_sleep();
+    if (mesh_stop_err != ESP_OK) {
+        ESP_LOGW(TAG, "Ultra-Sparmodus: mesh_log radio stop: %s (cutting rail anyway)",
+                 esp_err_to_name(mesh_stop_err));
+    }
+    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);
+
+    /* BHI260AP motion sensor (ALDO4): the normal light-sleep path only
+     * suspends it (bhi260ap_ap_suspend(), keeping ~0.1-0.3 mA alive) to
+     * avoid a firmware re-upload on the next wake, since that path resumes
+     * the SAME running app. Sparmodus's wake sources don't include IMU
+     * gestures at all (touch/PWRKEY/BOOT/RTC-alarm only, see
+     * pm_sparmodus_arm_wake()), and any wake here is a full reboot that
+     * already re-initializes every driver from scratch regardless of
+     * whether this rail was cut - so there's no re-upload cost being
+     * avoided by leaving it on, only wasted current. bhi260ap_ap_suspend()
+     * first for a clean stop of bhi260_task's I2C polling (same rationale
+     * as the LoRa handshake above; that task already skips polling once
+     * suspended) before cutting the rail a moment later. */
+    bhi260ap_ap_suspend();
+    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO4, false);
+
+    /* NFC (DLDO1): deliberately left untouched, matching the normal
+     * light-sleep path's own reasoning (twatch_board.c/power_mgmt.c) - the
+     * ST25R3916 "has not proven able to come back reliably after a rail
+     * power-cycle", a real malfunction risk, not just an extra bring-up
+     * cost. Not worth trading that for Sparmodus's incremental savings on
+     * an already low-priority peripheral. */
+
     sd_log_unmount();
     /* VBUS-insert IRQ is a one-time PMIC register write (persists on its
      * own power, independent of the ESP32's sleep/reset cycle) - only
@@ -290,6 +361,87 @@ void power_mgmt_sparmodus_resleep(void)
 {
     pm_sparmodus_arm_wake();
     esp_deep_sleep_start();
+}
+
+/* How long BOOT must be held continuously to exit Ultra-Sparmodus. */
+#define PM_SPARMODUS_EXIT_HOLD_MS   3000
+
+/* Watches BOOT for the rest of an explicit-wake session and exits Ultra-
+ * Sparmodus on a 3s continuous hold (battery permitting) - see
+ * power_mgmt_sparmodus_handle_wake(), which spawns this. Deliberately NOT
+ * a one-shot check at boot: the user must be able to press BOOT at any
+ * point while the watch face is up, not just in a narrow window right
+ * after wake, and "how long the watch face stays up at all" is governed
+ * entirely by the normal auto-sleep idle timeout (adapter_cfg_mut.auto_sleep
+ * in lvgl_app.c, already wired to branch into power_mgmt_sparmodus_enter_sleep()
+ * when the flag is still set) - not by anything in this file.
+ *
+ * "Halts the timer" while held (per explicit feedback): esp_lv_adapter_report_activity()
+ * is called every 50ms of the hold, which resets that same idle timeout,
+ * so a hold in progress can never be interrupted by an auto-resleep -
+ * the display timeout and the exit-hold share one clock, not two competing
+ * ones. */
+static void sparmodus_boot_watch_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        if (!power_mgmt_get_sparmodus_active()) {
+            break;   /* exited some other way (VBUS insert, debug console) */
+        }
+        if (gpio_get_level(PM_GPIO_BOOT) == 0) {
+            uint32_t held_ms = 0;
+            while (gpio_get_level(PM_GPIO_BOOT) == 0) {
+                esp_lv_adapter_report_activity();
+                vTaskDelay(pdMS_TO_TICKS(50));
+                held_ms += 50;
+                if (held_ms >= PM_SPARMODUS_EXIT_HOLD_MS) {
+                    break;
+                }
+            }
+            if (held_ms >= PM_SPARMODUS_EXIT_HOLD_MS) {
+                /* Read the PMIC directly rather than sensor_cache_get():
+                 * no dependency on whether that background task has
+                 * produced its first sample yet, and this isn't a hot
+                 * path - one extra I2C round trip here is free. */
+                uint8_t batt_pct = 0;
+                bool batt_ok = axp2101_get_battery_pct(twatch_pmu_dev, &batt_pct) == ESP_OK;
+                if (batt_ok && batt_pct > PM_SPARMODUS_BATT_PCT) {
+                    ESP_LOGI(TAG, "Ultra-Sparmodus: BOOT held %u ms, battery %u%% - exiting",
+                             (unsigned)PM_SPARMODUS_EXIT_HOLD_MS, (unsigned)batt_pct);
+                    power_mgmt_set_sparmodus_active(false);
+                    break;   /* nothing left to watch for */
+                }
+                ESP_LOGI(TAG, "Ultra-Sparmodus: BOOT held but battery too low (%u%%) - denied",
+                         batt_ok ? (unsigned)batt_pct : 0);
+                /* Denied, not exited - keep watching in case of a later,
+                 * separate hold (e.g. after plugging in to charge). */
+            }
+            /* Released before 3s (or the hold was denied): fall back to
+             * the outer loop and keep watching for the next press. */
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    vTaskDelete(NULL);
+}
+
+/* Call once, after a full boot completes (lvgl_app_start() returned OK),
+ * ONLY when power_mgmt_sparmodus_was_deep_sleep_wake() returned true
+ * earlier in app_main() - i.e. this boot is an explicit wake out of an
+ * active Sparmodus deep-sleep session, not a cold boot. Returns
+ * immediately (never blocks the caller) - see main/uwatch_main.c. */
+void power_mgmt_sparmodus_handle_wake(void)
+{
+    /* An alarm/timer firing is also one of the EXT1 wake sources (PM_GPIO_RTC)
+     * - let that ring normally, with no BOOT-hold watcher competing for the
+     * button; alarm_ring_cb() owns the screen/audio for as long as it's
+     * ringing, and its own dismiss button already exists separately. */
+    uint64_t ext1_status = esp_sleep_get_ext1_wakeup_status();
+    if (ext1_status & (1ULL << PM_GPIO_RTC)) {
+        ESP_LOGI(TAG, "Ultra-Sparmodus: woke for an alarm, skipping the BOOT-exit watcher");
+        return;
+    }
+    xTaskCreate(sparmodus_boot_watch_task, "sparmodus_boot", 3072, NULL,
+                ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, NULL);
 }
 
 bool power_mgmt_get_night_mode_auto(void)
@@ -430,8 +582,6 @@ void power_mgmt_shutdown(void)
  * battery-threshold/USB-plug transition deserves noticing sooner than
  * night mode's clock check. */
 #define PM_SPARMODUS_CHECK_MS 30000
-/* Battery percent below which Ultra-Sparmodus auto-activates. */
-#define PM_SPARMODUS_BATT_PCT 10
 
 static void pm_wake_task(void *arg)
 {
