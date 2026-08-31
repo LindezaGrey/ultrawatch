@@ -54,6 +54,19 @@ void bhi260ap_deinit(void);
  * this under ~1 s, while a powered-down or bootloader-mode chip goes stale. */
 uint32_t bhi260ap_get_data_age_ms(void);
 
+/* Quick liveness check (reads the product ID register) - call before a full
+ * bhi260ap_deinit()+bhi260ap_init() on staleness, so a transient stall
+ * (e.g. a dropped virtual-sensor config, not an actual dead/rebooted chip)
+ * doesn't trigger an unnecessary RAM-firmware reflash. Returns false if not
+ * initialized. */
+bool bhi260ap_ping(void);
+
+/* Soft recovery: re-applies the virtual-sensor enable list and resets the
+ * staleness clock, without a full deinit+reinit - for when bhi260ap_ping()
+ * confirms the chip is alive but data went stale anyway. No-op if not
+ * initialized. */
+void bhi260ap_reenable_sensors(void);
+
 /* True while the chip is in AP-suspend (host sleeping, FIFO polling paused). */
 bool bhi260ap_is_suspended(void);
 

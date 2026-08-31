@@ -1044,13 +1044,21 @@ static void lvgl_show_watch_face(void)
  * stale age (> 5 s) means the chip needs re-initialization. */
 #define BHI_STALE_MS 5000
 
+/* Consecutive failed init attempts before this cycle's re-init back-off is
+ * applied (see bhi260_task's retry_delay_ms below) - reset to 0 on any
+ * successful init. Uncapped in principle but the delay itself is capped, so
+ * this just needs to not overflow across a very long-wedged session. */
+#define BHI_REINIT_BACKOFF_MAX_MS 30000
+
 static void bhi260_task(void *arg)
 {
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(50));
     bool initialized = (bhi260ap_init(twatch_imu_dev) == ESP_OK);
+    uint32_t fail_streak = 0;
     if (!initialized) {
         ESP_LOGW(TAG, "BHI260AP init failed; retrying");
+        fail_streak = 1;
     }
     for (;;) {
         /* While the chip is in AP-suspend (host sleeping), no data flows by
@@ -1061,6 +1069,7 @@ static void bhi260_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(200));
             continue;
         }
+        uint32_t retry_delay_ms = 200;
         if (initialized) {
             if (bhi260ap_process_fifo() != ESP_OK) {
                 ESP_LOGW(TAG, "BHI260AP FIFO read failed");
@@ -1072,14 +1081,45 @@ static void bhi260_task(void *arg)
             if (gg) ESP_LOGI(TAG, "Glance gesture consumed");
             if (pg) ESP_LOGI(TAG, "Pickup gesture consumed");
             if (bhi260ap_get_data_age_ms() > BHI_STALE_MS) {
-                ESP_LOGW(TAG, "BHI260AP data stale, re-initializing");
-                bhi260ap_deinit();
-                initialized = false;
+                /* Staleness alone doesn't prove the chip is dead - it could
+                 * just as easily mean a dropped virtual-sensor config (or
+                 * transient I2C contention that has since cleared). Ping
+                 * first: a live chip gets a cheap soft recovery (re-apply
+                 * the sensor enables) instead of a full deinit+reinit, which
+                 * re-uploads the whole RAM firmware over I2C - a multi-
+                 * hundred-ms to multi-second burst that hogs the bus every
+                 * other I2C device (PMU, RTC, the xl9555 GPIO expander
+                 * gating DISP_PWR/TOUCH_RST) shares, and would otherwise
+                 * fire on every transient stall instead of just real ones. */
+                if (bhi260ap_ping()) {
+                    ESP_LOGW(TAG, "BHI260AP data stale but chip responsive; soft recovery");
+                    bhi260ap_reenable_sensors();
+                } else {
+                    ESP_LOGW(TAG, "BHI260AP unresponsive, re-initializing");
+                    bhi260ap_deinit();
+                    initialized = false;
+                    fail_streak = 0;   /* this is a fresh re-init attempt, not a repeat failure yet */
+                }
             }
-        } else if (bhi260ap_init(twatch_imu_dev) == ESP_OK) {
-            initialized = true;
+        } else {
+            if (bhi260ap_init(twatch_imu_dev) == ESP_OK) {
+                initialized = true;
+                fail_streak = 0;
+            } else {
+                /* Back off exponentially on repeated failures instead of
+                 * hammering the bus with a full boot handshake every 200ms -
+                 * a genuinely wedged/absent chip would otherwise generate
+                 * that traffic forever. */
+                fail_streak++;
+                retry_delay_ms = 200u << (fail_streak > 7 ? 7 : fail_streak);
+                if (retry_delay_ms > BHI_REINIT_BACKOFF_MAX_MS) {
+                    retry_delay_ms = BHI_REINIT_BACKOFF_MAX_MS;
+                }
+                ESP_LOGW(TAG, "BHI260AP init failed (%lu in a row); retrying in %lu ms",
+                         (unsigned long)fail_streak, (unsigned long)retry_delay_ms);
+            }
         }
-        vTaskDelay(pdMS_TO_TICKS(200));
+        vTaskDelay(pdMS_TO_TICKS(retry_delay_ms));
     }
 }
 

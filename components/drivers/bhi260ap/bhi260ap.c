@@ -438,6 +438,38 @@ static esp_err_t load_firmware(uint8_t **out, size_t *out_len)
     return ESP_OK;
 }
 
+/* Virtual sensors enabled at init, and re-applied verbatim by
+ * bhi260ap_reenable_sensors() (soft recovery - see that function). */
+static const struct {
+    uint8_t id;
+    bhy2_float rate;
+} s_sensor_enable[] = {
+    { BHY2_SENSOR_ID_STC, 1.0f },
+    { BHY2_SENSOR_ID_ACC, 12.5f },
+    { BHY2_SENSOR_ID_GYRO, 12.5f },
+    { BHY2_SENSOR_ID_GAMERV, 5.0f },
+    { BHY2_SENSOR_ID_AR, 5.0f },
+    { BHY2_SENSOR_ID_WRIST_TILT_GESTURE, 1.0f },
+    { BHY2_SENSOR_ID_WAKE_GESTURE, 1.0f },
+    { BHY2_SENSOR_ID_GLANCE_GESTURE, 1.0f },
+    { BHY2_SENSOR_ID_PICKUP_GESTURE, 1.0f },
+    { BHY2_SENSOR_ID_TILT_DETECTOR, 1.0f },
+};
+
+/* Applies s_sensor_enable[] to the chip (non-fatal per-sensor: the watch
+ * keeps running if one is unavailable in the loaded firmware). Call under
+ * s_bhy2_mux. */
+static void enable_virtual_sensors_locked(void)
+{
+    for (size_t i = 0; i < sizeof(s_sensor_enable) / sizeof(s_sensor_enable[0]); i++) {
+        int8_t rslt = bhy2_set_virt_sensor_cfg(s_sensor_enable[i].id, s_sensor_enable[i].rate, 0, &s_bhy2);
+        if (rslt != BHY2_OK) {
+            ESP_LOGW(TAG, "enable sensor %u @ %.1f Hz failed: %d",
+                     s_sensor_enable[i].id, s_sensor_enable[i].rate, rslt);
+        }
+    }
+}
+
 /* Actual init body, run under s_bhy2_mux (see bhi260ap_init() below) - not
  * called directly by anything else. */
 static esp_err_t bhi260ap_init_locked(i2c_master_dev_handle_t dev)
@@ -561,27 +593,7 @@ static esp_err_t bhi260ap_init_locked(i2c_master_dev_handle_t dev)
 
     /* Enable virtual sensors (non-fatal: the watch keeps running if one is
      * unavailable in the loaded firmware). */
-    struct {
-        uint8_t id;
-        bhy2_float rate;
-    } enable[] = {
-        { BHY2_SENSOR_ID_STC, 1.0f },
-        { BHY2_SENSOR_ID_ACC, 12.5f },
-        { BHY2_SENSOR_ID_GYRO, 12.5f },
-        { BHY2_SENSOR_ID_GAMERV, 5.0f },
-        { BHY2_SENSOR_ID_AR, 5.0f },
-        { BHY2_SENSOR_ID_WRIST_TILT_GESTURE, 1.0f },
-        { BHY2_SENSOR_ID_WAKE_GESTURE, 1.0f },
-        { BHY2_SENSOR_ID_GLANCE_GESTURE, 1.0f },
-        { BHY2_SENSOR_ID_PICKUP_GESTURE, 1.0f },
-        { BHY2_SENSOR_ID_TILT_DETECTOR, 1.0f },
-    };
-    for (size_t i = 0; i < sizeof(enable) / sizeof(enable[0]); i++) {
-        rslt = bhy2_set_virt_sensor_cfg(enable[i].id, enable[i].rate, 0, &s_bhy2);
-        if (rslt != BHY2_OK) {
-            ESP_LOGW(TAG, "enable sensor %u @ %.1f Hz failed: %d", enable[i].id, enable[i].rate, rslt);
-        }
-    }
+    enable_virtual_sensors_locked();
 
     /* Arm the host-interrupt wake path: the chip asserts its INT line (GPIO8)
      * when the wake-up FIFO reaches this watermark, so a gesture/wake event
@@ -623,6 +635,32 @@ esp_err_t bhi260ap_init(i2c_master_dev_handle_t dev)
     esp_err_t err = bhi260ap_init_locked(dev);
     xSemaphoreGiveRecursive(s_bhy2_mux);
     return err;
+}
+
+bool bhi260ap_ping(void)
+{
+    if (!s_initialized) {
+        return false;
+    }
+    xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
+    uint8_t product_id = 0;
+    int8_t rslt = bhy2_get_product_id(&product_id, &s_bhy2);
+    xSemaphoreGiveRecursive(s_bhy2_mux);
+    return rslt == BHY2_OK && product_id == BHY2_PRODUCT_ID;
+}
+
+void bhi260ap_reenable_sensors(void)
+{
+    if (!s_initialized) {
+        return;
+    }
+    xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
+    enable_virtual_sensors_locked();
+    xSemaphoreGiveRecursive(s_bhy2_mux);
+    /* Reset the staleness clock so this soft recovery doesn't immediately
+     * re-trigger before the first post-recovery sample arrives. */
+    bhi260ap_mark_data();
+    ESP_LOGI(TAG, "sensors re-enabled (soft recovery)");
 }
 
 /* Poll the FIFO once; returns ESP_OK on success. */
