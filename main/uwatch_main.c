@@ -189,6 +189,7 @@ static const debug_cmd_entry_t s_commands[] = {
     { "gpxcat",         debug_cmd_gpxcat },
     { "meshnodes",      debug_cmd_meshnodes },
     { "meshcat",        debug_cmd_meshcat },
+    { "dailycat",       debug_cmd_dailycat },
     { "presetset",      debug_cmd_presetset },
     { "rtcdump",        debug_cmd_rtcdump },
     { "rtctimer",       debug_cmd_rtctimer },

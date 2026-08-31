@@ -828,6 +828,34 @@ void debug_cmd_meshcat(const char *args)
     fclose(f);
 }
 
+/* Dumps daily_log.c's two CSVs (steps.csv, activity.csv) - no gpxcat/meshcat
+ * equivalent existed for these before, making "is the daily log actually
+ * writing" unverifiable without pulling the SD card. */
+void debug_cmd_dailycat(const char *args)
+{
+    (void)args;
+    if (sd_log_session_begin() != ESP_OK) {
+        printf("dailycat: no SD card\n");
+        sd_log_session_end();
+        return;
+    }
+    static const char *paths[] = { "/sdcard/log/steps.csv", "/sdcard/log/activity.csv" };
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+        printf("dailycat: --- %s ---\n", paths[i]);
+        FILE *f = fopen(paths[i], "r");
+        if (!f) {
+            printf("dailycat: cannot open %s\n", paths[i]);
+            continue;
+        }
+        char line[128];
+        while (fgets(line, sizeof(line), f)) {
+            fputs(line, stdout);
+        }
+        fclose(f);
+    }
+    sd_log_session_end();
+}
+
 void debug_cmd_presetset(const char *args)
 {
     int idx = -1;
