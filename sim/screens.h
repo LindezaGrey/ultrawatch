@@ -44,6 +44,7 @@ extern lv_obj_t *s_settings_screen;
 void sim_bhi_screen_build(void);
 void sim_gps_screen_build(void);
 void sim_mesh_screen_build(void);
+void sim_wifi_screen_build(void);
 void sim_node_screen_build(void);
 void sim_alarm_screen_build(void);
 void sim_alarm_edit_screen_build(void);
@@ -55,6 +56,7 @@ void sim_settings_disp_screen_build(void);
 void sim_settings_tz_screen_build(void);
 void sim_settings_periph_screen_build(void);
 void sim_settings_sound_screen_build(void);
+void sim_settings_vib_screen_build(void);
 void sim_settings_info_screen_build(void);
 void sim_settings_sparmodus_screen_build(void);
 /* source picks which ring-screen variant to preview: ALARM_RING_SOURCE_ALARM

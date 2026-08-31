@@ -24,10 +24,12 @@ add_executable(uwatch_sim
     ../main/screens/status_icons.c
     ../main/screens/gps_screen.c
     ../main/screens/mesh_screen.c
+    ../main/screens/wifi_screen.c
     ../main/screens/settings_screen.c
     ../main/screens/alarm_screen.c
     ../main/screens/ring_screen.c
     ../main/screens/bhi_screen.c
+    ../main/cascadia_88.c
     ../main/cascadia_72.c
     ../main/cascadia_36.c
     ../main/cascadia_22.c

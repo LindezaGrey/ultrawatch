@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "uwatch_main.c" "debug_audio.c" "debug_bhi.c" "debug_gnss.c" "debug_cmds.c" "lvgl_app.c" "power_mgmt.c" "crash_dump.c" "tracking.c" "sensor_cache.c" "ble_debug.c" "alarm.c" "cd_timer.c" "daily_log.c" "gpx_log.c" "mesh_log.c" "cascadia_72.c" "cascadia_36.c" "cascadia_22.c" "cascadia_18.c" "screens/status_bar.c" "screens/status_icons.c" "screens/watch_face.c" "screens/gps_screen.c" "screens/mesh_screen.c" "screens/settings_screen.c" "screens/alarm_screen.c" "screens/ring_screen.c" "screens/bhi_screen.c"
+    SRCS "uwatch_main.c" "debug_audio.c" "debug_bhi.c" "debug_gnss.c" "debug_cmds.c" "lvgl_app.c" "power_mgmt.c" "crash_dump.c" "tracking.c" "sensor_cache.c" "ble_debug.c" "alarm.c" "cd_timer.c" "daily_log.c" "gpx_log.c" "mesh_log.c" "wifi_scan.c" "haptic.c" "syslog_capture.c" "cascadia_88.c" "cascadia_72.c" "cascadia_36.c" "cascadia_22.c" "cascadia_18.c" "screens/status_bar.c" "screens/status_icons.c" "screens/watch_face.c" "screens/gps_screen.c" "screens/mesh_screen.c" "screens/wifi_screen.c" "screens/settings_screen.c" "screens/alarm_screen.c" "screens/ring_screen.c" "screens/bhi_screen.c"
     INCLUDE_DIRS "."
     REQUIRES
         twatch_board
@@ -33,6 +33,9 @@ idf_component_register(
         bt
         espcoredump
         esp_partition
+        esp_wifi
+        esp_netif
+        esp_event
 )
 
 # Bake the git commit hash into the firmware for boot-screen identification.

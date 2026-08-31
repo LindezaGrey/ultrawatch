@@ -72,6 +72,16 @@ void sim_mesh_screen_build(void)
     mesh_screen_update(NULL);
 }
 
+/* WiFi screen: now shared (main/screens/wifi_screen.c). */
+void sim_wifi_screen_build(void)
+{
+    if (!s_wifi_screen) {
+        lvgl_build_wifi_screen();
+    }
+    lv_scr_load(s_wifi_screen);
+    wifi_screen_update(NULL);
+}
+
 /* Public entry point for screenshot/dev-shortcut use (see main.c's
  * UWATCH_SIM_SCREEN env var) - the node overview is reached by an upward
  * fling from Mesh on real hardware, not a swipe this file's own
@@ -118,6 +128,12 @@ void sim_settings_sound_screen_build(void)
 {
     sim_settings_screen_build();
     settings_open_subpage(3);
+}
+
+void sim_settings_vib_screen_build(void)
+{
+    sim_settings_sound_screen_build();
+    settings_open_vib_screen();
 }
 
 void sim_settings_info_screen_build(void)
@@ -251,6 +267,8 @@ static void swipe_event_cb(lv_event_t *e)
     } else if (cur == s_alarm_screen) {
         if (!horiz && dy > 0) {  /* down -> clock */
             sim_show_watch_face();
+        } else if (horiz && dx < 0) {   /* left -> WiFi */
+            sim_wifi_screen_build();
         }
     } else if (cur == s_bhi_screen) {
         if (horiz && dx > 0) {   /* right -> clock */
@@ -265,8 +283,16 @@ static void swipe_event_cb(lv_event_t *e)
     } else if (cur == s_mesh_screen) {
         if (horiz && dx < 0) {   /* left -> GPS */
             sim_gps_screen_build();
+        } else if (horiz && dx > 0) {   /* right -> WiFi */
+            sim_wifi_screen_build();
         } else if (!horiz && dy < 0) {   /* up -> Node overview */
             lvgl_show_node_overview();
+        }
+    } else if (cur == s_wifi_screen) {
+        if (horiz && dx < 0) {   /* left -> Mesh */
+            sim_mesh_screen_build();
+        } else if (horiz && dx > 0) {   /* right -> Alarm */
+            sim_alarm_screen_build();
         }
     }
 }

@@ -556,6 +556,76 @@ void mesh_preset_set(int idx, const char *text)
     snprintf(s_mesh_presets[idx], sizeof(s_mesh_presets[idx]), "%s", text);
 }
 
+/* ---- wifi screen ----
+ * Default off, same convention as the mesh radio switch above. A few
+ * static synthetic networks are "found" once switched on, so the list
+ * layout can be checked without a real esp_wifi backend. */
+static bool s_wifi_enabled = false;
+bool wifi_scan_get_enabled(void) { return s_wifi_enabled; }
+void wifi_scan_set_enabled(bool on) { s_wifi_enabled = on; }
+bool wifi_scan_is_scanning(void) { return false; }
+
+size_t wifi_scan_get_results(wifi_scan_result_t *out, size_t max)
+{
+    static const struct { const char *ssid; int8_t rssi; bool open; } nets[] = {
+        { "HomeNet-5G", -42, false },
+        { "CoffeeShop_Free", -67, true },
+        { "Neighbor_2.4", -81, false },
+    };
+    if (!s_wifi_enabled) {
+        return 0;
+    }
+    size_t n = sizeof(nets) / sizeof(nets[0]);
+    if (n > max) {
+        n = max;
+    }
+    for (size_t i = 0; i < n; i++) {
+        snprintf(out[i].ssid, sizeof(out[i].ssid), "%s", nets[i].ssid);
+        out[i].rssi_dbm = nets[i].rssi;
+        out[i].open = nets[i].open;
+    }
+    return n;
+}
+
+/* ---- vibration pattern picker (haptic.h) ----
+ * No real motor on the host - selection persists only for the session
+ * (in-RAM, not NVS, same as every other mocked "on" state here) and the
+ * "test" play is a no-op print instead of an I2C call. */
+const haptic_pattern_t HAPTIC_PATTERNS[HAPTIC_PATTERN_COUNT] = {
+    { "Strong Click", 1 },
+    { "Sharp Click",  4 },
+    { "Double Click", 10 },
+    { "Triple Click", 12 },
+    { "Soft Bump",    7 },
+    { "Buzz",         47 },
+};
+
+static size_t s_haptic_pattern_idx;
+
+size_t haptic_get_pattern_index(void) { return s_haptic_pattern_idx; }
+
+void haptic_set_pattern_index(size_t idx)
+{
+    if (idx < HAPTIC_PATTERN_COUNT) {
+        s_haptic_pattern_idx = idx;
+    }
+}
+
+uint8_t haptic_get_wave_id(void)
+{
+    return HAPTIC_PATTERNS[s_haptic_pattern_idx].wave_id;
+}
+
+void haptic_play_test(uint8_t wave_id)
+{
+    printf("haptic: test-play wave=%u\n", (unsigned)wave_id);
+}
+
+void haptic_play_test_async(uint8_t wave_id)
+{
+    haptic_play_test(wave_id);
+}
+
 /* ---- alarm / alarms-timers screens ----
  * In-RAM only (no NVS on the host); seeded with two example alarms so the
  * list screen has something to render without needing to add one by hand
@@ -590,6 +660,16 @@ void alarm_set_sound_enabled(bool enabled) { s_alarm_sound_enabled = enabled; }
 bool alarm_is_snoozing(void)
 {
     return s_alarm_snoozing;
+}
+
+bool alarm_is_armed(void)
+{
+    for (int i = 0; i < ALARM_MAX_COUNT; i++) {
+        if (s_alarms[i].in_use && s_alarms[i].enabled) {
+            return true;
+        }
+    }
+    return false;
 }
 
 int alarm_add(uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask)

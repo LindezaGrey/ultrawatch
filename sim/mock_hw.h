@@ -268,6 +268,36 @@ void mesh_log_set_notify_enabled(bool enabled);
 bool mesh_log_get_enabled(void);
 void mesh_log_set_enabled(bool on);
 
+/* --- wifi_scan.h subset --- */
+#define WIFI_SCAN_MAX_RESULTS 16
+#define WIFI_SCAN_SSID_MAX    32
+
+typedef struct {
+    char ssid[WIFI_SCAN_SSID_MAX + 1];
+    int8_t rssi_dbm;
+    bool open;
+} wifi_scan_result_t;
+
+bool wifi_scan_get_enabled(void);
+void wifi_scan_set_enabled(bool on);
+bool wifi_scan_is_scanning(void);
+size_t wifi_scan_get_results(wifi_scan_result_t *out, size_t max);
+
+/* --- haptic.h subset --- */
+typedef struct {
+    const char *name;
+    uint8_t wave_id;
+} haptic_pattern_t;
+
+#define HAPTIC_PATTERN_COUNT 6
+extern const haptic_pattern_t HAPTIC_PATTERNS[HAPTIC_PATTERN_COUNT];
+
+size_t haptic_get_pattern_index(void);
+void haptic_set_pattern_index(size_t idx);
+uint8_t haptic_get_wave_id(void);
+void haptic_play_test(uint8_t wave_id);
+void haptic_play_test_async(uint8_t wave_id);
+
 /* --- alarm.h subset (multi-alarm + shared ring engine, 2026-08-29 overhaul) --- */
 #define ALARM_RING_BEEP  0
 #define ALARM_RING_VIB   1
@@ -293,6 +323,7 @@ typedef enum {
 esp_err_t alarm_check(void);
 bool alarm_is_ringing(void);
 bool alarm_is_snoozing(void);
+bool alarm_is_armed(void);
 int alarm_add(uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask);
 esp_err_t alarm_update(int idx, uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask);
 esp_err_t alarm_remove(int idx);

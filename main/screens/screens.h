@@ -61,6 +61,13 @@ void lvgl_build_mesh_screen(void);
 void mesh_screen_update(lv_timer_t *timer);
 void lvgl_show_node_overview(void);
 
+/* WiFi screen (main/screens/wifi_screen.c): power switch + scanned-network
+ * list, read-only (no connect flow) - see main/wifi_scan.h. */
+extern lv_obj_t *s_wifi_screen;
+
+void lvgl_build_wifi_screen(void);
+void wifi_screen_update(lv_timer_t *timer);
+
 /* Settings category list + its 6 sub-pages (main/screens/settings_screen.c).
  * All 7 screen handles are extern: main/lvgl_app.c's menu_timeout_cb()
  * (nav-ring inactivity timeout) and nav-ring array both check/reference
@@ -72,6 +79,10 @@ extern lv_obj_t *s_set_periph_screen;
 extern lv_obj_t *s_set_sound_screen;
 extern lv_obj_t *s_set_info_screen;
 extern lv_obj_t *s_set_sparmodus_screen;
+/* Nested under Ton & Vibration (Sound), not a top-level category - see
+ * main/screens/settings_screen.c's settings_vib_row_open_cb(). */
+extern lv_obj_t *s_set_vib_screen;
+void settings_open_vib_screen(void);
 
 void lvgl_build_settings_screen(void);
 /* Reachable both from the Settings category list and via tap-and-hold on
