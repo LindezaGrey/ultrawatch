@@ -16,6 +16,8 @@ sdcard/
 openocd.log
 .gdb_history
 
+.mcp.json
+
 # Editors / OS
 .vscode/
 .idea/
