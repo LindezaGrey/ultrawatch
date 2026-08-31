@@ -226,6 +226,45 @@ void debug_cmd_crashread(const char *args)
     }
 }
 
+/* Generic raw-byte dump of any SD file (full path), between markers so a
+ * host-side capture can extract exactly the binary payload. One-off
+ * diagnostic tool: added to pull a saved screenshot PNG off the card over
+ * serial for the white-screen-after-wake investigation - no existing
+ * command does this for an arbitrary path (crashread is hardcoded to
+ * /sdcard/log/crash/, meshcat/gpxcat to their own fixed files). */
+void debug_cmd_catbin(const char *args)
+{
+    if (args[0] == '\0') {
+        printf("catbin: usage catbin </sdcard/path>\n");
+        return;
+    }
+    if (sd_log_session_begin() != ESP_OK) {
+        printf("catbin: no SD card\n");
+        sd_log_session_end();
+        return;
+    }
+    FILE *f = fopen(args, "rb");
+    if (!f) {
+        printf("catbin: cannot open %s\n", args);
+        sd_log_session_end();
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    printf("==BINSTART:%s:%ld==\n", args, size);
+    fflush(stdout);
+    char buf[512];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        fwrite(buf, 1, n, stdout);
+    }
+    fflush(stdout);
+    printf("\n==BINEND==\n");
+    fclose(f);
+    sd_log_session_end();
+}
+
 void debug_cmd_panictest(const char *args)
 {
     (void)args;

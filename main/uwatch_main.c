@@ -127,6 +127,7 @@ typedef struct {
 static const debug_cmd_entry_t s_commands[] = {
     { "shot",           debug_cmd_shot },
     { "sdls",           debug_cmd_sdls },
+    { "catbin",         debug_cmd_catbin },
     { "synclog",        debug_cmd_synclog },
     { "sdclear",        debug_cmd_sdclear },
     { "heap",           debug_cmd_heap },
