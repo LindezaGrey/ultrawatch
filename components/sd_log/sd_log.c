@@ -140,9 +140,30 @@ static void sd_rail_reconcile(void)
     spi2_power_release(AXP2101_RAIL_MAX);
 }
 
-/* ---- Public API ---- */
+/* ---- Public API ----
+ * sd_log_mount()/sd_log_unmount() and the session API below share one mutex
+ * (s_session_mux, created on first use by whichever runs first) so a direct
+ * caller (power_mgmt.c's sleep/shutdown paths, debug_cmds.c's nfcprobe) can
+ * never unmount the card out from under a task that's mid-write inside its
+ * own sd_log_session_begin()/end() bracket - and vice versa. Without this,
+ * a Sparmodus deep-sleep entry landing while e.g. gpx_log_task is between
+ * fopen()/fclose() would call esp_vfs_fat_sdcard_unmount() while that FILE*
+ * is still open, corrupting FATFS state under it and crashing on the
+ * following fclose() (confirmed as the cause of a live crash right after
+ * entering Ultra-Sparmodus). The internal *_locked() helpers below are the
+ * real bodies, callable both from these public entry points (which take
+ * the lock) and from the session functions (which already hold it). */
+static SemaphoreHandle_t s_session_mux;
+static int s_session_count;
 
-esp_err_t sd_log_mount(void)
+static void session_mux_ensure(void)
+{
+    if (!s_session_mux) {
+        s_session_mux = xSemaphoreCreateMutex();
+    }
+}
+
+static esp_err_t sd_log_mount_locked(void)
 {
     if (s_card) {
         return ESP_OK;   /* already mounted */
@@ -197,7 +218,7 @@ esp_err_t sd_log_mount(void)
     return ESP_OK;
 }
 
-esp_err_t sd_log_unmount(void)
+static esp_err_t sd_log_unmount_locked(void)
 {
     if (!s_card) {
         return ESP_OK;   /* already unmounted */
@@ -217,6 +238,28 @@ esp_err_t sd_log_unmount(void)
     return err;
 }
 
+esp_err_t sd_log_mount(void)
+{
+    session_mux_ensure();
+    xSemaphoreTake(s_session_mux, portMAX_DELAY);
+    esp_err_t err = sd_log_mount_locked();
+    xSemaphoreGive(s_session_mux);
+    return err;
+}
+
+esp_err_t sd_log_unmount(void)
+{
+    session_mux_ensure();
+    /* Blocks until any in-flight sd_log_session_begin()/end() bracket
+     * finishes - see the big comment above. A Sparmodus deep-sleep entry
+     * landing mid-write now waits a few ms for that write to close its
+     * file cleanly instead of racing it. */
+    xSemaphoreTake(s_session_mux, portMAX_DELAY);
+    esp_err_t err = sd_log_unmount_locked();
+    xSemaphoreGive(s_session_mux);
+    return err;
+}
+
 bool sd_log_available(void)
 {
     return s_sd_ready;
@@ -226,36 +269,38 @@ bool sd_log_available(void)
  * Refcounted: mounts on the 0->1 transition, unmounts on the ->0 transition,
  * so nested/overlapping callers (daily_log + gpx_log + mesh_log can all fire
  * close together) share one mount instead of unmounting out from under each
- * other. Guarded by its own mutex since these run from independent tasks. */
-static SemaphoreHandle_t s_session_mux;
-static int s_session_count;
-
+ * other.
+ *
+ * s_session_mux is held for the caller's ENTIRE bracket - taken here in
+ * sd_log_session_begin(), only released in the matching sd_log_session_end()
+ * - not just around the mount/unmount transitions. That's what makes the
+ * mutual exclusion with sd_log_mount()/sd_log_unmount() above actually work:
+ * those take the same mutex, so a direct unmount can't run (and can't
+ * observe a half-written file or a stale FILE* on a now-unmounted
+ * filesystem) until whichever session is currently open finishes and
+ * releases it. Every sd_log_session_begin() call MUST be paired with
+ * exactly one sd_log_session_end(), including on every failure path, or
+ * the mutex stays held forever and every other SD access in the app
+ * deadlocks. */
 esp_err_t sd_log_session_begin(void)
 {
-    if (!s_session_mux) {
-        s_session_mux = xSemaphoreCreateMutex();
-    }
+    session_mux_ensure();
     xSemaphoreTake(s_session_mux, portMAX_DELAY);
     esp_err_t err = ESP_OK;
     if (s_session_count == 0) {
-        err = sd_log_mount();
+        err = sd_log_mount_locked();
     }
     s_session_count++;
-    xSemaphoreGive(s_session_mux);
     return sd_log_available() ? ESP_OK : err;
 }
 
 void sd_log_session_end(void)
 {
-    if (!s_session_mux) {
-        return;
-    }
-    xSemaphoreTake(s_session_mux, portMAX_DELAY);
     if (s_session_count > 0) {
         s_session_count--;
     }
     if (s_session_count == 0) {
-        sd_log_unmount();
+        sd_log_unmount_locked();
     }
     xSemaphoreGive(s_session_mux);
 }
