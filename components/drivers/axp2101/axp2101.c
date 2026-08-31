@@ -386,6 +386,17 @@ esp_err_t axp2101_is_charge_enabled(i2c_master_dev_handle_t dev, bool *enabled)
     return ESP_OK;
 }
 
+/* Button-battery (RTC backup coin cell, see axp2101_set_default_power()'s
+ * header comment) charge-enable readback - same register/bit set there,
+ * exposed so live state can actually be confirmed instead of assumed. */
+esp_err_t axp2101_is_button_batt_charge_enabled(i2c_master_dev_handle_t dev, bool *enabled)
+{
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_CHG_GAUGE_WDT, &val), TAG, "read chg ctrl");
+    *enabled = (val & AXP_CHG_CTRL_BTN_BATT) != 0;
+    return ESP_OK;
+}
+
 /* Map a charge-current code (0x62 low 5 bits) to mA. */
 static uint16_t charge_code_to_ma(uint8_t code)
 {

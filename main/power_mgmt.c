@@ -26,6 +26,7 @@
 #include "m10q.h"
 #include "sensor_cache.h"
 #include "lvgl_app.h"
+#include "screens/screens.h"
 #include "alarm.h"
 #include "sd_log.h"
 #include "mesh_log.h"
@@ -884,13 +885,22 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
      * listening, and a rail power-cycle would mean re-running the whole
      * TCXO/RF-switch/frequency bring-up sequence on every wake instead of
      * just continuing to listen. */
-    /* GNSS (BLDO1): cut the rail only when GNSS is not deliberately enabled.
-     * With the GPS-screen switch on, the receiver is kept alive across the
-     * whole sleep session so wake-ups don't pay the ~4 s cold re-power + warm
-     * start each time (one clean power-on per session). When the switch is
-     * off the rail is cut as usual and stays off. */
-    if (lvgl_gps_enabled()) {
-        ESP_LOGI(TAG, "GNSS enabled: keeping BLDO1 rail on across sleep");
+    /* GNSS (BLDO1): cut the rail only when GNSS is neither deliberately
+     * enabled NOR actively mid-acquisition. With the GPS-screen switch on
+     * (lvgl_gps_enabled()), the receiver is kept alive across the whole
+     * sleep session so wake-ups don't pay the ~4 s cold re-power + warm
+     * start each time. gps_screen_is_powered() covers the other real case:
+     * a one-shot boot-time/console "gpscheck" refresh (GPS_CTRL_REFRESH)
+     * powers the module on without setting the persisted switch flag - if
+     * light-sleep cut the rail mid-search there, a walk with enough wrist
+     * motion to repeatedly trigger wrist-raise wake (see button_isr's own
+     * "storm the CPU" comment on why that source exists) would restart
+     * acquisition from a cold power-on every single wake, and a fix could
+     * take many minutes to never actually land - confirmed as the likely
+     * cause of a live "walked outside for several minutes, no fix" report.
+     * When neither is true the rail is cut as usual and stays off. */
+    if (lvgl_gps_enabled() || gps_screen_is_powered()) {
+        ESP_LOGI(TAG, "GNSS enabled/active: keeping BLDO1 rail on across sleep");
     } else {
         m10q_power(false);                                       /* GNSS (tells the driver) */
     }
@@ -934,7 +944,7 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
      * driver never learns it came back on), which makes every later
      * m10q_power(false) in enter_sleep a silent no-op and leaves BLDO1
      * permanently on (~25-30 mA) once GPS is switched off mid-session. */
-    if (lvgl_gps_enabled()) {
+    if (lvgl_gps_enabled() || gps_screen_is_powered()) {
         axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO1, true);
     }
     /* BLDO2 (speaker) isn't restored here - it stays off across sleep and
@@ -948,14 +958,45 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     /* Resume the IMU wake-up streams before waking the panel. */
     bhi260ap_ap_resume();
 
-    co5300_wake();
-    co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : s_brightness);
+    /* Every co5300 call below used to have its esp_err_t discarded - a
+     * transient SPI hiccup on SLPOUT or DISPON (co5300_send_cmd() itself
+     * never logs a failure, see co5300.c) would leave the panel in an
+     * inconsistent state with zero trace anywhere, while the rest of this
+     * function proceeded as if it had worked. That's a strong match for a
+     * live report of white screens with no corresponding log line at all,
+     * correlating with wrist-motion-triggered wake-from-sleep during
+     * physical activity (many wake cycles = many chances to hit this) -
+     * the same failure class as night_mode_draw_bitmap()'s DMA-retry fix,
+     * just at the panel-command level instead of the pixel-data level.
+     * Retry + log now, so if this recurs there's real evidence in
+     * synclog next time instead of nothing. */
+    esp_err_t wake_err = ESP_FAIL;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        wake_err = co5300_wake();
+        if (wake_err == ESP_OK) {
+            break;
+        }
+        ESP_LOGW(TAG, "co5300_wake attempt %d failed: %s", attempt + 1, esp_err_to_name(wake_err));
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    esp_err_t bri_err = co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : s_brightness);
+    if (bri_err != ESP_OK) {
+        ESP_LOGW(TAG, "co5300_set_brightness on wake failed: %s", esp_err_to_name(bri_err));
+    }
 
     /* GRAM was blanked before sleep; force a full repaint so the screen shows
      * the current UI instead of staying black (SPI path doesn't auto-refresh).
      * DISPON is sent only after the repaint so no stale frame flashes. */
     lvgl_force_redraw();
-    co5300_display_on();
+    esp_err_t on_err = ESP_FAIL;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        on_err = co5300_display_on();
+        if (on_err == ESP_OK) {
+            break;
+        }
+        ESP_LOGW(TAG, "co5300_display_on attempt %d failed: %s", attempt + 1, esp_err_to_name(on_err));
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
 
     /* Safety net: clear any pending AXP IRQ (de-asserts the GPIO7 line).
      * Detailed power-key reporting happens in pm_wake_task. */

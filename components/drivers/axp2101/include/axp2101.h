@@ -102,6 +102,9 @@ esp_err_t axp2101_soft_poweroff(i2c_master_dev_handle_t dev);
 esp_err_t axp2101_get_charge_status(i2c_master_dev_handle_t dev, axp2101_charge_state_t *state);
 esp_err_t axp2101_set_charge_enabled(i2c_master_dev_handle_t dev, bool enable);
 esp_err_t axp2101_is_charge_enabled(i2c_master_dev_handle_t dev, bool *enabled);
+/* RTC backup coin cell (Seiko MS621FE-FL11E on VBACKUP) - separate
+ * charge-enable bit from the main battery, see axp2101_set_default_power(). */
+esp_err_t axp2101_is_button_batt_charge_enabled(i2c_master_dev_handle_t dev, bool *enabled);
 esp_err_t axp2101_get_charge_current_ma(i2c_master_dev_handle_t dev, uint16_t *ma);
 esp_err_t axp2101_set_charge_current_ma(i2c_master_dev_handle_t dev, uint16_t ma);
 /* Battery temperature in 0.1 deg C (TS ADC). */

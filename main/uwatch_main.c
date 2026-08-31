@@ -25,6 +25,9 @@
 #include "daily_log.h"
 #include "gpx_log.h"
 #include "mesh_log.h"
+#include "haptic.h"
+#include "syslog_capture.h"
+#include "wifi_scan.h"
 #include "uwatch_main.h"
 #include "debug_audio.h"
 #include "debug_bhi.h"
@@ -124,6 +127,7 @@ typedef struct {
 static const debug_cmd_entry_t s_commands[] = {
     { "shot",           debug_cmd_shot },
     { "sdls",           debug_cmd_sdls },
+    { "synclog",        debug_cmd_synclog },
     { "sdclear",        debug_cmd_sdclear },
     { "heap",           debug_cmd_heap },
     { "bhi",            debug_bhi_bhi },
@@ -267,6 +271,13 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "UWatch boot complete");
 
+    /* Mirror ESP_LOGx output to the SD card (syslog_capture.h) - installed
+     * as early as NVS/the SD card's own rail bookkeeping allow, so a
+     * transient glitch (e.g. the white-screen DMA-retry warnings) leaves
+     * durable evidence instead of only a live serial console that's easy
+     * to miss or lose on reconnect. */
+    syslog_capture_init();
+
     /* SD card is mounted on demand, per write (sd_log_session_begin()/end(),
      * see sd_log.h) - crash dumps, daily activity logs, GPX/mesh logging,
      * and screenshots each bracket their own I/O rather than relying on a
@@ -274,6 +285,11 @@ void app_main(void)
      * an unclean power loss) whenever nothing is actively being written. */
 
     /* Per-minute steps + activity logging to the SD card (daily_log.h). */
+    /* Global vibration pattern selection (Settings > Ton & Vibration),
+     * shared by alarm/timer ring and LoRa notification (haptic.h) - must
+     * come before either of those can possibly fire. */
+    haptic_init();
+
     daily_log_init();
 
     /* GPX track logging to the SD card, started/stopped from the GPS
@@ -282,6 +298,10 @@ void app_main(void)
 
     /* Always-on background Meshtastic listener (mesh_log.h). */
     mesh_log_init();
+
+    /* WiFi scanning, off by default (wifi_scan.h) - started/stopped from
+     * the WiFi screen's power switch. */
+    wifi_scan_init();
 
     /* If the previous boot crashed, decode the flash core dump to the SD card
      * (report + raw ELF) before the UI starts. */

@@ -24,6 +24,7 @@
 #include "gpx_log.h"
 #include "lvgl_app.h"
 #include "esp_lv_adapter.h"
+#include "portable_log.h"
 
 static const lv_font_t *s_font_sec  = &cascadia_36;
 static const lv_font_t *s_font_small = &cascadia_22;
@@ -63,6 +64,8 @@ void gps_screen_set_powered(bool on)
     if (on) {
         s_gps_acq_start_ms = lv_tick_get();
     }
+    ESP_LOGI("gps_screen", "set_powered(%d) acq_start_ms=%lu", (int)on,
+             (unsigned long)s_gps_acq_start_ms);
 }
 
 static lv_obj_t *gps_ring(int radius)
@@ -276,6 +279,7 @@ static void gps_pwr_switch_cb(lv_event_t *e)
         return;
     }
     bool on = lv_obj_has_state(s_gps_pwr_switch, LV_STATE_CHECKED);
+    ESP_LOGI("gps_screen", "gps_pwr_switch_cb: on=%d", (int)on);
     lvgl_gps_set_enabled(on);
 }
 

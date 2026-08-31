@@ -10,6 +10,7 @@ extern "C" {
 
 void debug_cmd_shot(const char *args);
 void debug_cmd_sdls(const char *args);
+void debug_cmd_synclog(const char *args);
 void debug_cmd_sdclear(const char *args);
 void debug_cmd_heap(const char *args);
 void debug_cmd_crashinfo(const char *args);

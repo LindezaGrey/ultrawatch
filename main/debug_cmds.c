@@ -64,6 +64,57 @@ void debug_cmd_sdls(const char *args)
     sd_log_session_end();
 }
 
+#define SYNCLOG_LINE_MAX 256   /* matches syslog_capture.c's SYSLOG_LINE_MAX */
+
+void debug_cmd_synclog(const char *args)
+{
+    /* Bare "synclog": dump the tail of the SD-mirrored ESP_LOGx capture
+     * (syslog_capture.h) - up to the last 4 KB, so a long-lived file
+     * doesn't flood the console. "synclog <substring>": scan the WHOLE
+     * file instead and print only matching lines - the file can grow well
+     * past 4 KB in one outdoor session (84 KB seen live), long past what
+     * the tail alone would reach back to. */
+    if (sd_log_session_begin() != ESP_OK) {
+        printf("synclog: no SD card\n");
+        sd_log_session_end();
+        return;
+    }
+    FILE *f = fopen("/sdcard/log/syslog.txt", "r");
+    if (!f) {
+        printf("synclog: no syslog.txt yet\n");
+        sd_log_session_end();
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+
+    if (args[0] != '\0') {
+        fseek(f, 0, SEEK_SET);
+        char line[SYNCLOG_LINE_MAX];
+        int matches = 0;
+        while (fgets(line, sizeof(line), f)) {
+            if (strstr(line, args)) {
+                fputs(line, stdout);
+                matches++;
+            }
+        }
+        printf("synclog: %d match(es) for \"%s\"\n", matches, args);
+    } else {
+        long tail = (size > 4096) ? size - 4096 : 0;
+        fseek(f, tail, SEEK_SET);
+        char buf[257];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf) - 1, f)) > 0) {
+            buf[n] = '\0';
+            fputs(buf, stdout);
+        }
+        printf("\n");
+    }
+    fclose(f);
+    sd_log_session_end();
+    printf("synclog: %ld byte(s) total\n", size);
+}
+
 void debug_cmd_sdclear(const char *args)
 {
     (void)args;
@@ -288,6 +339,14 @@ void debug_cmd_rails(const char *args)
     bool vbus = false;
     axp2101_is_vbus_present(twatch_pmu_dev, &vbus);
     printf("VBUS (USB power)     %s\n", vbus ? "present" : "absent");
+
+    bool btn_chg = false;
+    esp_err_t bc_err = axp2101_is_button_batt_charge_enabled(twatch_pmu_dev, &btn_chg);
+    if (bc_err == ESP_OK) {
+        printf("VBACKUP coin cell chg %s\n", btn_chg ? "on" : "off");
+    } else {
+        printf("VBACKUP coin cell chg read failed: %s\n", esp_err_to_name(bc_err));
+    }
 }
 
 void debug_cmd_nfcpoll(const char *args)
