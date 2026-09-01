@@ -1116,18 +1116,32 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     uint32_t src = s_exit_wake_sources;
     s_exit_wake_sources = 0;
     portEXIT_CRITICAL(&s_exit_wake_lock);
-    /* IMU-only: BHI scheduler chatter, keep the screen dark (pm_wake_task
-     * brings the panel up if the gesture turns out to be real). */
-    bool imu_only = (src != 0) && ((src & ~(uint32_t)PM_WAKE_IMU) == 0);
-    /* Timer-only: the housekeeping heartbeat. It sets no bit in s_wake_sources
-     * (no GPIO fired), and neither does a touch wake - the touch driver calls
-     * the adapter's request_wake from its own ISR - so the two are told apart
-     * by the wakeup-cause bitmap rather than by src alone. Getting this wrong
-     * either lights the screen every minute or leaves it black on touch. */
-    bool timer_only = (causes & BIT(ESP_SLEEP_WAKEUP_TIMER)) &&
-                      !(causes & BIT(ESP_SLEEP_WAKEUP_GPIO));
-    bool panel_deferred = imu_only || timer_only;
-    ESP_LOGI(TAG, "waking: src=0x%x causes=0x%x panel=%s", (unsigned)src, (unsigned)causes,
+    /* Decide whether the screen should come on, WITHOUT trusting the wakeup
+     * cause bitmap. It does not report what the docs imply: every one of the
+     * 623 minute-spaced housekeeping wakes in a day's syslog logged
+     * "causes=0x1" - BIT(ESP_SLEEP_WAKEUP_UNDEFINED) - never BIT(TIMER). The
+     * previous version therefore never recognised a timer wake, ran the full
+     * panel bring-up once a minute all day, and lit the screen each time.
+     *
+     * So classify on what is actually observable:
+     *   - a real user GPIO source (PWRKEY / BOOT / RTC alarm) latched by the
+     *     ISR: wake the screen.
+     *   - the touch line: active-low and still asserted at the moment it wakes
+     *     us, and it sets no source bit because the adapter's own ISR owns that
+     *     pin (adding a second handler there would replace the adapter's). A
+     *     level read costs nothing and needs no ISR.
+     *   - anything else - IMU-only chatter, or the minute heartbeat with no
+     *     GPIO at all - keeps the screen dark. For the IMU case pm_wake_task
+     *     still brings the panel up if the gesture turns out to be real.
+     *
+     * Defaulting to "dark" is the safe direction now that touch is detected
+     * explicitly: a missed wake costs one dark frame until the next event,
+     * where a false wake costs a lit display for a whole idle timeout. */
+    bool user_gpio  = (src & ~(uint32_t)PM_WAKE_IMU) != 0;
+    bool touch_wake = (gpio_get_level(PM_GPIO_TOUCH) == 0);
+    bool panel_deferred = !user_gpio && !touch_wake;
+    ESP_LOGI(TAG, "waking: src=0x%x causes=0x%x touch=%d panel=%s",
+             (unsigned)src, (unsigned)causes, touch_wake ? 1 : 0,
              panel_deferred ? "deferred" : "wake");
     s_panel_wake_pending = panel_deferred;
 
