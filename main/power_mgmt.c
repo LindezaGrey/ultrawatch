@@ -22,6 +22,7 @@
 #include "nvs_flash.h"
 #include "twatch_board.h"
 #include "axp2101.h"
+#include "esp_timer.h"
 #include "co5300.h"
 #include "pcf85063a.h"
 #include "bhi260ap.h"
@@ -71,6 +72,9 @@ static const char *TAG = "power_mgmt";
  *   wake: sources=0x100  ->  waking: sources=0x0 causes=0x1  ->  panel woken.
  * The ISR sets both; each consumer clears its own copy. */
 static volatile uint32_t s_exit_wake_sources;
+/* When the current light-sleep period began, used to recognise the
+ * housekeeping heartbeat by its duration. */
+static int64_t s_sleep_enter_us;
 static portMUX_TYPE s_exit_wake_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static volatile bool s_panel_wake_pending;
@@ -992,6 +996,7 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
      * to be blanked and slept anyway, and a stale pending flag would otherwise
      * fire a bring-up on some later, unrelated wake. */
     s_panel_wake_pending = false;
+    s_sleep_enter_us = esp_timer_get_time();
     ESP_LOGI(TAG, "entering sleep: panel DISPOFF+blank+SLPIN, IMU AP-suspend, rails off");
     co5300_display_off();
     co5300_blank();
@@ -1116,33 +1121,56 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     uint32_t src = s_exit_wake_sources;
     s_exit_wake_sources = 0;
     portEXIT_CRITICAL(&s_exit_wake_lock);
-    /* Decide whether the screen should come on, WITHOUT trusting the wakeup
-     * cause bitmap. It does not report what the docs imply: every one of the
-     * 623 minute-spaced housekeeping wakes in a day's syslog logged
-     * "causes=0x1" - BIT(ESP_SLEEP_WAKEUP_UNDEFINED) - never BIT(TIMER). The
-     * previous version therefore never recognised a timer wake, ran the full
-     * panel bring-up once a minute all day, and lit the screen each time.
+    /* Decide whether the screen should come on.
      *
-     * So classify on what is actually observable:
-     *   - a real user GPIO source (PWRKEY / BOOT / RTC alarm) latched by the
-     *     ISR: wake the screen.
-     *   - the touch line: active-low and still asserted at the moment it wakes
-     *     us, and it sets no source bit because the adapter's own ISR owns that
-     *     pin (adding a second handler there would replace the adapter's). A
-     *     level read costs nothing and needs no ISR.
-     *   - anything else - IMU-only chatter, or the minute heartbeat with no
-     *     GPIO at all - keeps the screen dark. For the IMU case pm_wake_task
-     *     still brings the panel up if the gesture turns out to be real.
+     * The wakeup-cause bitmap cannot be used: a day's syslog shows all 623
+     * minute-spaced housekeeping wakes logging "causes=0x1", i.e.
+     * BIT(ESP_SLEEP_WAKEUP_UNDEFINED), never BIT(TIMER). And most wakes that
+     * SHOULD light the screen set no bit in src either - a touch is handled by
+     * the adapter's own ISR, and an incoming LoRa packet comes in through
+     * sx1262's DIO1 handler - so "defer unless positively identified" turns
+     * out to be the wrong default: it left the screen dark for a mesh message
+     * and for touch (reported live, 2026-09-01).
      *
-     * Defaulting to "dark" is the safe direction now that touch is detected
-     * explicitly: a missed wake costs one dark frame until the next event,
-     * where a false wake costs a lit display for a whole idle timeout. */
+     * So: wake the screen by default, and defer only for the two cases that
+     * can be positively identified.
+     *
+     *   - IMU-only, latched by our ISR: BHI scheduler chatter. Safe to defer
+     *     because pm_wake_task() brings the panel up if the gesture is real.
+     *   - the housekeeping heartbeat: no GPIO latched, touch line idle, and
+     *     the sleep ran essentially the full timer period. Nothing else wakes
+     *     us exactly at the deadline, and esp_timer_get_time() is compensated
+     *     across light sleep so the elapsed measurement is sound.
+     *
+     * Anything else - touch, LoRa, buttons, RTC alarm, a wake this code has
+     * never heard of - lights the screen. A false wake costs one idle timeout
+     * of backlight; a false defer costs a watch that does not respond, which
+     * is far worse. */
     bool user_gpio  = (src & ~(uint32_t)PM_WAKE_IMU) != 0;
     bool touch_wake = (gpio_get_level(PM_GPIO_TOUCH) == 0);
-    bool panel_deferred = !user_gpio && !touch_wake;
-    ESP_LOGI(TAG, "waking: src=0x%x causes=0x%x touch=%d panel=%s",
+    bool imu_only   = (src != 0) && !user_gpio;
+    int64_t slept_us = (s_sleep_enter_us > 0) ? (esp_timer_get_time() - s_sleep_enter_us) : 0;
+    /* Defer ONLY for IMU-only chatter. There is deliberately no heartbeat case
+     * here any more: an earlier version tried to spot it as "slept about the
+     * full timer period", which was wrong because sleeps routinely run LONGER
+     * than the 60 s deadline (116 s observed), so every touch after a long
+     * sleep matched it and the screen stayed dark - reported live.
+     *
+     * It is also unnecessary. The heartbeat does not reach this function at
+     * all: battery.csv keeps getting a row a minute while exit_sleep sees
+     * multi-minute gaps, so the adapter services the timer wake and re-enters
+     * sleep without ever running the exit path. Nothing to suppress. */
+    /* ...and never while the touch line is asserted. A touch wake very often
+     * carries the IMU bit too (the BHI chatters constantly, so its bit is
+     * frequently set at the same instant), which made a plain "defer when
+     * imu_only" swallow real touches: the log showed
+     *   src=0x100 touch=1 panel=deferred
+     * with the touch correctly detected and then ignored, because this term
+     * had been dropped from the decision while still being logged. */
+    bool panel_deferred = imu_only && !touch_wake;
+    ESP_LOGI(TAG, "waking: src=0x%x causes=0x%x touch=%d slept=%dms panel=%s",
              (unsigned)src, (unsigned)causes, touch_wake ? 1 : 0,
-             panel_deferred ? "deferred" : "wake");
+             (int)(slept_us / 1000), panel_deferred ? "deferred" : "wake");
     s_panel_wake_pending = panel_deferred;
 
     /* Restore rails. ALDO3 (LoRa) stayed on across sleep, untouched; the
