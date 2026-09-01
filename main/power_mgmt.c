@@ -62,6 +62,17 @@ static const char *TAG = "power_mgmt";
  * Matches HOUSEKEEPING_DAILY_INTERVAL_MS so a sample is ready each time. */
 #define PM_HOUSEKEEPING_WAKE_US (60ULL * 1000000ULL)
 
+/* Wake sources as seen by power_mgmt_exit_sleep(), latched separately from
+ * s_wake_sources. The two run concurrently and pm_wake_task() clears
+ * s_wake_sources under a critical section as soon as it runs, so exit_sleep
+ * reading that same variable was a race: when the task won, exit_sleep saw 0,
+ * failed to recognise an IMU-only wake and lit the display for what was just
+ * BHI scheduler chatter. Observed live (2026-09-01):
+ *   wake: sources=0x100  ->  waking: sources=0x0 causes=0x1  ->  panel woken.
+ * The ISR sets both; each consumer clears its own copy. */
+static volatile uint32_t s_exit_wake_sources;
+static portMUX_TYPE s_exit_wake_lock = portMUX_INITIALIZER_UNLOCKED;
+
 static volatile bool s_panel_wake_pending;
 /* Defined next to power_mgmt_exit_sleep(), but pm_wake_task() above it performs
  * the deferred bring-up once a gesture is confirmed real. */
@@ -616,6 +627,9 @@ static void IRAM_ATTR button_isr(void *arg)
     portENTER_CRITICAL_ISR(&s_wake_sources_lock);
     s_wake_sources |= (1u << gpio);
     portEXIT_CRITICAL_ISR(&s_wake_sources_lock);
+    portENTER_CRITICAL_ISR(&s_exit_wake_lock);
+    s_exit_wake_sources |= (1u << gpio);
+    portEXIT_CRITICAL_ISR(&s_exit_wake_lock);
     gpio_intr_disable(PM_GPIO_PWRKEY);
     gpio_intr_disable(PM_GPIO_BOOT);
     gpio_intr_disable(PM_GPIO_IMU);
@@ -1090,7 +1104,6 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     (void)ctx;
     s_imu_wake_armed = false;
     uint32_t causes = esp_sleep_get_wakeup_causes();   /* bitmap, not a single enum */
-    ESP_LOGI(TAG, "waking: sources=0x%x causes=0x%x", (unsigned)s_wake_sources, (unsigned)causes);
 
     /* An IMU-only wake is usually the BHI's scheduler chatter, not a gesture.
      * Leave the panel dark and let pm_wake_task turn it on only once
@@ -1099,7 +1112,10 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
      * does a touch wake, which never sets a bit here (the touch driver calls
      * the adapter's own request_wake from its ISR) and so leaves sources at 0
      * and takes the normal path. */
-    uint32_t src = s_wake_sources;
+    portENTER_CRITICAL(&s_exit_wake_lock);
+    uint32_t src = s_exit_wake_sources;
+    s_exit_wake_sources = 0;
+    portEXIT_CRITICAL(&s_exit_wake_lock);
     /* IMU-only: BHI scheduler chatter, keep the screen dark (pm_wake_task
      * brings the panel up if the gesture turns out to be real). */
     bool imu_only = (src != 0) && ((src & ~(uint32_t)PM_WAKE_IMU) == 0);
@@ -1111,6 +1127,8 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     bool timer_only = (causes & BIT(ESP_SLEEP_WAKEUP_TIMER)) &&
                       !(causes & BIT(ESP_SLEEP_WAKEUP_GPIO));
     bool panel_deferred = imu_only || timer_only;
+    ESP_LOGI(TAG, "waking: src=0x%x causes=0x%x panel=%s", (unsigned)src, (unsigned)causes,
+             panel_deferred ? "deferred" : "wake");
     s_panel_wake_pending = panel_deferred;
 
     /* Restore rails. ALDO3 (LoRa) stayed on across sleep, untouched; the
