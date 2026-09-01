@@ -51,6 +51,17 @@ static const char *TAG = "power_mgmt";
 /* Set when power_mgmt_exit_sleep() skipped the panel bring-up because the only
  * wake source was the IMU; pm_wake_task performs it if the gesture turns out to
  * be real. Cleared on sleep entry so a stale request cannot fire later. */
+/* Periodic light-sleep wake for housekeeping (main/housekeeping.c: syslog
+ * service, gpx_log_tick(), daily_log_tick() - the per-minute steps/activity/
+ * battery CSV rows). That task is an ordinary vTaskDelay/notify loop, so it is
+ * frozen for the whole of a light-sleep period: without a timer wake it only
+ * ever runs when something else happens to wake the watch. That used to be
+ * constant (the watch barely slept), so the minute cadence held by accident;
+ * now that sleep periods are long it needs its own wake source, and it will
+ * matter more once the BHI's spurious wakes are silenced at the source.
+ * Matches HOUSEKEEPING_DAILY_INTERVAL_MS so a sample is ready each time. */
+#define PM_HOUSEKEEPING_WAKE_US (60ULL * 1000000ULL)
+
 static volatile bool s_panel_wake_pending;
 /* Defined next to power_mgmt_exit_sleep(), but pm_wake_task() above it performs
  * the deferred bring-up once a gesture is confirmed real. */
@@ -931,6 +942,12 @@ static void pm_arm_gpio_wakeup(void)
         gpio_wakeup_enable(PM_GPIO_RTC, GPIO_INTR_LOW_LEVEL);
     }
     esp_sleep_enable_gpio_wakeup();
+    /* ...plus the housekeeping heartbeat. Deliberately unconditional: logging
+     * should keep sampling in night mode and while the screen is off, which is
+     * exactly when a drain is worth recording. power_mgmt_exit_sleep() keeps
+     * the display dark for these (see its wake classification), so the cost is
+     * one brief CPU wake per minute, not a lit panel. */
+    esp_sleep_enable_timer_wakeup(PM_HOUSEKEEPING_WAKE_US);
 }
 
 esp_err_t power_mgmt_enter_sleep(void *ctx)
@@ -1072,8 +1089,8 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
 {
     (void)ctx;
     s_imu_wake_armed = false;
-    esp_sleep_wakeup_cause_t cause = (esp_sleep_wakeup_cause_t)esp_sleep_get_wakeup_causes();
-    ESP_LOGI(TAG, "waking: sources=0x%x cause=0x%x", (unsigned)s_wake_sources, (unsigned)cause);
+    uint32_t causes = esp_sleep_get_wakeup_causes();   /* bitmap, not a single enum */
+    ESP_LOGI(TAG, "waking: sources=0x%x causes=0x%x", (unsigned)s_wake_sources, (unsigned)causes);
 
     /* An IMU-only wake is usually the BHI's scheduler chatter, not a gesture.
      * Leave the panel dark and let pm_wake_task turn it on only once
@@ -1083,7 +1100,17 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
      * the adapter's own request_wake from its ISR) and so leaves sources at 0
      * and takes the normal path. */
     uint32_t src = s_wake_sources;
-    bool panel_deferred = (src != 0) && ((src & ~(uint32_t)PM_WAKE_IMU) == 0);
+    /* IMU-only: BHI scheduler chatter, keep the screen dark (pm_wake_task
+     * brings the panel up if the gesture turns out to be real). */
+    bool imu_only = (src != 0) && ((src & ~(uint32_t)PM_WAKE_IMU) == 0);
+    /* Timer-only: the housekeeping heartbeat. It sets no bit in s_wake_sources
+     * (no GPIO fired), and neither does a touch wake - the touch driver calls
+     * the adapter's request_wake from its own ISR - so the two are told apart
+     * by the wakeup-cause bitmap rather than by src alone. Getting this wrong
+     * either lights the screen every minute or leaves it black on touch. */
+    bool timer_only = (causes & BIT(ESP_SLEEP_WAKEUP_TIMER)) &&
+                      !(causes & BIT(ESP_SLEEP_WAKEUP_GPIO));
+    bool panel_deferred = imu_only || timer_only;
     s_panel_wake_pending = panel_deferred;
 
     /* Restore rails. ALDO3 (LoRa) stayed on across sleep, untouched; the
