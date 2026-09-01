@@ -21,6 +21,7 @@ typedef struct {
     lv_obj_t *lora;
     lv_obj_t *bt;
     lv_obj_t *wifi;
+    lv_obj_t *nfc;
     lv_obj_t *batt;
     lv_obj_t *chg;
     lv_obj_t *alarm;

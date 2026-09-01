@@ -24,6 +24,7 @@ static const char *TAG = "axp2101";
 #define AXP_REG_BAT_PERCENT     0xA4
 #define AXP_REG_STATUS1         0x00
 #define AXP_REG_STATUS2         0x01
+#define AXP_REG_INTEN1     0x40
 #define AXP_REG_INTEN2     0x41
 #define AXP_REG_INTSTS1    0x48
 #define AXP_REG_INTSTS2    0x49
@@ -34,6 +35,11 @@ static const char *TAG = "axp2101";
 
 #define AXP_INTEN2_PEK    0x0F   /* bits 0-3: press/release edge, long, short */
 #define AXP_INTEN2_VBUS_INSERT (1u << 7)   /* datasheet REG41 bit7: vinsert_irq enable */
+/* REG40 ("IRQ Enable 0") bit4: the fuel gauge's periodic "new SOC reading"
+ * interrupt. Not a low-battery alarm despite the name power_mgmt.c gives the
+ * matching status bit - it simply fires every time the gauge refreshes its
+ * state-of-charge estimate, roughly every 20 s, forever. */
+#define AXP_INTEN1_NEWSOC (1u << 4)
 #define AXP_PWROFF_EN_PWRON_OFFLEVEL  (1u << 1)
 #define AXP_COMMON_CFG_SOFT_PWROFF    (1u << 0)
 #define AXP_OFFLEVEL_MASK   0x0C   /* bits 3:2 */
@@ -211,6 +217,17 @@ esp_err_t axp2101_set_default_power(i2c_master_dev_handle_t dev)
     ESP_RETURN_ON_ERROR(ret, TAG, "aldo4");
     ret = axp2101_init_rail(dev, AXP2101_BLDO1, 3300);           /* GNSS */
     ESP_RETURN_ON_ERROR(ret, TAG, "bldo1");
+    /* BLDO1 (GNSS): same treatment as BLDO2 below - axp2101_init_rail()
+     * always leaves a rail enabled, so configuring it here was silently
+     * powering the M10Q receiver (~25-30 mA) from boot and never stopping.
+     * Nothing switched it back off either: m10q owns this rail through
+     * m10q_power(), whose `if (on == s_powered) return ESP_OK;` guard makes
+     * every m10q_power(false) a no-op while its s_powered is still false -
+     * so the rail stayed on for the whole session with the UI correctly
+     * reporting GNSS as off. Measured as the dominant overnight battery
+     * drain (2026-09-01). m10q_power(true) enables it when GNSS is actually
+     * wanted, which is the only thing that should. */
+    ESP_RETURN_ON_ERROR(axp2101_enable_rail(dev, AXP2101_BLDO1, false), TAG, "bldo1 off");
     ret = axp2101_init_rail(dev, AXP2101_BLDO2, 3300);           /* speaker */
     ESP_RETURN_ON_ERROR(ret, TAG, "bldo2");
     /* BLDO2 (speaker amp): voltage configured, but left OFF - the amp draws
@@ -234,6 +251,20 @@ esp_err_t axp2101_set_default_power(i2c_master_dev_handle_t dev)
      * works, and validate it against the chip actually re-enumerating. */
     ret = axp2101_init_rail(dev, AXP2101_DLDO1, 3300);           /* NFC */
     ESP_RETURN_ON_ERROR(ret, TAG, "dldo1");
+    /* ...and now switched back OFF at boot, on request (2026-09-01), as a
+     * power saving: the ST25R3916 draws current whenever powered, and nothing
+     * needs it until an actual NFC poll. This is what st25r3916.c already
+     * expects - "DLDO1 stays off until a poll actually happens", with
+     * st25r3916_poll() raising it through spi2_power_hold(AXP2101_DLDO1) and
+     * the rail registered SPI2_POWER_OWNED so release() never drops it again
+     * mid-session (this chip does not survive a rail power-cycle once it has
+     * completed bring-up).
+     *
+     * The history above is the risk here: last time this rail was cut the chip
+     * stopped responding. The difference now is that the driver owns the rail
+     * and brings it up before use, rather than nothing powering it at all - but
+     * NFC polling is exactly what to re-test, and reverting is this one line. */
+    ESP_RETURN_ON_ERROR(axp2101_enable_rail(dev, AXP2101_DLDO1, false), TAG, "dldo1 off");
 
     /* Unused channels: DC2-DC5, CPUSLDO. */
     ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_DC_ONOFF_DVM, 0x1E, false), TAG, "disable dc2-5");
@@ -319,6 +350,31 @@ esp_err_t axp2101_enable_vbus_irq(i2c_master_dev_handle_t dev)
     uint8_t val = 0;
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTEN2, &val), TAG, "read inten2");
     return axp2101_write_reg(dev, AXP_REG_INTEN2, (uint8_t)(val | AXP_INTEN2_VBUS_INSERT));
+}
+
+/* Mask the fuel gauge's periodic "new SOC reading" interrupt.
+ *
+ * The firmware only ever enables the PEK and VBUS bits (INTEN2 above) and
+ * never touches INTEN1, so the AXP2101's power-on defaults there stayed live -
+ * including this one. It asserts the shared IRQ line every ~20 s, which is a
+ * GPIO wake source while the host sleeps: measured 2026-09-01, every single
+ * light-sleep period ended with "AXP IRQ wake: irq=0x000010", pulling the
+ * watch fully awake (display on, full idle timeout) a few times a minute all
+ * night. A routine gauge refresh is not something the host needs to wake for -
+ * sensor_cache polls the battery on its own schedule while awake.
+ *
+ * Only this bit is cleared; the genuine SOC warning-level interrupts and the
+ * temperature/safety ones in the same register are left exactly as they were. */
+esp_err_t axp2101_disable_gauge_soc_irq(i2c_master_dev_handle_t dev)
+{
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTEN1, &val), TAG, "read inten1");
+    if (!(val & AXP_INTEN1_NEWSOC)) {
+        return ESP_OK;
+    }
+    ESP_LOGI(TAG, "masking gauge new-SOC IRQ (INTEN1 0x%02x -> 0x%02x)",
+             val, (uint8_t)(val & ~AXP_INTEN1_NEWSOC));
+    return axp2101_write_reg(dev, AXP_REG_INTEN1, (uint8_t)(val & ~AXP_INTEN1_NEWSOC));
 }
 
 esp_err_t axp2101_clear_irq(i2c_master_dev_handle_t dev)

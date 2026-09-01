@@ -105,10 +105,18 @@ void build_status_bar_big(lv_obj_t *parent, status_bar_t *out)
      * tight against the left edge at the original x=40/pitch=80). LoRa's
      * right edge at column 4 (325+28=353) stays clear of the x<=370
      * safe-area limit (see STATUS_BAR_Y's comment). */
-    out->bt   = status_icon_create_ex(parent, LV_SYMBOL_BLUETOOTH, LV_ALIGN_TOP_LEFT,  55, STATUS_BAR_Y,       f);
-    out->wifi = status_icon_create_ex(parent, LV_SYMBOL_WIFI,      LV_ALIGN_TOP_LEFT,  145, STATUS_BAR_Y,      f);
-    out->gps  = status_image_create(parent, &status_icon_satellite, LV_ALIGN_TOP_LEFT, 235, STATUS_BAR_Y);
-    out->lora = status_image_create(parent, &status_icon_mesh,      LV_ALIGN_TOP_LEFT, 325, STATUS_BAR_Y);
+    /* NFC joins this row (it is an RF-carrying radio, which is exactly what
+     * this row groups) and sits in the middle per explicit feedback. Five
+     * icons now instead of four, so the pitch drops 90 -> 68px: the outer
+     * columns stay at the measured-safe x=55 / x=327 (mirror image, 28px
+     * icon, 410px panel), and the middle column lands on x=191, whose icon
+     * centre (191+14=205) is the exact panel centre - the same trick row 2's
+     * bell uses. */
+    out->bt   = status_icon_create_ex(parent, LV_SYMBOL_BLUETOOTH, LV_ALIGN_TOP_LEFT,  55, STATUS_BAR_Y,      f);
+    out->wifi = status_icon_create_ex(parent, LV_SYMBOL_WIFI,      LV_ALIGN_TOP_LEFT, 123, STATUS_BAR_Y,      f);
+    out->nfc  = status_image_create(parent, &status_icon_nfc,       LV_ALIGN_TOP_LEFT, 191, STATUS_BAR_Y);
+    out->gps  = status_image_create(parent, &status_icon_satellite, LV_ALIGN_TOP_LEFT, 259, STATUS_BAR_Y);
+    out->lora = status_image_create(parent, &status_icon_mesh,      LV_ALIGN_TOP_LEFT, 327, STATUS_BAR_Y);
 
     /* Row 2: 5-column grid (SD, GPX, Alarm, CHG, Batt), widened per explicit
      * feedback (SD/Batt allowed to sit close to the edges, like row 1's
@@ -164,6 +172,17 @@ void update_status_bar(const status_bar_t *bar)
 
     lv_obj_set_style_text_color(bar->bt, ble_debug_is_connected() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
 
+    /* NFC: reflects whether the reader's rail (DLDO1) is powered, which is
+     * the only NFC state currently observable from here - nothing exposes a
+     * "polling now" flag, and st25r3916.h is not part of the driver subset the
+     * sim mirrors, so this deliberately does not reach into the driver. In
+     * practice DLDO1 is left on for the whole session (see
+     * axp2101_set_default_power()), so today this reads green permanently;
+     * it turns grey by itself if that rail ever starts being gated. */
+    bool nfc_on = false;
+    axp2101_is_rail_enabled(twatch_pmu_dev, AXP2101_DLDO1, &nfc_on);
+    lv_obj_set_style_image_recolor(bar->nfc, nfc_on ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY, 0);
+
     /* Reflects the WiFi screen's power switch (wifi_scan_set_enabled(),
      * default off - see wifi_scan.h). Green once switched on and at least
      * one network has been seen, orange while switched on but still
@@ -212,7 +231,7 @@ void status_bar_set_hidden(const status_bar_t *bar, bool hidden)
     if (!bar->sd) {
         return;
     }
-    lv_obj_t *icons[] = { bar->sd, bar->gps, bar->gpx, bar->lora,
+    lv_obj_t *icons[] = { bar->sd, bar->gps, bar->gpx, bar->lora, bar->nfc,
                            bar->bt, bar->wifi, bar->batt, bar->chg, bar->alarm };
     for (size_t i = 0; i < sizeof(icons) / sizeof(icons[0]); i++) {
         if (hidden) {

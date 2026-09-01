@@ -58,6 +58,28 @@ typedef enum {
     AXP2101_CHG_STOP,
 } axp2101_charge_state_t;
 
+/* Rail identity + live on/off read, used by the status bar's NFC icon. The
+ * sim has no PMIC, so the stub reports every rail as on - which matches the
+ * real device, where DLDO1 is powered for the whole session. */
+typedef enum {
+    AXP2101_ALDO1 = 0,
+    AXP2101_ALDO2,
+    AXP2101_ALDO3,
+    AXP2101_ALDO4,
+    AXP2101_BLDO1,
+    AXP2101_BLDO2,
+    AXP2101_DLDO1,
+    AXP2101_RAIL_MAX,
+} axp2101_rail_t;
+
+static inline esp_err_t axp2101_is_rail_enabled(i2c_master_dev_handle_t dev,
+                                                axp2101_rail_t rail, bool *enabled)
+{
+    (void)dev; (void)rail;
+    if (enabled) { *enabled = true; }
+    return ESP_OK;
+}
+
 esp_err_t axp2101_set_charge_enabled(i2c_master_dev_handle_t dev, bool enable);
 esp_err_t axp2101_set_charge_current_ma(i2c_master_dev_handle_t dev, uint16_t ma);
 

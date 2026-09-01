@@ -75,6 +75,10 @@ esp_err_t axp2101_enable_pek_irq(i2c_master_dev_handle_t dev);
  * the same physical IRQ line PWRKEY already shares - see
  * AXP_IRQ_VBUS_INSERT for reading which one actually fired. */
 esp_err_t axp2101_enable_vbus_irq(i2c_master_dev_handle_t dev);
+/* Mask the fuel gauge's periodic "new SOC reading" interrupt, which otherwise
+ * asserts the shared IRQ line every ~20 s and wakes the sleeping host. */
+esp_err_t axp2101_disable_gauge_soc_irq(i2c_master_dev_handle_t dev);
+
 esp_err_t axp2101_clear_irq(i2c_master_dev_handle_t dev);
 /* 24-bit IRQ status: bits 0-7 = INTSTS1, 8-15 = INTSTS2, 16-23 = INTSTS3.
  * PEK: INTSTS2 bits 0=press edge, 1=release edge, 2=long, 3=short.

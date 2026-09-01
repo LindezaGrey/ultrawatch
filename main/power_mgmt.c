@@ -48,6 +48,14 @@ static const char *TAG = "power_mgmt";
 #define PM_WAKE_IMU    (1u << PM_GPIO_IMU)
 #define PM_WAKE_RTC    (1u << PM_GPIO_RTC)
 
+/* Set when power_mgmt_exit_sleep() skipped the panel bring-up because the only
+ * wake source was the IMU; pm_wake_task performs it if the gesture turns out to
+ * be real. Cleared on sleep entry so a stale request cannot fire later. */
+static volatile bool s_panel_wake_pending;
+/* Defined next to power_mgmt_exit_sleep(), but pm_wake_task() above it performs
+ * the deferred bring-up once a gesture is confirmed real. */
+static void pm_panel_wake(void);
+
 /* AXP2101 combined 24-bit IRQ status (see axp2101_get_irq_status()):
  * INTSTS2 occupies bits 8-15, so its bit 2 ("long press", per
  * axp2101_configure_pwrkey_shutdown()'s OFFLEVEL threshold) is bit 10 here. */
@@ -832,8 +840,18 @@ if (sources & PM_WAKE_RTC) {
 }
 
         if (wake_user) {
+            /* exit_sleep left the panel dark for an IMU-only wake; now that the
+             * gesture is confirmed real, bring it up before handing the UI over
+             * to the adapter so the screen is ready when LVGL resumes. */
+            if (s_panel_wake_pending) {
+                s_panel_wake_pending = false;
+                pm_panel_wake();
+            }
             esp_lv_adapter_request_wake();
         } else {
+            /* Spurious: the panel was never woken, so the screen stays off and
+             * this costs only the idle timeout the adapter restarts, not a lit
+             * display for the whole of it. */
             ESP_LOGI(TAG, "IMU wake was spurious, staying in light sleep");
         }
     }
@@ -939,6 +957,10 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
         return ESP_ERR_NOT_SUPPORTED;
     }
 
+    /* Drop any deferred panel wake from the previous cycle: the panel is about
+     * to be blanked and slept anyway, and a stale pending flag would otherwise
+     * fire a bring-up on some later, unrelated wake. */
+    s_panel_wake_pending = false;
     ESP_LOGI(TAG, "entering sleep: panel DISPOFF+blank+SLPIN, IMU AP-suspend, rails off");
     co5300_display_off();
     co5300_blank();
@@ -999,12 +1021,70 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
     return ESP_OK;
 }
 
+/* Bring the panel back up after sleep. Split out of power_mgmt_exit_sleep()
+ * so it can be DEFERRED for an IMU-only wake - see the call sites.
+ *
+ * Measured 2026-09-01: the BHI260AP's scheduler meta events re-assert its INT
+ * line ~30 ms after every sleep entry (the chip emits SAMPLE_RATE_CHANGED /
+ * POWER_MODE_CHANGED continuously, and the WU-FIFO watermark is 1). The wake
+ * was already correctly identified as spurious - pm_imu_wake_is_real() logs
+ * "staying in light sleep" and never requests a UI wake - but exit_sleep still
+ * ran the whole panel bring-up first, turning the DISPLAY ON, and the adapter
+ * then restarts its idle timer, so the watch sat awake with a lit screen for a
+ * full idle timeout before trying to sleep again. Observed duty cycle: ~35 ms
+ * asleep per 60 s. That is the overnight battery drain. */
+static void pm_panel_wake(void)
+{
+    esp_err_t wake_err = ESP_FAIL;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        bool locked = (esp_lv_adapter_lock(1000) == ESP_OK);
+        wake_err = co5300_reinit(true, /*leave_display_off=*/true);
+        if (locked) {
+            esp_lv_adapter_unlock();
+        }
+        if (wake_err == ESP_OK) {
+            break;
+        }
+        ESP_LOGW(TAG, "co5300_reinit attempt %d failed: %s", attempt + 1, esp_err_to_name(wake_err));
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    esp_err_t bri_err = co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : s_brightness);
+    if (bri_err != ESP_OK) {
+        ESP_LOGW(TAG, "co5300_set_brightness on wake failed: %s", esp_err_to_name(bri_err));
+    }
+
+    /* GRAM was blanked before sleep; force a full repaint so the screen shows
+     * the current UI instead of staying black (SPI path doesn't auto-refresh).
+     * DISPON is sent only after the repaint so no stale frame flashes. */
+    lvgl_force_redraw();
+    esp_err_t on_err = ESP_FAIL;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        on_err = co5300_display_on();
+        if (on_err == ESP_OK) {
+            break;
+        }
+        ESP_LOGW(TAG, "co5300_display_on attempt %d failed: %s", attempt + 1, esp_err_to_name(on_err));
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
 esp_err_t power_mgmt_exit_sleep(void *ctx)
 {
     (void)ctx;
     s_imu_wake_armed = false;
     esp_sleep_wakeup_cause_t cause = (esp_sleep_wakeup_cause_t)esp_sleep_get_wakeup_causes();
     ESP_LOGI(TAG, "waking: sources=0x%x cause=0x%x", (unsigned)s_wake_sources, (unsigned)cause);
+
+    /* An IMU-only wake is usually the BHI's scheduler chatter, not a gesture.
+     * Leave the panel dark and let pm_wake_task turn it on only once
+     * pm_imu_wake_is_real() confirms a real gesture (see pm_panel_wake()).
+     * Any other source - PWRKEY, BOOT, RTC alarm - always wakes the screen, as
+     * does a touch wake, which never sets a bit here (the touch driver calls
+     * the adapter's own request_wake from its ISR) and so leaves sources at 0
+     * and takes the normal path. */
+    uint32_t src = s_wake_sources;
+    bool panel_deferred = (src != 0) && ((src & ~(uint32_t)PM_WAKE_IMU) == 0);
+    s_panel_wake_pending = panel_deferred;
 
     /* Restore rails. ALDO3 (LoRa) stayed on across sleep, untouched; the
      * rest are rearmed. */
@@ -1073,36 +1153,10 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
      * unplugged and undisturbed), and synthetic SLPIN/SLPOUT cycling does
      * not reproduce it. This makes the failure self-healing rather than
      * preventing it. See the `dispfix` debug command for manual recovery. */
-    esp_err_t wake_err = ESP_FAIL;
-    for (int attempt = 0; attempt < 3; attempt++) {
-        bool locked = (esp_lv_adapter_lock(1000) == ESP_OK);
-        wake_err = co5300_reinit(true, /*leave_display_off=*/true);
-        if (locked) {
-            esp_lv_adapter_unlock();
-        }
-        if (wake_err == ESP_OK) {
-            break;
-        }
-        ESP_LOGW(TAG, "co5300_reinit attempt %d failed: %s", attempt + 1, esp_err_to_name(wake_err));
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-    esp_err_t bri_err = co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : s_brightness);
-    if (bri_err != ESP_OK) {
-        ESP_LOGW(TAG, "co5300_set_brightness on wake failed: %s", esp_err_to_name(bri_err));
-    }
-
-    /* GRAM was blanked before sleep; force a full repaint so the screen shows
-     * the current UI instead of staying black (SPI path doesn't auto-refresh).
-     * DISPON is sent only after the repaint so no stale frame flashes. */
-    lvgl_force_redraw();
-    esp_err_t on_err = ESP_FAIL;
-    for (int attempt = 0; attempt < 3; attempt++) {
-        on_err = co5300_display_on();
-        if (on_err == ESP_OK) {
-            break;
-        }
-        ESP_LOGW(TAG, "co5300_display_on attempt %d failed: %s", attempt + 1, esp_err_to_name(on_err));
-        vTaskDelay(pdMS_TO_TICKS(10));
+    if (panel_deferred) {
+        ESP_LOGD(TAG, "IMU-only wake: deferring panel wake until the gesture is confirmed");
+    } else {
+        pm_panel_wake();
     }
 
     /* Resume the IMU wake-up streams now that the panel is up - see the
@@ -1157,6 +1211,12 @@ void power_mgmt_init(void)
 
     /* Enable the AXP2101 PEK (power key) interrupt -> GPIO7. */
     axp2101_enable_pek_irq(twatch_pmu_dev);
+    /* Mask the gauge's periodic new-SOC interrupt. It is enabled by the AXP's
+     * power-on defaults and asserts the same IRQ line the power key uses, so
+     * it showed up here as a PM_WAKE_PWRKEY wake roughly every 20 s - ending
+     * every light-sleep period and putting the watch back into a full awake
+     * cycle with the display on. See axp2101_disable_gauge_soc_irq(). */
+    axp2101_disable_gauge_soc_irq(twatch_pmu_dev);
     axp2101_clear_irq(twatch_pmu_dev);
 
     /* PWRKEY long-press (>4s) shuts the watch down, but in software: disable

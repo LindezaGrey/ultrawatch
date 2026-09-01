@@ -1106,7 +1106,8 @@ void debug_cmd_dailycat(const char *args)
         sd_log_session_end();
         return;
     }
-    static const char *paths[] = { "/sdcard/log/steps.csv", "/sdcard/log/activity.csv" };
+    static const char *paths[] = { "/sdcard/log/steps.csv", "/sdcard/log/activity.csv",
+                                   "/sdcard/log/battery.csv" };
     for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
         printf("dailycat: --- %s ---\n", paths[i]);
         FILE *f = fopen(paths[i], "r");

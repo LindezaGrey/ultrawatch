@@ -18,6 +18,13 @@ static const char *TAG = "daily_log";
 #define DAILY_DIR      "/sdcard/log"
 #define STEPS_CSV      "/sdcard/log/steps.csv"
 #define ACTIVITY_CSV   "/sdcard/log/activity.csv"
+/* Battery telemetry, same per-minute cadence as the other two. Added after an
+ * overnight run burned ~45% with no way to see where it went: steps.csv and
+ * activity.csv record what the user did, nothing recorded what the power did.
+ * Every field comes from sensor_cache (already sampled in the background), so
+ * this costs one more fopen/fprintf per minute inside the SD session that is
+ * being opened anyway - no extra I2C and no extra card mount. */
+#define BATTERY_CSV    "/sdcard/log/battery.csv"
 #define LOG_INTERVAL_MS 60000   /* 1 min */
 
 static uint32_t s_steps;                 /* last sampled daily steps */
@@ -26,6 +33,21 @@ static uint32_t s_steps;                 /* last sampled daily steps */
  * periodically-sampled tally anymore, see that function. */
 static uint32_t s_act_sec[DAILY_ACT_COUNT];
 static bool s_log_ready;                 /* CSV header written this boot */
+
+/* Short, greppable names for the AXP2101 charge state, so the CSV is readable
+ * without a decoder ring. */
+static const char *charge_state_name(axp2101_charge_state_t st)
+{
+    switch (st) {
+    case AXP2101_CHG_TRI:  return "trickle";
+    case AXP2101_CHG_PRE:  return "pre";
+    case AXP2101_CHG_CC:   return "cc";
+    case AXP2101_CHG_CV:   return "cv";
+    case AXP2101_CHG_DONE: return "done";
+    case AXP2101_CHG_STOP: return "stop";
+    default:               return "?";
+    }
+}
 
 static daily_activity_t activity_class(uint8_t a)
 {
@@ -71,6 +93,13 @@ static void ensure_header(void)
         }
         fclose(a);
     }
+    FILE *b = fopen(BATTERY_CSV, "a");
+    if (b) {
+        if (ftell(b) == 0) {
+            fprintf(b, "date,time,pct,mv,charge_state,chg_enabled,chg_ma,temp_c10\n");
+        }
+        fclose(b);
+    }
 }
 
 /* Called only from within a sd_log_session_begin()/end() bracket (see
@@ -95,6 +124,25 @@ static void append_lines(const struct tm *lt, uint32_t lifetime)
         bhi260ap_get_activity(&act);
         fprintf(a, "%s %s,%s\n", stemp, stem, class_name(activity_class(act)));
         fclose(a);
+    }
+    /* Battery sample. Written even when the cache is stale (valid==false) -
+     * a row of zeros with the timestamp still shows the gap, which is more
+     * useful when reconstructing an overnight drain than a missing line. */
+    FILE *b = fopen(BATTERY_CSV, "a");
+    if (b) {
+        sensor_cache_t c;
+        sensor_cache_get(&c);
+        /* date and time as two real columns, matching the header. The other
+         * two CSVs join them with a space into a single field despite their
+         * headers claiming otherwise; not changed there, because those files
+         * already hold history in that shape and re-splitting mid-file would
+         * break the existing series. */
+        fprintf(b, "%s,%s,%u,%u,%s,%u,%u,%d\n", stemp, stem,
+                (unsigned)c.batt_pct, (unsigned)c.batt_mv,
+                c.valid ? charge_state_name(c.chg_state) : "invalid",
+                (unsigned)(c.chg_enabled ? 1 : 0), (unsigned)c.chg_ma,
+                (int)c.batt_temp_c10);
+        fclose(b);
     }
 }
 

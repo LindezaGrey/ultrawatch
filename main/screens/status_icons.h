@@ -1,7 +1,7 @@
 /*
  * status_icons.h - two small glyphs for the status bar's RF row (see
- * status_bar.c): a satellite icon for GNSS and a mesh-network node icon
- * for LoRa/Meshtastic. Plain LVGL image data, no ESP-IDF dependency, so
+ * status_bar.c): a satellite icon for GNSS, a mesh-network node icon
+ * for LoRa/Meshtastic, and a contactless-field icon for NFC. Plain LVGL image data, no ESP-IDF dependency, so
  * this compiles unchanged in both the firmware and the sim.
  *
  * Generated (see status_icons.c) from user-provided source art -
@@ -20,6 +20,7 @@ extern "C" {
 
 extern const lv_image_dsc_t status_icon_satellite;
 extern const lv_image_dsc_t status_icon_mesh;
+extern const lv_image_dsc_t status_icon_nfc;
 
 #ifdef __cplusplus
 }
