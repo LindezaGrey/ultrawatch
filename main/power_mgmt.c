@@ -1104,6 +1104,40 @@ static void pm_panel_wake(void)
     }
 }
 
+/* Bring the panel up if a wake deferred it and the UI has since started
+ * drawing. Called from the LVGL flush path.
+ *
+ * Deferring the panel in power_mgmt_exit_sleep() was only ever half a design:
+ * s_panel_wake_pending is consumed by pm_wake_task() for a real gesture, but
+ * nothing consumed it when the UI woke for any OTHER reason. A touch or an
+ * incoming mesh packet then left the system fully awake and rendering into a
+ * dark screen - LVGL flushing happily (flushes climbing, age ~130 ms) at a
+ * panel still in DISPOFF+SLPIN. Reported live twice.
+ *
+ * A flush is the unambiguous signal that the UI wants to be seen, so the panel
+ * comes up here, before the pixels are pushed at it - a panel still asleep
+ * would swallow them. Deliberately does NOT call lvgl_force_redraw(): this runs
+ * inside the flush callback, and the flush now in progress does the painting.
+ * Returns quickly when there is nothing pending, which is the normal case. */
+void power_mgmt_panel_wake_if_pending(void)
+{
+    if (!s_panel_wake_pending) {
+        return;
+    }
+    s_panel_wake_pending = false;
+    ESP_LOGI(TAG, "deferred panel wake: UI is drawing, bringing the display up");
+    if (esp_lv_adapter_lock(0) == ESP_OK) {
+        /* Already on the LVGL task inside a flush, so the lock is recursive
+         * and uncontended; take it anyway so the panel work is consistent with
+         * every other call site. */
+        co5300_reinit(true, /*leave_display_off=*/false);
+        esp_lv_adapter_unlock();
+    } else {
+        co5300_reinit(true, /*leave_display_off=*/false);
+    }
+    co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : s_brightness);
+}
+
 esp_err_t power_mgmt_exit_sleep(void *ctx)
 {
     (void)ctx;

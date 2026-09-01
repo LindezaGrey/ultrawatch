@@ -205,6 +205,11 @@ static esp_err_t night_mode_draw_bitmap(lv_display_t *disp, esp_lcd_panel_handle
     (void)user_ctx;
     s_flush_count++;
     s_last_flush_us = esp_timer_get_time();
+    /* If a wake deferred the panel (IMU chatter with no gesture) and the UI
+     * has since decided to draw anyway - touch, an incoming mesh packet, a
+     * timer - the display is still off and these pixels would go nowhere.
+     * Bring it up first. No-op in the normal case. */
+    power_mgmt_panel_wake_if_pending();
     /* Ultra-Sparmodus's explicit-wake display (docs/application.md section
      * 10.3) reuses this same red-only transform as night mode - both want
      * "red instead of white", just for different reasons and without
