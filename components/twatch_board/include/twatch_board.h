@@ -152,6 +152,10 @@ extern i2s_chan_handle_t twatch_audio_rx;
  */
 esp_err_t twatch_board_init(void);
 
+/* Explicit display recovery primitive.  Normal display power policy must not
+ * use this: only display_controller may request a rail cycle. */
+esp_err_t twatch_board_cycle_display_rail(void);
+
 /* Push the RTC wall-clock time into the ESP32 system clock (settimeofday).
  * Called by the sensor cache periodically so time()/mktime never drift away
  * from the battery-backed RTC, which is the authoritative clock. */

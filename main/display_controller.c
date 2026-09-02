@@ -7,6 +7,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lvgl_app.h"
+#include "twatch_board.h"
 
 static const char *TAG = "display_ctrl";
 
@@ -16,6 +17,10 @@ typedef enum {
     DISPLAY_CMD_DRAW_COMPLETE,
     DISPLAY_CMD_BRIGHTNESS,
     DISPLAY_CMD_SLEEP,
+    DISPLAY_CMD_RECOVER,
+    DISPLAY_CMD_DIAG_OPERATION,
+    DISPLAY_CMD_DIAG_CYCLE,
+    DISPLAY_CMD_DIAG_READ_REGISTER,
 } display_cmd_type_t;
 
 typedef struct {
@@ -24,6 +29,12 @@ typedef struct {
     SemaphoreHandle_t done;
     esp_err_t *result;
     uint8_t brightness;
+    display_recovery_t recovery;
+    display_diag_operation_t diag_operation;
+    unsigned cycles;
+    uint8_t register_command;
+    uint8_t *register_data;
+    size_t register_length;
 } display_cmd_t;
 
 static QueueHandle_t s_queue;
@@ -46,6 +57,25 @@ static void display_complete(const display_cmd_t *cmd, esp_err_t err)
     if (cmd->done) {
         xSemaphoreGive(cmd->done);
     }
+}
+
+static esp_err_t display_lock(void)
+{
+    return esp_lv_adapter_lock(1000) == ESP_OK ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+
+static esp_err_t display_recover_locked(display_recovery_t recovery)
+{
+    esp_err_t err = ESP_OK;
+    if (recovery == DISPLAY_RECOVERY_RAIL_CYCLE) {
+        err = twatch_board_cycle_display_rail();
+    }
+    if (err == ESP_OK) {
+        err = co5300_reinit(recovery != DISPLAY_RECOVERY_REINIT_COMMANDS, true);
+    }
+    if (err == ESP_OK) err = co5300_blank();
+    if (err == ESP_OK) err = co5300_set_brightness(s_brightness);
+    return err;
 }
 
 static void display_controller_task(void *arg)
@@ -149,6 +179,91 @@ static void display_controller_task(void *arg)
                 }
             }
             display_complete(&cmd, err);
+            continue;
+        }
+
+        if (cmd.type == DISPLAY_CMD_RECOVER) {
+            esp_err_t err = display_lock();
+            if (err == ESP_OK) {
+                s_state = DISPLAY_STATE_INITIALIZING;
+                err = display_recover_locked(cmd.recovery);
+                esp_lv_adapter_unlock();
+            }
+            if (err == ESP_OK) {
+                s_state = DISPLAY_STATE_AWAITING_DRAW;
+                lvgl_force_redraw();
+            } else {
+                s_state = DISPLAY_STATE_FAULT;
+                ESP_LOGE(TAG, "recovery: %s", esp_err_to_name(err));
+            }
+            display_complete(&cmd, err);
+            continue;
+        }
+
+        if (cmd.type == DISPLAY_CMD_DIAG_OPERATION) {
+            esp_err_t err = display_lock();
+            if (err == ESP_OK) {
+                switch (cmd.diag_operation) {
+                case DISPLAY_DIAG_OUTPUT_OFF:
+                    err = co5300_display_off();
+                    if (err == ESP_OK) s_state = DISPLAY_STATE_READY;
+                    break;
+                case DISPLAY_DIAG_OUTPUT_ON:
+                    err = co5300_display_on();
+                    if (err == ESP_OK) s_state = DISPLAY_STATE_VISIBLE;
+                    break;
+                case DISPLAY_DIAG_BRIGHTNESS_ZERO:
+                    err = co5300_set_brightness(0);
+                    break;
+                case DISPLAY_DIAG_BRIGHTNESS_RESTORE:
+                    err = co5300_set_brightness(s_brightness);
+                    break;
+                }
+                esp_lv_adapter_unlock();
+            }
+            display_complete(&cmd, err);
+            continue;
+        }
+
+        if (cmd.type == DISPLAY_CMD_DIAG_CYCLE) {
+            esp_err_t err = display_lock();
+            if (err == ESP_OK) {
+                for (unsigned i = 0; i < cmd.cycles && err == ESP_OK; ++i) {
+                    err = co5300_display_off();
+                    if (err == ESP_OK) err = co5300_sleep();
+                    if (err == ESP_OK) vTaskDelay(pdMS_TO_TICKS(60));
+                    if (err == ESP_OK) err = co5300_wake();
+                    if (err == ESP_OK) err = co5300_set_brightness(s_brightness);
+                    if (err == ESP_OK) err = co5300_display_on();
+                    if (err == ESP_OK) vTaskDelay(pdMS_TO_TICKS(60));
+                }
+                esp_lv_adapter_unlock();
+            }
+            if (err == ESP_OK) {
+                /* The cycling sequence leaves the panel's GRAM intact only by
+                 * accident.  Always repaint it before returning control to
+                 * the console so this diagnostic cannot leave a stale or
+                 * blank frame until the next unrelated UI update. */
+                s_state = DISPLAY_STATE_VISIBLE;
+                lvgl_force_redraw();
+            }
+            display_complete(&cmd, err);
+            continue;
+        }
+
+        if (cmd.type == DISPLAY_CMD_DIAG_READ_REGISTER) {
+            esp_err_t err = display_lock();
+            if (err == ESP_OK) {
+                esp_lcd_panel_io_handle_t io = co5300_get_panel_io();
+                err = io ? ESP_OK : ESP_ERR_INVALID_STATE;
+                if (err == ESP_OK) {
+                    int lcd_cmd = (int)((0x03UL << 24) | ((uint32_t)cmd.register_command << 8));
+                    err = esp_lcd_panel_io_rx_param(io, lcd_cmd, cmd.register_data,
+                                                     cmd.register_length);
+                }
+                esp_lv_adapter_unlock();
+            }
+            display_complete(&cmd, err);
         }
     }
 }
@@ -198,6 +313,13 @@ void display_controller_request_visible(display_reason_t reason)
     xQueueSend(s_queue, &cmd, 0);
 }
 
+void display_controller_request_repaint(void)
+{
+    if (s_queue) {
+        lvgl_force_redraw();
+    }
+}
+
 void display_controller_note_draw_complete(void)
 {
     if (!s_queue) {
@@ -241,6 +363,55 @@ esp_err_t display_controller_sleep(TickType_t timeout)
     xSemaphoreTake(done, portMAX_DELAY);
     vSemaphoreDelete(done);
     return result;
+}
+
+static esp_err_t display_submit_sync(display_cmd_t *cmd, TickType_t timeout)
+{
+    if (!s_queue) return ESP_ERR_INVALID_STATE;
+    SemaphoreHandle_t done = xSemaphoreCreateBinary();
+    if (!done) return ESP_ERR_NO_MEM;
+    esp_err_t result = ESP_FAIL;
+    cmd->done = done;
+    cmd->result = &result;
+    if (xQueueSend(s_queue, cmd, timeout) != pdPASS) {
+        vSemaphoreDelete(done);
+        return ESP_ERR_TIMEOUT;
+    }
+    xSemaphoreTake(done, portMAX_DELAY);
+    vSemaphoreDelete(done);
+    return result;
+}
+
+esp_err_t display_controller_recover(display_recovery_t recovery, TickType_t timeout)
+{
+    display_cmd_t cmd = { .type = DISPLAY_CMD_RECOVER, .recovery = recovery };
+    return display_submit_sync(&cmd, timeout);
+}
+
+esp_err_t display_controller_diag_operation(display_diag_operation_t operation, TickType_t timeout)
+{
+    display_cmd_t cmd = { .type = DISPLAY_CMD_DIAG_OPERATION, .diag_operation = operation };
+    return display_submit_sync(&cmd, timeout);
+}
+
+esp_err_t display_controller_diag_cycle(unsigned count, TickType_t timeout)
+{
+    if (count == 0) return ESP_ERR_INVALID_ARG;
+    display_cmd_t cmd = { .type = DISPLAY_CMD_DIAG_CYCLE, .cycles = count };
+    return display_submit_sync(&cmd, timeout);
+}
+
+esp_err_t display_controller_diag_read_register(uint8_t command, uint8_t *data,
+                                                size_t length, TickType_t timeout)
+{
+    if (!data || !length) return ESP_ERR_INVALID_ARG;
+    display_cmd_t cmd = {
+        .type = DISPLAY_CMD_DIAG_READ_REGISTER,
+        .register_command = command,
+        .register_data = data,
+        .register_length = length,
+    };
+    return display_submit_sync(&cmd, timeout);
 }
 
 display_state_t display_controller_get_state(void)

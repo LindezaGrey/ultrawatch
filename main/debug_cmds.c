@@ -20,6 +20,7 @@
 #include "drv2605.h"
 #include "xl9555.h"
 #include "co5300.h"
+#include "display_controller.h"
 #include "axp2101.h"
 #include "power_mgmt.h"
 #include "alarm.h"
@@ -674,19 +675,9 @@ void debug_cmd_dispchk(const char *args)
 void debug_cmd_disppwr(const char *args)
 {
     (void)args;
-    /* Cycle the display power rail off then on to recover a stuck panel.
-     * The panel re-inits from its OTP on power-up; re-send wake commands
-     * through the existing handle (no re-init, the SPI bus stays owned by
-     * the LVGL flush task). */
-    xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, false);
-    vTaskDelay(pdMS_TO_TICKS(200));
-    xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, true);
-    vTaskDelay(pdMS_TO_TICKS(200));
-    co5300_wake();
-    lvgl_force_redraw();
-    co5300_display_on();
-    co5300_set_brightness(0x80);
-    printf("disppwr: display power cycled\n");
+    esp_err_t err = display_controller_recover(DISPLAY_RECOVERY_RAIL_CYCLE,
+                                               pdMS_TO_TICKS(1000));
+    printf("disppwr: rail-cycle recovery -> %s\n", esp_err_to_name(err));
 }
 
 /* Recover a panel that stopped reflecting what it is sent (the shake-triggered
@@ -749,13 +740,13 @@ void debug_cmd_dispcmd(const char *args)
     }
     esp_err_t err;
     if (strcmp(args, "off") == 0) {
-        err = co5300_display_off();
+        err = display_controller_diag_operation(DISPLAY_DIAG_OUTPUT_OFF, pdMS_TO_TICKS(1000));
     } else if (strcmp(args, "on") == 0) {
-        err = co5300_display_on();
+        err = display_controller_diag_operation(DISPLAY_DIAG_OUTPUT_ON, pdMS_TO_TICKS(1000));
     } else if (strcmp(args, "bri0") == 0) {
-        err = co5300_set_brightness(0x00);
+        err = display_controller_diag_operation(DISPLAY_DIAG_BRIGHTNESS_ZERO, pdMS_TO_TICKS(1000));
     } else if (strcmp(args, "bri") == 0) {
-        err = co5300_set_brightness(0x80);
+        err = display_controller_diag_operation(DISPLAY_DIAG_BRIGHTNESS_RESTORE, pdMS_TO_TICKS(1000));
     } else {
         printf("dispcmd: unknown command: %s\n", args);
         return;
@@ -768,7 +759,7 @@ void debug_cmd_dispcmd(const char *args)
 void debug_cmd_disprepaint(const char *args)
 {
     (void)args;
-    lvgl_force_redraw();
+    display_controller_request_repaint();
     printf("disprepaint: full repaint requested (no panel commands sent)\n");
 }
 
@@ -864,41 +855,17 @@ void debug_cmd_dispcycle(const char *args)
         printf("dispcycle: count must be 1..2000\n");
         return;
     }
-    bool racy = (strstr(args, "flush") != NULL);
-    printf("dispcycle: %d cycles, mode=%s\n", n, racy ? "flush-during-sleep" : "locked");
-
-    for (int i = 0; i < n; i++) {
-        if (!racy) {
-            if (esp_lv_adapter_lock(1000) != ESP_OK) {
-                printf("dispcycle: lock failed at cycle %d\n", i);
-                return;
-            }
-        }
-        co5300_display_off();
-        co5300_sleep();
-        vTaskDelay(pdMS_TO_TICKS(60));
-        co5300_wake();          /* SLPOUT + brightness, exactly as the wake path does */
-        co5300_display_on();
-        if (!racy) {
-            esp_lv_adapter_unlock();
-        }
-        vTaskDelay(pdMS_TO_TICKS(60));
-        if (((i + 1) % 25) == 0) {
-            printf("dispcycle: %d/%d\n", i + 1, n);
-        }
+    if (strstr(args, "flush") != NULL) {
+        printf("dispcycle: the unsafe flush mode was removed\n");
+        return;
     }
-    lvgl_force_redraw();
-    printf("dispcycle: done (%d cycles) - check the screen\n", n);
+    esp_err_t err = display_controller_diag_cycle((unsigned)n, pdMS_TO_TICKS(1000));
+    printf("dispcycle: %d serialized cycles -> %s\n", n, esp_err_to_name(err));
 }
 
 void debug_cmd_dispreg(const char *args)
 {
     (void)args;
-    esp_lcd_panel_io_handle_t io = co5300_get_panel_io();
-    if (!io) {
-        printf("dispreg: no panel io\n");
-        return;
-    }
     static const struct { uint8_t cmd; const char *name; const char *expect; } regs[] = {
         { 0x0A, "RDDPM   (power mode)",   "0x9c if SLPOUT+DISPON" },
         { 0x0C, "RDDCOLMOD (pixel fmt)",  "0x55 for RGB565" },
@@ -907,8 +874,8 @@ void debug_cmd_dispreg(const char *args)
     };
     for (size_t i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
         uint8_t v[4] = { 0, 0, 0, 0 };
-        int lcd_cmd = (int)((0x03UL << 24) | ((uint32_t)regs[i].cmd << 8));
-        esp_err_t err = esp_lcd_panel_io_rx_param(io, lcd_cmd, v, sizeof(v));
+        esp_err_t err = display_controller_diag_read_register(regs[i].cmd, v, sizeof(v),
+                                                               pdMS_TO_TICKS(1000));
         if (err == ESP_OK) {
             printf("dispreg: %-22s 0x%02x = %02x %02x %02x %02x   [%s]\n",
                    regs[i].name, regs[i].cmd, v[0], v[1], v[2], v[3], regs[i].expect);
@@ -922,21 +889,15 @@ void debug_cmd_dispreg(const char *args)
 void debug_cmd_dispfix(const char *args)
 {
     (void)args;
-    esp_err_t lock_err = esp_lv_adapter_lock(1000);
-    if (lock_err != ESP_OK) {
-        printf("dispfix: LVGL lock failed: %s\n", esp_err_to_name(lock_err));
-        return;
-    }
     bool with_reset = !(args && strcmp(args, "cmds") == 0);
-    esp_err_t err = co5300_reinit(with_reset, /*leave_display_off=*/false);
-    esp_lv_adapter_unlock();
+    esp_err_t err = display_controller_recover(with_reset ? DISPLAY_RECOVERY_REINIT_RESET
+                                                           : DISPLAY_RECOVERY_REINIT_COMMANDS,
+                                               pdMS_TO_TICKS(1000));
     printf("dispfix: reinit(%s) -> %s\n", with_reset ? "rst+cmds" : "cmds-only",
            (err == ESP_OK) ? "ok" : esp_err_to_name(err));
     if (err != ESP_OK) {
         return;
     }
-    lvgl_force_redraw();
-    co5300_set_brightness(0x80);
     printf("dispfix: repainted\n");
 }
 

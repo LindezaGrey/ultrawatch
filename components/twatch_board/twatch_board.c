@@ -282,3 +282,16 @@ esp_err_t twatch_board_init(void)
     ESP_LOGI(TAG, "T-Watch Ultra board init finished");
     return ESP_OK;
 }
+
+esp_err_t twatch_board_cycle_display_rail(void)
+{
+    ESP_RETURN_ON_FALSE(twatch_xl9555_dev, ESP_ERR_INVALID_STATE, TAG,
+                        "display rail requested before expander init");
+    ESP_RETURN_ON_ERROR(xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, false),
+                        TAG, "display rail off");
+    vTaskDelay(pdMS_TO_TICKS(200));
+    ESP_RETURN_ON_ERROR(xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, true),
+                        TAG, "display rail on");
+    vTaskDelay(pdMS_TO_TICKS(200));
+    return ESP_OK;
+}

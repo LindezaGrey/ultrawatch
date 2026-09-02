@@ -1,8 +1,9 @@
 # Display controller and touch ownership
 
-Status: phases 1-4 are implemented and hardware-validated: initial controller,
-controller-owned boot initialisation, first-frame gating, and normal light-sleep
-entry/exit. Diagnostics, rail recovery, and touch-controller work remain planned.
+Status: phases 1-5 are implemented: initial controller, controller-owned boot
+initialisation, first-frame gating, normal light-sleep entry/exit, and
+controller-serialized diagnostics/recovery. Hardware validation of the
+diagnostic commands and touch-controller work remain planned.
 
 ## Goal
 
