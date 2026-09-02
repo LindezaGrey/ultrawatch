@@ -1,9 +1,10 @@
 # Display controller and touch ownership
 
-Status: phases 1-5 are implemented: initial controller, controller-owned boot
-initialisation, first-frame gating, normal light-sleep entry/exit, and
-controller-serialized diagnostics/recovery. Hardware validation of the
-diagnostic commands and touch-controller work remain planned.
+Status: phases 1-6 are implemented: initial controller, controller-owned boot
+initialisation, first-frame gating, normal light-sleep entry/exit,
+controller-serialized diagnostics/recovery, and CST9217 ownership by
+`touch_controller`. The touch-controller handoff (normal gestures and
+light-sleep touch wake) is hardware-validated.
 
 ## Goal
 
@@ -45,10 +46,11 @@ sleep keeps the existing ALDO2/touch policy.
 - display recovery may ask it to quiesce only if a future recovery path needs
   to disturb shared touch hardware.
 
-Until `touch_controller` is implemented, this document establishes the
-boundary: new display-controller code must not take over touch IRQ or gesture
-handling, and new power-management code must not add further direct CST9217
-control.
+`touch_controller` is deliberately a service rather than a task: touch reset
+and startup occur once, and wake configuration runs synchronously as part of
+the existing sleep-entry sequence. New display-controller code must not take
+over touch IRQ or gesture handling, and new power-management code must not add
+direct CST9217 or GPIO12 wake control.
 
 ## Display-controller contract
 

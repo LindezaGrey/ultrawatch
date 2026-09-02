@@ -12,7 +12,6 @@ idf_component_register(
         axp2101
         xl9555
         pcf85063a
-        cst9217
         bhi260ap
         drv2605
         max98357a

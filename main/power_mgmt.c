@@ -26,6 +26,7 @@
 #include "esp_timer.h"
 #include "co5300.h"
 #include "display_controller.h"
+#include "touch_controller.h"
 #include "pcf85063a.h"
 #include "bhi260ap.h"
 #include "m10q.h"
@@ -38,7 +39,6 @@
 
 static const char *TAG = "power_mgmt";
 
-#define PM_GPIO_TOUCH  12
 #define PM_GPIO_PWRKEY 7    /* AXP2101 IRQ */
 #define PM_GPIO_BOOT   0
 #define PM_GPIO_IMU    8    /* BHI260AP INT (wake on wrist-raise/gesture) */
@@ -880,7 +880,7 @@ static void pm_arm_gpio_wakeup(void)
      * config persists across sleep cycles until explicitly disabled, so a
      * stale LOW_LEVEL from an earlier cycle could instantly re-wake the watch
      * on a line that is low at entry. Re-arm from a clean state every cycle. */
-    gpio_wakeup_disable(PM_GPIO_TOUCH);
+    touch_controller_set_wake_enabled(false);
     gpio_wakeup_disable(PM_GPIO_IMU);
     gpio_wakeup_disable(PM_GPIO_PWRKEY);
     gpio_wakeup_disable(PM_GPIO_BOOT);
@@ -900,7 +900,7 @@ static void pm_arm_gpio_wakeup(void)
      * wake-up gesture). During light sleep the FIFO is not drained, so the
      * line holds low -> LOW_LEVEL wakes the watch. */
     if (!s_night_mode) {
-        gpio_wakeup_enable(PM_GPIO_TOUCH, GPIO_INTR_LOW_LEVEL);
+        touch_controller_set_wake_enabled(true);
         /* The IMU edge ISR is disabled while awake (any pulse disables it);
          * arm it again so a gesture during light sleep wakes the adapter.
          * Only enable the level-wake if the line is de-asserted (high): if a

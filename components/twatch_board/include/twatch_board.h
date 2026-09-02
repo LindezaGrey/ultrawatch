@@ -156,6 +156,10 @@ esp_err_t twatch_board_init(void);
  * use this: only display_controller may request a rail cycle. */
 esp_err_t twatch_board_cycle_display_rail(void);
 
+/* Reset the CST9217 through XL9555 P8. Only touch_controller may call this;
+ * the board exposes the pin-level primitive but owns no touch lifecycle. */
+esp_err_t twatch_board_reset_touch(void);
+
 /* Push the RTC wall-clock time into the ESP32 system clock (settimeofday).
  * Called by the sensor cache periodically so time()/mktime never drift away
  * from the battery-backed RTC, which is the authoritative clock. */

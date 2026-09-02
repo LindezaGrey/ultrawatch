@@ -26,7 +26,6 @@
 #include "cascadia_fonts.h"
 #include "daily_log.h"
 #include "co5300.h"
-#include "cst9217.h"
 #include "bhi260ap.h"
 #include "sd_log.h"
 #include "pcf85063a.h"
@@ -37,6 +36,7 @@
 #include "m10q.h"
 #include "power_mgmt.h"
 #include "display_controller.h"
+#include "touch_controller.h"
 #include "alarm.h"
 #include "cd_timer.h"
 #include "gpx_log.h"
@@ -1201,6 +1201,14 @@ esp_err_t lvgl_app_start(void)
      * setup runs later in this function. Safe to load twice. */
     power_mgmt_load_config();
 
+    /* A missing touch controller must not prevent the watch face from
+     * starting; this matches the former board-startup behaviour, which
+     * reported the driver failure but continued without touch input. */
+    esp_err_t touch_err = touch_controller_init();
+    if (touch_err != ESP_OK) {
+        ESP_LOGE(TAG, "touch controller init failed: %s", esp_err_to_name(touch_err));
+    }
+
     ESP_RETURN_ON_ERROR(display_controller_init(), TAG, "display controller init");
     display_controller_set_brightness(power_mgmt_get_brightness());
 
@@ -1282,11 +1290,11 @@ esp_err_t lvgl_app_start(void)
     display_controller_request_visible(DISPLAY_REASON_BOOT);
 
     /* Touch input (CST9217). */
-    esp_lcd_touch_handle_t tp = cst9217_get_handle();
+    esp_lcd_touch_handle_t tp = touch_controller_get_handle();
     if (tp) {
         esp_lv_adapter_touch_config_t touch_cfg = ESP_LV_ADAPTER_TOUCH_DEFAULT_CONFIG(disp, tp);
         uint16_t nx = 0, ny = 0;
-        if (cst9217_get_resolution(&nx, &ny) == ESP_OK && nx && ny) {
+        if (touch_controller_get_resolution(&nx, &ny) == ESP_OK && nx && ny) {
             touch_cfg.scale.x = (float)CO5300_RES_X / nx;
             touch_cfg.scale.y = (float)CO5300_RES_Y / ny;
         }

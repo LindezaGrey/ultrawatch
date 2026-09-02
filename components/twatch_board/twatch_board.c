@@ -10,7 +10,6 @@
 #include "axp2101.h"
 #include "xl9555.h"
 #include "pcf85063a.h"
-#include "cst9217.h"
 #include "drv2605.h"
 #include "max98357a.h"
 #include "t3902.h"
@@ -259,15 +258,8 @@ esp_err_t twatch_board_init(void)
     spi2_power_register(AXP2101_ALDO3, SPI2_POWER_SHARED, NULL);
     spi2_power_register(AXP2101_DLDO1, SPI2_POWER_OWNED, NULL);
 
-    /* 3. Touch: pulse TP_RST (XL9555 P8) low->high so the CST9217 boots
-     *    into a known state, then init its driver on the I2C bus. */
-    xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, false);
-    vTaskDelay(pdMS_TO_TICKS(20));
-    xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, true);
-    vTaskDelay(pdMS_TO_TICKS(60));
-    cst9217_init(twatch_i2c_bus);
-
-    /* 4. Peripheral driver init (skeletons). */
+    /* 3. Peripheral driver init (skeletons). Touch reset/init is owned by
+     * touch_controller after the board has made buses and pins available. */
     pcf85063a_init(twatch_rtc_dev);
     sync_system_time();
     drv2605_init(twatch_haptic_dev);
@@ -293,5 +285,18 @@ esp_err_t twatch_board_cycle_display_rail(void)
     ESP_RETURN_ON_ERROR(xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, true),
                         TAG, "display rail on");
     vTaskDelay(pdMS_TO_TICKS(200));
+    return ESP_OK;
+}
+
+esp_err_t twatch_board_reset_touch(void)
+{
+    ESP_RETURN_ON_FALSE(twatch_xl9555_dev, ESP_ERR_INVALID_STATE, TAG,
+                        "touch reset requested before expander init");
+    ESP_RETURN_ON_ERROR(xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, false),
+                        TAG, "touch reset low");
+    vTaskDelay(pdMS_TO_TICKS(20));
+    ESP_RETURN_ON_ERROR(xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, true),
+                        TAG, "touch reset high");
+    vTaskDelay(pdMS_TO_TICKS(60));
     return ESP_OK;
 }
