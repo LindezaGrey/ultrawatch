@@ -4,7 +4,8 @@ Status: phases 1-6 are implemented: initial controller, controller-owned boot
 initialisation, first-frame gating, normal light-sleep entry/exit,
 controller-serialized diagnostics/recovery, and CST9217 ownership by
 `touch_controller`. The touch-controller handoff (normal gestures and
-light-sleep touch wake) is hardware-validated.
+light-sleep touch wake) is hardware-validated. Ultra-Sparmodus and shutdown
+are routed through explicit display-controller sleep modes.
 
 ## Goal
 
@@ -140,12 +141,12 @@ then resumes the adapter. The old pending/deferred-panel flags and
 
 ### Sleep and shutdown
 
-Before light sleep, shutdown, or Ultra-Sparmodus, `power_mgmt` calls
+Before light sleep or Ultra-Sparmodus, `power_mgmt` calls
 `display_controller_sleep()` and waits for completion. The controller locks
 against LVGL flushing, performs `DISPOFF`, blank, and `SLPIN` in that order,
-then reports completion. Shutdown may omit `SLPIN` only if the PMIC power-off
-sequence immediately removes power; the controller exposes that as an explicit
-sleep mode rather than leaving a caller to issue partial commands.
+then reports completion. Shutdown calls the explicit
+`display_controller_power_off()` mode, which omits `SLPIN` because the PMIC
+power-off sequence immediately removes panel power.
 
 ### Diagnostics
 

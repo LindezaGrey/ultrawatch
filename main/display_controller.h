@@ -40,6 +40,9 @@ void display_controller_request_repaint(void);
 void display_controller_note_draw_complete(void);
 void display_controller_set_brightness(uint8_t level);
 esp_err_t display_controller_sleep(TickType_t timeout);
+/* Turn panel output off and blank it for an imminent PMIC power cut. Unlike
+ * display_controller_sleep(), this deliberately omits SLPIN. */
+esp_err_t display_controller_power_off(TickType_t timeout);
 esp_err_t display_controller_recover(display_recovery_t recovery, TickType_t timeout);
 esp_err_t display_controller_diag_operation(display_diag_operation_t operation, TickType_t timeout);
 esp_err_t display_controller_diag_cycle(unsigned count, TickType_t timeout);

@@ -62,6 +62,29 @@ idf.py build
 idf.py -p /dev/ttyACM0 flash
 ```
 
+### Long-running agent sessions
+
+Some agent command runners stop a foreground command after about a minute.
+At 921600 baud, a full flash (bootloader, partition table, assets, and app)
+can exceed that limit. Do **not** split the app image merely to work around
+that runner limit: an interrupted flash erases part of the app partition and
+leaves the watch unbootable until it is restored.
+
+Instead, keep one normal full `idf.py flash` operation, detach it, and monitor
+its log. Close any serial monitor (including MCP Serial) before starting:
+
+```bash
+flash_log=/tmp/uwatch-full-flash.log
+nohup bash -lc 'source /home/peter/esp/esp-idf/export.sh && idf.py -p /dev/ttyACM0 -b 921600 flash' \
+  >"$flash_log" 2>&1 < /dev/null &
+echo "flash PID: $!  log: $flash_log"
+tail -f "$flash_log"
+```
+
+Wait for `Hash of data verified` for every image and `Hard resetting via RTS
+pin...` before reopening the serial monitor. If the detached process exits
+early, inspect the log; do not start a second flasher against the same port.
+
 Docker fallback (`docker compose up -d` then `docker compose exec esp-idf idf.py ...`) is documented in [AGENT.md](AGENT.md).
 
 ## JTAG debugging (primary workflow)

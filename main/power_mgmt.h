@@ -79,7 +79,7 @@ uint32_t power_mgmt_get_display_timeout_s(void);
 void power_mgmt_set_display_timeout_s(uint32_t seconds);
 
 /* Normal (non-night-mode) display brightness, 0-255 (default 0x80).
- * Persisted in NVS and applied immediately via co5300_set_brightness()
+ * Persisted in NVS and applied immediately through display_controller
  * unless night mode is currently active (in which case it takes effect the
  * next time night mode exits). */
 uint8_t power_mgmt_get_brightness(void);

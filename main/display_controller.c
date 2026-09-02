@@ -17,6 +17,7 @@ typedef enum {
     DISPLAY_CMD_DRAW_COMPLETE,
     DISPLAY_CMD_BRIGHTNESS,
     DISPLAY_CMD_SLEEP,
+    DISPLAY_CMD_POWER_OFF,
     DISPLAY_CMD_RECOVER,
     DISPLAY_CMD_DIAG_OPERATION,
     DISPLAY_CMD_DIAG_CYCLE,
@@ -41,6 +42,8 @@ static QueueHandle_t s_queue;
 static volatile display_state_t s_state = DISPLAY_STATE_INITIALIZING;
 static bool s_lvgl_attached;
 static uint8_t s_brightness = 0x80;
+
+static esp_err_t display_submit_sync(display_cmd_t *cmd, TickType_t timeout);
 
 static void display_reply(TaskHandle_t reply, esp_err_t err)
 {
@@ -177,6 +180,20 @@ static void display_controller_task(void *arg)
                 if (err == ESP_OK) {
                     s_state = DISPLAY_STATE_SLEEPING;
                 }
+            }
+            display_complete(&cmd, err);
+            continue;
+        }
+
+        if (cmd.type == DISPLAY_CMD_POWER_OFF) {
+            esp_err_t err = display_lock();
+            if (err == ESP_OK) {
+                err = co5300_display_off();
+                if (err == ESP_OK) err = co5300_blank();
+                esp_lv_adapter_unlock();
+            }
+            if (err == ESP_OK) {
+                s_state = DISPLAY_STATE_READY;
             }
             display_complete(&cmd, err);
             continue;
@@ -363,6 +380,12 @@ esp_err_t display_controller_sleep(TickType_t timeout)
     xSemaphoreTake(done, portMAX_DELAY);
     vSemaphoreDelete(done);
     return result;
+}
+
+esp_err_t display_controller_power_off(TickType_t timeout)
+{
+    display_cmd_t cmd = { .type = DISPLAY_CMD_POWER_OFF };
+    return display_submit_sync(&cmd, timeout);
 }
 
 static esp_err_t display_submit_sync(display_cmd_t *cmd, TickType_t timeout)

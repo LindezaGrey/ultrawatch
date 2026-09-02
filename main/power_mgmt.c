@@ -24,7 +24,6 @@
 #include "twatch_board.h"
 #include "axp2101.h"
 #include "esp_timer.h"
-#include "co5300.h"
 #include "display_controller.h"
 #include "touch_controller.h"
 #include "pcf85063a.h"
@@ -391,12 +390,12 @@ void power_mgmt_sparmodus_enter_sleep(void)
      * needed). Without this the watch looked "frozen"/unresponsive on a
      * real explicit wake - reported live and mistaken for a crash - since
      * the screen stayed lit on stale content while the chip was actually
-     * correctly asleep underneath it. Same three-call sequence
-     * power_mgmt_enter_sleep() already uses for the normal light-sleep
-     * path. */
-    co5300_display_off();
-    co5300_blank();
-    co5300_sleep();
+     * correctly asleep underneath it. Use the same serialized lifecycle as
+     * normal light sleep before cutting every peripheral rail. */
+    esp_err_t display_err = display_controller_sleep(pdMS_TO_TICKS(1000));
+    if (display_err != ESP_OK) {
+        ESP_LOGW(TAG, "Ultra-Sparmodus display sleep: %s", esp_err_to_name(display_err));
+    }
     lvgl_gps_set_enabled(false);   /* GNSS (BLDO1): clean stop through the driver's own path */
 
     /* LoRa (ALDO3): unlike the normal light-sleep path (which keeps this
@@ -671,8 +670,12 @@ static bool pm_imu_wake_is_real(void)
 void power_mgmt_shutdown(void)
 {
     ESP_LOGI(TAG, "PWRKEY long-press: shutting down");
-    co5300_display_off();
-    co5300_blank();
+    /* The PMIC immediately removes panel power, so omit SLPIN deliberately.
+     * This is still serialized with the LVGL flush path by the controller. */
+    esp_err_t display_err = display_controller_power_off(pdMS_TO_TICKS(1000));
+    if (display_err != ESP_OK) {
+        ESP_LOGW(TAG, "shutdown display off: %s", esp_err_to_name(display_err));
+    }
     sd_log_unmount();
     axp2101_soft_poweroff(twatch_pmu_dev);
 }
