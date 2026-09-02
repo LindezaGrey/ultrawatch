@@ -25,6 +25,9 @@ void screen_get_theme_color(uint8_t *red, uint8_t *green, uint8_t *blue);
 /* Ask the display task to redraw time, battery, and BLE state immediately. */
 void screen_request_refresh(void);
 
+/* Wake the display and open the messaging app for a received text. */
+void screen_show_messages(void);
+
 /* Wake the black screen and restart its touch-inactivity deadline. */
 void screen_wake_from_touch(void);
 

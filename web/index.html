@@ -119,6 +119,7 @@
         <a href="#sensorControl">Sensor power</a>
         <a href="#systemPower">ESP32 power</a>
         <a href="#wifi">Wi-Fi</a>
+        <a href="#meshtastic">Meshtastic</a>
         <a href="#rtc">RTC</a>
         <a href="#alarm">Alarm</a>
         <a href="#power">Battery &amp; power</a>
@@ -176,6 +177,38 @@
             <button id="wifiCancel" type="button">Cancel</button>
           </div>
         </form>
+      </div>
+    </section>
+
+    <section id="meshtastic" class="sensor">
+      <header><h2>Meshtastic messages</h2><span class="tag">RX only · persisted</span></header>
+      <p>Configure the LoRa receiver and the two channel keys used by the messaging app. The watch restarts the receiver after you apply a change.</p>
+      <p class="wifi-warning">Development build: channel keys are stored in flash and sent over unauthenticated BLE.</p>
+      <div class="settings">
+        <div class="setting"><label class="toggle"><input id="meshEnabled" type="checkbox" data-connected disabled> LoRa receiver enabled</label></div>
+        <div class="setting"><label class="toggle"><input id="meshNotify" type="checkbox" data-connected disabled> Open messages and vibrate on text</label></div>
+        <div class="setting"><label for="meshFrequency">Frequency</label><input id="meshFrequency" type="number" min="400000000" max="960000000" step="1000" data-connected disabled><small>Hz</small></div>
+        <div class="setting"><label for="meshSpreadingFactor">Spreading factor</label><select id="meshSpreadingFactor" data-connected disabled><option>5</option><option>6</option><option>7</option><option selected>8</option><option>9</option><option>10</option><option>11</option><option>12</option></select></div>
+        <div class="setting"><label for="meshBandwidth">Bandwidth</label><select id="meshBandwidth" data-connected disabled><option value="4">125 kHz</option><option value="5" selected>250 kHz</option><option value="6">500 kHz</option></select></div>
+        <div class="setting"><label for="meshCodingRate">Coding rate</label><select id="meshCodingRate" data-connected disabled><option value="1">4/5</option><option value="2">4/6</option><option value="3">4/7</option><option value="4">4/8</option></select></div>
+        <div class="setting"><label for="meshPreamble">Preamble</label><input id="meshPreamble" type="number" min="1" max="65535" data-connected disabled><small>symbols</small></div>
+        <div class="setting"><label for="meshSyncWord">Sync word</label><input id="meshSyncWord" maxlength="2" pattern="[0-9A-Fa-f]{2}" data-connected disabled><small>2 hexadecimal characters</small></div>
+        <div class="setting"><label class="toggle"><input id="meshLdro" type="checkbox" data-connected disabled> Low-data-rate optimization</label></div>
+        <div class="setting"><label class="toggle"><input id="meshBoostedGain" type="checkbox" data-connected disabled> Boosted receive gain</label></div>
+      </div>
+      <div class="configuration">
+        <h3>Channels</h3>
+        <div class="settings">
+          <div class="setting"><label for="meshChannel1Name">Channel 1 name</label><input id="meshChannel1Name" maxlength="31" autocomplete="off" data-connected disabled></div>
+          <div class="setting"><label for="meshChannel1Key">Channel 1 key</label><input id="meshChannel1Key" type="password" maxlength="64" autocomplete="new-password" data-connected disabled><small>32 or 64 hexadecimal characters</small></div>
+          <div class="setting"><label for="meshChannel2Name">Channel 2 name</label><input id="meshChannel2Name" maxlength="31" autocomplete="off" data-connected disabled></div>
+          <div class="setting"><label for="meshChannel2Key">Channel 2 key</label><input id="meshChannel2Key" type="password" maxlength="64" autocomplete="new-password" data-connected disabled><small>32 or 64 hexadecimal characters</small></div>
+        </div>
+        <label class="toggle"><input id="meshRevealKeys" type="checkbox"> Reveal channel keys</label>
+      </div>
+      <div class="buttons">
+        <button id="readMeshConfig" data-connected disabled>Read settings</button>
+        <button id="writeMeshConfig" data-connected disabled>Apply settings</button>
       </div>
     </section>
 
@@ -524,7 +557,8 @@
       alarm: '7a1e000c-7a1e-4b6c-8d9e-001122334455',
       theme: '7a1e000d-7a1e-4b6c-8d9e-001122334455',
       wifiStatus: '7a1e000e-7a1e-4b6c-8d9e-001122334455',
-      wifiProfiles: '7a1e000f-7a1e-4b6c-8d9e-001122334455'
+      wifiProfiles: '7a1e000f-7a1e-4b6c-8d9e-001122334455',
+      meshConfig: '7a1e0010-7a1e-4b6c-8d9e-001122334455'
     };
     const decoder = new TextDecoder();
     const encoder = new TextEncoder();
@@ -550,6 +584,12 @@
       'wifiSsid', 'wifiIp', 'wifiRssi', 'wifiError', 'wifiProfiles',
       'wifiAdd', 'wifiEditor', 'wifiEditIndex', 'wifiEditSsid',
       'wifiEditPassword', 'wifiRevealPassword', 'wifiSave', 'wifiCancel'];
+    ids.push('meshEnabled', 'meshNotify', 'meshFrequency',
+      'meshSpreadingFactor', 'meshBandwidth', 'meshCodingRate',
+      'meshPreamble', 'meshSyncWord', 'meshLdro', 'meshBoostedGain',
+      'meshChannel1Name', 'meshChannel1Key', 'meshChannel2Name',
+      'meshChannel2Key', 'meshRevealKeys', 'readMeshConfig',
+      'writeMeshConfig');
     const ui = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
 
     let device = null;
@@ -570,6 +610,8 @@
     let wifiProfiles = [];
     let wifiActiveProfile = 0xffffffff;
     let wifiActualState = 0;
+    let meshConfigLoaded = false;
+    let meshConfigWriteInProgress = false;
 
     function queueGatt(operation) {
       const queued = gattTail.catch(() => {}).then(operation);
@@ -603,6 +645,7 @@
       ui.disconnect.disabled = !connected;
       document.querySelectorAll('[data-connected]').forEach(button => { button.disabled = !connected; });
       updatePowerConfigControls();
+      updateMeshConfigControls();
     }
 
     function updatePowerConfigControls() {
@@ -625,6 +668,127 @@
       ui.chargerEnabled.checked = false;
       ui.rtcBackupChargerEnabled.checked = false;
       updatePowerConfigControls();
+    }
+
+    const meshEditableControls = () => [
+      ui.meshEnabled, ui.meshNotify, ui.meshFrequency,
+      ui.meshSpreadingFactor, ui.meshBandwidth, ui.meshCodingRate,
+      ui.meshPreamble, ui.meshSyncWord, ui.meshLdro, ui.meshBoostedGain,
+      ui.meshChannel1Name, ui.meshChannel1Key, ui.meshChannel2Name,
+      ui.meshChannel2Key
+    ];
+
+    function updateMeshConfigControls() {
+      const connected = Boolean(device?.gatt?.connected);
+      const editable = connected && meshConfigLoaded && !meshConfigWriteInProgress;
+      meshEditableControls().forEach(control => { control.disabled = !editable; });
+      ui.readMeshConfig.disabled = !connected || meshConfigWriteInProgress;
+      ui.writeMeshConfig.disabled = !editable;
+    }
+
+    function resetMeshConfigControls() {
+      meshConfigLoaded = false;
+      meshConfigWriteInProgress = false;
+      ui.meshEnabled.checked = false;
+      ui.meshNotify.checked = false;
+      ui.meshFrequency.value = '';
+      ui.meshSpreadingFactor.value = '8';
+      ui.meshBandwidth.value = '5';
+      ui.meshCodingRate.value = '1';
+      ui.meshPreamble.value = '';
+      ui.meshSyncWord.value = '';
+      ui.meshLdro.checked = false;
+      ui.meshBoostedGain.checked = false;
+      ui.meshChannel1Name.value = '';
+      ui.meshChannel1Key.value = '';
+      ui.meshChannel2Name.value = '';
+      ui.meshChannel2Key.value = '';
+      updateMeshConfigControls();
+    }
+
+    function bytesToHex(bytes) {
+      return [...bytes].map(value => value.toString(16).padStart(2, '0')).join('').toUpperCase();
+    }
+
+    function hexToBytes(value) {
+      if (!/^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{64})$/.test(value)) {
+        throw new Error('Each channel key must contain 32 or 64 hexadecimal characters.');
+      }
+      return Uint8Array.from(value.match(/../g), pair => Number.parseInt(pair, 16));
+    }
+
+    function showMeshConfig(bytes) {
+      if (bytes.length !== 145 || bytes[0] !== 1) {
+        throw new Error('Unexpected Meshtastic configuration');
+      }
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      ui.meshEnabled.checked = Boolean(bytes[1]);
+      ui.meshNotify.checked = Boolean(bytes[2]);
+      ui.meshFrequency.value = String(view.getUint32(3, true));
+      ui.meshSpreadingFactor.value = String(bytes[7]);
+      ui.meshBandwidth.value = String(bytes[8]);
+      ui.meshCodingRate.value = String(bytes[9]);
+      ui.meshLdro.checked = Boolean(bytes[10]);
+      ui.meshPreamble.value = String(view.getUint16(11, true));
+      ui.meshSyncWord.value = bytes[13].toString(16).padStart(2, '0').toUpperCase();
+      ui.meshBoostedGain.checked = Boolean(bytes[14]);
+      let offset = 15;
+      for (let index = 0; index < 2; index++) {
+        const nameLength = bytes[offset++];
+        if (nameLength < 1 || nameLength > 31) throw new Error('Invalid channel name');
+        const name = decoder.decode(bytes.slice(offset, offset + nameLength));
+        offset += 31;
+        const keyLength = bytes[offset++];
+        if (![16, 32].includes(keyLength)) throw new Error('Invalid channel key');
+        const key = bytesToHex(bytes.slice(offset, offset + keyLength));
+        offset += 32;
+        ui[`meshChannel${index + 1}Name`].value = name;
+        ui[`meshChannel${index + 1}Key`].value = key;
+      }
+      meshConfigLoaded = true;
+      updateMeshConfigControls();
+    }
+
+    function buildMeshConfig() {
+      const bytes = new Uint8Array(145);
+      const view = new DataView(bytes.buffer);
+      bytes[0] = 1;
+      bytes[1] = ui.meshEnabled.checked ? 1 : 0;
+      bytes[2] = ui.meshNotify.checked ? 1 : 0;
+      const frequency = Number(ui.meshFrequency.value);
+      const preamble = Number(ui.meshPreamble.value);
+      if (!Number.isInteger(frequency) || frequency < 400000000 || frequency > 960000000) {
+        throw new Error('Frequency must be 400000000 through 960000000 Hz.');
+      }
+      if (!Number.isInteger(preamble) || preamble < 1 || preamble > 65535) {
+        throw new Error('Preamble must be 1 through 65535 symbols.');
+      }
+      view.setUint32(3, frequency, true);
+      bytes[7] = Number(ui.meshSpreadingFactor.value);
+      bytes[8] = Number(ui.meshBandwidth.value);
+      bytes[9] = Number(ui.meshCodingRate.value);
+      bytes[10] = ui.meshLdro.checked ? 1 : 0;
+      view.setUint16(11, preamble, true);
+      if (!/^[0-9a-fA-F]{2}$/.test(ui.meshSyncWord.value)) {
+        throw new Error('Sync word must contain 2 hexadecimal characters.');
+      }
+      bytes[13] = Number.parseInt(ui.meshSyncWord.value, 16);
+      bytes[14] = ui.meshBoostedGain.checked ? 1 : 0;
+      let offset = 15;
+      for (let index = 0; index < 2; index++) {
+        const name = encoder.encode(ui[`meshChannel${index + 1}Name`].value);
+        const key = hexToBytes(ui[`meshChannel${index + 1}Key`].value);
+        if (name.length < 1 || name.length > 31) {
+          throw new Error(`Channel ${index + 1} name must contain 1 through 31 UTF-8 bytes.`);
+        }
+        bytes[offset++] = name.length;
+        bytes.set(name, offset);
+        offset += 31;
+        bytes[offset++] = key.length;
+        bytes.set(key, offset);
+        offset += 32;
+      }
+      return bytes;
     }
 
     function showTime(dataView) {
@@ -1096,6 +1260,7 @@
       renderWifiProfiles();
       closeWifiEditor();
       resetPowerConfigControls();
+      resetMeshConfigControls();
       setConnected(false);
       ui.message.textContent = 'Watch disconnected.';
     }
@@ -1123,6 +1288,7 @@
         characteristics.systemPower = await getSerialCharacteristic(service, CHAR_UUID.systemPower);
         characteristics.alarm = await getSerialCharacteristic(service, CHAR_UUID.alarm);
         characteristics.theme = await getSerialCharacteristic(service, CHAR_UUID.theme);
+        characteristics.meshConfig = await getSerialCharacteristic(service, CHAR_UUID.meshConfig);
         characteristics.rtc.addEventListener('characteristicvaluechanged', notificationHandler(showTime));
         characteristics.power.addEventListener('characteristicvaluechanged', notificationHandler(showPower));
         characteristics.imu.addEventListener('characteristicvaluechanged', notificationHandler(showImu));
@@ -1150,6 +1316,7 @@
         const touchReady = !(sensorEnabledMask & 0x04) || !(sensorReadyMask & 0x04) || await readTouch(false);
         const gpsReady = !(sensorEnabledMask & 0x02) || !(sensorReadyMask & 0x02) || await readGps(false);
         const hapticReady = await readHaptic(false);
+        const meshReady = await readMeshConfig(false);
         characteristics.wifiStatus = await getSerialCharacteristic(service, CHAR_UUID.wifiStatus);
         characteristics.wifiProfiles = await getSerialCharacteristic(service, CHAR_UUID.wifiProfiles);
         characteristics.wifiStatus.addEventListener('characteristicvaluechanged', notificationHandler(showWifiStatus));
@@ -1162,9 +1329,9 @@
           catch (error) { ui.message.textContent = `Wi-Fi profiles unavailable: ${error.message}`; }
         }
         const sensorsStarting = Boolean(sensorEnabledMask & ~sensorReadyMask);
-        if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && alarmReady && themeReady && imuReady && screenReady && touchReady && gpsReady && hapticReady && sensorsStarting) {
+        if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && alarmReady && themeReady && imuReady && screenReady && touchReady && gpsReady && hapticReady && meshReady && sensorsStarting) {
           ui.message.textContent = 'Core controls ready. Enabled sensors are starting.';
-        } else if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && alarmReady && themeReady && imuReady && screenReady && touchReady && gpsReady && hapticReady) {
+        } else if (rtcReady && powerReady && configReady && sensorControlReady && systemPowerReady && alarmReady && themeReady && imuReady && screenReady && touchReady && gpsReady && hapticReady && meshReady) {
           ui.message.textContent = 'Live sensor updates enabled.';
         } else if (!rtcReady) {
           ui.message.textContent = 'RTC unavailable. Set the browser time first.';
@@ -1188,8 +1355,10 @@
           ui.message.textContent = 'Touch data is currently unavailable.';
         } else if (!gpsReady) {
           ui.message.textContent = 'GPS data is currently unavailable.';
-        } else {
+        } else if (!hapticReady) {
           ui.message.textContent = 'Haptic driver is currently unavailable.';
+        } else {
+          ui.message.textContent = 'Meshtastic settings are currently unavailable.';
         }
       } catch (error) {
         ui.message.textContent = `Connection failed: ${error.message}`;
@@ -1237,6 +1406,87 @@
         updatePowerConfigControls();
         if (reportError) ui.message.textContent = `Charge settings read failed: ${error.message}`;
         return false;
+      }
+    }
+
+    async function meshConfigCommand(packet) {
+      await characteristics.meshConfig.writeValueWithResponse(packet);
+      const response = await characteristics.meshConfig.readValue();
+      if (response.byteLength !== 20 || response.getUint8(0) !== packet[0] ||
+          response.getUint16(2, true) !== (packet[2] | packet[3] << 8)) {
+        throw new Error('Unexpected Meshtastic BLE response');
+      }
+      const status = response.getUint8(1);
+      if (status >= 0x80) {
+        throw new Error(status === 0x80 ? 'Watch rejected the configuration packet' :
+                        'Watch could not save the Meshtastic configuration');
+      }
+      return response;
+    }
+
+    async function readMeshConfig(reportError = true) {
+      try {
+        const bytes = new Uint8Array(145);
+        let offset = 0;
+        for (;;) {
+          const packet = new Uint8Array(20);
+          packet[0] = 1;
+          packet[2] = offset & 0xff;
+          packet[3] = offset >> 8;
+          const response = await meshConfigCommand(packet);
+          const length = response.getUint8(4);
+          if (length > 15 || offset + length > bytes.length) {
+            throw new Error('Invalid Meshtastic BLE chunk');
+          }
+          bytes.set(new Uint8Array(response.buffer, response.byteOffset + 5, length), offset);
+          offset += length;
+          if (response.getUint8(1) === 0) break;
+          if (length === 0) throw new Error('Empty Meshtastic BLE chunk');
+        }
+        if (offset !== bytes.length) throw new Error('Incomplete Meshtastic configuration');
+        showMeshConfig(bytes);
+        return true;
+      } catch (error) {
+        meshConfigLoaded = false;
+        updateMeshConfigControls();
+        if (reportError) ui.message.textContent = `Meshtastic settings read failed: ${error.message}`;
+        return false;
+      }
+    }
+
+    async function writeMeshConfig() {
+      if (!meshConfigLoaded || meshConfigWriteInProgress) return;
+      let bytes;
+      try {
+        bytes = buildMeshConfig();
+      } catch (error) {
+        ui.message.textContent = error.message;
+        return;
+      }
+      meshConfigWriteInProgress = true;
+      updateMeshConfigControls();
+      try {
+        for (let offset = 0; offset < bytes.length; offset += 15) {
+          const length = Math.min(15, bytes.length - offset);
+          const packet = new Uint8Array(20);
+          packet[0] = 2;
+          packet[1] = (offset === 0 ? 1 : 0) |
+                      (offset + length === bytes.length ? 2 : 0);
+          packet[2] = offset & 0xff;
+          packet[3] = offset >> 8;
+          packet[4] = length;
+          packet.set(bytes.slice(offset, offset + length), 5);
+          await meshConfigCommand(packet);
+        }
+        await readMeshConfig(false);
+        ui.message.textContent = 'Meshtastic settings saved. The receiver is restarting.';
+      } catch (error) {
+        await readMeshConfig(false);
+        ui.message.textContent = `Meshtastic settings write failed: ${error.message}`;
+      } finally {
+        bytes.fill(0);
+        meshConfigWriteInProgress = false;
+        updateMeshConfigControls();
       }
     }
 
@@ -1546,6 +1796,13 @@
     ui.readTime.addEventListener('click', readTime);
     ui.readPower.addEventListener('click', readPower);
     ui.readPowerConfig.addEventListener('click', readPowerConfig);
+    ui.readMeshConfig.addEventListener('click', readMeshConfig);
+    ui.writeMeshConfig.addEventListener('click', writeMeshConfig);
+    ui.meshRevealKeys.addEventListener('change', () => {
+      const type = ui.meshRevealKeys.checked ? 'text' : 'password';
+      ui.meshChannel1Key.type = type;
+      ui.meshChannel2Key.type = type;
+    });
     ui.readSensorControl.addEventListener('click', readSensorControl);
     ui.readSystemPower.addEventListener('click', readSystemPower);
     ui.writeSystemPower.addEventListener('click', writeSystemPower);
@@ -1640,6 +1897,7 @@
     ui.browserTime.addEventListener('click', () => setTime(localDateTime(new Date())));
     ui.writeTime.addEventListener('click', () => setTime(ui.dateTime.value));
     renderWifiProfiles();
+    resetMeshConfigControls();
     setConnected(false);
   </script>
   <script>

@@ -2,7 +2,8 @@
 
 Runs a small Watch/Launcher/Settings window manager in Cascadia Code inside the
 validated safe-area contour. It exposes the clock, power management, Wi-Fi,
-BHI260AP orientation, and MIA-M10Q GPS data over Bluetooth Low Energy.
+BHI260AP orientation, MIA-M10Q GPS data, and Meshtastic receiver settings over
+Bluetooth Low Energy.
 
 Read [Be aware of those footguns](BE_AWARE_OF_THOSE_FOOTGUNS.md) before you add
 a feature that combines display, radio, SD, sensor, or interrupt work.
@@ -69,6 +70,12 @@ a feature that combines display, radio, SD, sensor, or interrupt work.
   `profile_index_u32_le,data_offset_u16_le,data[10]`. Operations are Count `1`,
   Get `2`, Put `3`, Delete `4`, and Move `5`. The browser waits for each
   indication before it sends the next frame.
+- Meshtastic configuration: `7a1e0010-7a1e-4b6c-8d9e-001122334455`,
+  read/write. The browser transfers the 145-byte version 1 configuration in
+  20-byte request/response frames with 15 data bytes per frame. The data
+  contains receiver power, notification behavior, LoRa modem settings, and two
+  channel names and AES keys. The controls stay disabled until the browser
+  reads and validates all 145 bytes.
 
 Power direction values are `0` standby, `1` charging, `2` discharging, and `3`
 reserved/unknown. `vbus` and `present` are `0` or `1`.
@@ -96,14 +103,15 @@ seconds. NVS, PMIC measurement, haptics, BLE, and enabled sensor initialization
 follow. This keeps SD, IMU firmware loading, and GPS probing outside the
 first-Watch-frame path.
 
-The window manager has Watch, Launcher, Settings, Alarm, Map, Weather, and Black
-states. Watch is the boot/default app. The launcher clock, settings, alarm, map,
-and weather bubbles open their corresponding screens; the other app bubbles are visual
-placeholders and deliberately inert. Settings changes AMOLED brightness continuously while
-dragging and uses the same public advertising setter as the physical side
-button. After the 10-second inactivity interval, the active app resets to Watch
-and the display becomes completely black. The waking finger is consumed through
-its release, so it cannot also activate a Watch control.
+The window manager has Watch, Launcher, Settings, Alarm, Map, Weather,
+Messages, and Black states. Watch is the boot/default app. The launcher clock,
+settings, alarm, map, weather, and chat-bubble icons open their corresponding
+screens. The remaining app bubbles are visual placeholders. Settings changes
+AMOLED brightness continuously while dragging and uses the same public
+advertising setter as the physical side button. After the 10-second inactivity
+interval, the active app resets to Watch and the display becomes completely
+black. The waking finger is consumed through its release, so it cannot also
+activate a Watch control.
 
 After 10 seconds without a CST9217 touch interrupt, the firmware writes black
 pixels across the complete 410 x 502 framebuffer and stops display refreshes.
@@ -111,8 +119,9 @@ It does not send the AMOLED sleep/display-off commands and does not switch off
 the panel power rail. A touch interrupt first restores the complete calibrated
 frame and blue contour, then redraws the clock, charge, and BLE state and starts
 a new 10-second inactivity period. Other events, including the side button and
-BLE writes, do not wake the black screen. Touch must remain enabled in the
-sensor controls for touch-to-wake to be available.
+BLE writes, do not wake the black screen. A received Meshtastic text wakes the
+Messages screen when message notifications are enabled. Touch must remain
+enabled in the sensor controls for touch-to-wake to be available.
 
 The physical side button is the AXP2101 PWRON key, not a direct ESP32 GPIO.
 Its events arrive through the PMIC interrupt line on GPIO 7. A completed button
@@ -157,6 +166,28 @@ Stop command disconnects, stops, and deinitializes the Wi-Fi driver.
 The on-watch Settings screen has a Wi-Fi switch. Opening Weather also starts
 Wi-Fi when it is off; it does not restart an active connection.
 
+## Meshtastic messages
+
+The chat-bubble icon opens the receive-only Meshtastic app. It shows the five
+most recent packets, with the sender, channel, RSSI, and decoded text or packet
+type. The on-watch switch starts or stops the SX1262 receiver. A received text
+can open the app and play one haptic click. Both actions can be disabled in the
+web page.
+
+The first boot uses the working `ui-redesign` ShortSlow EU 868 settings at
+869.525 MHz. It includes the public ShortSlow channel and the existing Mesh
+Hessen channel. The web page can change receiver power, frequency, spreading
+factor, bandwidth, coding rate, low-data-rate optimization, preamble, sync word,
+receive gain, both channel names, and both 16-byte or 32-byte AES keys. The
+watch stores one versioned configuration in NVS and restarts the receiver after
+a successful write.
+
+The SX1262, SD card, and NFC connector share SPI2. The firmware keeps the SD and
+LoRa rails active while any SPI2 client is using the bus. It removes only the
+client device when that client stops, so an SD mount does not stop continuous
+LoRa reception. Channel keys are stored in flash and transferred through the
+unauthenticated development BLE service.
+
 ## Weather
 
 The Weather bubble opens a seven-day on-device forecast. Weather requires a
@@ -188,6 +219,8 @@ NVS application data:
 - `alarm/cfg_minimal`: alarm hour, minute, and enabled state. Default is
   `07:00`, disabled.
 - `theme/main_rgb`: `u32`, default `0x1863FF`.
+- `meshtastic/config_v1`: 145-byte versioned receiver and channel
+  configuration. The LoRa receiver is off by default.
 - `gps/last_pos`: versioned latitude and longitude from the last live fix that
   Weather consumed. No value exists until a valid fix is available.
 

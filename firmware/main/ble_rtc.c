@@ -24,6 +24,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "gps.h"
+#include "mesh_service.h"
 #include "hal/gpio_ll.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
@@ -73,6 +74,16 @@
 #define WIFI_PROFILE_PACKET_LENGTH 20
 #define WIFI_PROFILE_DATA_LENGTH 10
 #define WIFI_PROFILE_RECORD_LENGTH 98
+#define MESH_CONFIG_PACKET_LENGTH 20
+#define MESH_CONFIG_DATA_LENGTH 15
+#define MESH_CONFIG_OP_GET 0x01
+#define MESH_CONFIG_OP_PUT 0x02
+#define MESH_CONFIG_FLAG_FIRST 0x01
+#define MESH_CONFIG_FLAG_LAST 0x02
+#define MESH_CONFIG_STATUS_LAST 0x00
+#define MESH_CONFIG_STATUS_MORE 0x01
+#define MESH_CONFIG_STATUS_INVALID 0x80
+#define MESH_CONFIG_STATUS_APPLY_FAILED 0x81
 
 #define WIFI_PROFILE_OP_COUNT  0x01
 #define WIFI_PROFILE_OP_GET    0x02
@@ -245,6 +256,11 @@ static const ble_uuid128_t wifi_profiles_characteristic_uuid = BLE_UUID128_INIT(
     0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
     0x6c, 0x4b, 0x1e, 0x7a, 0x0f, 0x00, 0x1e, 0x7a);
 
+/* 7a1e0010-7a1e-4b6c-8d9e-001122334455 */
+static const ble_uuid128_t mesh_config_characteristic_uuid = BLE_UUID128_INIT(
+    0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x9e, 0x8d,
+    0x6c, 0x4b, 0x1e, 0x7a, 0x10, 0x00, 0x1e, 0x7a);
+
 typedef struct {
     unsigned charge_current_ma;
     unsigned input_current_ma;
@@ -307,6 +323,11 @@ static bool alarm_audio_ready;
 static QueueHandle_t wifi_profile_queue;
 static uint8_t wifi_profile_response[WIFI_PROFILE_PACKET_LENGTH];
 static portMUX_TYPE wifi_profile_response_lock = portMUX_INITIALIZER_UNLOCKED;
+static uint8_t mesh_config_response[MESH_CONFIG_PACKET_LENGTH];
+static uint8_t mesh_config_staged[MESH_CONFIG_WIRE_LENGTH];
+static size_t mesh_config_staged_length;
+static bool mesh_config_staging;
+static portMUX_TYPE mesh_config_lock = portMUX_INITIALIZER_UNLOCKED;
 static volatile uint32_t wifi_profile_session;
 
 typedef struct {
@@ -2542,6 +2563,105 @@ static void wifi_profile_task(void *parameter)
     }
 }
 
+static int mesh_config_gatt_access(
+    uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *context, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)arg;
+    if (context->op == BLE_GATT_ACCESS_OP_READ_CHR) {
+        uint8_t response[MESH_CONFIG_PACKET_LENGTH];
+        portENTER_CRITICAL(&mesh_config_lock);
+        memcpy(response, mesh_config_response, sizeof(response));
+        portEXIT_CRITICAL(&mesh_config_lock);
+        return os_mbuf_append(context->om, response, sizeof(response)) == 0
+                   ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (context->op != BLE_GATT_ACCESS_OP_WRITE_CHR) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    uint8_t request[MESH_CONFIG_PACKET_LENGTH];
+    uint16_t length = 0;
+    int flat_result = ble_hs_mbuf_to_flat(context->om, request,
+                                           sizeof(request), &length);
+    if (flat_result != 0 || length != sizeof(request)) {
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    uint16_t offset = (uint16_t)request[2] | (uint16_t)request[3] << 8;
+    uint8_t data_length = request[4];
+    if ((request[0] != MESH_CONFIG_OP_GET &&
+         request[0] != MESH_CONFIG_OP_PUT) ||
+        data_length > MESH_CONFIG_DATA_LENGTH) {
+        return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+    }
+
+    uint8_t response[MESH_CONFIG_PACKET_LENGTH] = {0};
+    response[0] = request[0];
+    response[2] = request[2];
+    response[3] = request[3];
+    esp_err_t apply_result = ESP_OK;
+    if (request[0] == MESH_CONFIG_OP_GET) {
+        mesh_config_t config;
+        mesh_service_get_config(&config);
+        uint8_t wire[MESH_CONFIG_WIRE_LENGTH];
+        mesh_config_encode(&config, wire);
+        if (offset >= sizeof(wire)) {
+            response[1] = MESH_CONFIG_STATUS_INVALID;
+        } else {
+            size_t remaining = sizeof(wire) - offset;
+            size_t count = remaining > MESH_CONFIG_DATA_LENGTH
+                               ? MESH_CONFIG_DATA_LENGTH : remaining;
+            response[1] = remaining > count ? MESH_CONFIG_STATUS_MORE
+                                             : MESH_CONFIG_STATUS_LAST;
+            response[4] = count;
+            memcpy(response + 5, wire + offset, count);
+        }
+        memset(wire, 0, sizeof(wire));
+        portENTER_CRITICAL(&mesh_config_lock);
+        memcpy(mesh_config_response, response, sizeof(response));
+        portEXIT_CRITICAL(&mesh_config_lock);
+    } else {
+        portENTER_CRITICAL(&mesh_config_lock);
+        uint8_t flags = request[1];
+        if ((flags & MESH_CONFIG_FLAG_FIRST) != 0) {
+            memset(mesh_config_staged, 0, sizeof(mesh_config_staged));
+            mesh_config_staged_length = 0;
+            mesh_config_staging = true;
+        }
+        if (!mesh_config_staging || offset != mesh_config_staged_length ||
+            mesh_config_staged_length + data_length >
+                sizeof(mesh_config_staged)) {
+            response[1] = MESH_CONFIG_STATUS_INVALID;
+        } else {
+            memcpy(mesh_config_staged + mesh_config_staged_length,
+                   request + 5, data_length);
+            mesh_config_staged_length += data_length;
+            if ((flags & MESH_CONFIG_FLAG_LAST) != 0) {
+                mesh_config_t config;
+                if (mesh_config_staged_length != sizeof(mesh_config_staged) ||
+                    !mesh_config_decode(mesh_config_staged, &config)) {
+                    response[1] = MESH_CONFIG_STATUS_INVALID;
+                } else {
+                    portEXIT_CRITICAL(&mesh_config_lock);
+                    apply_result = mesh_service_set_config(&config);
+                    portENTER_CRITICAL(&mesh_config_lock);
+                    response[1] = apply_result == ESP_OK
+                                      ? MESH_CONFIG_STATUS_LAST
+                                      : MESH_CONFIG_STATUS_APPLY_FAILED;
+                }
+                memset(mesh_config_staged, 0, sizeof(mesh_config_staged));
+                mesh_config_staged_length = 0;
+                mesh_config_staging = false;
+            }
+        }
+        memcpy(mesh_config_response, response, sizeof(response));
+        portEXIT_CRITICAL(&mesh_config_lock);
+    }
+    return 0;
+}
+
 static const struct ble_gatt_svc_def rtc_gatt_services[] = {
     {
         .type = BLE_GATT_SVC_TYPE_PRIMARY,
@@ -2628,6 +2748,11 @@ static const struct ble_gatt_svc_def rtc_gatt_services[] = {
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE |
                          BLE_GATT_CHR_F_INDICATE,
                 .val_handle = &wifi_profiles_value_handle,
+            },
+            {
+                .uuid = &mesh_config_characteristic_uuid.u,
+                .access_cb = mesh_config_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE,
             },
             {0},
         },
@@ -3217,6 +3342,8 @@ esp_err_t ble_rtc_start(void)
     }
     ESP_RETURN_ON_ERROR(alarm_initialize(), TAG,
                         "alarm initialization failed");
+    ESP_RETURN_ON_ERROR(mesh_service_init(), TAG,
+                        "Meshtastic initialization failed");
 
     ESP_RETURN_ON_ERROR(nimble_port_init(), TAG, "NimBLE init failed");
     ble_svc_gap_init();

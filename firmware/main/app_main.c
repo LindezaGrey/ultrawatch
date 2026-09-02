@@ -27,6 +27,7 @@
 #include "cascadia_time_120.h"
 #include "cJSON.h"
 #include "offline_map.h"
+#include "mesh_service.h"
 #include "screen_control.h"
 #include "sd_storage.h"
 #include "wifi_manager.h"
@@ -83,13 +84,14 @@ typedef enum {
     UI_ALARM,
     UI_MAP,
     UI_WEATHER,
+    UI_MESSAGES,
     UI_BLACK,
 } ui_screen_t;
 
 static bool screen_keeps_display_awake(ui_screen_t screen)
 {
     return screen == UI_SETTINGS || screen == UI_ALARM ||
-           screen == UI_MAP || screen == UI_WEATHER;
+           screen == UI_MAP || screen == UI_WEATHER || screen == UI_MESSAGES;
 }
 
 typedef enum {
@@ -127,6 +129,7 @@ typedef enum {
     LAUNCHER_ACTION_ALARM,
     LAUNCHER_ACTION_MAP,
     LAUNCHER_ACTION_WEATHER,
+    LAUNCHER_ACTION_MESSAGES,
 } launcher_action_t;
 
 typedef struct {
@@ -146,6 +149,7 @@ typedef struct {
 typedef struct {
     bool wake;
     bool alarm_ring;
+    bool show_messages;
     bool pending[4];
     uint16_t x[4];
     uint16_t y[4];
@@ -181,6 +185,7 @@ static uint16_t *settings_frame;
 static uint16_t *alarm_frame;
 static uint16_t *map_frame;
 static uint16_t *weather_frame;
+static uint16_t *messages_frame;
 static volatile uint8_t display_brightness_percentage = 50;
 static volatile uint32_t theme_rgb = 0x1863FF;
 static bool panel_hidden = true;
@@ -237,7 +242,7 @@ static const bubble_t launcher_bubbles[] = {
     {73, 241, 42, ICON_MAP, LAUNCHER_ACTION_MAP},
     {337, 241, 42, ICON_WEATHER, LAUNCHER_ACTION_WEATHER},
     {111, 340, 42, ICON_MUSIC, LAUNCHER_ACTION_NONE},
-    {299, 340, 42, ICON_MESSAGES, LAUNCHER_ACTION_NONE},
+    {299, 340, 42, ICON_MESSAGES, LAUNCHER_ACTION_MESSAGES},
     {205, 385, 42, ICON_SETTINGS, LAUNCHER_ACTION_SETTINGS},
     {205, 235, 70, ICON_CLOCK, LAUNCHER_ACTION_WATCH},
 };
@@ -419,6 +424,16 @@ void screen_request_refresh(void)
     }
 }
 
+void screen_show_messages(void)
+{
+    portENTER_CRITICAL(&ui_input_lock);
+    ui_input.show_messages = true;
+    portEXIT_CRITICAL(&ui_input_lock);
+    if (ui_task_handle != NULL) {
+        xTaskNotify(ui_task_handle, UI_EVENT_REFRESH, eSetBits);
+    }
+}
+
 void screen_wake_from_touch(void)
 {
     portENTER_CRITICAL(&ui_input_lock);
@@ -519,7 +534,10 @@ static bool touch_is_button(ui_screen_t screen, uint16_t x, uint16_t y)
            (screen == UI_WEATHER &&
             (point_in_circle(x, y, 205, 435, 38) ||
              point_in_circle(x, y, 70, 420, 38) ||
-             point_in_circle(x, y, 340, 420, 38)));
+             point_in_circle(x, y, 340, 420, 38))) ||
+           (screen == UI_MESSAGES &&
+            (point_in_circle(x, y, 205, 445, 36) ||
+             (x >= 70 && x <= 340 && y >= 105 && y <= 170)));
 }
 
 static bool activate_launcher_action(launcher_action_t action)
@@ -557,6 +575,9 @@ static bool activate_launcher_action(launcher_action_t action)
         active_screen = UI_WEATHER;
         return true;
     }
+    case LAUNCHER_ACTION_MESSAGES:
+        active_screen = UI_MESSAGES;
+        return true;
     case LAUNCHER_ACTION_NONE:
     default:
         return false;
@@ -760,6 +781,22 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
             weather_selected_day++;
             changed = true;
         }
+    } else if (active_screen == UI_MESSAGES &&
+               point_in_circle(x, y, 205, 445, 36)) {
+        active_screen = UI_LAUNCHER;
+        changed = true;
+    } else if (active_screen == UI_MESSAGES &&
+               x >= 70 && x <= 340 && y >= 105 && y <= 170) {
+        mesh_config_t config;
+        mesh_service_get_config(&config);
+        config.enabled = !config.enabled;
+        esp_err_t result = mesh_service_set_config(&config);
+        if (result != ESP_OK) {
+            ESP_LOGW(TAG, "Meshtastic toggle failed: %s",
+                     esp_err_to_name(result));
+        } else {
+            changed = true;
+        }
     }
     return changed;
 }
@@ -779,6 +816,15 @@ static bool process_ui_input(void)
         }
         ble_alarm_get_config(&alarm_edit);
         active_screen = UI_ALARM;
+        consume_touch_until_up = false;
+        wake_restore_pending = false;
+        last_touch_tick = xTaskGetTickCount();
+        changed = true;
+    }
+
+    if (input.show_messages) {
+        if (active_screen == UI_MAP) offline_map_stop();
+        active_screen = UI_MESSAGES;
         consume_touch_until_up = false;
         wake_restore_pending = false;
         last_touch_tick = xTaskGetTickCount();
@@ -1998,6 +2044,78 @@ static void compose_weather_frame(uint16_t *frame)
     draw_contour(frame);
 }
 
+static void mesh_text_line(char *output, size_t output_size,
+                           const char *input, size_t maximum_characters)
+{
+    size_t length = strnlen(input, maximum_characters);
+    if (length >= output_size) length = output_size - 1;
+    memmove(output, input, length);
+    output[length] = '\0';
+    for (size_t index = 0; index < length; index++) {
+        if ((unsigned char)output[index] < 0x20) output[index] = ' ';
+    }
+}
+
+static void compose_messages_frame(uint16_t *frame)
+{
+    memset(frame, 0, DISPLAY_FRAME_BYTES);
+    draw_text(frame, "MESSAGES", centered_text_x("MESSAGES", 3), 38, 3,
+              theme_wire_tinted(72));
+
+    mesh_config_t config;
+    mesh_service_get_config(&config);
+    const bool active = mesh_service_radio_active();
+    const char *radio_state = !config.enabled ? "LORA OFF" :
+                              active ? "LORA RECEIVING" : "LORA STARTING";
+    draw_text(frame, radio_state, centered_text_x(radio_state, 5), 78, 5,
+              active ? wire_rgb565(105, 238, 166)
+                     : wire_rgb565(180, 188, 202));
+
+    const uint16_t edge = config.enabled ? theme_wire_color()
+                                         : wire_rgb565(70, 78, 92);
+    for (int y = 108; y <= 166; y++) {
+        for (int x = 70; x <= 340; x++) {
+            const bool border = x < 74 || x > 336 || y < 112 || y > 162;
+            frame_set_content(frame, x, y,
+                              border ? edge : theme_wire_scaled(20));
+        }
+    }
+    const char *toggle = config.enabled ? "TURN LORA OFF" : "TURN LORA ON";
+    draw_text(frame, toggle, centered_text_x(toggle, 4), 126, 4, edge);
+
+    mesh_message_t recent[5];
+    size_t count = mesh_service_get_recent(recent, 5);
+    if (count == 0) {
+        draw_text(frame, "NO MESSAGES YET",
+                  centered_text_x("NO MESSAGES YET", 4), 236, 4,
+                  wire_rgb565(145, 153, 168));
+    }
+    for (size_t index = 0; index < count; index++) {
+        const int top = 184 + (int)index * 48;
+        char sender[18];
+        mesh_text_line(sender, sizeof(sender), recent[index].sender, 17);
+        char header[64];
+        snprintf(header, sizeof(header), "%.17s  %.31s  %ddBm", sender,
+                 recent[index].channel[0] != '\0' ? recent[index].channel :
+                 "UNKNOWN", recent[index].rssi_dbm);
+        mesh_text_line(header, sizeof(header), header, 52);
+        draw_text(frame, header, 42, top, 6,
+                  recent[index].kind == MESH_MESSAGE_UNKNOWN
+                      ? wire_rgb565(118, 118, 105)
+                      : theme_wire_tinted(115));
+        char body[43];
+        mesh_text_line(body, sizeof(body), recent[index].text, 42);
+        draw_text(frame, body, 42, top + 18, 5,
+                  wire_rgb565(230, 234, 242));
+    }
+
+    const bubble_t launcher = {
+        205, 445, 36, ICON_LAUNCHER, LAUNCHER_ACTION_NONE};
+    draw_bubble(frame, &launcher);
+    draw_icon(frame, ICON_LAUNCHER, 205, 445, 48);
+    draw_contour(frame);
+}
+
 static void draw_map_round_control(uint16_t *frame, int center_x, int center_y,
                                    int radius, bool enabled)
 {
@@ -2245,6 +2363,8 @@ static void rebuild_theme_frames(void)
         compose_map_frame(map_frame);
     } else if (active_screen == UI_WEATHER) {
         compose_weather_frame(weather_frame);
+    } else if (active_screen == UI_MESSAGES) {
+        compose_messages_frame(messages_frame);
     }
     displayed_watch_values = values;
     displayed_watch_values_valid = true;
@@ -2278,6 +2398,9 @@ static int64_t present_screen(ui_screen_t screen)
     } else if (screen == UI_WEATHER) {
         compose_weather_frame(weather_frame);
         frame = weather_frame;
+    } else if (screen == UI_MESSAGES) {
+        compose_messages_frame(messages_frame);
+        frame = messages_frame;
     }
     display_frame_region(frame, 0, 0, BOARD_DISPLAY_WIDTH,
                          BOARD_DISPLAY_HEIGHT, true);
@@ -2324,6 +2447,10 @@ static void refresh_active_screen(void)
     } else if (active_screen == UI_WEATHER) {
         compose_weather_frame(weather_frame);
         display_frame_region(weather_frame, 0, 0, BOARD_DISPLAY_WIDTH,
+                             BOARD_DISPLAY_HEIGHT, false);
+    } else if (active_screen == UI_MESSAGES) {
+        compose_messages_frame(messages_frame);
+        display_frame_region(messages_frame, 0, 0, BOARD_DISPLAY_WIDTH,
                              BOARD_DISPLAY_HEIGHT, false);
     }
 }
@@ -2576,9 +2703,12 @@ void app_main(void)
                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     weather_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    messages_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     ESP_ERROR_CHECK(watch_frame == NULL || launcher_frame == NULL ||
                             settings_frame == NULL || alarm_frame == NULL ||
-                            map_frame == NULL || weather_frame == NULL
+                            map_frame == NULL || weather_frame == NULL ||
+                            messages_frame == NULL
                         ? ESP_ERR_NO_MEM : ESP_OK);
 
     bootstrap_task_handle = xTaskGetCurrentTaskHandle();

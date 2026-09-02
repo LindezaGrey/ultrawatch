@@ -1,0 +1,35 @@
+/*
+ * meshtastic_radio.h - Meshtastic-specific LoRa preset over sx1262.h.
+ *
+ * Sibling file inside the sx1262 component (not a separate component):
+ * keeps sx1262.c chip-generic while this file owns the one thing that's
+ * actually Meshtastic-specific today - the ShortSlow/EU_868 parameter set.
+ * Milestone 2 (protobuf/AES packet decode) gets its next function here.
+ */
+#pragma once
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include "esp_err.h"
+#include "sx1262.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Configure the radio with settings loaded from the watch configuration. */
+esp_err_t meshtastic_radio_configure(const sx1262_lora_params_t *params);
+
+esp_err_t meshtastic_radio_start_rx(void);
+esp_err_t meshtastic_radio_stop_rx(void);
+
+/* See sx1262_recv() for the exact semantics (crc_ok is a separate out-param,
+ * ESP_ERR_TIMEOUT means nothing arrived in timeout_ms). */
+esp_err_t meshtastic_radio_recv(uint8_t *buf, size_t buf_cap, size_t *out_len,
+                                 int16_t *rssi_dbm, int8_t *snr_db, bool *crc_ok,
+                                 int timeout_ms);
+
+#ifdef __cplusplus
+}
+#endif
