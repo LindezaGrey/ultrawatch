@@ -104,7 +104,7 @@
 #define SENSOR_GPS_BIT   (1U << 1)
 #define SENSOR_TOUCH_BIT (1U << 2)
 #define SENSOR_ALL_MASK  (SENSOR_IMU_BIT | SENSOR_GPS_BIT | SENSOR_TOUCH_BIT)
-#define SENSOR_DEFAULT_MASK SENSOR_TOUCH_BIT
+#define SENSOR_DEFAULT_MASK (SENSOR_IMU_BIT | SENSOR_TOUCH_BIT)
 #define SENSOR_NVS_NAMESPACE "sensor_control"
 #define SENSOR_NVS_KEY "enabled"
 #define SYSTEM_POWER_NVS_NAMESPACE "system_power"
@@ -126,6 +126,14 @@
 #define THEME_NVS_NAMESPACE "theme"
 #define THEME_NVS_KEY "main_rgb"
 #define THEME_DEFAULT_RGB 0x1863FFU
+
+#define ACTIVITY_NVS_NAMESPACE "bhi260ap"
+#define ACTIVITY_NVS_STEP_BASE "step_base"
+#define ACTIVITY_NVS_DAY_LAST "day_last"
+#define ACTIVITY_NVS_DAY_TOTAL "day_total"
+#define ACTIVITY_NVS_DAY_ID "day_id"
+#define ACTIVITY_STEP_FOLD_INTERVAL 1000U
+#define ACTIVITY_RECOGNITION_RATE_HZ 5.0f
 
 #define DRV2605_STATUS_REGISTER       0x00
 #define DRV2605_MODE_REGISTER         0x01
@@ -294,6 +302,16 @@ static bool imu_first_sample_logged;
 static portMUX_TYPE imu_lock = portMUX_INITIALIZER_UNLOCKED;
 static struct bhy2_dev imu_device;
 static struct bhy2_data_quaternion imu_quaternion = { .w = 16384 };
+static SemaphoreHandle_t activity_mutex;
+static uint32_t activity_step_base;
+static uint32_t activity_chip_steps;
+static uint32_t activity_step_at_base;
+static uint32_t activity_day_id;
+static uint32_t activity_day_total;
+static uint32_t activity_day_last_lifetime;
+static watch_activity_class_t activity_current = WATCH_ACTIVITY_OTHER;
+static uint32_t activity_ms[WATCH_ACTIVITY_COUNT];
+static int64_t activity_since_us;
 static volatile bool touch_ready;
 static portMUX_TYPE touch_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint8_t touch_address = BOARD_CST9217_ADDR_PRIMARY;
@@ -1168,6 +1186,145 @@ static void bhi260_delay_us(uint32_t period_us, void *interface)
     esp_rom_delay_us(period_us);
 }
 
+static uint32_t activity_lifetime_steps_locked(void)
+{
+    return activity_step_base +
+           (activity_chip_steps - activity_step_at_base);
+}
+
+static void activity_step_base_store(uint32_t value)
+{
+    nvs_handle_t handle;
+    if (nvs_open(ACTIVITY_NVS_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK) {
+        return;
+    }
+    if (nvs_set_u32(handle, ACTIVITY_NVS_STEP_BASE, value) == ESP_OK) {
+        nvs_commit(handle);
+    }
+    nvs_close(handle);
+}
+
+static void activity_fold_steps(void)
+{
+    if (activity_mutex == NULL ||
+        xSemaphoreTake(activity_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return;
+    }
+    if (activity_chip_steps >= activity_step_at_base) {
+        activity_step_base += activity_chip_steps - activity_step_at_base;
+    }
+    activity_step_at_base = activity_chip_steps;
+    uint32_t base = activity_step_base;
+    xSemaphoreGive(activity_mutex);
+    activity_step_base_store(base);
+}
+
+static void activity_prepare_sensor_boot(void)
+{
+    if (activity_mutex == NULL) {
+        return;
+    }
+    xSemaphoreTake(activity_mutex, portMAX_DELAY);
+    activity_chip_steps = 0;
+    activity_step_at_base = 0;
+    activity_current = WATCH_ACTIVITY_OTHER;
+    activity_since_us = esp_timer_get_time();
+    xSemaphoreGive(activity_mutex);
+}
+
+static void activity_sensor_stopped(void)
+{
+    activity_fold_steps();
+    if (activity_mutex == NULL) {
+        return;
+    }
+    xSemaphoreTake(activity_mutex, portMAX_DELAY);
+    activity_current = WATCH_ACTIVITY_OTHER;
+    activity_since_us = 0;
+    xSemaphoreGive(activity_mutex);
+}
+
+static void activity_step_fifo_callback(
+    const struct bhy2_fifo_parse_data_info *callback_info, void *reference)
+{
+    (void)reference;
+    if (callback_info->data_size < 4 || activity_mutex == NULL) {
+        return;
+    }
+    uint32_t steps = BHY2_LE2U32(callback_info->data_ptr);
+    bool fold = false;
+    xSemaphoreTake(activity_mutex, portMAX_DELAY);
+    if (steps < activity_chip_steps) {
+        activity_step_base += activity_chip_steps - activity_step_at_base;
+        activity_step_at_base = steps;
+    }
+    activity_chip_steps = steps;
+    fold = activity_chip_steps - activity_step_at_base >=
+           ACTIVITY_STEP_FOLD_INTERVAL;
+    xSemaphoreGive(activity_mutex);
+    if (fold) {
+        activity_fold_steps();
+    }
+}
+
+static watch_activity_class_t activity_started_class(uint16_t event)
+{
+    if (event & BHY2_STILL_ACTIVITY_STARTED) return WATCH_ACTIVITY_STILL;
+    if (event & BHY2_WALKING_ACTIVITY_STARTED) return WATCH_ACTIVITY_WALKING;
+    if (event & BHY2_RUNNING_ACTIVITY_STARTED) return WATCH_ACTIVITY_RUNNING;
+    if (event & BHY2_ON_BICYCLE_ACTIVITY_STARTED) return WATCH_ACTIVITY_CYCLING;
+    if (event & BHY2_IN_VEHICLE_ACTIVITY_STARTED) {
+        return WATCH_ACTIVITY_IN_VEHICLE;
+    }
+    if (event & BHY2_TILTING_ACTIVITY_STARTED) return WATCH_ACTIVITY_TILTING;
+    return WATCH_ACTIVITY_COUNT;
+}
+
+static uint16_t activity_ended_bit(watch_activity_class_t activity)
+{
+    switch (activity) {
+    case WATCH_ACTIVITY_STILL: return BHY2_STILL_ACTIVITY_ENDED;
+    case WATCH_ACTIVITY_WALKING: return BHY2_WALKING_ACTIVITY_ENDED;
+    case WATCH_ACTIVITY_RUNNING: return BHY2_RUNNING_ACTIVITY_ENDED;
+    case WATCH_ACTIVITY_CYCLING: return BHY2_ON_BICYCLE_ACTIVITY_ENDED;
+    case WATCH_ACTIVITY_IN_VEHICLE: return BHY2_IN_VEHICLE_ACTIVITY_ENDED;
+    case WATCH_ACTIVITY_TILTING: return BHY2_TILTING_ACTIVITY_ENDED;
+    case WATCH_ACTIVITY_OTHER:
+    case WATCH_ACTIVITY_COUNT:
+    default:
+        return 0;
+    }
+}
+
+static void activity_fifo_callback(
+    const struct bhy2_fifo_parse_data_info *callback_info, void *reference)
+{
+    (void)reference;
+    if (callback_info->data_size < 2 || activity_mutex == NULL) {
+        return;
+    }
+    uint16_t event = BHY2_LE2U16(callback_info->data_ptr);
+    int64_t now = esp_timer_get_time();
+    xSemaphoreTake(activity_mutex, portMAX_DELAY);
+    watch_activity_class_t next = activity_started_class(event);
+    if (next == WATCH_ACTIVITY_COUNT) {
+        next = activity_current;
+        uint16_t ended = activity_ended_bit(activity_current);
+        if (ended != 0 && (event & ended) != 0) {
+            next = WATCH_ACTIVITY_OTHER;
+        }
+    }
+    if (activity_since_us > 0 && now > activity_since_us) {
+        uint32_t elapsed_ms = (uint32_t)((now - activity_since_us) / 1000);
+        if (activity_ms[activity_current] <= UINT32_MAX - elapsed_ms) {
+            activity_ms[activity_current] += elapsed_ms;
+        }
+    }
+    activity_current = next;
+    activity_since_us = now;
+    xSemaphoreGive(activity_mutex);
+}
+
 static void imu_fifo_callback(
     const struct bhy2_fifo_parse_data_info *callback_info, void *reference)
 {
@@ -1191,6 +1348,7 @@ static void imu_fifo_callback(
 
 static esp_err_t bhi260_initialize(void)
 {
+    activity_prepare_sensor_boot();
     gpio_config_t interrupt_config = {
         .pin_bit_mask = 1ULL << BOARD_BHI260_INTERRUPT,
         .mode = GPIO_MODE_INPUT,
@@ -1250,18 +1408,32 @@ static esp_err_t bhi260_initialize(void)
     if (bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_GAMERV,
                                            imu_fifo_callback, NULL,
                                            &imu_device) != BHY2_OK ||
+        bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_STC,
+                                           activity_step_fifo_callback, NULL,
+                                           &imu_device) != BHY2_OK ||
+        bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_AR,
+                                           activity_fifo_callback, NULL,
+                                           &imu_device) != BHY2_OK ||
         bhy2_update_virtual_sensor_list(&imu_device) != BHY2_OK ||
         bhy2_set_orientation_matrix(BHY2_PHYS_SENSOR_ID_ACCELEROMETER,
                                     watch_mount, &imu_device) != BHY2_OK ||
         bhy2_set_orientation_matrix(BHY2_PHYS_SENSOR_ID_GYROSCOPE,
                                     watch_mount, &imu_device) != BHY2_OK ||
         bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_GAMERV, IMU_SAMPLE_RATE_HZ,
-                                 0, &imu_device) != BHY2_OK) {
+                                 0, &imu_device) != BHY2_OK ||
+        bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_STC, 1.0f, 0,
+                                 &imu_device) != BHY2_OK ||
+        bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_AR,
+                                 ACTIVITY_RECOGNITION_RATE_HZ, 0,
+                                 &imu_device) != BHY2_OK) {
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "BHI260 ready: kernel %u, game rotation vector %.0f Hz",
-             kernel_version, IMU_SAMPLE_RATE_HZ);
+    ESP_LOGI(TAG,
+             "BHI260 ready: kernel %u, rotation %.0f Hz, steps 1 Hz, "
+             "activity %.0f Hz",
+             kernel_version, IMU_SAMPLE_RATE_HZ,
+             ACTIVITY_RECOGNITION_RATE_HZ);
     imu_ready = true;
     return ESP_OK;
 }
@@ -1844,6 +2016,133 @@ esp_err_t ble_rtc_get_datetime(rtc_datetime_t *datetime)
         return ESP_ERR_INVALID_ARG;
     }
     return rtc_read_time(datetime);
+}
+
+static esp_err_t activity_state_load(void)
+{
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(ACTIVITY_NVS_NAMESPACE, NVS_READWRITE,
+                                 &handle),
+                        TAG, "activity state open failed");
+    uint32_t step_base = 0;
+    uint32_t day_id = 0;
+    uint32_t day_total = 0;
+    uint32_t day_last = 0;
+    esp_err_t result = nvs_get_u32(handle, ACTIVITY_NVS_STEP_BASE,
+                                   &step_base);
+    if (result != ESP_OK && result != ESP_ERR_NVS_NOT_FOUND) goto done;
+    result = nvs_get_u32(handle, ACTIVITY_NVS_DAY_ID, &day_id);
+    if (result != ESP_OK && result != ESP_ERR_NVS_NOT_FOUND) goto done;
+    result = nvs_get_u32(handle, ACTIVITY_NVS_DAY_TOTAL, &day_total);
+    if (result != ESP_OK && result != ESP_ERR_NVS_NOT_FOUND) goto done;
+    result = nvs_get_u32(handle, ACTIVITY_NVS_DAY_LAST, &day_last);
+    if (result != ESP_OK && result != ESP_ERR_NVS_NOT_FOUND) goto done;
+    result = ESP_OK;
+done:
+    nvs_close(handle);
+    if (result != ESP_OK) return result;
+
+    xSemaphoreTake(activity_mutex, portMAX_DELAY);
+    activity_step_base = step_base;
+    activity_day_id = day_id;
+    activity_day_total = day_total;
+    activity_day_last_lifetime = day_last;
+    activity_current = WATCH_ACTIVITY_OTHER;
+    activity_since_us = 0;
+    xSemaphoreGive(activity_mutex);
+    ESP_LOGI(TAG, "activity state: %lu lifetime steps, %lu today",
+             (unsigned long)step_base, (unsigned long)day_total);
+    return ESP_OK;
+}
+
+static void activity_day_store(uint32_t day_id, uint32_t total,
+                               uint32_t last_lifetime)
+{
+    nvs_handle_t handle;
+    if (nvs_open(ACTIVITY_NVS_NAMESPACE, NVS_READWRITE, &handle) != ESP_OK) {
+        return;
+    }
+    esp_err_t result = nvs_set_u32(handle, ACTIVITY_NVS_DAY_ID, day_id);
+    if (result == ESP_OK) {
+        result = nvs_set_u32(handle, ACTIVITY_NVS_DAY_TOTAL, total);
+    }
+    if (result == ESP_OK) {
+        result = nvs_set_u32(handle, ACTIVITY_NVS_DAY_LAST, last_lifetime);
+    }
+    if (result == ESP_OK) {
+        result = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    if (result != ESP_OK) {
+        ESP_LOGW(TAG, "activity day save failed: %s",
+                 esp_err_to_name(result));
+    }
+}
+
+static esp_err_t activity_daily_sample(bool persist)
+{
+    rtc_datetime_t datetime;
+    ESP_RETURN_ON_ERROR(rtc_read_time(&datetime), TAG,
+                        "activity date unavailable");
+    uint32_t day_id = (uint32_t)datetime.year * 10000U +
+                      (uint32_t)datetime.month * 100U +
+                      (uint32_t)datetime.day;
+    xSemaphoreTake(activity_mutex, portMAX_DELAY);
+    uint32_t lifetime = activity_lifetime_steps_locked();
+    bool new_day = activity_day_id != day_id;
+    if (new_day) {
+        activity_day_id = day_id;
+        activity_day_total = 0;
+        activity_day_last_lifetime = lifetime;
+        memset(activity_ms, 0, sizeof(activity_ms));
+        activity_since_us = imu_ready ? esp_timer_get_time() : 0;
+    } else if (lifetime > activity_day_last_lifetime) {
+        activity_day_total += lifetime - activity_day_last_lifetime;
+        activity_day_last_lifetime = lifetime;
+    }
+    uint32_t total = activity_day_total;
+    uint32_t last = activity_day_last_lifetime;
+    xSemaphoreGive(activity_mutex);
+    if (persist || new_day) {
+        activity_day_store(day_id, total, last);
+    }
+    return ESP_OK;
+}
+
+esp_err_t ble_activity_get_snapshot(watch_activity_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memset(snapshot, 0, sizeof(*snapshot));
+    if (activity_mutex == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    ESP_RETURN_ON_ERROR(activity_daily_sample(false), TAG,
+                        "activity sample failed");
+
+    xSemaphoreTake(activity_mutex, portMAX_DELAY);
+    snapshot->ready = imu_ready;
+    snapshot->steps_today = activity_day_total;
+    snapshot->current_activity = activity_current;
+    for (size_t index = 0; index < WATCH_ACTIVITY_COUNT; index++) {
+        snapshot->activity_seconds[index] = activity_ms[index] / 1000U;
+    }
+    int64_t since = activity_since_us;
+    watch_activity_class_t current = activity_current;
+    xSemaphoreGive(activity_mutex);
+
+    if (snapshot->ready && since > 0 && current < WATCH_ACTIVITY_COUNT) {
+        int64_t elapsed_us = esp_timer_get_time() - since;
+        if (elapsed_us > 0) {
+            uint32_t elapsed_seconds = (uint32_t)(elapsed_us / 1000000);
+            if (snapshot->activity_seconds[current] <=
+                UINT32_MAX - elapsed_seconds) {
+                snapshot->activity_seconds[current] += elapsed_seconds;
+            }
+        }
+    }
+    return ESP_OK;
 }
 
 esp_err_t ble_power_get_payload(char *output, size_t output_size)
@@ -3046,6 +3345,13 @@ static void notify_task(void *parameter)
                 ESP_LOGD(TAG, "RTC notification skipped: %d", result);
             }
         }
+        if (seconds % 60 == 0) {
+            esp_err_t result = activity_daily_sample(true);
+            if (result != ESP_OK) {
+                ESP_LOGD(TAG, "activity sample skipped: %s",
+                         esp_err_to_name(result));
+            }
+        }
         if (handle != BLE_HS_CONN_HANDLE_NONE && gps_notifications_enabled) {
             int result = ble_gatts_notify(handle, gps_value_handle);
             if (result != 0 && result != BLE_HS_ENOTCONN) {
@@ -3178,6 +3484,7 @@ static void imu_control_task(void *parameter)
                 result = bhi260_initialize();
             }
             if (result != ESP_OK) {
+                activity_sensor_stopped();
                 imu_ready = false;
                 sensor_rail_set(BOARD_AXP2101_ALDO4_VOLTAGE, 13,
                                 BOARD_AXP2101_ALDO4_BIT, false);
@@ -3185,6 +3492,9 @@ static void imu_control_task(void *parameter)
                          esp_err_to_name(result));
             }
         } else if (!enabled) {
+            if (imu_ready) {
+                activity_sensor_stopped();
+            }
             imu_ready = false;
             imu_sample_available = false;
             esp_err_t result = sensor_rail_set(
@@ -3275,7 +3585,8 @@ static void touch_control_task(void *parameter)
 esp_err_t ble_rtc_initialize(void)
 {
     i2c_mutex = xSemaphoreCreateMutex();
-    if (i2c_mutex == NULL) {
+    activity_mutex = xSemaphoreCreateMutex();
+    if (i2c_mutex == NULL || activity_mutex == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
@@ -3299,6 +3610,8 @@ esp_err_t ble_rtc_start(void)
         result = nvs_flash_init();
     }
     ESP_RETURN_ON_ERROR(result, TAG, "NVS init failed");
+    ESP_RETURN_ON_ERROR(activity_state_load(), TAG,
+                        "activity state load failed");
     ESP_RETURN_ON_ERROR(theme_color_load(), TAG,
                         "theme preference load failed");
     ESP_RETURN_ON_ERROR(sensor_control_load(), TAG,

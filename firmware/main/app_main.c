@@ -84,6 +84,7 @@ typedef enum {
     UI_ALARM,
     UI_MAP,
     UI_WEATHER,
+    UI_ACTIVITY,
     UI_MESSAGES,
     UI_BLACK,
 } ui_screen_t;
@@ -91,7 +92,8 @@ typedef enum {
 static bool screen_keeps_display_awake(ui_screen_t screen)
 {
     return screen == UI_SETTINGS || screen == UI_ALARM ||
-           screen == UI_MAP || screen == UI_WEATHER || screen == UI_MESSAGES;
+           screen == UI_MAP || screen == UI_WEATHER ||
+           screen == UI_ACTIVITY || screen == UI_MESSAGES;
 }
 
 typedef enum {
@@ -129,6 +131,7 @@ typedef enum {
     LAUNCHER_ACTION_ALARM,
     LAUNCHER_ACTION_MAP,
     LAUNCHER_ACTION_WEATHER,
+    LAUNCHER_ACTION_ACTIVITY,
     LAUNCHER_ACTION_MESSAGES,
 } launcher_action_t;
 
@@ -185,6 +188,7 @@ static uint16_t *settings_frame;
 static uint16_t *alarm_frame;
 static uint16_t *map_frame;
 static uint16_t *weather_frame;
+static uint16_t *activity_frame;
 static uint16_t *messages_frame;
 static volatile uint8_t display_brightness_percentage = 50;
 static volatile uint32_t theme_rgb = 0x1863FF;
@@ -236,7 +240,7 @@ static const display_init_command_t display_init_commands[] = {
 };
 
 static const bubble_t launcher_bubbles[] = {
-    {205, 92, 42, ICON_ACTIVITY, LAUNCHER_ACTION_NONE},
+    {205, 92, 42, ICON_ACTIVITY, LAUNCHER_ACTION_ACTIVITY},
     {110, 143, 42, ICON_HEART, LAUNCHER_ACTION_NONE},
     {300, 143, 42, ICON_SLEEP, LAUNCHER_ACTION_ALARM},
     {73, 241, 42, ICON_MAP, LAUNCHER_ACTION_MAP},
@@ -535,6 +539,8 @@ static bool touch_is_button(ui_screen_t screen, uint16_t x, uint16_t y)
             (point_in_circle(x, y, 205, 435, 38) ||
              point_in_circle(x, y, 70, 420, 38) ||
              point_in_circle(x, y, 340, 420, 38))) ||
+           (screen == UI_ACTIVITY &&
+            point_in_circle(x, y, 205, 445, 36)) ||
            (screen == UI_MESSAGES &&
             (point_in_circle(x, y, 205, 445, 36) ||
              (x >= 70 && x <= 340 && y >= 105 && y <= 170)));
@@ -575,6 +581,9 @@ static bool activate_launcher_action(launcher_action_t action)
         active_screen = UI_WEATHER;
         return true;
     }
+    case LAUNCHER_ACTION_ACTIVITY:
+        active_screen = UI_ACTIVITY;
+        return true;
     case LAUNCHER_ACTION_MESSAGES:
         active_screen = UI_MESSAGES;
         return true;
@@ -781,6 +790,10 @@ static bool process_touch_event(screen_touch_event_t event, uint16_t x,
             weather_selected_day++;
             changed = true;
         }
+    } else if (active_screen == UI_ACTIVITY &&
+               point_in_circle(x, y, 205, 445, 36)) {
+        active_screen = UI_LAUNCHER;
+        changed = true;
     } else if (active_screen == UI_MESSAGES &&
                point_in_circle(x, y, 205, 445, 36)) {
         active_screen = UI_LAUNCHER;
@@ -2056,6 +2069,72 @@ static void mesh_text_line(char *output, size_t output_size,
     }
 }
 
+static void format_activity_duration(uint32_t seconds, char *output,
+                                     size_t output_size)
+{
+    if (seconds >= 3600) {
+        snprintf(output, output_size, "%luh %lum",
+                 (unsigned long)(seconds / 3600),
+                 (unsigned long)((seconds % 3600) / 60));
+    } else if (seconds >= 60) {
+        snprintf(output, output_size, "%lum %lus",
+                 (unsigned long)(seconds / 60),
+                 (unsigned long)(seconds % 60));
+    } else {
+        snprintf(output, output_size, "%lus", (unsigned long)seconds);
+    }
+}
+
+static void compose_activity_frame(uint16_t *frame)
+{
+    static const char *names[WATCH_ACTIVITY_COUNT] = {
+        "STILL", "WALKING", "RUNNING", "CYCLING",
+        "IN VEHICLE", "TILTING", "OTHER",
+    };
+    memset(frame, 0, DISPLAY_FRAME_BYTES);
+    draw_text(frame, "ACTIVITY", centered_text_x("ACTIVITY", 3), 32, 3,
+              theme_wire_tinted(72));
+
+    watch_activity_snapshot_t snapshot;
+    esp_err_t result = ble_activity_get_snapshot(&snapshot);
+    if (result != ESP_OK || !snapshot.ready) {
+        draw_text(frame, "IMU NOT READY", centered_text_x("IMU NOT READY", 4),
+                  150, 4, wire_rgb565(180, 188, 202));
+        draw_text(frame, "ENABLE IMU IN WEB UI",
+                  centered_text_x("ENABLE IMU IN WEB UI", 6), 205, 6,
+                  theme_wire_tinted(80));
+    } else {
+        char steps[16];
+        snprintf(steps, sizeof(steps), "%lu",
+                 (unsigned long)snapshot.steps_today);
+        int step_divisor = strlen(steps) <= 7 ? 1 : 2;
+        draw_text(frame, steps, centered_text_x(steps, step_divisor), 68,
+                  step_divisor, wire_rgb565(105, 240, 174));
+        draw_text(frame, "STEPS TODAY", centered_text_x("STEPS TODAY", 5),
+                  144, 5, wire_rgb565(155, 165, 180));
+
+        for (size_t index = 0; index < WATCH_ACTIVITY_COUNT; index++) {
+            char duration[20];
+            format_activity_duration(snapshot.activity_seconds[index],
+                                     duration, sizeof(duration));
+            char row[40];
+            snprintf(row, sizeof(row), "%c %-11s %s",
+                     snapshot.current_activity == index ? '>' : ' ',
+                     names[index], duration);
+            draw_text(frame, row, 48, 192 + (int)index * 28, 5,
+                      snapshot.current_activity == index
+                          ? theme_wire_tinted(125)
+                          : wire_rgb565(218, 224, 234));
+        }
+    }
+
+    const bubble_t launcher = {
+        205, 445, 36, ICON_LAUNCHER, LAUNCHER_ACTION_NONE};
+    draw_bubble(frame, &launcher);
+    draw_icon(frame, ICON_LAUNCHER, 205, 445, 48);
+    draw_contour(frame);
+}
+
 static void compose_messages_frame(uint16_t *frame)
 {
     memset(frame, 0, DISPLAY_FRAME_BYTES);
@@ -2363,6 +2442,8 @@ static void rebuild_theme_frames(void)
         compose_map_frame(map_frame);
     } else if (active_screen == UI_WEATHER) {
         compose_weather_frame(weather_frame);
+    } else if (active_screen == UI_ACTIVITY) {
+        compose_activity_frame(activity_frame);
     } else if (active_screen == UI_MESSAGES) {
         compose_messages_frame(messages_frame);
     }
@@ -2398,6 +2479,9 @@ static int64_t present_screen(ui_screen_t screen)
     } else if (screen == UI_WEATHER) {
         compose_weather_frame(weather_frame);
         frame = weather_frame;
+    } else if (screen == UI_ACTIVITY) {
+        compose_activity_frame(activity_frame);
+        frame = activity_frame;
     } else if (screen == UI_MESSAGES) {
         compose_messages_frame(messages_frame);
         frame = messages_frame;
@@ -2447,6 +2531,10 @@ static void refresh_active_screen(void)
     } else if (active_screen == UI_WEATHER) {
         compose_weather_frame(weather_frame);
         display_frame_region(weather_frame, 0, 0, BOARD_DISPLAY_WIDTH,
+                             BOARD_DISPLAY_HEIGHT, false);
+    } else if (active_screen == UI_ACTIVITY) {
+        compose_activity_frame(activity_frame);
+        display_frame_region(activity_frame, 0, 0, BOARD_DISPLAY_WIDTH,
                              BOARD_DISPLAY_HEIGHT, false);
     } else if (active_screen == UI_MESSAGES) {
         compose_messages_frame(messages_frame);
@@ -2582,6 +2670,9 @@ static void ui_task(void *parameter)
                                           : SCREEN_IDLE_TICKS - elapsed);
         TickType_t minute_wait = minute_wait_ticks();
         TickType_t wait = minute_wait < idle_wait ? minute_wait : idle_wait;
+        if (active_screen == UI_ACTIVITY && wait > pdMS_TO_TICKS(1000)) {
+            wait = pdMS_TO_TICKS(1000);
+        }
         uint32_t events = 0;
         if (xTaskNotifyWait(0, UINT32_MAX, &events, wait) == pdFALSE ||
             (events & UI_EVENT_REFRESH) != 0) {
@@ -2703,11 +2794,14 @@ void app_main(void)
                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     weather_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    activity_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
+                                      MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     messages_frame = heap_caps_malloc(DISPLAY_FRAME_BYTES,
                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     ESP_ERROR_CHECK(watch_frame == NULL || launcher_frame == NULL ||
                             settings_frame == NULL || alarm_frame == NULL ||
                             map_frame == NULL || weather_frame == NULL ||
+                            activity_frame == NULL ||
                             messages_frame == NULL
                         ? ESP_ERR_NO_MEM : ESP_OK);
 

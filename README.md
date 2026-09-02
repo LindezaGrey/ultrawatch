@@ -104,9 +104,10 @@ follow. This keeps SD, IMU firmware loading, and GPS probing outside the
 first-Watch-frame path.
 
 The window manager has Watch, Launcher, Settings, Alarm, Map, Weather,
-Messages, and Black states. Watch is the boot/default app. The launcher clock,
-settings, alarm, map, weather, and chat-bubble icons open their corresponding
-screens. The remaining app bubbles are visual placeholders. Settings changes
+Activity, Messages, and Black states. Watch is the boot/default app. The
+launcher clock, settings, alarm, map, weather, running-person, and chat-bubble
+icons open their corresponding screens. The remaining app bubbles are visual
+placeholders. Settings changes
 AMOLED brightness continuously while dragging and uses the same public
 advertising setter as the physical side button. After the 10-second inactivity
 interval, the active app resets to Watch and the display becomes completely
@@ -273,6 +274,22 @@ RAM firmware. The vendored driver, firmware image, and BSD-3-Clause license are
 under `firmware/main/vendor/bhy2/`. Firmware loading failures are logged without
 restarting the watch, so RTC and power remain usable instead of causing a boot
 loop.
+
+## Activity
+
+The running-person launcher icon opens the Bosch-powered Activity app. It shows
+today's step count and the time classified as still, walking, running, cycling,
+in a vehicle, tilting, or other. The current class is marked and the screen
+updates once per second. The launcher button at the bottom returns to the app
+launcher.
+
+The BHI260AP firmware supplies its on-chip step counter at 1 Hz and activity
+recognition at 5 Hz. The lifetime and daily step states are kept in NVS. They
+survive watch and sensor restarts. An abrupt power loss can lose at most the
+most recent 1,000 uncommitted steps. The daily counter resets from the RTC date.
+Activity-duration totals are kept in RAM and reset at a restart or when the RTC
+date changes. If the IMU is disabled in the web sensor controls, the app shows
+that it is not ready instead of displaying stale data.
 
 The GPS module is powered from AXP2101 BLDO1 at 3.3 V and connected to UART1
 with ESP32-S3 TX on GPIO 43 and RX on GPIO 44. When enabled, the firmware probes

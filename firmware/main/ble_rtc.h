@@ -21,6 +21,24 @@ typedef struct {
     bool enabled;
 } alarm_config_t;
 
+typedef enum {
+    WATCH_ACTIVITY_STILL = 0,
+    WATCH_ACTIVITY_WALKING,
+    WATCH_ACTIVITY_RUNNING,
+    WATCH_ACTIVITY_CYCLING,
+    WATCH_ACTIVITY_IN_VEHICLE,
+    WATCH_ACTIVITY_TILTING,
+    WATCH_ACTIVITY_OTHER,
+    WATCH_ACTIVITY_COUNT,
+} watch_activity_class_t;
+
+typedef struct {
+    bool ready;
+    uint32_t steps_today;
+    watch_activity_class_t current_activity;
+    uint32_t activity_seconds[WATCH_ACTIVITY_COUNT];
+} watch_activity_snapshot_t;
+
 /* Configure the PCF85063A for 24-hour mode without changing its time. */
 esp_err_t ble_rtc_initialize(void);
 
@@ -32,6 +50,9 @@ esp_err_t ble_rtc_get_time_payload(char *output, size_t output_size);
 
 /* Read and validate the complete PCF85063A calendar representation. */
 esp_err_t ble_rtc_get_datetime(rtc_datetime_t *datetime);
+
+/* Read today's Bosch step count and activity-recognition durations. */
+esp_err_t ble_activity_get_snapshot(watch_activity_snapshot_t *snapshot);
 
 /* Format power as percent,millivolts,direction,vbus,present. */
 esp_err_t ble_power_get_payload(char *output, size_t output_size);
