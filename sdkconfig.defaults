@@ -101,3 +101,15 @@ CONFIG_BT_NIMBLE_LOG_LEVEL_DEBUG=y
 # never needs more than 1 concurrent activity, down from the IDF default
 # of 6.
 CONFIG_BT_CTRL_BLE_MAX_ACT=1
+
+# LVGL logging: ON at error level, deliberately.
+# LVGL's default LV_ASSERT_HANDLER is `while(1);` and there is no Kconfig
+# option to change it, so a failed assert halts the LVGL task forever. With
+# logging compiled out that halt is completely silent - it cost three
+# debugging sessions before lv_scr_load(NULL) was identified as the cause of a
+# recurring "watch freezes, touch dead" fault (see settings_back_cb). Error
+# level only, so this prints when something is already badly wrong and is
+# otherwise quiet.
+CONFIG_LV_USE_LOG=y
+CONFIG_LV_LOG_LEVEL_ERROR=y
+CONFIG_LV_LOG_PRINTF=y

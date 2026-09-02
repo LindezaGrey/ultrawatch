@@ -9,6 +9,7 @@
 #include "pcf85063a.h"
 #include "sd_log.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -96,7 +97,7 @@ static void ensure_header(void)
     FILE *b = fopen(BATTERY_CSV, "a");
     if (b) {
         if (ftell(b) == 0) {
-            fprintf(b, "date,time,pct,mv,charge_state,chg_enabled,chg_ma,temp_c10\n");
+            fprintf(b, "date,time,uptime_s,pct,mv,charge_state,chg_enabled,chg_ma,temp_c10\n");
         }
         fclose(b);
     }
@@ -137,7 +138,17 @@ static void append_lines(const struct tm *lt, uint32_t lifetime)
          * headers claiming otherwise; not changed there, because those files
          * already hold history in that shape and re-splitting mid-file would
          * break the existing series. */
-        fprintf(b, "%s,%s,%u,%u,%s,%u,%u,%d\n", stemp, stem,
+        /* uptime comes from the kernel, not from sensor_cache like the
+         * timestamp and the battery figures do. On 2026-09-02 the cache task
+         * stopped updating for ~19 minutes: housekeeping kept writing a row a
+         * minute, but every row carried the same stale time (07:26) and the
+         * same stale 3844 mV, so the file looked like a 19-minute gap when in
+         * fact it was 20 frozen samples. With uptime alongside, the two are
+         * immediately distinguishable - uptime climbing while the timestamp
+         * stands still means the cache is stale, both standing still means the
+         * logger itself stopped. */
+        fprintf(b, "%s,%s,%lu,%u,%u,%s,%u,%u,%d\n", stemp, stem,
+                (unsigned long)(esp_timer_get_time() / 1000000),
                 (unsigned)c.batt_pct, (unsigned)c.batt_mv,
                 c.valid ? charge_state_name(c.chg_state) : "invalid",
                 (unsigned)(c.chg_enabled ? 1 : 0), (unsigned)c.chg_ma,

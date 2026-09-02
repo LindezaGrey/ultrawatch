@@ -158,6 +158,22 @@ static void settings_row_click_cb(lv_event_t *e)
 static void settings_back_cb(lv_event_t *e)
 {
     (void)e;
+    /* Build the category list if it does not exist yet. It usually does,
+     * because the normal way into a sub-page is a row click on that very
+     * screen - but not always: lvgl_show_settings_disp() is called straight
+     * from the watch face's tap-and-hold shortcut (lvgl_app.c), which jumps
+     * into the Display sub-page without ever creating the list. Going "back"
+     * from there used to call lv_scr_load(NULL).
+     *
+     * That froze the watch, silently. LV_ASSERT_OBJ(NULL) fails, LV_LOG_ERROR
+     * is compiled out (LV_USE_LOG off), and LVGL's default LV_ASSERT_HANDLER
+     * is `while(1);` - so the LVGL task spun forever with no message, taking
+     * touch down with it. Three identical backtraces before this was found;
+     * lvglinfo is what settled it, by showing the category list absent from
+     * the display's screen array while the sub-page was active. */
+    if (!s_settings_screen) {
+        lvgl_build_settings_screen();
+    }
     lv_scr_load(s_settings_screen);
 }
 
@@ -693,6 +709,12 @@ static void settings_vib_row_open_cb(lv_event_t *e)
 static void settings_vib_back_cb(lv_event_t *e)
 {
     (void)e;
+    /* Same guard as settings_back_cb: the vibration page is only reachable
+     * from the sound page today, so this should never be NULL - but the cost
+     * of being wrong is a silent freeze, not a visual glitch. */
+    if (!s_set_sound_screen) {
+        lvgl_build_settings_sound_screen();
+    }
     lv_scr_load(s_set_sound_screen);
 }
 
