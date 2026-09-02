@@ -168,6 +168,7 @@ static const debug_cmd_entry_t s_commands[] = {
     { "dispreg",        debug_cmd_dispreg },
     { "dispcycle",      debug_cmd_dispcycle },
     { "dispte",         debug_cmd_dispte },
+    { "lvglinfo",       debug_cmd_lvglinfo },
     { "disprepaint",    debug_cmd_disprepaint },
     { "dispcmd",        debug_cmd_dispcmd },
     { "dailylog",       debug_cmd_dailylog },

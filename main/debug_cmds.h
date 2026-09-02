@@ -35,6 +35,7 @@ void debug_cmd_dispfix(const char *args);
 void debug_cmd_dispreg(const char *args);
 void debug_cmd_dispcycle(const char *args);
 void debug_cmd_dispte(const char *args);
+void debug_cmd_lvglinfo(const char *args);
 void debug_cmd_disprepaint(const char *args);
 void debug_cmd_dispcmd(const char *args);
 void debug_cmd_alarm(const char *args);

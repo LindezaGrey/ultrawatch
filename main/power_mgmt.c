@@ -16,6 +16,7 @@
 #include "esp_pm.h"
 #include "esp_sleep.h"
 #include "driver/gpio.h"
+#include "lvgl.h"
 #include "esp_lv_adapter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -78,6 +79,10 @@ static int64_t s_sleep_enter_us;
 static portMUX_TYPE s_exit_wake_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static volatile bool s_panel_wake_pending;
+/* Set by the flush path, serviced by pm_wake_task - see the two functions
+ * above power_mgmt_exit_sleep(). */
+static volatile bool s_panel_wake_request;
+static void pm_service_panel_wake_request(void);
 /* Defined next to power_mgmt_exit_sleep(), but pm_wake_task() above it performs
  * the deferred bring-up once a gesture is confirmed real. */
 static void pm_panel_wake(void);
@@ -710,6 +715,9 @@ static void pm_wake_task(void *arg)
          * reads on battery. */
         uint32_t t = pdMS_TO_TICKS(5000);
         if (ulTaskNotifyTake(pdTRUE, t) == 0) {
+            /* Timeout branch: still service a pending bring-up, in case the
+             * notify was consumed by something else. */
+            pm_service_panel_wake_request();
             since_night_check += 5000;
             /* Pump USB activity so the adapter never hits its idle timeout
              * while plugged in (no sleep attempt / no error spam). Only when
@@ -797,6 +805,7 @@ static void pm_wake_task(void *arg)
         }
 
         since_night_check = 0;
+        pm_service_panel_wake_request();
         portENTER_CRITICAL(&s_wake_sources_lock);
         uint32_t sources = s_wake_sources;
         s_wake_sources = 0;
@@ -1104,38 +1113,49 @@ static void pm_panel_wake(void)
     }
 }
 
-/* Bring the panel up if a wake deferred it and the UI has since started
- * drawing. Called from the LVGL flush path.
- *
- * Deferring the panel in power_mgmt_exit_sleep() was only ever half a design:
- * s_panel_wake_pending is consumed by pm_wake_task() for a real gesture, but
- * nothing consumed it when the UI woke for any OTHER reason. A touch or an
- * incoming mesh packet then left the system fully awake and rendering into a
- * dark screen - LVGL flushing happily (flushes climbing, age ~130 ms) at a
- * panel still in DISPOFF+SLPIN. Reported live twice.
- *
- * A flush is the unambiguous signal that the UI wants to be seen, so the panel
- * comes up here, before the pixels are pushed at it - a panel still asleep
- * would swallow them. Deliberately does NOT call lvgl_force_redraw(): this runs
- * inside the flush callback, and the flush now in progress does the painting.
- * Returns quickly when there is nothing pending, which is the normal case. */
+/* Called from the LVGL flush path when a wake deferred the panel and the UI
+ * has since started drawing. Does NOT touch the panel here: this runs inside
+ * the flush callback, and issuing panel IO from there re-enters the SPI
+ * transaction that is already in flight - doing so stalled the flush pipeline
+ * so LVGL never got its flush-ready and the UI died completely (black screen,
+ * no touch). Just hand the work to pm_wake_task, which owns its own context.
+ * pm_wake_task runs at a higher priority than the LVGL task, so it picks this
+ * up essentially immediately. */
 void power_mgmt_panel_wake_if_pending(void)
 {
     if (!s_panel_wake_pending) {
         return;
     }
     s_panel_wake_pending = false;
+    s_panel_wake_request = true;
+    if (s_wake_task) {
+        xTaskNotifyGive(s_wake_task);
+    }
+}
+
+/* The deferred bring-up itself, run on pm_wake_task. Display stays off until
+ * GRAM has been wiped, because a panel reset leaves it undefined and showing
+ * it first put reset garbage on screen wherever the UI had not repainted
+ * ("light green background" after a wake). The forced redraw then repaints
+ * everything rather than only the region one flush covered. */
+static void pm_service_panel_wake_request(void)
+{
+    if (!s_panel_wake_request) {
+        return;
+    }
+    s_panel_wake_request = false;
     ESP_LOGI(TAG, "deferred panel wake: UI is drawing, bringing the display up");
-    if (esp_lv_adapter_lock(0) == ESP_OK) {
-        /* Already on the LVGL task inside a flush, so the lock is recursive
-         * and uncontended; take it anyway so the panel work is consistent with
-         * every other call site. */
-        co5300_reinit(true, /*leave_display_off=*/false);
+    if (esp_lv_adapter_lock(1000) == ESP_OK) {
+        co5300_reinit(true, /*leave_display_off=*/true);
+        co5300_blank();
         esp_lv_adapter_unlock();
     } else {
-        co5300_reinit(true, /*leave_display_off=*/false);
+        co5300_reinit(true, /*leave_display_off=*/true);
+        co5300_blank();
     }
     co5300_set_brightness(s_night_mode ? PM_NIGHT_BRIGHTNESS : s_brightness);
+    lvgl_force_redraw();
+    co5300_display_on();
 }
 
 esp_err_t power_mgmt_exit_sleep(void *ctx)

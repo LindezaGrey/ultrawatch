@@ -35,6 +35,7 @@
 #include "spi2_power.h"
 #include "ndef.h"
 #include "esp_lv_adapter.h"
+#include "display/lv_display_private.h"
 #include "driver/gpio.h"
 #include "debug_cmds.h"
 
@@ -769,6 +770,41 @@ void debug_cmd_disprepaint(const char *args)
     (void)args;
     lvgl_force_redraw();
     printf("disprepaint: full repaint requested (no panel commands sent)\n");
+}
+
+/* Dump LVGL's display/screen bookkeeping.
+ *
+ * The recurring freeze always lands in lv_obj_get_display(), which walks every
+ * display and every screen, and - with LV_USE_ASSERT_OBJ on - first calls
+ * lv_obj_is_valid(), which additionally walks all their children. Both degrade
+ * with the number of screens, so "how many screens are there, and is the one
+ * being loaded actually among them" is the first thing worth knowing. Three
+ * identical backtraces, no assert message, and the object passing the validity
+ * check all point here rather than at a wild pointer.
+ *
+ * screen_cnt should sit around 22: the boot screen plus the 21 screen_new()
+ * sites, each guarded so it builds once. A number that grows as the UI is used
+ * is the bug. */
+void debug_cmd_lvglinfo(const char *args)
+{
+    (void)args;
+    lv_display_t *d = lv_display_get_default();
+    if (!d) {
+        printf("lvglinfo: no default display\n");
+        return;
+    }
+    lv_obj_t *act = lv_screen_active();
+    printf("lvglinfo: screen_cnt=%u active=%p\n", (unsigned)d->screen_cnt, (void *)act);
+    for (uint32_t i = 0; i < d->screen_cnt && i < 64; i++) {
+        lv_obj_t *scr = d->screens[i];
+        printf("lvglinfo:  [%2u] %p parent=%p children=%u%s\n", (unsigned)i, (void *)scr,
+               (void *)(scr ? lv_obj_get_parent(scr) : NULL),
+               (unsigned)(scr ? lv_obj_get_child_count(scr) : 0),
+               (scr == act) ? "  <- active" : "");
+    }
+    if (d->screen_cnt > 64) {
+        printf("lvglinfo:  ... %u more\n", (unsigned)(d->screen_cnt - 64));
+    }
 }
 
 void debug_cmd_dispte(const char *args)
