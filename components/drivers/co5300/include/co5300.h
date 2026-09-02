@@ -43,7 +43,8 @@ extern "C" {
 #define CO5300_DARK_NAVY    0x0841
 #define CO5300_GRAY         0x8410
 
-esp_err_t co5300_init(void);
+/* Initializes the panel with output on unless leave_display_off is true. */
+esp_err_t co5300_init(bool leave_display_off);
 esp_err_t co5300_deinit(void);
 
 /* Re-run the full panel bring-up (hardware reset + init command list + gap +

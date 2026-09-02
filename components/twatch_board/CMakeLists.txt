@@ -15,7 +15,6 @@ idf_component_register(
         cst9217
         bhi260ap
         drv2605
-        co5300
         max98357a
         t3902
         m10q

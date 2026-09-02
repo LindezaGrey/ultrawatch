@@ -27,11 +27,10 @@ static const sh8601_lcd_init_cmd_t s_init_cmds[] = {
     { 0x53, (uint8_t[]){ 0x20 }, 1, 25 },
     { 0x63, (uint8_t[]){ 0xFF }, 1, 0 },
     { 0x11, NULL, 0, 120 },                          /* SLPOUT */
-    { 0x29, NULL, 0, 120 },                          /* DISPON */
     { 0x51, (uint8_t[]){ 0x80 }, 1, 0 },             /* brightness */
 };
 
-esp_err_t co5300_init(void)
+esp_err_t co5300_init(bool leave_display_off)
 {
     const spi_bus_config_t buscfg = SH8601_PANEL_BUS_QSPI_CONFIG(CO5300_PIN_SCK,
                                                                  CO5300_PIN_DATA0,
@@ -64,9 +63,8 @@ esp_err_t co5300_init(void)
     ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "panel reset");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "panel init");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_set_gap(s_panel, CO5300_X_GAP, 0), TAG, "set gap");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "display on");
-
     s_initialized = true;
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, !leave_display_off), TAG, "display output");
     ESP_LOGI(TAG, "CO5300 initialized via SH8601 driver (%dx%d)", CO5300_RES_X, CO5300_RES_Y);
     return ESP_OK;
 }

@@ -12,7 +12,6 @@
 #include "pcf85063a.h"
 #include "cst9217.h"
 #include "drv2605.h"
-#include "co5300.h"
 #include "max98357a.h"
 #include "t3902.h"
 #include "m10q.h"
@@ -272,7 +271,6 @@ esp_err_t twatch_board_init(void)
     pcf85063a_init(twatch_rtc_dev);
     sync_system_time();
     drv2605_init(twatch_haptic_dev);
-    co5300_init();
     twatch_i2s_init();
     max98357a_init(twatch_audio_tx);
     t3902_init(twatch_audio_rx);

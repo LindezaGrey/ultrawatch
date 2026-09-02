@@ -1,138 +1,182 @@
-# Display power: a proposed owner for panel visibility
+# Display controller and touch ownership
 
-Status: **proposal, not implemented.** Written 2026-09-02 while the reasoning
-was fresh, after five consecutive broken attempts at the sleep/wake display
-path in one session. Implementation deliberately left for a separate, calm
-change - see "When to do this".
+Status: phases 1-4 are implemented and hardware-validated: initial controller,
+controller-owned boot initialisation, first-frame gating, and normal light-sleep
+entry/exit. Diagnostics, rail recovery, and touch-controller work remain planned.
 
-## The problem
+## Goal
 
-Nothing owns the question "what state is the panel in right now".
+Give the physical display one owner. `display_controller` owns the CO5300's
+complete lifecycle: initialisation, sleep/wake, visibility, brightness
+application, repaint coordination, recovery, and the display-rail recovery
+path. No other production or diagnostic code sends a CO5300 lifecycle command.
 
-`power_mgmt.c` alone has 13 direct panel-command sites, each open-coding its own
-sequence:
+This replaces the current hand-written sequences in `power_mgmt.c`,
+`lvgl_app.c`, and `debug_cmds.c`. It deliberately favors reliable visibility:
+every normal light-sleep wake requests a visible display. IMU-only panel
+deferral is removed in this pass.
 
-- `co5300_display_off(); co5300_blank(); co5300_sleep();` - three separate places
-- `co5300_reinit(); co5300_set_brightness(); lvgl_force_redraw(); co5300_display_on();`
-- `co5300_set_brightness()` on its own, for night mode and the brightness setting
-
-`lvgl_app.c` and `debug_cmds.c` add more, and `lvgl_force_redraw()` is called
-from six places across three task contexts.
-
-So every new requirement adds another hand-rolled sequence, executed from
-whichever task happened to notice the need. There is no single place where the
-ordering rules live, and no way to be sure a given sequence is safe from the
-context it runs in.
-
-## What that cost, concretely
-
-Five bugs shipped in one session, all from this one area:
-
-1. **Wake classified from `esp_sleep_get_wakeup_causes()`** - the bitmap reports
-   `BIT(ESP_SLEEP_WAKEUP_UNDEFINED)` for timer wakes, never `BIT(TIMER)`. 623
-   heartbeats a day each lit the screen.
-2. **"Defer unless positively identified" as the default** - touch is handled by
-   the adapter's own ISR and mesh arrives via sx1262's DIO1 handler, so neither
-   sets a bit this code can see. Both went dark; a LoRa message vibrated with
-   the screen off.
-3. **Recognising the heartbeat by sleep duration** - sleeps routinely run longer
-   than the 60 s period (116 s, 658 s, 3602 s observed), so the test matched
-   every touch after a long sleep.
-4. **`panel_deferred = imu_only`** - a touch wake usually carries the IMU bit
-   too (the BHI chatters constantly), so real touches were detected and then
-   discarded. The log showed `src=0x100 touch=1 panel=deferred`.
-5. **`co5300_blank()` called from inside the LVGL flush callback** - re-entered
-   the panel IO while a flush transaction was in flight, stalled the pipeline so
-   LVGL never got its flush-ready, and killed the UI entirely.
-
-Note the shape: (1)-(4) are all attempts to *predict* whether the screen should
-be on from the wake source. (5) is panel IO from the wrong context. Both are
-symptoms of the same missing structure.
-
-## The proposal
-
-A `display_power` module that is the sole owner of panel visibility.
-
-### States
+## Ownership
 
 ```
-SLEEPING  - panel in SLPIN, display off, GRAM undefined
-READY     - panel reset + initialised, display still off, GRAM known
-VISIBLE   - display on, brightness applied
+power_mgmt       policy: sleep, night mode, effective brightness, touch-wake permission
+       |                                      |
+       v                                      v
+touch_controller                         display_controller
+CST9217 reset/init + GPIO12 wake         CO5300 lifecycle + repaint coordination
+       |                                      |
+       +------------> LVGL adapter <---------+
+                         |
+                         v
+                 UI gestures and navigation
 ```
 
-### API
+`twatch_board` owns only buses, pins, and narrow board primitives. It must not
+initialise the CO5300 or make its lifecycle decisions. The board provides a
+display-rail setter for explicit controller-directed recovery only; normal
+sleep keeps the existing ALDO2/touch policy.
 
-All non-blocking, callable from any task including the flush callback:
+`touch_controller` is a sibling boundary, not part of `display_controller`:
+
+- it owns CST9217 reset/init and arming/disarming GPIO12 as a wake source;
+- `power_mgmt` decides whether touch wake is permitted, including night mode;
+- the LVGL adapter consumes touch samples, and the UI owns gestures and navigation;
+- display recovery may ask it to quiesce only if a future recovery path needs
+  to disturb shared touch hardware.
+
+Until `touch_controller` is implemented, this document establishes the
+boundary: new display-controller code must not take over touch IRQ or gesture
+handling, and new power-management code must not add further direct CST9217
+control.
+
+## Display-controller contract
+
+`display_controller.[ch]` exposes:
 
 ```c
-void display_power_show(void);       /* request VISIBLE */
-void display_power_hide(void);       /* request SLEEPING */
-void display_power_note_draw(void);  /* the UI is drawing - guarantee VISIBLE */
-bool display_power_is_visible(void);
+esp_err_t display_controller_init(void);
+void display_controller_attach_lvgl(void);
+void display_controller_request_visible(display_reason_t reason);
+void display_controller_request_repaint(void);
+void display_controller_note_draw_complete(void);
+void display_controller_set_brightness(uint8_t level);
+esp_err_t display_controller_sleep(TickType_t timeout);
+display_state_t display_controller_get_state(void);
+esp_err_t display_controller_recover(display_recovery_t recovery, TickType_t timeout);
 ```
 
-### Internals
+The request APIs are non-blocking and safe from any task, including the LVGL
+flush callback. `display_controller_sleep()` and recovery are synchronous only
+because sleep entry and console diagnostics need a completed transition before
+they proceed.
 
-One task, one queue. **That task is the only code in the system that calls
-`co5300_*`.** Callers post intent and return; they never touch the panel.
+States are:
 
-Transitions are written once, with the ordering rules inside them:
+```
+INITIALIZING -> READY -> AWAITING_DRAW -> VISIBLE
+                       ^                   |
+                       |                   v
+                    SLEEPING <-------------+
 
-- `-> VISIBLE` from `SLEEPING`: reset, init command list, set gap, **blank**,
-  brightness, full repaint, then DISPON. Undefined GRAM is never shown - this is
-  what the "light green background" bug was.
-- `-> SLEEPING`: DISPOFF, blank, SLPIN.
-- The white-screen recovery (hardware RST + full init, see
-  `docs/` / commit 57fa546) is the same `-> VISIBLE` path, so recovery and wake
-  cannot drift apart.
+Any state -> RECOVERING -> AWAITING_DRAW | FAULT
+```
 
-## Why this fixes the class, not the instances
+`READY` means the panel is initialised, blank, and output-off. `AWAITING_DRAW`
+means it is ready to accept pixels but must remain output-off until a real draw
+completes. `FAULT` is safe black/off state after an unrecoverable command
+failure and is visible through diagnostics.
 
-| Bug | Why it becomes impossible |
-| --- | --- |
-| Panel IO inside the flush callback | The flush path can only post to a queue |
-| GRAM garbage on show | Blank-before-show lives inside the one transition |
-| Screen stuck dark after a deferral | Any draw notification forces VISIBLE |
-| Wake misclassification killing touch | Classification only *delays* showing; it never decides visibility |
-| Recovery drifting from wake | Both are the same transition |
+Brightness is controller state, but brightness policy is not: `power_mgmt`
+persists normal brightness, decides the night-mode override, and submits the
+effective value. A value submitted while asleep is cached and applied during
+the next show transition.
 
-## The key design point
+## Lifecycle and concurrency
 
-Four of the five bugs came from trying to derive "should the screen be on?" from
-the wake source. That is a prediction about the future, made with incomplete
-information - the code cannot see touch or LoRa wakes at all, because those
-paths belong to other drivers' ISRs.
+The controller task consumes a command queue and is the sole caller of:
 
-**The UI drawing is ground truth.** It is an observation, not a prediction: if
-LVGL is flushing pixels, the screen must be visible, whatever woke it and
-whether or not this code understood the wake.
+- `co5300_init()`, `co5300_reinit()`, `co5300_sleep()`;
+- display on/off, blank, wake, and brightness operations;
+- CO5300 register diagnostics and explicit display-rail recovery.
 
-So the abstraction should make drawing authoritative and demote wake
-classification to what it actually is - a power optimisation that may delay
-turning the display on, and must never be able to prevent it.
+The LVGL flush path remains the sole normal producer of pixel transactions.
+It is not a lifecycle owner.
 
-## When to do this
+### Initial boot
 
-**Not while the wake path is unstable.** This refactor touches exactly the code
-that has been breaking. Sequence:
+1. `display_controller_init()` runs before LVGL display registration. It
+   initializes the CO5300 with output off, blanks it, and reaches `READY`.
+2. `lvgl_app` registers the stable CO5300 handle and starts the adapter.
+3. `display_controller_attach_lvgl()` enables LVGL-coordinated transitions.
+4. Once the boot screen is built, the app requests visibility.
+5. The first successful bitmap draw posts `display_controller_note_draw_complete()`.
+   The controller then sends `DISPON` and enters `VISIBLE`.
 
-1. Confirm the current build is healthy: screen, touch, sleep/wake, a full day
-   of normal use.
-2. Implement `display_power` with the invariants above, moving all 13+ call
-   sites behind it. No behaviour change intended.
-3. Only then re-introduce wake-based deferral, as an optimisation on top of a
-   base that is correct without it.
+`co5300_init()` needs an output-off option, parallel to the existing reinit
+option, so boot cannot flash an undefined frame.
 
-### Smaller alternative
+### Show, wake, and recovery
 
-If the refactor is not wanted, delete the deferral entirely and always show on
-wake. Simpler and known-good, at the cost of IMU chatter lighting the screen for
-an idle timeout. That is a better trade than the current machinery, which has
-cost far more than it saved.
+For a show request from `SLEEPING`, `READY`, or `FAULT`, the controller:
 
-## Related
+1. takes `esp_lv_adapter_lock()` before commands that can race a flush;
+2. reinitializes with hardware reset and output off;
+3. blanks GRAM and applies cached effective brightness;
+4. releases the lock and requests a full LVGL redraw;
+5. waits for the post-draw notification, then sends `DISPON`.
 
-- `[[white-screen-root-cause]]` - the RST+init recovery that must share the
-  `-> VISIBLE` transition
-- `docs/ideas.md` - other pending work
+Duplicate visible/repaint requests are coalesced. The custom bitmap callback
+posts the draw-complete notification only after its successful draw call has
+returned; it never calls CO5300 lifecycle functions itself. This prevents panel
+IO from re-entering an in-flight flush and prevents reset garbage becoming
+visible.
+
+On normal light-sleep exit, `power_mgmt` always requests visible display and
+then resumes the adapter. The old pending/deferred-panel flags and
+`power_mgmt_panel_wake_if_pending()` are removed.
+
+### Sleep and shutdown
+
+Before light sleep, shutdown, or Ultra-Sparmodus, `power_mgmt` calls
+`display_controller_sleep()` and waits for completion. The controller locks
+against LVGL flushing, performs `DISPOFF`, blank, and `SLPIN` in that order,
+then reports completion. Shutdown may omit `SLPIN` only if the PMIC power-off
+sequence immediately removes power; the controller exposes that as an explicit
+sleep mode rather than leaving a caller to issue partial commands.
+
+### Diagnostics
+
+Existing display commands remain useful but route through controller requests:
+
+- repaint, safe output/brightness commands, reset/reinit, and register reads
+  are serialized by the controller;
+- `disppwr` becomes explicit controller rail-cycle recovery;
+- `dispcycle` uses serialized sleep/show transitions;
+- the intentionally unsafe `dispcycle ... flush` experiment is removed;
+- TE GPIO observation stays a read-only diagnostic outside lifecycle control.
+
+## Migration and acceptance
+
+1. Add the controller and change CO5300 initialisation to support output-off.
+2. Move initial panel ownership from `twatch_board` to the controller.
+3. Integrate LVGL registration, redraw completion notification, and first-frame
+   gating.
+4. Replace all lifecycle calls in power management and diagnostics, then remove
+   deferred wake machinery.
+5. Add the narrow board display-rail primitive and route recovery through it.
+6. Implement `touch_controller` separately; migrate CST9217 setup and GPIO12
+   wake arming without changing LVGL gesture behavior.
+
+Verification requires:
+
+- host tests for state transitions, request coalescing, cached brightness,
+  draw gating, recovery, and failure-to-`FAULT` behavior;
+- `idf.py build`, existing host driver tests, and simulator build;
+- hardware checks for cold boot, timeout/wake via touch/buttons/RTC/alarm/mesh,
+  night mode, repeated sleep/wake, and each safe diagnostic command;
+- a static search confirming lifecycle `co5300_*` calls exist only in the
+  controller and CO5300 driver.
+
+The implementation is successful only if a draw is authoritative: any real
+LVGL draw eventually makes the display visible, while no panel lifecycle IO can
+run from a flush callback or race a panel reset.

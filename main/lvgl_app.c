@@ -36,6 +36,7 @@
 #include "sensor_cache.h"
 #include "m10q.h"
 #include "power_mgmt.h"
+#include "display_controller.h"
 #include "alarm.h"
 #include "cd_timer.h"
 #include "gpx_log.h"
@@ -205,11 +206,6 @@ static esp_err_t night_mode_draw_bitmap(lv_display_t *disp, esp_lcd_panel_handle
     (void)user_ctx;
     s_flush_count++;
     s_last_flush_us = esp_timer_get_time();
-    /* If a wake deferred the panel (IMU chatter with no gesture) and the UI
-     * has since decided to draw anyway - touch, an incoming mesh packet, a
-     * timer - the display is still off and these pixels would go nowhere.
-     * Bring it up first. No-op in the normal case. */
-    power_mgmt_panel_wake_if_pending();
     /* Ultra-Sparmodus's explicit-wake display (docs/application.md section
      * 10.3) reuses this same red-only transform as night mode - both want
      * "red instead of white", just for different reasons and without
@@ -244,6 +240,9 @@ static esp_err_t night_mode_draw_bitmap(lv_display_t *disp, esp_lcd_panel_handle
         }
         ESP_LOGW(TAG, "draw_bitmap attempt %d failed: %s", attempt + 1, esp_err_to_name(err));
         vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    if (err == ESP_OK) {
+        display_controller_note_draw_complete();
     }
     return err;
 }
@@ -1202,6 +1201,9 @@ esp_err_t lvgl_app_start(void)
      * setup runs later in this function. Safe to load twice. */
     power_mgmt_load_config();
 
+    ESP_RETURN_ON_ERROR(display_controller_init(), TAG, "display controller init");
+    display_controller_set_brightness(power_mgmt_get_brightness());
+
     const esp_lv_adapter_config_t adapter_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG();
     esp_lv_adapter_config_t adapter_cfg_mut = adapter_cfg;
     /* Auto light sleep: pause LVGL after idle, then tickless light sleep. */
@@ -1247,6 +1249,7 @@ esp_err_t lvgl_app_start(void)
     esp_lv_adapter_set_draw_bitmap_callbacks(disp, &draw_cbs, NULL);
 
     ESP_RETURN_ON_ERROR(esp_lv_adapter_start(), TAG, "adapter start");
+    display_controller_attach_lvgl();
 
     /* Background telemetry cache (AXP + RTC) so the UI never blocks on I2C.
      * Must start before power_mgmt_init(): its wake task reads the cached RTC
@@ -1276,6 +1279,7 @@ esp_err_t lvgl_app_start(void)
         lv_timer_create(boot_to_watch_face, 3000, NULL);
         esp_lv_adapter_unlock();
     }
+    display_controller_request_visible(DISPLAY_REASON_BOOT);
 
     /* Touch input (CST9217). */
     esp_lcd_touch_handle_t tp = cst9217_get_handle();

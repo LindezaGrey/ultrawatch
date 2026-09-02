@@ -33,11 +33,6 @@ esp_err_t power_mgmt_exit_sleep(void *ctx);
  * from elsewhere in the app. */
 void power_mgmt_shutdown(void);
 
-/* Bring the panel up if a wake deferred it and the UI has since started
- * drawing. Called from the LVGL flush path; cheap no-op when nothing is
- * pending. See the implementation for why deferral needs this. */
-void power_mgmt_panel_wake_if_pending(void);
-
 /* Night mode: auto-entered between these local-time hours (inclusive start,
  * exclusive end, wraps midnight). Compile-time constants for now. */
 #define PM_NIGHT_START_HOUR  23
