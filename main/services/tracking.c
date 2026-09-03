@@ -138,8 +138,9 @@ static void tracking_task(void *arg)
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(TRACK_POLL_MS));
         tracking_lock();
-        if (!s_active) {
-            tracking_unlock();
+        bool active = s_active;
+        tracking_unlock();
+        if (!active) {
             continue;
         }
         /* Keep the watch awake (no auto-sleep) so the BHI step counter keeps
@@ -147,14 +148,22 @@ static void tracking_task(void *arg)
         esp_lv_adapter_report_activity();
         uint32_t steps = 0;
         if (bhi260ap_get_step_count(&steps) != ESP_OK) {
-            tracking_unlock();
             continue;
         }
         /* Gate on activity: only pulse GNSS while walking/running. When the
          * user is in a vehicle/on a bike/stationary, reset the step baseline so
          * the next walk starts a fresh 50-step window (no fix burst after a
          * drive). */
-        if (!track_activity_active()) {
+        bool moving = track_activity_active();
+
+        /* Sensor reads above can take time. Recheck the session before
+         * applying their results, then keep this critical section state-only. */
+        tracking_lock();
+        if (!s_active) {
+            tracking_unlock();
+            continue;
+        }
+        if (!moving) {
             s_last_fix_steps = steps;
             s_fix_due = false;
             tracking_unlock();
