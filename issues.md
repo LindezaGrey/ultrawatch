@@ -9,13 +9,13 @@ Updated: 2026-08-16
 - **`uwatch_main.c` command dispatcher** — re-indented `debug_process_cmd()` for readability.
 - **ESP-IDF version** — verified `espressif/idf:v6.0.2` is available locally; no Dockerfile change needed.
 - **IMU wake-state race** — `s_imu_wake_armed` is now protected by an ISR-safe critical section shared by the GPIO ISR and the sleep-entry/exit paths. Hardware gesture-wake regression remains to be run.
+- **Crash-dump SD writes** — raw ELF and report saves now verify every write and the final flush before the flash copy is erased.
 - **Dead `firmware/` directory** — removed (2026-08-27). It duplicated `main/` with an older, simpler implementation and wasn't referenced by the root `CMakeLists.txt`; its field-tested fixes (60 MHz QSPI glitch fix, shared-SPI2 CS handling) were confirmed superseded by the current `main/`/`components/` code before deletion.
 
 ## Critical Issues (remaining)
 
 ### 1. Resource / concurrency issues
 - **`components/drivers/m10q/m10q.c`** — `m10q_power()` ignores failures from `uGnssPwrOn()`, `U_GNSS_CFG_SET_VAL_RAM()`, and `uGnssPosGetStreamedStart()` after logging; consider retry/fail-fast paths.
-- **`main/system/crash_dump.c`** — `fwrite()` return value is unchecked when saving the raw ELF core dump; a full SD card can silently truncate it.
 
 ### 2. Missing input validation
 - **`main/uwatch_main.c`** — `rec_task` uses global `s_rec_n` without validating it is non-zero before calling `t3902_read()`.
