@@ -58,6 +58,7 @@ static const char *TAG = "alarm";
 /* ---- state ---- */
 static alarm_entry_t s_entries[ALARM_MAX_COUNT];
 static int s_armed_idx = -1;              /* which entry the RTC alarm register currently targets, -1 = none */
+static uint32_t s_schedule_revision;      /* increments whenever the alarm list changes */
 static bool s_ringing;
 static bool s_ring_queued;
 static bool s_snoozing;                   /* 10 min snooze timer armed */
@@ -68,6 +69,8 @@ typedef enum { RING_CMD_START, RING_CMD_RESUME, RING_CMD_DISMISS, RING_CMD_SNOOZ
 typedef struct { ring_cmd_type_t type; alarm_ring_source_t source; uint8_t mode; } ring_cmd_t;
 static QueueHandle_t s_ring_cmd;
 static SemaphoreHandle_t s_lock;
+static SemaphoreHandle_t s_rtc_lock;      /* serializes this service's RTC programming */
+static SemaphoreHandle_t s_nvs_lock;      /* serializes snapshots written to alarm NVS */
 static alarm_ring_cb_t s_ring_cb;
 static bool s_sound_enabled = true;       /* global mute, see alarm_set_sound_enabled() */
 static uint8_t s_auto_snooze_count;       /* completed automatic retries in this alarm cycle */
@@ -79,12 +82,19 @@ static void alarm_recompute_next(void);
 
 static void cfg_save(void)
 {
+    alarm_entry_t entries[ALARM_MAX_COUNT];
+    xSemaphoreTake(s_nvs_lock, portMAX_DELAY);
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    memcpy(entries, s_entries, sizeof(entries));
+    xSemaphoreGive(s_lock);
+
     nvs_handle_t h;
     if (nvs_open(ALARM_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
-        nvs_set_blob(h, ALARM_NVS_KEY, s_entries, sizeof(s_entries));
+        nvs_set_blob(h, ALARM_NVS_KEY, entries, sizeof(entries));
         nvs_commit(h);
         nvs_close(h);
     }
+    xSemaphoreGive(s_nvs_lock);
 }
 
 static void cfg_load(void)
@@ -113,12 +123,34 @@ static void rtc_disarm_alarm(void)
     pcf85063a_clear_alarm(twatch_rtc_dev);
 }
 
+static void rtc_start_snooze(void)
+{
+    xSemaphoreTake(s_rtc_lock, portMAX_DELAY);
+    rtc_disarm_alarm();
+    pcf85063a_set_timer_minutes(twatch_rtc_dev, ALARM_SNOOZE_MIN, true);
+    xSemaphoreGive(s_rtc_lock);
+}
+
+static void rtc_stop_snooze(void)
+{
+    xSemaphoreTake(s_rtc_lock, portMAX_DELAY);
+    pcf85063a_timer_stop(twatch_rtc_dev);
+    xSemaphoreGive(s_rtc_lock);
+}
+
 /* Scans all enabled entries, finds whichever (weekday, hour, min) occurrence
  * is soonest from now, and arms the RTC's one hardware alarm register for
  * exactly that moment (a specific UTC weekday, not "every day"). Re-run
  * after every list edit and after every alarm-sourced ring finishes. */
 static void alarm_recompute_next(void)
 {
+    alarm_entry_t entries[ALARM_MAX_COUNT];
+    xSemaphoreTake(s_rtc_lock, portMAX_DELAY);
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    memcpy(entries, s_entries, sizeof(entries));
+    uint32_t revision = s_schedule_revision;
+    xSemaphoreGive(s_lock);
+
     time_t now_epoch;
     pcf85063a_time_t rtc_now;
     if (pcf85063a_get_time(twatch_rtc_dev, &rtc_now) == ESP_OK) {
@@ -133,10 +165,10 @@ static void alarm_recompute_next(void)
     time_t best_epoch = 0;
 
     for (int i = 0; i < ALARM_MAX_COUNT; i++) {
-        if (!s_entries[i].in_use || !s_entries[i].enabled) {
+        if (!entries[i].in_use || !entries[i].enabled) {
             continue;
         }
-        uint8_t mask = s_entries[i].weekday_mask ? s_entries[i].weekday_mask : ALARM_WEEKDAY_ALL;
+        uint8_t mask = entries[i].weekday_mask ? entries[i].weekday_mask : ALARM_WEEKDAY_ALL;
         for (int wday = 0; wday < 7; wday++) {
             if (!(mask & (1u << wday))) {
                 continue;
@@ -144,8 +176,8 @@ static void alarm_recompute_next(void)
             int delta = (wday - today_lt.tm_wday + 7) % 7;
             struct tm cand = today_lt;
             cand.tm_mday += delta;
-            cand.tm_hour = s_entries[i].hour;
-            cand.tm_min = s_entries[i].min;
+            cand.tm_hour = entries[i].hour;
+            cand.tm_min = entries[i].min;
             cand.tm_sec = 0;
             cand.tm_isdst = -1;
             time_t cand_epoch = mktime(&cand);
@@ -163,9 +195,12 @@ static void alarm_recompute_next(void)
         }
     }
 
-    s_armed_idx = best_idx;
     if (best_idx < 0) {
         rtc_disarm_alarm();
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        if (s_schedule_revision == revision) s_armed_idx = -1;
+        xSemaphoreGive(s_lock);
+        xSemaphoreGive(s_rtc_lock);
         ESP_LOGI(TAG, "recompute: nothing enabled, disarmed");
         return;
     }
@@ -188,8 +223,12 @@ static void alarm_recompute_next(void)
     a.mask_weekday = false;
     a.time.weekday = (uint8_t)utc.tm_wday;
     pcf85063a_set_alarm(twatch_rtc_dev, &a);
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_schedule_revision == revision) s_armed_idx = best_idx;
+    xSemaphoreGive(s_lock);
+    xSemaphoreGive(s_rtc_lock);
     ESP_LOGI(TAG, "armed entry %d: local %02u:%02u -> RTC UTC wday=%u %02u:%02u",
-             best_idx, (unsigned)s_entries[best_idx].hour, (unsigned)s_entries[best_idx].min,
+             best_idx, (unsigned)entries[best_idx].hour, (unsigned)entries[best_idx].min,
              (unsigned)a.time.weekday, (unsigned)a.time.hour, (unsigned)a.time.min);
 }
 
@@ -315,30 +354,35 @@ static void ring_task(void *arg)
          * watch face can show the Zz icon on the very first update. */
         xSemaphoreTake(s_lock, portMAX_DELAY);
         s_ringing = false;
-        if (s_ring_source == ALARM_RING_SOURCE_TIMER) {
+        alarm_ring_source_t ring_source = s_ring_source;
+        xSemaphoreGive(s_lock);
+
+        if (ring_source == ALARM_RING_SOURCE_TIMER) {
             /* No RTC interaction - main/cd_timer.c already cleared its own
              * active state the moment the countdown hit zero and this ring
              * started (a timer has nothing left to "re-arm"). */
             ESP_LOGI(TAG, "timer ring stopped");
         } else if (finished == 1) {
             /* Snooze: swap the armed alarm for a 10 min countdown timer. */
-            rtc_disarm_alarm();
-            pcf85063a_set_timer_minutes(twatch_rtc_dev, ALARM_SNOOZE_MIN, true);
+            rtc_start_snooze();
+            xSemaphoreTake(s_lock, portMAX_DELAY);
             s_snoozing = true;
+            xSemaphoreGive(s_lock);
             ESP_LOGI(TAG, "snoozed %u min", (unsigned)ALARM_SNOOZE_MIN);
         } else {
             /* Dismiss: clear AF, cancel any stray snooze countdown, and
              * re-arm for the next earliest occurrence across the whole list
              * (possibly a different entry than the one that just rang). */
-            pcf85063a_timer_stop(twatch_rtc_dev);
+            rtc_stop_snooze();
+            xSemaphoreTake(s_lock, portMAX_DELAY);
             s_snoozing = false;
+            xSemaphoreGive(s_lock);
             alarm_recompute_next();
-            ESP_LOGI(TAG, "dismissed, recomputed (armed_idx=%d)", s_armed_idx);
+            ESP_LOGI(TAG, "dismissed, recomputed");
         }
-        xSemaphoreGive(s_lock);
 
         if (s_ring_cb) {
-            s_ring_cb(false, s_ring_source);
+            s_ring_cb(false, ring_source);
         }
     }
     vTaskDelete(NULL);
@@ -355,9 +399,14 @@ esp_err_t alarm_ring_now(alarm_ring_source_t source, uint8_t ring_mode)
         return ESP_OK;
     }
     s_ring_queued = true;
-    esp_err_t err = ring_send((ring_cmd_t){ .type = RING_CMD_START, .source = source, .mode = ring_mode });
-    if (err != ESP_OK) s_ring_queued = false;
     xSemaphoreGive(s_lock);
+
+    esp_err_t err = ring_send((ring_cmd_t){ .type = RING_CMD_START, .source = source, .mode = ring_mode });
+    if (err != ESP_OK) {
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        if (!s_ringing) s_ring_queued = false;
+        xSemaphoreGive(s_lock);
+    }
     return err;
 }
 
@@ -387,19 +436,23 @@ esp_err_t alarm_init(void)
     }
     if (!s_lock) s_lock = xSemaphoreCreateMutex();
     if (!s_lock) return ESP_ERR_NO_MEM;
+    if (!s_rtc_lock) s_rtc_lock = xSemaphoreCreateMutex();
+    if (!s_rtc_lock) return ESP_ERR_NO_MEM;
+    if (!s_nvs_lock) s_nvs_lock = xSemaphoreCreateMutex();
+    if (!s_nvs_lock) return ESP_ERR_NO_MEM;
+
     xSemaphoreTake(s_lock, portMAX_DELAY);
     cfg_load();
+    xSemaphoreGive(s_lock);
     if (!s_ring_cmd) {
         s_ring_cmd = xQueueCreate(8, sizeof(ring_cmd_t));
         if (!s_ring_cmd) {
-            xSemaphoreGive(s_lock);
             ESP_LOGE(TAG, "ring command semaphore allocation failed");
             return ESP_ERR_NO_MEM;
         }
     }
     if (s_ring_task == NULL) {
         if (xTaskCreate(ring_task, "alarm_ring", 4096, NULL, 5, &s_ring_task) != pdPASS) {
-            xSemaphoreGive(s_lock);
             ESP_LOGE(TAG, "ring task allocation failed");
             return ESP_ERR_NO_MEM;
         }
@@ -408,8 +461,7 @@ esp_err_t alarm_init(void)
     power_mgmt_register_button_cb(alarm_button_cb);
 
     alarm_recompute_next();
-    xSemaphoreGive(s_lock);
-    ESP_LOGI(TAG, "init: armed_idx=%d", s_armed_idx);
+    ESP_LOGI(TAG, "init complete");
     return ESP_OK;
 }
 
@@ -427,12 +479,13 @@ int alarm_add(uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask
             s_entries[i].min = min;
             s_entries[i].ring_mode = ring_mode;
             s_entries[i].weekday_mask = weekday_mask ? weekday_mask : ALARM_WEEKDAY_ALL;
-            cfg_save();
-            alarm_recompute_next();
+            s_schedule_revision++;
             ESP_LOGI(TAG, "add[%d]: %02u:%02u mode=%u wmask=0x%02x", i,
                      (unsigned)hour, (unsigned)min, (unsigned)ring_mode,
                      (unsigned)s_entries[i].weekday_mask);
             xSemaphoreGive(s_lock);
+            cfg_save();
+            alarm_recompute_next();
             return i;
         }
     }
@@ -453,9 +506,10 @@ esp_err_t alarm_update(int idx, uint8_t hour, uint8_t min, uint8_t ring_mode, ui
     s_entries[idx].min = min;
     s_entries[idx].ring_mode = ring_mode;
     s_entries[idx].weekday_mask = weekday_mask ? weekday_mask : ALARM_WEEKDAY_ALL;
+    s_schedule_revision++;
+    xSemaphoreGive(s_lock);
     cfg_save();
     alarm_recompute_next();
-    xSemaphoreGive(s_lock);
     return ESP_OK;
 }
 
@@ -467,9 +521,10 @@ esp_err_t alarm_remove(int idx)
         return ESP_ERR_INVALID_ARG;
     }
     memset(&s_entries[idx], 0, sizeof(s_entries[idx]));
+    s_schedule_revision++;
+    xSemaphoreGive(s_lock);
     cfg_save();
     alarm_recompute_next();
-    xSemaphoreGive(s_lock);
     return ESP_OK;
 }
 
@@ -481,9 +536,10 @@ esp_err_t alarm_set_enabled(int idx, bool enabled)
         return ESP_ERR_INVALID_ARG;
     }
     s_entries[idx].enabled = enabled;
+    s_schedule_revision++;
+    xSemaphoreGive(s_lock);
     cfg_save();
     alarm_recompute_next();
-    xSemaphoreGive(s_lock);
     return ESP_OK;
 }
 
@@ -538,12 +594,14 @@ void alarm_set_sound_enabled(bool enabled)
     s_sound_enabled = enabled;
     xSemaphoreGive(s_lock);
 
+    xSemaphoreTake(s_nvs_lock, portMAX_DELAY);
     nvs_handle_t h;
     if (nvs_open(ALARM_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
         nvs_set_u8(h, "sound_en", enabled ? 1 : 0);
         nvs_commit(h);
         nvs_close(h);
     }
+    xSemaphoreGive(s_nvs_lock);
 }
 
 bool alarm_is_snoozing(void)
@@ -563,16 +621,20 @@ esp_err_t alarm_check(void)
     }
     /* Read both flags; a transient AF read failure must not be allowed to skip
      * the snooze-timer (TF) check, or a 10-min re-ring would silently die. */
-    xSemaphoreTake(s_lock, portMAX_DELAY);
     bool af = false;
+    xSemaphoreTake(s_rtc_lock, portMAX_DELAY);
     esp_err_t af_err = pcf85063a_alarm_triggered(twatch_rtc_dev, &af);
     bool tf = false;
     esp_err_t tf_err = pcf85063a_timer_triggered(twatch_rtc_dev, &tf);
+    xSemaphoreGive(s_rtc_lock);
     if (af_err != ESP_OK && tf_err != ESP_OK) {
-        xSemaphoreGive(s_lock);
         return ESP_FAIL;
     }
 
+    ring_cmd_t cmd = { 0 };
+    bool send = false;
+    bool stop_timer = false;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     if ((af || tf) && !s_ringing && !s_ring_queued) {
         if (tf) {
             /* The PCF85063A timer re-loads and loops by itself; stop it now so
@@ -580,9 +642,10 @@ esp_err_t alarm_check(void)
              * another Snooze press). Also clears TF -> INT line de-asserts.
              * source/ring_mode are already set from the alarm that snoozed -
              * don't touch them, just resume ringing. */
-            pcf85063a_timer_stop(twatch_rtc_dev);
             s_ring_queued = true;
-            if (ring_send((ring_cmd_t){ .type = RING_CMD_RESUME }) != ESP_OK) s_ring_queued = false;
+            cmd.type = RING_CMD_RESUME;
+            send = true;
+            stop_timer = true;
         } else {
             /* AF: a fresh alarm match. Ring using whichever entry is
              * currently armed; fall back to a safe default rather than
@@ -590,14 +653,22 @@ esp_err_t alarm_check(void)
             uint8_t mode = (s_armed_idx >= 0 && s_entries[s_armed_idx].in_use)
                            ? s_entries[s_armed_idx].ring_mode : ALARM_RING_BEEP;
             s_ring_queued = true;
-            if (ring_send((ring_cmd_t){ .type = RING_CMD_START,
-                                        .source = ALARM_RING_SOURCE_ALARM, .mode = mode }) != ESP_OK) {
-                s_ring_queued = false;
-            }
+            cmd = (ring_cmd_t){ .type = RING_CMD_START,
+                                .source = ALARM_RING_SOURCE_ALARM, .mode = mode };
+            send = true;
         }
     }
     xSemaphoreGive(s_lock);
-    return ESP_OK;
+    if (!send) return ESP_OK;
+
+    if (stop_timer) rtc_stop_snooze();
+    esp_err_t err = ring_send(cmd);
+    if (err != ESP_OK) {
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        if (!s_ringing) s_ring_queued = false;
+        xSemaphoreGive(s_lock);
+    }
+    return err;
 }
 
 esp_err_t alarm_handle_wake(void)
@@ -610,17 +681,17 @@ esp_err_t alarm_handle_wake(void)
 esp_err_t alarm_dismiss(void)
 {
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    esp_err_t err = s_ringing ? ring_send((ring_cmd_t){ .type = RING_CMD_DISMISS }) : ESP_OK;
+    bool ringing = s_ringing;
     xSemaphoreGive(s_lock);
-    return err;
+    return ringing ? ring_send((ring_cmd_t){ .type = RING_CMD_DISMISS }) : ESP_OK;
 }
 
 esp_err_t alarm_snooze(void)
 {
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    esp_err_t err = s_ringing ? ring_send((ring_cmd_t){ .type = RING_CMD_SNOOZE }) : ESP_OK;
+    bool ringing = s_ringing;
     xSemaphoreGive(s_lock);
-    return err;
+    return ringing ? ring_send((ring_cmd_t){ .type = RING_CMD_SNOOZE }) : ESP_OK;
 }
 
 void alarm_register_ring_cb(alarm_ring_cb_t cb)
