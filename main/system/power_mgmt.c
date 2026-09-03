@@ -994,6 +994,15 @@ static void pm_arm_gpio_wakeup(void)
     if (alarm_is_armed()) {
         gpio_wakeup_enable(PM_GPIO_RTC, GPIO_INTR_LOW_LEVEL);
     }
+    /* button_isr() disables every source before handing wake processing to
+     * pm_wake_task(). Re-arm the edge ISR service for the next sleep cycle as
+     * well as the LOW_LEVEL wake source above; without this, a button or RTC
+     * event after a non-RTC wake could leave the wake task uninformed. */
+    gpio_intr_enable(PM_GPIO_PWRKEY);
+    gpio_intr_enable(PM_GPIO_BOOT);
+    if (alarm_is_armed()) {
+        gpio_intr_enable(PM_GPIO_RTC);
+    }
     esp_sleep_enable_gpio_wakeup();
     /* ...plus the housekeeping heartbeat. Deliberately unconditional: logging
      * should keep sampling in night mode and while the screen is off, which is

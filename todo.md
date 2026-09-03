@@ -78,10 +78,7 @@ ec7cfb3 docs: describe watch face HH:MM:SS + UTC layout; fix font comment
 Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
 
 ## High
-1. `[pending]` **power_mgmt.c:261-271 — RTC/PWRKEY/BOOT GPIO ISR not re-enabled at sleep entry.**
-   `button_isr` disables all pins on every wake (power_mgmt.c:132-135), but `pm_arm_gpio_wakeup` only calls `gpio_intr_enable()` for the IMU. After a non-RTC wake, the alarm/snooze light-sleep wake stops being armed until a future RTC-attributed wake re-enables it.
-   **Fix:** `gpio_intr_enable(PM_GPIO_PWRKEY | PM_GPIO_BOOT | PM_GPIO_RTC)` alongside the `gpio_wakeup_enable()` calls in `pm_arm_gpio_wakeup`. Currently masked by the new 5s level-based safety nets; without it the worst-case alarm latency is ~5s.
-   **Update (16. Aug):** partial fix applied while debugging the IMU — the settling logic in `pm_arm_gpio_wakeup` now retries sampling the IMU line over 250ms instead of a single 50ms check (bhi260ap_ap_suspend() drains leftover WU-FIFO events first). The IMU/gesture wake path is now clean; RTC/PWRKEY/BOOT ISR re-enable is still pending (see #1 unchanged).
+1. `[done]` **RTC/PWRKEY/BOOT GPIO ISR re-arm at sleep entry** (2026-09-03) — `pm_arm_gpio_wakeup()` now restores the shared ISR sources after configuring their low-level wake conditions, preventing a post-wake button or RTC event from being silently missed. Battery-powered wake regression remains to be run.
 2. `[done]` **power_mgmt.c — `s_wake_gpio` last-writer-wins with simultaneous wake sources.** (2026-08-27)
    Gesture + alarm waking together attribute to one source; the other's selective ISR re-arm is skipped. Impact limited by the 1 Hz `alarm_check` polling while awake, but compounds with #1.
    **Fix:** replaced `s_wake_gpio` with a `s_wake_sources` bitmask (`PM_WAKE_PWRKEY`/`BOOT`/`IMU`/`RTC`), OR'd in from `button_isr` under a critical section; `pm_wake_task` now processes every set bit in one pass instead of only the last writer. See ADR [0001](docs/adr/0001-wake-source-bitmask.md).
