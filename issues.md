@@ -13,6 +13,7 @@ Updated: 2026-09-03
 - **Audio recording-task input guard** — `main/debug/debug_audio.c` now rejects an absent or empty buffer before calling `t3902_read()`.
 - **Battery runtime estimate** — the gauge now retains a real five-minute sample ring, so each percentage is paired with its original timestamp.
 - **GNSS startup failures** — core power-on and streamed-position failures now roll the receiver back to off; optional skyplot/status telemetry failures remain non-fatal and are logged.
+- **GNSS switch flicker** — the GPS switch now reflects the requested state while startup runs; normal on/off behavior was hardware-confirmed.
 - **Dead `firmware/` directory** — removed (2026-08-27). It duplicated `main/` with an older, simpler implementation and wasn't referenced by the root `CMakeLists.txt`; its field-tested fixes (60 MHz QSPI glitch fix, shared-SPI2 CS handling) were confirmed superseded by the current `main/`/`components/` code before deletion.
 
 ## Critical Issues (remaining)
