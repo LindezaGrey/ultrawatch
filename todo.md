@@ -88,7 +88,7 @@ Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
    The task now samples activity and step count outside the state lock, then rechecks the session before applying results.
 4. `[pending]` **m10q.c — data mutex taken inside ubxlib rx callbacks (`pos_cb`, `nav_status_cb`).**
    Correct, but verify ubxlib task priority vs UI priority for priority inversion.
-5. `[pending]` **`imon` busy-polls GPIO8 for 30s** — debug-only, low CPU impact, minor.
+5. `[done]` **`imon` GPIO8 monitor busy-poll** (2026-09-03) — superseded: the debug command samples at 10 ms intervals with `vTaskDelay()`, yielding between reads.
 6. `[pending]` **Display TE/VSync flush sync (co5300).** Panel TE is already enabled (DCS 0x35, co5300.c:26) and routed to `TWATCH_PIN_DISP_TE` GPIO6 (twatch_board.h:52), but GPIO6 is unused — LVGL flush is not gated on VSync. Before pursuing: confirm GPIO6 actually toggles at VSync (pin-watch/scope). If it does, an IRAM ISR + holding each 48-row band flush until the TE edge is the integration path. Enhancement, not a correctness fix — current partial-band QSPI DMA flush already avoids vTaskDelay pacing.
 
 ## Low
