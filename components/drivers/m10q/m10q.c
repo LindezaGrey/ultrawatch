@@ -642,22 +642,39 @@ esp_err_t m10q_power(bool on)
             s_opened = true;
         }
 
-        if (uGnssPwrOn(s_gnss) != 0) {
-            ESP_LOGW(TAG, "uGnssPwrOn failed (power-on #%lu)", (unsigned long)pwr_no);
+        int32_t pwr_err = uGnssPwrOn(s_gnss);
+        if (pwr_err != 0) {
+            ESP_LOGE(TAG, "uGnssPwrOn failed (power-on #%lu): %d",
+                     (unsigned long)pwr_no, (int)pwr_err);
+            m10q_power(false);
+            return ESP_FAIL;
         }
 
-        /* Enable UBX-NAV-SAT output on UART1 for the skyplot. */
-        U_GNSS_CFG_SET_VAL_RAM(s_gnss, MSGOUT_UBX_NAV_SAT_UART1_U1, 1);
+        /* Skyplot/status telemetry is optional: log its failures but keep the
+         * receiver usable for position acquisition. */
+        int32_t nav_sat_cfg = U_GNSS_CFG_SET_VAL_RAM(s_gnss, MSGOUT_UBX_NAV_SAT_UART1_U1, 1);
+        if (nav_sat_cfg != 0) {
+            ESP_LOGW(TAG, "UBX-NAV-SAT config failed: %d", (int)nav_sat_cfg);
+        }
 
         /* Start UBX-NAV-SAT reception for the skyplot. */
         uGnssMessageId_t navSat = { .type = U_GNSS_PROTOCOL_UBX, .id.ubx = 0x0135 };
-        uGnssMsgReceiveStart(s_gnss, &navSat, nav_sat_cb, NULL);
+        int32_t nav_sat_rx = uGnssMsgReceiveStart(s_gnss, &navSat, nav_sat_cb, NULL);
+        if (nav_sat_rx != 0) {
+            ESP_LOGW(TAG, "UBX-NAV-SAT receive start failed: %d", (int)nav_sat_rx);
+        }
 
         /* UBX-NAV-STATUS (0x01 0x03): fix type + gpsFixOk/wknsSet/towSet so we
          * can see whether the receiver has a valid time base while acquiring. */
-        U_GNSS_CFG_SET_VAL_RAM(s_gnss, MSGOUT_UBX_NAV_STATUS_UART1_U1, 1);
+        int32_t nav_stat_cfg = U_GNSS_CFG_SET_VAL_RAM(s_gnss, MSGOUT_UBX_NAV_STATUS_UART1_U1, 1);
+        if (nav_stat_cfg != 0) {
+            ESP_LOGW(TAG, "UBX-NAV-STATUS config failed: %d", (int)nav_stat_cfg);
+        }
         uGnssMessageId_t navStat = { .type = U_GNSS_PROTOCOL_UBX, .id.ubx = 0x0103 };
-        uGnssMsgReceiveStart(s_gnss, &navStat, nav_status_cb, NULL);
+        int32_t nav_stat_rx = uGnssMsgReceiveStart(s_gnss, &navStat, nav_status_cb, NULL);
+        if (nav_stat_rx != 0) {
+            ESP_LOGW(TAG, "UBX-NAV-STATUS receive start failed: %d", (int)nav_stat_rx);
+        }
 
         /* Warm-start aiding (time + position) so the receiver can fix fast even
          * if its own VRTC-backed time went stale. */
@@ -677,6 +694,8 @@ esp_err_t m10q_power(bool on)
         if (sret != 0) {
             ESP_LOGE(TAG, "uGnssPosGetStreamedStart failed (power-on #%lu): %d",
                      (unsigned long)pwr_no, (int)sret);
+            m10q_power(false);
+            return ESP_FAIL;
         }
 
         /* Reset TTFF state. */

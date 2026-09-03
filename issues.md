@@ -12,16 +12,14 @@ Updated: 2026-09-03
 - **Crash-dump SD writes** — raw ELF and report saves now verify every write and the final flush before the flash copy is erased.
 - **Audio recording-task input guard** — `main/debug/debug_audio.c` now rejects an absent or empty buffer before calling `t3902_read()`.
 - **Battery runtime estimate** — the gauge now retains a real five-minute sample ring, so each percentage is paired with its original timestamp.
+- **GNSS startup failures** — core power-on and streamed-position failures now roll the receiver back to off; optional skyplot/status telemetry failures remain non-fatal and are logged.
 - **Dead `firmware/` directory** — removed (2026-08-27). It duplicated `main/` with an older, simpler implementation and wasn't referenced by the root `CMakeLists.txt`; its field-tested fixes (60 MHz QSPI glitch fix, shared-SPI2 CS handling) were confirmed superseded by the current `main/`/`components/` code before deletion.
 
 ## Critical Issues (remaining)
 
-### 1. Resource / concurrency issues
-- **`components/drivers/m10q/m10q.c`** — `m10q_power()` ignores failures from `uGnssPwrOn()`, `U_GNSS_CFG_SET_VAL_RAM()`, and `uGnssPosGetStreamedStart()` after logging; consider retry/fail-fast paths.
-
 ## Medium-Priority Fixes
 
-1. Surface GNSS power-on/open failures instead of continuing blindly.
+No medium-priority fixes are currently tracked.
 
 ## Low-Priority / Cleanup
 

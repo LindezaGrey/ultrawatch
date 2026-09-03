@@ -636,9 +636,14 @@ static void gps_ctrl_task(void *arg)
         int req = s_gps_ctrl_req;
         s_gps_ctrl_req = GPS_CTRL_NONE;
         if (req == GPS_CTRL_ON && !gps_screen_is_powered()) {
-            m10q_power(true);
-            gps_screen_set_powered(true);
-            ESP_LOGI(TAG, "GNSS powered on");
+            esp_err_t err = m10q_power(true);
+            if (err == ESP_OK) {
+                gps_screen_set_powered(true);
+                ESP_LOGI(TAG, "GNSS powered on");
+            } else {
+                gps_screen_set_powered(false);
+                ESP_LOGE(TAG, "GNSS power-on failed: %s", esp_err_to_name(err));
+            }
         } else if (req == GPS_CTRL_OFF && gps_screen_is_powered()) {
             m10q_power(false);
             gps_screen_set_powered(false);
