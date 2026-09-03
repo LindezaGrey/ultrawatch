@@ -108,8 +108,7 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
 ## Medium
 1. `[done]` **GNSS rail (BLDO1) never turns off when GPS is disabled** (2026-08-27) — `enter_sleep()` had since grown a `lvgl_gps_enabled()` check, but `exit_sleep()` still restored BLDO1 unconditionally on every wake, desyncing m10q's `s_powered` from the physical rail (`m10q_power(false)` then permanently no-ops) and leaving the rail stuck on (~25-30 mA) after the first wake with GPS off.
    **Fix:** made `exit_sleep()`'s BLDO1 restore conditional on `lvgl_gps_enabled()`, symmetric with `enter_sleep()`.
-2. `[pending]` **Battery runtime estimate diverges after the first 5 min** — sensor_cache.c:78-85: when the gauge window fills, `first_ms` is re-based forward but `first_pct` keeps the original window-start sample, so rate = (total % change since first sample) / ~5 min and grows wronger with uptime.
-   **Fix:** keep a small sample history (or at least re-pair first_pct with the new first_ms).
+2. `[done]` **Battery runtime estimate after five minutes** (2026-09-03) — resolved with a five-minute sample ring that keeps every percentage paired with its original timestamp.
 3. `[done]` **BLE vprintf hook recursion** (2026-09-03) — removed the self-logging call, preserve the chained hook’s `va_list`, and bound captured output. BLE initialization remains deliberately disabled while its DMA reservation conflicts with the display buffer.
 
 ## Low
