@@ -117,7 +117,7 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
    **Fix:** remove that ESP_LOGI or emit via the chained `s_prev_vprintf`.
 
 ## Low
-4. `[pending]` **DST inconsistency** — twatch_board.c:136 uses `struct tm tm = {0}` (tm_isdst=0) while lvgl_app.c:292 and m10q.c:165 use tm_isdst=-1; system clock ends up 1 h off during CEST (crash timestamps, time()).
+4. `[done]` **DST inconsistency** (2026-09-03) — superseded by UTC RTC storage and `pcf85063a_time_to_epoch()` in `twatch_board.c`; system-clock sync no longer uses local-time conversion or `tm_isdst`.
 5. `[done]` **`parse_nav_sat()` wrote `s_fix` without `s_data_mux`** (2026-09-03) — satellite-list updates now use the same mutex as other receiver callbacks.
 6. `[done]` **`m10q_get_stats()` read `s_stats` unlocked** (2026-09-03) — readers and callback updates now take a coherent mutex-protected snapshot.
 7. `[pending]` **Night-mode red filter off-by-one** — lvgl_app.c:198: draw-bitmap coords are inclusive, count should be (x_end-x_start+1)*(y_end-y_start+1); last row/col of each flushed band stays unfiltered (faint fringe).
