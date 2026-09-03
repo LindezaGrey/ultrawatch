@@ -92,12 +92,12 @@ static void totals_load(void)
     }
 }
 
-static void totals_save(void)
+static void totals_save(const tracking_totals_t *totals)
 {
     nvs_handle_t h;
-    if (nvs_open(TRACK_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
-        nvs_set_u32(h, NVS_KEY_DIST_CM, s_totals.dist_cm);
-        nvs_set_u32(h, NVS_KEY_STEPS, s_totals.steps);
+    if (totals && nvs_open(TRACK_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_u32(h, NVS_KEY_DIST_CM, totals->dist_cm);
+        nvs_set_u32(h, NVS_KEY_STEPS, totals->steps);
         nvs_commit(h);
         nvs_close(h);
     }
@@ -188,10 +188,18 @@ void tracking_init(void)
 #if TRACKING_ENABLED
     if (!s_mux) {
         s_mux = xSemaphoreCreateMutex();
+        if (!s_mux) {
+            ESP_LOGE(TAG, "state mutex allocation failed");
+            return;
+        }
     }
     totals_load();
     if (s_task == NULL) {
-        xTaskCreate(tracking_task, "track", 2048, NULL, 2, &s_task);
+        if (xTaskCreate(tracking_task, "track", 2048, NULL, 2, &s_task) != pdPASS) {
+            s_task = NULL;
+            ESP_LOGE(TAG, "tracking task allocation failed");
+            return;
+        }
     }
     ESP_LOGI(TAG, "tracking ready: dist %.0f m, steps %lu",
              s_totals.dist_cm / 100.0, (unsigned long)s_totals.steps);
@@ -229,23 +237,28 @@ esp_err_t tracking_start(void)
 esp_err_t tracking_stop(void)
 {
 #if TRACKING_ENABLED
+    uint32_t steps = 0;
+    bool have_steps = bhi260ap_get_step_count(&steps) == ESP_OK;
+
     tracking_lock();
     if (!s_active) {
         tracking_unlock();
         return ESP_OK;
     }
-    uint32_t steps = 0;
-    if (bhi260ap_get_step_count(&steps) == ESP_OK && steps >= s_base_steps) {
+    if (have_steps && steps >= s_base_steps) {
         s_totals.steps += (steps - s_base_steps);
     }
     s_totals.dist_cm += s_session_dist_cm;
-    totals_save();
     s_active = false;
-    ESP_LOGI(TAG, "tracking stopped: +%lu steps, +%.0f m (total %.2f km / %lu steps)",
-             (unsigned long)(steps >= s_base_steps ? steps - s_base_steps : 0),
-             s_session_dist_cm / 100.0,
-             s_totals.dist_cm / 100000.0, (unsigned long)s_totals.steps);
+    tracking_totals_t totals = s_totals;
+    uint32_t session_dist_cm = s_session_dist_cm;
+    uint32_t session_steps = have_steps && steps >= s_base_steps ? steps - s_base_steps : 0;
     tracking_unlock();
+
+    totals_save(&totals);
+    ESP_LOGI(TAG, "tracking stopped: +%lu steps, +%.0f m (total %.2f km / %lu steps)",
+             (unsigned long)session_steps, session_dist_cm / 100.0,
+             totals.dist_cm / 100000.0, (unsigned long)totals.steps);
     return ESP_OK;
 #else
     return ESP_ERR_NOT_SUPPORTED;
