@@ -135,8 +135,9 @@ static uint32_t tracking_avg_step_cm_locked(void)
 static void tracking_task(void *arg)
 {
     (void)arg;
+    TickType_t last_poll = xTaskGetTickCount();
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(TRACK_POLL_MS));
+        vTaskDelayUntil(&last_poll, pdMS_TO_TICKS(TRACK_POLL_MS));
         tracking_lock();
         bool active = s_active;
         tracking_unlock();

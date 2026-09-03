@@ -119,6 +119,7 @@ static void gauge_feed(uint32_t now_ms, uint8_t pct, uint8_t chg_state)
 static void cache_task(void *arg)
 {
     (void)arg;
+    TickType_t last_poll = xTaskGetTickCount();
     for (;;) {
         sensor_cache_t c = { 0 };
         c.rtc_valid = (pcf85063a_get_time(twatch_rtc_dev, &c.rtc) == ESP_OK);
@@ -162,7 +163,7 @@ static void cache_task(void *arg)
             twatch_board_sync_system_time();
         }
 
-        vTaskDelay(pdMS_TO_TICKS(CACHE_PERIOD_MS));
+        vTaskDelayUntil(&last_poll, pdMS_TO_TICKS(CACHE_PERIOD_MS));
     }
 }
 
