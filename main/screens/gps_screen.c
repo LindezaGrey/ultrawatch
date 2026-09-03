@@ -227,11 +227,15 @@ void gps_screen_update(lv_timer_t *timer)
         }
     }
 
-    /* GNSS on/off switch state. */
+    /* The switch represents the user's persisted request, not the physical
+     * receiver state. m10q_power(true) deliberately takes about a second,
+     * so mirroring the physical state here briefly cleared a just-tapped
+     * switch before the background worker completed startup. On a genuine
+     * startup failure the worker clears this requested state again. */
     if (s_gps_pwr_switch) {
-        bool powered = s_gps_powered && m10q_get_state() != M10Q_STATE_OFF;
-        if (lv_obj_has_state(s_gps_pwr_switch, LV_STATE_CHECKED) != powered) {
-            if (powered) {
+        bool requested = lvgl_gps_enabled();
+        if (lv_obj_has_state(s_gps_pwr_switch, LV_STATE_CHECKED) != requested) {
+            if (requested) {
                 lv_obj_add_state(s_gps_pwr_switch, LV_STATE_CHECKED);
             } else {
                 lv_obj_clear_state(s_gps_pwr_switch, LV_STATE_CHECKED);

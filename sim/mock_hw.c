@@ -180,6 +180,11 @@ void lvgl_gps_set_enabled(bool on)
     mock_gnss_set_enabled(on);
 }
 
+bool lvgl_gps_enabled(void)
+{
+    return s_gnss_enabled;
+}
+
 esp_err_t esp_lv_adapter_report_activity(void)
 {
     return ESP_OK;

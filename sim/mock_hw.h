@@ -398,6 +398,7 @@ esp_err_t sd_log_get_space(uint64_t *total_bytes, uint64_t *free_bytes);
  * gps_screen.c's gps_pwr_switch_cb()) ---
  * Real lvgl_gps_set_enabled() drives the GNSS power task; the sim has no
  * task, so this mock just calls mock_gnss_set_enabled() directly. */
+bool lvgl_gps_enabled(void);
 void lvgl_gps_set_enabled(bool on);
 
 /* --- esp_lv_adapter.h subset ---

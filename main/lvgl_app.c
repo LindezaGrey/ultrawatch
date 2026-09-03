@@ -642,6 +642,7 @@ static void gps_ctrl_task(void *arg)
                 ESP_LOGI(TAG, "GNSS powered on");
             } else {
                 gps_screen_set_powered(false);
+                lvgl_gps_set_enabled(false);
                 ESP_LOGE(TAG, "GNSS power-on failed: %s", esp_err_to_name(err));
             }
         } else if (req == GPS_CTRL_OFF && gps_screen_is_powered()) {
@@ -756,6 +757,7 @@ static void gps_ctrl_task(void *arg)
                 ESP_LOGI(TAG, "GNSS re-powered after wake");
             } else {
                 gps_screen_set_powered(false);
+                lvgl_gps_set_enabled(false);
                 ESP_LOGE(TAG, "GNSS wake recovery failed: %s", esp_err_to_name(err));
             }
         }
