@@ -404,6 +404,7 @@ static void parse_nav_sat(const uint8_t *payload, size_t len)
     uint8_t numSvs = payload[5];
     size_t off = 8;
     uint16_t count = 0;
+    m10q_data_lock();
     for (uint8_t i = 0; i < numSvs && off + 12 <= len && count < M10Q_MAX_SATS; i++, off += 12) {
         uint8_t svId = payload[off + 1];
         uint8_t cno = payload[off + 2];
@@ -426,6 +427,7 @@ static void parse_nav_sat(const uint8_t *payload, size_t len)
         count++;
     }
     s_fix.sat_in_view = count;
+    m10q_data_unlock();
 }
 
 /* NAV-SAT message callback (ubxlib task context). */
