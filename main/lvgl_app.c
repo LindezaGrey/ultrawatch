@@ -908,7 +908,7 @@ static void alarm_ring_cb(bool ringing, alarm_ring_source_t source)
     esp_lv_adapter_unlock();
 }
 
-/* ---- 4-screen nav ring (docs/application.md section 4.3) ----
+/* ---- Main navigation ring (docs/application.md section 4.3) ----
  *
  * A single closed ring: swipe left advances (Main -> GPS -> Mesh -> Alarms ->
  * Main -> ...), swipe right retreats - a modular index walk, replacing the
@@ -919,13 +919,8 @@ static void alarm_ring_cb(bool ringing, alarm_ring_source_t source)
  * docs/application.md section 4.3/9.3). Vertical swipes are otherwise
  * unassigned on the ring screens themselves (spec: reserved, not built yet).
  *
- * The BHI (sensor), NFC, and Power screens are NOT in this ring (the spec
- * doesn't mention them) - their build functions and debug-console entry
- * points (lvgl_show_bhi_screen(), the nfcpoll/nfcprobe path) still work, but
- * nothing routes to them by swipe any more. menu_timeout_cb()'s existing
- * per-screen timeouts for them are left in place unchanged: reaching them
- * via a debug command still needs a way back to the watch face, and the
- * timeout already provides one. */
+ * NFC is part of this ring so its on-device scan UI is reachable again. The
+ * BHI sensor and Power screens remain debug-only. */
 typedef struct {
     lv_obj_t **screen;      /* &s_watch_screen, &s_gps_screen, ... */
     void (*build)(void);    /* lazy builder; NULL for the watch face (built once at boot) */
@@ -939,6 +934,7 @@ static const nav_ring_entry_t s_nav_ring[] = {
     { &s_wifi_screen,     lvgl_build_wifi_screen },
     { &s_ble_screen,      lvgl_build_ble_screen },
     { &s_alarm_screen,    lvgl_build_alarm_screen },
+    { &s_nfc_screen,      lvgl_build_nfc_screen },
 };
 #define NAV_RING_COUNT (sizeof(s_nav_ring) / sizeof(s_nav_ring[0]))
 
