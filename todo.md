@@ -113,8 +113,7 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
    **Fix:** made `exit_sleep()`'s BLDO1 restore conditional on `lvgl_gps_enabled()`, symmetric with `enter_sleep()`.
 2. `[pending]` **Battery runtime estimate diverges after the first 5 min** — sensor_cache.c:78-85: when the gauge window fills, `first_ms` is re-based forward but `first_pct` keeps the original window-start sample, so rate = (total % change since first sample) / ~5 min and grows wronger with uptime.
    **Fix:** keep a small sample history (or at least re-pair first_pct with the new first_ms).
-3. `[pending]` **BLE vprintf hook recurses infinitely (dead-code landmine)** — ble_debug.c:364: `ESP_LOGI` inside `ble_debug_vprintf` while `s_capturing` routes through the same hook again → unbounded recursion → stack overflow the moment BLE is re-enabled and a command runs. `ble_debug_init()` is currently commented out (uwatch_main.c:914).
-   **Fix:** remove that ESP_LOGI or emit via the chained `s_prev_vprintf`.
+3. `[done]` **BLE vprintf hook recursion** (2026-09-03) — removed the self-logging call, preserve the chained hook’s `va_list`, and bound captured output. BLE initialization remains deliberately disabled while its DMA reservation conflicts with the display buffer.
 
 ## Low
 4. `[done]` **DST inconsistency** (2026-09-03) — superseded by UTC RTC storage and `pcf85063a_time_to_epoch()` in `twatch_board.c`; system-clock sync no longer uses local-time conversion or `tm_isdst`.

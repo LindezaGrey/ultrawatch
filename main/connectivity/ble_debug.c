@@ -358,11 +358,14 @@ static vprintf_like_t s_prev_vprintf;
 
 static int ble_debug_vprintf(const char *fmt, va_list args)
 {
-    static char line[160];
-    int n = vsnprintf(line, sizeof(line), fmt, args);
+    char line[160];
+    va_list capture_args;
+    va_copy(capture_args, args);
+    int n = vsnprintf(line, sizeof(line), fmt, capture_args);
+    va_end(capture_args);
     if (n > 0 && s_capturing) {
-        ESP_LOGI(TAG, "vprintf capture: '%s'", line);
-        ble_debug_console_write(line, (size_t)n);
+        size_t len = (size_t)n < sizeof(line) - 1 ? (size_t)n : sizeof(line) - 1;
+        ble_debug_console_write(line, len);
     }
     if (s_prev_vprintf) {
         return s_prev_vprintf(fmt, args);
