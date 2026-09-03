@@ -120,9 +120,9 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
 4. `[done]` **DST inconsistency** (2026-09-03) — superseded by UTC RTC storage and `pcf85063a_time_to_epoch()` in `twatch_board.c`; system-clock sync no longer uses local-time conversion or `tm_isdst`.
 5. `[done]` **`parse_nav_sat()` wrote `s_fix` without `s_data_mux`** (2026-09-03) — satellite-list updates now use the same mutex as other receiver callbacks.
 6. `[done]` **`m10q_get_stats()` read `s_stats` unlocked** (2026-09-03) — readers and callback updates now take a coherent mutex-protected snapshot.
-7. `[pending]` **Night-mode red filter off-by-one** — lvgl_app.c:198: draw-bitmap coords are inclusive, count should be (x_end-x_start+1)*(y_end-y_start+1); last row/col of each flushed band stays unfiltered (faint fringe).
-8. `[pending]` **alarm ring_start() resets s_ring_mode_pending unconditionally** (alarm.c:287-292) — a snooze-timer fire landing on a dismiss press eats the dismiss and re-rings. Guard with `if (s_ringing) return;`.
-9. `[pending]` **Watch-face month index unguarded** — lvgl_app.c:307: `mon[t.month - 1]` with a garbled RTC month 0 reads out of bounds (weekday is range-checked, month isn't).
+7. `[done]` **Night-mode red filter off-by-one** (2026-09-03) — superseded by the adapter’s end-exclusive draw-bitmap API. `area_rounder_cb()` explicitly converts LVGL’s inclusive invalidation bounds before this callback computes its pixel count.
+8. `[done]` **Alarm `ring_start()` reset race** (2026-09-03) — superseded by the current ring state machine: `s_ringing` remains true until a pending dismiss/snooze is consumed, so RTC handling cannot start a second ring in that window.
+9. `[done]` **Watch-face month index unguarded** (2026-09-03) — superseded by `localtime_r()` formatting in `screens/watch_face.c`; no direct RTC month-array indexing remains.
 10. `[pending]` **sd_log_flush() drops ring content when fopen fails** (sd_log.c:354-359) — transient SD/MMC errors silently lose log lines; keep s_ring_len on open failure.
 11. `[pending]` **Alarm auto-snooze has no retry cap** — observed 15 auto-snoozes over 2.5 h (SD log, 17. Aug). Consider a max-snooze count or escalating volume.
 
