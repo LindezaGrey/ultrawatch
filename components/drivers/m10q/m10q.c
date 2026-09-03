@@ -61,8 +61,7 @@ static uint32_t s_ttf_start_ms;
 static bool s_ttf_running;
 static uint32_t s_ttf_sum_ms;
 
-/* Mutex protecting s_fix and s_nav_status (updated in ubxlib callbacks, read
- * from UI/tracking/BLE tasks). */
+/* Mutex protecting callback-owned data shared with UI/tracking/BLE tasks. */
 static SemaphoreHandle_t s_data_mux;
 
 static void m10q_data_lock(void)
@@ -314,15 +313,15 @@ static void lkp_persist(double lat, double lon)
     }
 }
 
-static void stats_save(void)
+static void stats_save(const m10q_stats_t *stats, uint32_t ttf_sum_ms)
 {
     nvs_handle_t h;
     if (nvs_open(M10Q_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
-        nvs_set_u32(h, "fixes", s_stats.total_fixes);
-        nvs_set_u32(h, "today", s_stats.fixes_today);
-        nvs_set_u32(h, "ttfa", s_stats.ttf_avg_ms);
-        nvs_set_u32(h, "ttfb", s_stats.ttf_best_ms);
-        nvs_set_u32(h, "ttfs", s_ttf_sum_ms);
+        nvs_set_u32(h, "fixes", stats->total_fixes);
+        nvs_set_u32(h, "today", stats->fixes_today);
+        nvs_set_u32(h, "ttfa", stats->ttf_avg_ms);
+        nvs_set_u32(h, "ttfb", stats->ttf_best_ms);
+        nvs_set_u32(h, "ttfs", ttf_sum_ms);
         nvs_commit(h);
         nvs_close(h);
     }
@@ -531,6 +530,7 @@ static void pos_cb(uDeviceHandle_t gnssHandle, int32_t errorCode,
         uint32_t ttf_ms = (s_ttf_running && now_ms >= s_ttf_start_ms)
                           ? (now_ms - s_ttf_start_ms) : 0;
         s_ttf_running = false;
+        m10q_data_lock();
         s_stats.total_fixes++;
         if (ttf_ms > 0) {
             s_ttf_sum_ms += ttf_ms;
@@ -539,12 +539,15 @@ static void pos_cb(uDeviceHandle_t gnssHandle, int32_t errorCode,
                 s_stats.ttf_best_ms = ttf_ms;
             }
         }
-        stats_save();
+        m10q_stats_t stats = s_stats;
+        uint32_t ttf_sum_ms = s_ttf_sum_ms;
+        m10q_data_unlock();
+        stats_save(&stats, ttf_sum_ms);
         ESP_LOGI(TAG, "FIX (power-on #%lu): %d sats, TTFF %u ms (avg %lu, best %lu)",
                  (unsigned long)s_power_on_count,
                  (int)s_fix.sat_count, ttf_ms,
-                 (unsigned long)s_stats.ttf_avg_ms,
-                 (unsigned long)s_stats.ttf_best_ms);
+                 (unsigned long)stats.ttf_avg_ms,
+                 (unsigned long)stats.ttf_best_ms);
         int32_t olat = 0, olon = 0;
         lkp_load(&olat, &olon);
         if (m10q_distance_m(olat / 1e7, olon / 1e7, s_fix.lat, s_fix.lon) >= 50) {
@@ -785,7 +788,9 @@ esp_err_t m10q_get_stats(m10q_stats_t *stats)
     if (!stats) {
         return ESP_ERR_INVALID_ARG;
     }
+    m10q_data_lock();
     *stats = s_stats;
+    m10q_data_unlock();
     return ESP_OK;
 }
 
