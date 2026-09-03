@@ -24,6 +24,7 @@
 #include <time.h>
 
 static const char *TAG = "mesh_log";
+static TaskHandle_t s_task;
 
 #define RX_BUF_LEN 256
 #define RX_POLL_MS 1000
@@ -497,12 +498,27 @@ int64_t mesh_log_now_us(void)
 
 void mesh_log_init(void)
 {
+    if (s_task) {
+        return;
+    }
     if (!s_mux) {
         s_mux = xSemaphoreCreateMutex();
+        if (!s_mux) {
+            ESP_LOGE(TAG, "state mutex allocation failed");
+            return;
+        }
     }
     if (!s_shutdown_req) {
         s_shutdown_req = xSemaphoreCreateBinary();
         s_shutdown_done = xSemaphoreCreateBinary();
+        if (!s_shutdown_req || !s_shutdown_done) {
+            ESP_LOGE(TAG, "shutdown semaphore allocation failed");
+            if (s_shutdown_req) vSemaphoreDelete(s_shutdown_req);
+            if (s_shutdown_done) vSemaphoreDelete(s_shutdown_done);
+            s_shutdown_req = NULL;
+            s_shutdown_done = NULL;
+            return;
+        }
     }
     mesh_config_load();
     /* 8192, not 4096: on a text message this task calls
@@ -520,7 +536,10 @@ void mesh_log_init(void)
      * call chains (real packet parsing) may not have been exercised in
      * that snapshot either. Not worth the same risk here without much
      * more thorough live testing - see docs/application.md section 12. */
-    xTaskCreate(mesh_log_task, "mesh_log", 8192, NULL, 3, NULL);
+    if (xTaskCreate(mesh_log_task, "mesh_log", 8192, NULL, 3, &s_task) != pdPASS) {
+        s_task = NULL;
+        ESP_LOGE(TAG, "listener task allocation failed");
+    }
 }
 
 esp_err_t mesh_log_stop_radio_for_sleep(void)

@@ -173,8 +173,16 @@ void sensor_cache_init(void)
     }
     if (!s_mux) {
         s_mux = xSemaphoreCreateMutex();
+        if (!s_mux) {
+            ESP_LOGE(TAG, "telemetry cache mutex allocation failed");
+            return;
+        }
     }
-    xTaskCreate(cache_task, "sensor_cache", CACHE_TASK_STACK, NULL, 3, &s_task);
+    if (xTaskCreate(cache_task, "sensor_cache", CACHE_TASK_STACK, NULL, 3, &s_task) != pdPASS) {
+        s_task = NULL;
+        ESP_LOGE(TAG, "telemetry cache task allocation failed");
+        return;
+    }
     ESP_LOGI(TAG, "telemetry cache task started (1 s)");
 }
 

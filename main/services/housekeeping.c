@@ -5,6 +5,7 @@
 #include "syslog_capture.h"
 #include "daily_log.h"
 #include "gpx_log.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -18,6 +19,8 @@
  * docs/application.md section 12 for why an idle-only snapshot isn't
  * trustworthy here. */
 #define HOUSEKEEPING_TASK_STACK  4096
+static const char *TAG = "housekeeping";
+static TaskHandle_t s_task;
 
 static void housekeeping_task(void *arg)
 {
@@ -47,5 +50,11 @@ static void housekeeping_task(void *arg)
 
 void housekeeping_init(void)
 {
-    xTaskCreate(housekeeping_task, "housekeeping", HOUSEKEEPING_TASK_STACK, NULL, 2, NULL);
+    if (s_task) {
+        return;
+    }
+    if (xTaskCreate(housekeeping_task, "housekeeping", HOUSEKEEPING_TASK_STACK, NULL, 2, &s_task) != pdPASS) {
+        s_task = NULL;
+        ESP_LOGE(TAG, "task allocation failed");
+    }
 }

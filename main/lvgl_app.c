@@ -626,8 +626,11 @@ static void lvgl_build_nfc_screen(void)
     nfc_screen_update(NULL);
     lv_timer_create(nfc_screen_update, 500, NULL);
     if (s_nfc_ctrl_task == NULL) {
-        xTaskCreate(nfc_ctrl_task, "nfc_ctrl", 4096, NULL,
-                    ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, &s_nfc_ctrl_task);
+        if (xTaskCreate(nfc_ctrl_task, "nfc_ctrl", 4096, NULL,
+                        ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, &s_nfc_ctrl_task) != pdPASS) {
+            s_nfc_ctrl_task = NULL;
+            ESP_LOGE(TAG, "NFC control task allocation failed");
+        }
     }
 }
 
@@ -1349,7 +1352,9 @@ esp_err_t lvgl_app_start(void)
     ESP_LOGI(TAG, "LVGL started (watch face)");
 
     /* BHI260AP sensor task (needs SPIFFS assets, already mounted above). */
-    xTaskCreate(bhi260_task, "bhi260", 4096, NULL, 5, NULL);
+    if (xTaskCreate(bhi260_task, "bhi260", 4096, NULL, 5, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "BHI260AP task allocation failed");
+    }
 
     /* GNSS control task. GNSS is off at startup unless the GPS screen switch
      * is on (default off); enabling it starts one long-lived power-on session
@@ -1361,8 +1366,11 @@ esp_err_t lvgl_app_start(void)
      * stack-canary panic + reboot, not silent corruption, but a real
      * regression. Idle-snapshot stack sizing is not safe for tasks with
      * deep, rarely-exercised branches - see docs/application.md section 12. */
-    xTaskCreate(gps_ctrl_task, "gps_ctrl", 8192, NULL,
-                    ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, &s_gps_ctrl_task);
+        if (xTaskCreate(gps_ctrl_task, "gps_ctrl", 8192, NULL,
+                        ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, &s_gps_ctrl_task) != pdPASS) {
+            s_gps_ctrl_task = NULL;
+            ESP_LOGE(TAG, "GNSS control task allocation failed");
+        }
     }
     s_gps_enabled = gps_load_enabled();
     gps_power(s_gps_enabled);

@@ -1263,8 +1263,12 @@ void power_mgmt_init(void)
     }
     /* Wake handler task (priority above the LVGL adapter task). Created before
      * the button ISRs so button_isr always has a task to re-arm the pins. */
-    xTaskCreate(pm_wake_task, "pm_wake", 4096, NULL,
-                ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY + 1, &s_wake_task);
+    if (xTaskCreate(pm_wake_task, "pm_wake", 4096, NULL,
+                    ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY + 1, &s_wake_task) != pdPASS) {
+        s_wake_task = NULL;
+        ESP_LOGE(TAG, "wake task allocation failed; GPIO wake is disabled");
+        return;
+    }
 
     gpio_config_t io = {
         .pin_bit_mask = (1ULL << PM_GPIO_PWRKEY) | (1ULL << PM_GPIO_BOOT),
