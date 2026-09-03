@@ -180,9 +180,36 @@ static volatile uint32_t s_wake_sources;   /* bitmask of PM_WAKE_*, ISR-writer/t
 static portMUX_TYPE s_wake_sources_lock = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_wake_task;
 static volatile bool s_night_mode;
-static volatile bool s_imu_wake_armed;   /* GPIO8 ISR only notifies while asleep */
+/* GPIO8's ISR reads this concurrently with light-sleep entry/exit. Volatile
+ * does not make that coordination safe on the dual-core ESP32-S3, so every
+ * access goes through the helpers below and shares this ISR-safe lock. */
+static bool s_imu_wake_armed;
+static portMUX_TYPE s_imu_wake_lock = portMUX_INITIALIZER_UNLOCKED;
 static power_mgmt_night_mode_cb_t s_night_mode_cb;
 static power_mgmt_button_cb_t s_button_cb;
+
+static void pm_set_imu_wake_armed(bool armed)
+{
+    portENTER_CRITICAL(&s_imu_wake_lock);
+    s_imu_wake_armed = armed;
+    portEXIT_CRITICAL(&s_imu_wake_lock);
+}
+
+static bool pm_imu_wake_is_armed(void)
+{
+    portENTER_CRITICAL(&s_imu_wake_lock);
+    bool armed = s_imu_wake_armed;
+    portEXIT_CRITICAL(&s_imu_wake_lock);
+    return armed;
+}
+
+static bool IRAM_ATTR pm_imu_wake_is_armed_from_isr(void)
+{
+    portENTER_CRITICAL_ISR(&s_imu_wake_lock);
+    bool armed = s_imu_wake_armed;
+    portEXIT_CRITICAL_ISR(&s_imu_wake_lock);
+    return armed;
+}
 
 /* Night mode is active between PM_NIGHT_START_HOUR (inclusive) and
  * PM_NIGHT_END_HOUR (exclusive), wrapping midnight. */
@@ -630,7 +657,7 @@ static void IRAM_ATTR button_isr(void *arg)
      * re-enabled in pm_arm_gpio_wakeup() when sleep is entered. Note: the
      * PWRKEY/BOOT disables come AFTER this early-return, so an awake IMU
      * pulse must not disable the button edge ISRs. */
-    if (gpio == PM_GPIO_IMU && !s_imu_wake_armed) {
+    if (gpio == PM_GPIO_IMU && !pm_imu_wake_is_armed_from_isr()) {
         gpio_intr_disable(PM_GPIO_IMU);
         return;
     }
@@ -754,7 +781,8 @@ static void pm_wake_task(void *arg)
              * turn the display on. Re-arm the edge ISR and request a wake.
              * gated on the same conditions used to arm the gesture wake
              * (not night mode, IMU wake actually armed). */
-            if (!s_night_mode && s_imu_wake_armed && gpio_get_level(PM_GPIO_IMU) == 0) {
+            if (!s_night_mode && pm_imu_wake_is_armed() &&
+                    gpio_get_level(PM_GPIO_IMU) == 0) {
                 gpio_set_intr_type(PM_GPIO_IMU, GPIO_INTR_NEGEDGE);
                 gpio_intr_enable(PM_GPIO_IMU);
                 if (pm_imu_wake_is_real()) {
@@ -853,7 +881,7 @@ static void pm_wake_task(void *arg)
         /* Only re-arm the IMU edge ISR if the wake actually came from it; the
          * ISR self-disables on every awake pulse, and re-enabling it here on
          * every wake-task run would leave a live edge on a busy line. */
-        if ((sources & PM_WAKE_IMU) && s_imu_wake_armed) {
+        if ((sources & PM_WAKE_IMU) && pm_imu_wake_is_armed()) {
             gpio_set_intr_type(PM_GPIO_IMU, GPIO_INTR_NEGEDGE);
             gpio_intr_enable(PM_GPIO_IMU);
         }
@@ -866,7 +894,7 @@ static void pm_wake_task(void *arg)
          * whenever the IMU bit is set even if another source already
          * justifies waking - it's not just a boolean check. */
         bool wake_user = (sources & ~(uint32_t)PM_WAKE_IMU) != 0;
-        if ((sources & PM_WAKE_IMU) && s_imu_wake_armed) {
+        if ((sources & PM_WAKE_IMU) && pm_imu_wake_is_armed()) {
             bool imu_real = pm_imu_wake_is_real();
             wake_user = wake_user || imu_real;
         }
@@ -905,8 +933,8 @@ static void pm_arm_gpio_wakeup(void)
     gpio_wakeup_disable(PM_GPIO_PWRKEY);
     gpio_wakeup_disable(PM_GPIO_BOOT);
     gpio_wakeup_disable(PM_GPIO_RTC);
-    s_imu_wake_armed = false;
     gpio_intr_disable(PM_GPIO_IMU);
+    pm_set_imu_wake_armed(false);
 
     /* The rail shutdowns in power_mgmt_enter_sleep() (GNSS SPI/I2C BLDO1,
      * etc.) latch AXP IRQ status bits and hold the GPIO7 line LOW; if PWRKEY
@@ -939,7 +967,7 @@ static void pm_arm_gpio_wakeup(void)
         }
         if (gpio_get_level(PM_GPIO_IMU) == 1) {
             gpio_wakeup_enable(PM_GPIO_IMU, GPIO_INTR_LOW_LEVEL);
-            s_imu_wake_armed = true;
+            pm_set_imu_wake_armed(true);
             gpio_intr_enable(PM_GPIO_IMU);
         } else {
             ESP_LOGI(TAG, "IMU INT low at sleep, gesture wake disabled this cycle");
@@ -1068,7 +1096,8 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
 esp_err_t power_mgmt_exit_sleep(void *ctx)
 {
     (void)ctx;
-    s_imu_wake_armed = false;
+    gpio_intr_disable(PM_GPIO_IMU);
+    pm_set_imu_wake_armed(false);
     uint32_t causes = esp_sleep_get_wakeup_causes();   /* bitmap, not a single enum */
 
     portENTER_CRITICAL(&s_exit_wake_lock);
