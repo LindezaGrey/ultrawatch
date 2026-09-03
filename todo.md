@@ -128,7 +128,7 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
 - `[done]` USB debug console oversized line recovery (2026-09-03) — a full unterminated input buffer is discarded with a diagnostic so later commands continue to be read.
 - lvgl_app.c:111: back-to-back GNSS requests can collapse (single volatile int, no queue).
 - lvgl_app.c:1890-1903: duplicated/stale screenshot comment block.
-- alarm.c:305-310: semaphore/task creation unchecked.
+- `[done]` Alarm ring task/resource allocation checks (2026-09-03) — `alarm_init()` returns `ESP_ERR_NO_MEM` with a diagnostic if its semaphore or task cannot be created.
 - co5300_deinit() leaks s_panel_io (dead code path).
 - Boot DISP_PWR pulse is 50 ms vs 200 ms in `disppwr` (twatch_board.c:198-203 vs uwatch_main.c:547-550) — match margins if a stuck panel ever survives the boot pulse.
 - `disppwr` sends only SLPOUT+brightness after a real power cut; works only if the CO5300 reloads OTP config on power-up — otherwise it needs the full s_init_cmds sequence.

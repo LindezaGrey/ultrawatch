@@ -446,9 +446,16 @@ esp_err_t alarm_init(void)
     cfg_load();
     if (!s_ring_cmd) {
         s_ring_cmd = xSemaphoreCreateBinary();
+        if (!s_ring_cmd) {
+            ESP_LOGE(TAG, "ring command semaphore allocation failed");
+            return ESP_ERR_NO_MEM;
+        }
     }
     if (s_ring_task == NULL) {
-        xTaskCreate(ring_task, "alarm_ring", 4096, NULL, 5, &s_ring_task);
+        if (xTaskCreate(ring_task, "alarm_ring", 4096, NULL, 5, &s_ring_task) != pdPASS) {
+            ESP_LOGE(TAG, "ring task allocation failed");
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     power_mgmt_register_button_cb(alarm_button_cb);
