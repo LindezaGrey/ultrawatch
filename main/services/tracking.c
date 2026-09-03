@@ -104,31 +104,12 @@ static void totals_save(const tracking_totals_t *totals)
 }
 #endif
 
-/* Internal helpers that assume the tracking mutex is already held. */
-static void tracking_get_totals_locked(tracking_totals_t *totals)
+static uint32_t tracking_avg_step_cm(const tracking_totals_t *totals)
 {
-    if (!totals) {
-        return;
-    }
-    uint32_t session_steps = 0;
-    if (s_active) {
-        uint32_t steps = 0;
-        if (bhi260ap_get_step_count(&steps) == ESP_OK && steps >= s_base_steps) {
-            session_steps = steps - s_base_steps;
-        }
-    }
-    totals->dist_cm = s_totals.dist_cm + s_session_dist_cm;
-    totals->steps = s_totals.steps + session_steps;
-}
-
-static uint32_t tracking_avg_step_cm_locked(void)
-{
-    tracking_totals_t t;
-    tracking_get_totals_locked(&t);
-    if (t.steps == 0) {
+    if (totals->steps == 0) {
         return 0;
     }
-    return t.dist_cm / t.steps;
+    return totals->dist_cm / totals->steps;
 }
 
 #if TRACKING_ENABLED
@@ -276,9 +257,9 @@ bool tracking_is_active(void)
 bool tracking_is_gated_active(void)
 {
     tracking_lock();
-    bool active = s_active && track_activity_active();
+    bool active = s_active;
     tracking_unlock();
-    return active;
+    return active && track_activity_active();
 }
 
 bool tracking_get_estimated_position(double *lat, double *lon)
@@ -286,40 +267,58 @@ bool tracking_get_estimated_position(double *lat, double *lon)
     if (!lat || !lon) {
         return false;
     }
+    uint32_t steps = 0;
+    bool have_steps = bhi260ap_get_step_count(&steps) == ESP_OK;
+
     tracking_lock();
     if (!s_session_has_pos) {
         tracking_unlock();
         return false;
     }
-    uint32_t steps = 0;
-    if (bhi260ap_get_step_count(&steps) != ESP_OK || steps <= s_last_fix_steps) {
-        *lat = s_prev_lat;
-        *lon = s_prev_lon;
-        tracking_unlock();
+    double prev_lat = s_prev_lat;
+    double prev_lon = s_prev_lon;
+    uint16_t course_deg = s_prev_course_deg;
+    uint32_t last_fix_steps = s_last_fix_steps;
+    tracking_totals_t totals = {
+        .dist_cm = s_totals.dist_cm + s_session_dist_cm,
+        .steps = s_totals.steps,
+    };
+    if (s_active && have_steps && steps >= s_base_steps) {
+        totals.steps += steps - s_base_steps;
+    }
+    tracking_unlock();
+
+    if (!have_steps || steps <= last_fix_steps) {
+        *lat = prev_lat;
+        *lon = prev_lon;
         return true;
     }
     /* Distance moved since the last fix: steps x average step length. */
-    uint32_t avg_cm = tracking_avg_step_cm_locked();
+    uint32_t avg_cm = tracking_avg_step_cm(&totals);
     double stride = (avg_cm > 0) ? avg_cm / 100.0 : 0.70;   /* default 0.7 m */
-    double dist_m = (double)(steps - s_last_fix_steps) * stride;
+    double dist_m = (double)(steps - last_fix_steps) * stride;
 
     /* Project along the last known GNSS course (magnetic north on the M10 is
      * true north; no compass on the BHI, so this is the heading of travel). */
-    double course = s_prev_course_deg * 3.14159265358979 / 180.0;
+    double course = course_deg * 3.14159265358979 / 180.0;
     double dlat = dist_m * cos(course) / 111320.0;
-    double cos_lat = cos(s_prev_lat * 3.14159265358979 / 180.0);
+    double cos_lat = cos(prev_lat * 3.14159265358979 / 180.0);
     if (cos_lat < 0.01) {
         cos_lat = 0.01;   /* avoid division by zero at extreme latitudes */
     }
     double dlon = dist_m * sin(course) / (111320.0 * cos_lat);
-    *lat = s_prev_lat + dlat;
-    *lon = s_prev_lon + dlon;
-    tracking_unlock();
+    *lat = prev_lat + dlat;
+    *lon = prev_lon + dlon;
     return true;
 }
 
 void tracking_on_fix(double lat, double lon)
 {
+    m10q_fix_t f;
+    bool have_course = m10q_get_fix(&f) == ESP_OK;
+    uint32_t steps = 0;
+    bool have_steps = bhi260ap_get_step_count(&steps) == ESP_OK;
+
     tracking_lock();
     if (!s_active) {
         tracking_unlock();
@@ -336,18 +335,17 @@ void tracking_on_fix(double lat, double lon)
     s_session_has_pos = true;
 
     /* Remember the course at this fix for the next position estimate. */
-    m10q_fix_t f;
-    if (m10q_get_fix(&f) == ESP_OK) {
+    if (have_course) {
         s_prev_course_deg = f.course_deg;
     }
-
-    uint32_t steps = 0;
-    bhi260ap_get_step_count(&steps);
-    s_last_fix_steps = steps;
+    if (have_steps) {
+        s_last_fix_steps = steps;
+    }
     s_fix_due = false;
+    uint32_t session_dist_cm = s_session_dist_cm;
     tracking_unlock();
     ESP_LOGI(TAG, "track: fix at (%.5f, %.5f), session dist %.0f m",
-             lat, lon, s_session_dist_cm / 100.0);
+             lat, lon, session_dist_cm / 100.0);
 }
 
 bool tracking_fix_due(void)
@@ -364,11 +362,13 @@ bool tracking_fix_due(void)
 
 void tracking_fix_clear(void)
 {
+    uint32_t steps = 0;
+    bool have_steps = bhi260ap_get_step_count(&steps) == ESP_OK;
     tracking_lock();
     s_fix_due = false;
-    uint32_t steps = 0;
-    bhi260ap_get_step_count(&steps);
-    s_last_fix_steps = steps;
+    if (have_steps) {
+        s_last_fix_steps = steps;
+    }
     tracking_unlock();
 }
 
@@ -378,31 +378,40 @@ void tracking_get_totals(tracking_totals_t *totals)
         return;
     }
     tracking_lock();
-    tracking_get_totals_locked(totals);
+    bool active = s_active;
+    uint32_t base_steps = s_base_steps;
+    tracking_unlock();
+
+    uint32_t steps = 0;
+    bool have_steps = active && bhi260ap_get_step_count(&steps) == ESP_OK;
+    tracking_lock();
+    totals->dist_cm = s_totals.dist_cm + s_session_dist_cm;
+    totals->steps = s_totals.steps;
+    if (s_active && have_steps && steps >= base_steps) {
+        totals->steps += steps - base_steps;
+    }
     tracking_unlock();
 }
 
 uint32_t tracking_get_session_steps(void)
 {
     tracking_lock();
-    if (!s_active) {
-        tracking_unlock();
+    bool active = s_active;
+    uint32_t base_steps = s_base_steps;
+    tracking_unlock();
+    if (!active) {
         return 0;
     }
     uint32_t steps = 0;
     if (bhi260ap_get_step_count(&steps) != ESP_OK) {
-        tracking_unlock();
         return 0;
     }
-    uint32_t n = (steps >= s_base_steps) ? (steps - s_base_steps) : 0;
-    tracking_unlock();
-    return n;
+    return steps >= base_steps ? steps - base_steps : 0;
 }
 
 uint32_t tracking_get_avg_step_cm(void)
 {
-    tracking_lock();
-    uint32_t avg = tracking_avg_step_cm_locked();
-    tracking_unlock();
-    return avg;
+    tracking_totals_t totals;
+    tracking_get_totals(&totals);
+    return tracking_avg_step_cm(&totals);
 }
