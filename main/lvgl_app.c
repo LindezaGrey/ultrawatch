@@ -1246,18 +1246,17 @@ esp_err_t lvgl_app_start(void)
      * also retried a few times in night_mode_draw_bitmap() rather than
      * just dropped - see that function). Shrunk from 48 rows (38 KB/band)
      * to 32 rows (~26 KB/band) after a live "white screen, recovered by
-     * itself" report - smaller bands mean more of them in flight can fit
-     * in the 113 KB pool at once, giving real headroom instead of relying
-     * on the retry alone to paper over exhaustion. More DMA transactions
-     * per full-screen redraw as a result, but each is smaller; not
-     * expected to be visible for UI-scale content on this panel. */
+     * itself" report. 40-row bands keep three in-flight DMA buffers below
+     * the ~113 KB pool while reducing a full-screen redraw from 16 transfers
+     * (at 32 rows) to 13; 48 rows previously left too little headroom during
+     * redraw bursts. */
     esp_lv_adapter_display_config_t display_cfg = ESP_LV_ADAPTER_DISPLAY_SPI_WITHOUT_PSRAM_DEFAULT_CONFIG(
         co5300_get_panel(),
         co5300_get_panel_io(),
         CO5300_RES_X,
         CO5300_RES_Y,
         ESP_LV_ADAPTER_ROTATE_0);   /* rotation not supported for QSPI */
-    display_cfg.profile.buffer_height = 32;   /* partial bands; full frame exceeds SPI DMA max */
+    display_cfg.profile.buffer_height = 40;   /* 13 bands/frame; full frame exceeds SPI DMA max */
 
     lv_display_t *disp = esp_lv_adapter_register_display(&display_cfg);
     if (!disp) {
