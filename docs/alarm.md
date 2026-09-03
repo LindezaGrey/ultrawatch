@@ -16,7 +16,7 @@ typedef struct {
 
 `alarm_set(h, m, enabled, ring_mode)` — ring mode selectable per alarm.
 
-## New module: `main/alarm.c` + `alarm.h`
+## Module: `main/services/alarm.c` + `alarm.h`
 
 - `alarm_init()` — load config, register GPIO1 ISR + wake source.
 - `alarm_arm()` / `alarm_disarm()` — enable/disable `AIE` + arm/disarm GPIO1 wake.

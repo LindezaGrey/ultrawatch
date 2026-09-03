@@ -231,7 +231,7 @@ CS-low window — is met by packing each such sequence into one
 
 ## Debugging
 
-The console command `nfcpoll [seconds]` (`main/debug_cmds.c`, registered in
+The console command `nfcpoll [seconds]` (`main/debug/debug_cmds.c`, registered in
 `main/uwatch_main.c`) opens the reader, retries `st25r3916_try()` for the given
 window (default 8 s) and closes. Console is USB-Serial-JTAG on `/dev/ttyACM0`.
 

@@ -589,7 +589,7 @@ Regressionsrisiko):
   eingeführt werden: bei zu wenig freiem DMA-Speicher verweigert er sich
   kontrolliert (UI-Meldung "Not enough memory right now") statt
   abzustürzen. Ist Teil der aktuellen Firmware.
-- **Task-Konsolidierung** (`main/housekeeping.c`): `daily_log.c`,
+- **Task-Konsolidierung** (`main/services/housekeeping.c`): `daily_log.c`,
   `gpx_log.c` und `syslog_capture.c` liefen ursprünglich als drei
   eigene, dauerhaft laufende FreeRTOS-Tasks mit identischer Form (kurz
   aufwachen, wenig I/O, wieder schlafen) - zu drei separaten Task-Stacks
