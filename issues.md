@@ -11,6 +11,7 @@ Updated: 2026-08-16
 - **IMU wake-state race** — `s_imu_wake_armed` is now protected by an ISR-safe critical section shared by the GPIO ISR and the sleep-entry/exit paths. Hardware gesture-wake regression remains to be run.
 - **Crash-dump SD writes** — raw ELF and report saves now verify every write and the final flush before the flash copy is erased.
 - **Audio recording-task input guard** — `main/debug/debug_audio.c` now rejects an absent or empty buffer before calling `t3902_read()`.
+- **Battery runtime estimate** — the gauge now retains a real five-minute sample ring, so each percentage is paired with its original timestamp.
 - **Dead `firmware/` directory** — removed (2026-08-27). It duplicated `main/` with an older, simpler implementation and wasn't referenced by the root `CMakeLists.txt`; its field-tested fixes (60 MHz QSPI glitch fix, shared-SPI2 CS handling) were confirmed superseded by the current `main/`/`components/` code before deletion.
 
 ## Critical Issues (remaining)
@@ -19,14 +20,12 @@ Updated: 2026-08-16
 - **`components/drivers/m10q/m10q.c`** — `m10q_power()` ignores failures from `uGnssPwrOn()`, `U_GNSS_CFG_SET_VAL_RAM()`, and `uGnssPosGetStreamedStart()` after logging; consider retry/fail-fast paths.
 
 ### 2. Missing input validation
-- **`main/services/sensor_cache.c`** — gauge window sliding uses ad-hoc boundary logic (`first_ms = now_ms - GAUGE_WINDOW_MS + 1000`); rewrite with a small ring buffer for correctness.
 
 ## Medium-Priority Fixes
 
 1. Surface GNSS power-on/open failures instead of continuing blindly.
 2. Fix `s_imu_wake_armed` race with `portENTER_CRITICAL` or task-safe state machine.
 3. Check `fwrite()` result in `crash_dump.c` and log/report on truncation.
-4. Replace the gauge-window ad-hoc sliding with a fixed-size ring buffer.
 
 ## Low-Priority / Cleanup
 
