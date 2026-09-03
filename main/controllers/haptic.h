@@ -1,5 +1,5 @@
 /*
- * haptic.h - global vibration pattern selection (Settings > Ton & Vibration).
+ * controllers/haptic.h - global vibration pattern selection (Settings > Ton & Vibration).
  * One NVS-persisted DRV2605 library waveform id, shared by every haptic
  * trigger in the app (alarm/timer ring, LoRa message notification) - see
  * docs/application.md and drv2605.h. The gating around the actual I2C call

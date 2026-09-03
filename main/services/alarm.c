@@ -1,5 +1,5 @@
 /*
- * alarm.c - multi-alarm clock + shared ring engine (see alarm.h for the API).
+ * services/alarm.c - multi-alarm clock + shared ring engine (see alarm.h for the API).
  *
  * Implementation notes:
  *  - Up to ALARM_MAX_COUNT alarm entries live in RAM and are persisted as one

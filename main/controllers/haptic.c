@@ -1,5 +1,5 @@
 /*
- * haptic.c - see haptic.h.
+ * controllers/haptic.c - see haptic.h.
  */
 #include "haptic.h"
 #include "twatch_board.h"

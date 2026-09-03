@@ -1,5 +1,5 @@
 /*
- * touch_controller.h - CST9217 lifecycle and touch wake boundary.
+ * controllers/touch_controller.h - CST9217 lifecycle and touch wake boundary.
  *
  * LVGL owns input-device registration and gestures.  power_mgmt owns the
  * policy for whether touch may wake the watch; this controller performs the

@@ -1,3 +1,4 @@
+/* controllers/display_controller.c - CO5300 display lifecycle boundary. */
 #include "display_controller.h"
 #include "co5300.h"
 #include "esp_log.h"

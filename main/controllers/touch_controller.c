@@ -1,5 +1,5 @@
 /*
- * touch_controller.c - CST9217 lifecycle and touch wake boundary.
+ * controllers/touch_controller.c - CST9217 lifecycle and touch wake boundary.
  */
 #include "touch_controller.h"
 

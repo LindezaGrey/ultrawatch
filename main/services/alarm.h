@@ -1,5 +1,5 @@
 /*
- * alarm.h - multi-alarm clock + countdown-timer ring engine.
+ * services/alarm.h - multi-alarm clock + countdown-timer ring engine.
  *
  * Up to ALARM_MAX_COUNT independent alarms, each with an optional weekday
  * repeat mask. The PCF85063A has exactly one hardware alarm register ("one

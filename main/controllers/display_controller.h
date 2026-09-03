@@ -1,3 +1,4 @@
+/* controllers/display_controller.h - CO5300 display lifecycle boundary. */
 #pragma once
 
 #include <stdbool.h>
