@@ -53,6 +53,12 @@ void watch_face_update(lv_timer_t *timer)
     alarm_check();
     cdtimer_check();
 
+    /* Device-state icons do not depend on having a valid RTC snapshot. Keep
+     * them live through boot, a transient RTC/I2C error, or cache recovery;
+     * the clock text below may wait for time, but the radio/power states must
+     * not freeze behind that unrelated guard. */
+    update_status_bar(&s_status_bar);
+
     /* Read the wall-clock time from the RTC (PCF85063A), not the ESP32 system
      * clock, so the display never drifts. The RTC is polled by the background
      * telemetry task; reading the cache keeps I2C off the UI task. */
@@ -137,7 +143,6 @@ void watch_face_update(lv_timer_t *timer)
         }
     }
 
-    update_status_bar(&s_status_bar);
 }
 
 void lvgl_build_watch_face(void)
