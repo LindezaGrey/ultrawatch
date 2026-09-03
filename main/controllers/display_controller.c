@@ -57,6 +57,16 @@ static portMUX_TYPE s_sync_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static esp_err_t display_submit_sync(display_cmd_t *cmd, TickType_t timeout);
 
+static void display_enqueue_async(const display_cmd_t *cmd, const char *name)
+{
+    if (xQueueSend(s_queue, cmd, 0) != pdPASS) {
+        /* These are deliberately non-blocking callers (LVGL flush, wake, and
+         * Settings). A full queue must be visible in diagnostics rather than
+         * silently looking like a panel or UI failure. */
+        ESP_LOGW(TAG, "%s request dropped: controller queue full", name);
+    }
+}
+
 static void display_reply(TaskHandle_t reply, esp_err_t err)
 {
     if (reply) {
@@ -360,7 +370,7 @@ void display_controller_request_visible(display_reason_t reason)
         return;
     }
     const display_cmd_t cmd = { .type = DISPLAY_CMD_VISIBLE };
-    xQueueSend(s_queue, &cmd, 0);
+    display_enqueue_async(&cmd, "visible");
 }
 
 void display_controller_request_repaint(void)
@@ -376,7 +386,7 @@ void display_controller_note_draw_complete(void)
         return;
     }
     const display_cmd_t cmd = { .type = DISPLAY_CMD_DRAW_COMPLETE };
-    xQueueSend(s_queue, &cmd, 0);
+    display_enqueue_async(&cmd, "draw-complete");
 }
 
 void display_controller_set_brightness(uint8_t level)
@@ -388,7 +398,7 @@ void display_controller_set_brightness(uint8_t level)
         .type = DISPLAY_CMD_BRIGHTNESS,
         .brightness = level,
     };
-    xQueueSend(s_queue, &cmd, 0);
+    display_enqueue_async(&cmd, "brightness");
 }
 
 esp_err_t display_controller_sleep(TickType_t timeout)
