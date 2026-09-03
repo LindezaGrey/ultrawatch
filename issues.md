@@ -1,6 +1,6 @@
 # UWatch Firmware - Known Issues and Code Review
 
-Updated: 2026-08-16
+Updated: 2026-09-03
 
 ## Recently Fixed
 
@@ -19,13 +19,9 @@ Updated: 2026-08-16
 ### 1. Resource / concurrency issues
 - **`components/drivers/m10q/m10q.c`** — `m10q_power()` ignores failures from `uGnssPwrOn()`, `U_GNSS_CFG_SET_VAL_RAM()`, and `uGnssPosGetStreamedStart()` after logging; consider retry/fail-fast paths.
 
-### 2. Missing input validation
-
 ## Medium-Priority Fixes
 
 1. Surface GNSS power-on/open failures instead of continuing blindly.
-2. Fix `s_imu_wake_armed` race with `portENTER_CRITICAL` or task-safe state machine.
-3. Check `fwrite()` result in `crash_dump.c` and log/report on truncation.
 
 ## Low-Priority / Cleanup
 
@@ -33,4 +29,4 @@ Updated: 2026-08-16
 2. Centralize magic numbers (`RING_*`, `TRACK_*`, `PM_*`, `GAUGE_*`) into a config header or Kconfig.
 3. Document or make configurable the hardcoded `TZ` in `app_main()`.
 4. Consider increasing the factory app partition beyond 2 MB if LoRa/NFC drivers are filled in.
-5. Add CI build job (Docker + `idf.py build`) and static analysis (`cppcheck`/`clang-tidy`).
+5. Add static analysis (`cppcheck`/`clang-tidy`) to the existing CI build job.
