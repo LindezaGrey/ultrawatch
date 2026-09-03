@@ -196,14 +196,14 @@ passend zum Gesamtkonzept.
                     [ Einstellungen ]
                           ↑ swipe-up
                           ↓ swipe-down
-  [ Hauptscreen ] ⟶ GPS/Karte ⟶ LoRa/Mesh-Nachrichten ⟶ Alarme/Timer ⟶ zurück
+  [ Hauptscreen ] ⟶ Aktivität ⟶ GPS/Karte ⟶ LoRa/Mesh ⟶ WLAN ⟶ Bluetooth ⟶ Alarme/Timer ⟶ NFC ⟶ zurück
         ⟵                                                              ⟵
   ```
 
-  - **Horizontal – geschlossener Ring aus vier Screens** (Hauptscreen,
-    GPS/Karte, LoRa/Mesh-Nachrichten, Alarme/Timer): Swipe nach links
+  - **Horizontal – geschlossener Ring** (Hauptscreen, Aktivität, GPS/Karte,
+    LoRa/Mesh, WLAN, Bluetooth, Alarme/Timer, NFC): Swipe nach links
     schaltet einen Screen im Ring weiter, Swipe nach rechts einen zurück;
-    durchgängiges Wischen in eine Richtung führt nach allen vier Screens
+    durchgängiges Wischen in eine Richtung führt durch alle Screens
     wieder zum Hauptscreen. Reihenfolge nach Nutzungshäufigkeit sortiert
     (am häufigsten benötigter Screen am nächsten zum Hauptscreen).
   - **Vertikal, nur auf dem Hauptscreen – Einstellungen liegt außerhalb des
@@ -217,7 +217,7 @@ passend zum Gesamtkonzept.
     Node-Übersicht belegt (siehe Abschnitt 7.2) – vertikale Gesten sind sonst
     auf keinem Ring-Screen außer dem Hauptscreen belegt.
   - **Wichtig:** Diese Ring-/Achsen-Navigation gilt nur für den Wechsel
-    zwischen den vier Hauptscreens und Einstellungen selbst. Innerhalb von
+    zwischen den Ring-Screens und Einstellungen selbst. Innerhalb von
     Unterseiten (z. B. den Einstellungs-Kategorien, siehe Abschnitt 9.3, oder
     der Node-Übersicht) gelten **eigene, lokale Swipe-Regeln** (Swipe/Button
     zurück zur jeweils übergeordneten Seite) – diese lösen keine Ring-

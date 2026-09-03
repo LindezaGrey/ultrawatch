@@ -8,29 +8,28 @@ This manual describes the current user-facing behaviour.
 The **clock (watch face)** is the main screen shown after boot. From it you
 swipe in a direction to open a menu, and swipe back the opposite way to return.
 
-| Screen | Enter from clock | Return |
+| Screen | Navigation |
 |---|---|---|
-| Clock (watch face) | — (main) | — |
-| Power Management | swipe **down** | swipe **up** |
-| BHI260AP status | swipe **left** | swipe **right** |
-| GPS | swipe **right** | swipe **left** |
+| Clock (watch face) | start of the horizontal ring |
+| Activity | swipe left from Clock |
+| GPS | swipe left from Activity |
+| Mesh | swipe left from GPS |
+| Wi-Fi | swipe left from Mesh |
+| Bluetooth | swipe left from Wi-Fi |
+| Alarms & timers | swipe left from Bluetooth |
+| NFC | swipe left from Alarms; swipe right returns to Alarms |
+| Settings | swipe down from Clock; swipe up returns |
 
 ```
-          swipe up
-             ^
-             |
- swipe left <- Clock -> swipe right
-             |
-             v
-          swipe down
+Clock → Activity → GPS → Mesh → Wi-Fi → Bluetooth → Alarms → NFC → Clock
 ```
 
-- **Power Management** — battery level (%), battery voltage (V), charging
-  state, battery temperature (°C), a charging enable switch, and a charge
-  current selector (100 mA / 400 mA presets, 100 mA default).
-- **BHI260AP status** — IMU status (ready / not ready), step counter, accel,
-  gyro, orientation (pitch/roll from the accelerometer), rotation quaternion
-  (6-DoF game rotation vector), activity, and last gesture.
+- **NFC** — tap **Start** to scan an NFC-A tag. The reader is active only for
+  the explicit scan, so simply visiting the screen has no radio activity.
+- **Settings** — display, power, peripheral, sound, information, and vibration
+  preferences. It sits outside the horizontal ring to avoid accidental changes.
+- **BHI260AP status** — an IMU diagnostic screen reached through debug tools;
+  it is not part of normal swipe navigation.
 - **GPS** — satellite **skyplot** (position by azimuth/elevation, color by
   signal strength; filled dot = used in fix) plus position, altitude, speed
   (km/h), course, satellite count and estimated accuracy (HDOP-based).
