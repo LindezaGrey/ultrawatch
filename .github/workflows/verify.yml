@@ -1,0 +1,26 @@
+name: Verify firmware and simulator
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: espressif/idf:v6.0.2
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build firmware
+        run: idf.py build
+      - name: Build simulator and capture the watch face
+        run: |
+          apt-get update
+          apt-get install --yes cmake pkg-config libsdl2-dev
+          cmake -S sim -B sim/build
+          cmake --build sim/build --parallel 2
+          SDL_VIDEODRIVER=offscreen UWATCH_SIM_SCREEN=watch \
+            UWATCH_SIM_SHOT=/tmp/uwatch-sim-watch.ppm sim/build/uwatch_sim
+          test -s /tmp/uwatch-sim-watch.ppm

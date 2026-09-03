@@ -1,6 +1,6 @@
 idf_component_register(
-    SRCS "uwatch_main.c" "debug_audio.c" "debug_bhi.c" "debug_gnss.c" "debug_cmds.c" "display_controller.c" "touch_controller.c" "lvgl_app.c" "power_mgmt.c" "crash_dump.c" "tracking.c" "sensor_cache.c" "ble_debug.c" "alarm.c" "cd_timer.c" "daily_log.c" "gpx_log.c" "mesh_log.c" "wifi_scan.c" "haptic.c" "syslog_capture.c" "housekeeping.c" "ble_scan.c" "cascadia_88.c" "cascadia_72.c" "cascadia_36.c" "cascadia_22.c" "cascadia_18.c" "screens/status_bar.c" "screens/status_icons.c" "screens/watch_face.c" "screens/activity_screen.c" "screens/gps_screen.c" "screens/mesh_screen.c" "screens/wifi_screen.c" "screens/ble_screen.c" "screens/settings_screen.c" "screens/alarm_screen.c" "screens/ring_screen.c" "screens/bhi_screen.c"
-    INCLUDE_DIRS "."
+    SRCS "uwatch_main.c" "debug/debug_audio.c" "debug/debug_bhi.c" "debug/debug_gnss.c" "debug/debug_cmds.c" "display_controller.c" "touch_controller.c" "lvgl_app.c" "system/power_mgmt.c" "system/crash_dump.c" "services/tracking.c" "services/sensor_cache.c" "connectivity/ble_debug.c" "alarm.c" "services/cd_timer.c" "services/daily_log.c" "services/gpx_log.c" "connectivity/mesh_log.c" "connectivity/wifi_scan.c" "haptic.c" "system/syslog_capture.c" "services/housekeeping.c" "connectivity/ble_scan.c" "screens/status_bar.c" "screens/status_icons.c" "screens/watch_face.c" "screens/activity_screen.c" "screens/gps_screen.c" "screens/mesh_screen.c" "screens/wifi_screen.c" "screens/ble_screen.c" "screens/settings_screen.c" "screens/alarm_screen.c" "screens/ring_screen.c" "screens/bhi_screen.c"
+    INCLUDE_DIRS "." "connectivity" "debug" "services" "system"
     REQUIRES
         twatch_board
         axp2101
@@ -20,6 +20,7 @@ idf_component_register(
         ndef
         esp_lvgl_adapter
         lvgl
+        ui_fonts
         spiffs
         esp_app_format
         esp_pm

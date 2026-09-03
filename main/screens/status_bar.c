@@ -93,11 +93,10 @@ static lv_obj_t *status_image_create(lv_obj_t *parent, const lv_image_dsc_t *src
  * subsystem (Bluetooth, WiFi, GNSS, LoRa/Meshtastic) so a glance at the top
  * row alone answers "is anything transmitting/receiving"; row 2 is
  * everything else (SD card, GPX file logging, charge state, battery).
- * Tightened from +44 to +34 per explicit feedback ("a small but distinct
- * margin") - the montserrat_28 icons/28px bitmap icons are ~30px tall, so
- * this still leaves a few px of visible gap, just not the more generous
- * spacing the original number left. */
-#define STATUS_BAR_Y_ROW2 (STATUS_BAR_Y + 34)
+ * Kept compact while leaving a slightly clearer visual separation between
+ * the two rows. The Montserrat/bitmap icons are about 30px tall, so +38
+ * leaves a small but distinct gap without crowding the date below. */
+#define STATUS_BAR_Y_ROW2 (STATUS_BAR_Y + 38)
 void build_status_bar_big(lv_obj_t *parent, status_bar_t *out)
 {
     const lv_font_t *f = &lv_font_montserrat_28;

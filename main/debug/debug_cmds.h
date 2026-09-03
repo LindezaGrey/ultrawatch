@@ -1,0 +1,68 @@
+/*
+ * debug/debug_cmds.h - miscellaneous debug console commands (SD, power, alarm,
+ * BLE, motor, RTC, crash dump).
+ */
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void debug_cmd_shot(const char *args);
+void debug_cmd_sdls(const char *args);
+void debug_cmd_synclog(const char *args);
+void debug_cmd_sdclear(const char *args);
+void debug_cmd_heap(const char *args);
+void debug_cmd_stacks(const char *args);
+void debug_cmd_crashinfo(const char *args);
+void debug_cmd_crashsave(const char *args);
+void debug_cmd_crashls(const char *args);
+void debug_cmd_crashread(const char *args);
+void debug_cmd_panictest(const char *args);
+void debug_cmd_dailylog(const char *args);
+void debug_cmd_motor(const char *args);
+void debug_cmd_pm(const char *args);
+void debug_cmd_sparmodus(const char *args);
+void debug_cmd_pwroff(const char *args);
+void debug_cmd_rails(const char *args);
+void debug_cmd_nfcpoll(const char *args);
+void debug_cmd_nfcprobe(const char *args);
+void debug_cmd_i2cscan(const char *args);
+void debug_cmd_bat(const char *args);
+void debug_cmd_dispchk(const char *args);
+void debug_cmd_disppwr(const char *args);
+void debug_cmd_dispfix(const char *args);
+void debug_cmd_dispreg(const char *args);
+void debug_cmd_dispcycle(const char *args);
+void debug_cmd_dispte(const char *args);
+void debug_cmd_lvglinfo(const char *args);
+void debug_cmd_disprepaint(const char *args);
+void debug_cmd_dispcmd(const char *args);
+void debug_cmd_alarm(const char *args);
+void debug_cmd_alarmls(const char *args);
+void debug_cmd_alarmadd(const char *args);
+void debug_cmd_alarmrm(const char *args);
+void debug_cmd_alarmen(const char *args);
+void debug_cmd_alarmring(const char *args);
+void debug_cmd_alarmdismiss(const char *args);
+void debug_cmd_alarmsnooze(const char *args);
+void debug_cmd_timer(const char *args);
+
+void debug_cmd_gpxstatus(const char *args);
+void debug_cmd_gpxcat(const char *args);
+
+void debug_cmd_meshnodes(const char *args);
+void debug_cmd_meshcat(const char *args);
+void debug_cmd_dailycat(const char *args);
+void debug_cmd_catbin(const char *args);
+void debug_cmd_presetset(const char *args);
+void debug_cmd_rtcdump(const char *args);
+void debug_cmd_rtctimer(const char *args);
+void debug_cmd_settime(const char *args);
+void debug_cmd_ble(const char *args);
+void debug_cmd_bleadv(const char *args);
+void debug_cmd_bleadvoff(const char *args);
+
+#ifdef __cplusplus
+}
+#endif
