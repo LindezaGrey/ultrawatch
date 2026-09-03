@@ -49,7 +49,14 @@ static void rec_task(void *arg)
 {
     (void)arg;
     size_t n = s_rec_n;
-    t3902_read(s_rec_buf, n);
+    if (!s_rec_buf || n == 0) {
+        /* Never pass an empty or absent recording buffer into the I2S driver.
+         * This task is asynchronous, so keep the validation at this final
+         * boundary even though play_and_record() validated before spawning it. */
+        printf("rec: no recording buffer\n");
+    } else {
+        t3902_read(s_rec_buf, n);
+    }
     if (s_rec_done) {
         xSemaphoreGive(s_rec_done);
     }
