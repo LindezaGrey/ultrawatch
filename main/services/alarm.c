@@ -21,22 +21,20 @@
  *    countdown that triggered it lives entirely in main/cd_timer.c.
  */
 #include "alarm.h"
+#include "audio.h"
 #include "esp_log.h"
-#include "esp_heap_caps.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "twatch_board.h"
-#include "axp2101.h"
 #include "xl9555.h"
 #include "pcf85063a.h"
 #include "drv2605.h"
 #include "haptic.h"
-#include "max98357a.h"
 #include "esp_lv_adapter.h"
 #include "power_mgmt.h"
-#include <math.h>
 #include <string.h>
 #include <time.h>
 
@@ -54,32 +52,22 @@ static const char *TAG = "alarm";
 #define ALARM_AUTO_SNOOZE_MS  60000
 #define ALARM_AUTO_SNOOZE_MAX 6
 
-/* Ring melody: a repeating cycle of 3 soft beeps followed by a paced pause.
- * Full-scale raw sines hard-clip the small speaker and click on the hard
- * on/off edges, so each beep gets a gentle attack/release envelope and a
- * moderate amplitude. The whole cycle stays inside one buffer and is written
- * back-to-back, so the I2S DMA never underruns between writes (which made
- * the old burst + vTaskDelay cadence crackle). */
-#define RING_TONE_MS      170
-#define RING_GAP_MS       130
-#define RING_BEEPS        3
-#define RING_CYCLE_MS     2000   /* beep-beep-beep then this long silence */
-#define RING_BEEP_HZ      880
 #define RING_AMP          3276    /* initial level: ~10% of 16-bit FS */
 #define RING_AMP_MAX       16380  /* final retry level: ~50%, below clipping */
-#define RING_EDGE_MS      12     /* attack/release ramp length */
-#define RING_CHUNK_SAMPLES (AUDIO_SAMPLE_RATE / 25)  /* ~40 ms per write */
 
 /* ---- state ---- */
 static alarm_entry_t s_entries[ALARM_MAX_COUNT];
 static int s_armed_idx = -1;              /* which entry the RTC alarm register currently targets, -1 = none */
 static bool s_ringing;
+static bool s_ring_queued;
 static bool s_snoozing;                   /* 10 min snooze timer armed */
 static alarm_ring_source_t s_ring_source; /* which kind of ring is/was in progress */
 static uint8_t s_ring_mode_active;        /* ALARM_RING_* used for the current/last ring cycle */
 static TaskHandle_t s_ring_task;
-static SemaphoreHandle_t s_ring_cmd;      /* binary: signals ring start */
-static int s_ring_mode_pending;           /* -1 = none, 0=dismiss, 1=snooze */
+typedef enum { RING_CMD_START, RING_CMD_RESUME, RING_CMD_DISMISS, RING_CMD_SNOOZE } ring_cmd_type_t;
+typedef struct { ring_cmd_type_t type; alarm_ring_source_t source; uint8_t mode; } ring_cmd_t;
+static QueueHandle_t s_ring_cmd;
+static SemaphoreHandle_t s_lock;
 static alarm_ring_cb_t s_ring_cb;
 static bool s_sound_enabled = true;       /* global mute, see alarm_set_sound_enabled() */
 static uint8_t s_auto_snooze_count;       /* completed automatic retries in this alarm cycle */
@@ -207,49 +195,6 @@ static void alarm_recompute_next(void)
 
 /* ---- ring task ---- */
 
-/* Render one repeating cycle into buf: RING_BEEPS sine beeps (~RING_TONE_MS
- * on, ~RING_GAP_MS off) plus a paced silence tail up to RING_CYCLE_MS. Each
- * beep has a linear attack/release envelope so the speaker doesn't click or
- * distort. Writes back-to-back, the DMA never underruns -> no crackle.
- * Returns the number of samples rendered. */
-static size_t ring_render_cycle(int16_t *buf, size_t cap, int16_t amplitude)
-{
-    size_t tone_n = (size_t)(AUDIO_SAMPLE_RATE * RING_TONE_MS / 1000);
-    size_t gap_n  = (size_t)(AUDIO_SAMPLE_RATE * RING_GAP_MS / 1000);
-    size_t unit_n = tone_n + gap_n;
-    size_t n = unit_n * RING_BEEPS;
-    size_t edge_n = (size_t)(AUDIO_SAMPLE_RATE * RING_EDGE_MS / 1000);
-    if (edge_n > tone_n / 2) {
-        edge_n = tone_n / 2;
-    }
-    for (int b = 0; b < RING_BEEPS; b++) {
-        int16_t *tone = buf + b * unit_n;
-        for (size_t i = 0; i < tone_n; i++) {
-            /* Linear attack in the first edge_n samples, release at the end. */
-            float env;
-            if (i < edge_n) {
-                env = (float)i / (float)edge_n;
-            } else if (i > tone_n - edge_n) {
-                env = (float)(tone_n - i) / (float)edge_n;
-            } else {
-                env = 1.0f;
-            }
-            tone[i] = (int16_t)(sinf(2.0f * 3.14159265f * RING_BEEP_HZ * i / AUDIO_SAMPLE_RATE)
-                                * amplitude * env);
-        }
-        memset(tone + tone_n, 0, gap_n * sizeof(int16_t));
-    }
-    /* Silence tail so the melody repeats every RING_CYCLE_MS, all in-buffer. */
-    size_t cycle_n = (size_t)(AUDIO_SAMPLE_RATE * RING_CYCLE_MS / 1000);
-    if (cycle_n > cap) {
-        cycle_n = cap;
-    }
-    if (cycle_n > n) {
-        memset(buf + n, 0, (cycle_n - n) * sizeof(int16_t));
-    }
-    return cycle_n;
-}
-
 static int16_t ring_amplitude(void)
 {
     if (s_ring_source != ALARM_RING_SOURCE_ALARM || s_auto_snooze_count == 0) {
@@ -265,9 +210,6 @@ static int16_t ring_amplitude(void)
 
 static void ring_set_outputs(bool on)
 {
-    if (s_ring_mode_active == ALARM_RING_BEEP || s_ring_mode_active == ALARM_RING_BOTH) {
-        axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, on);   /* amp */
-    }
     if (s_ring_mode_active == ALARM_RING_VIB || s_ring_mode_active == ALARM_RING_BOTH) {
         xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, on);  /* M_EN */
     }
@@ -278,60 +220,67 @@ static void ring_vibrate(void)
     drv2605_play(twatch_haptic_dev, haptic_get_wave_id());
 }
 
+static esp_err_t ring_send(ring_cmd_t cmd)
+{
+    return xQueueSend(s_ring_cmd, &cmd, 0) == pdTRUE ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+
 static void ring_task(void *arg)
 {
     (void)arg;
-    size_t cycle_n = (size_t)(AUDIO_SAMPLE_RATE * RING_CYCLE_MS / 1000);
-    int16_t *buf = heap_caps_malloc(cycle_n * sizeof(int16_t),
-                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 
     for (;;) {
-        if (xSemaphoreTake(s_ring_cmd, portMAX_DELAY) != pdTRUE) {
+        ring_cmd_t cmd;
+        if (xQueueReceive(s_ring_cmd, &cmd, portMAX_DELAY) != pdTRUE ||
+            (cmd.type != RING_CMD_START && cmd.type != RING_CMD_RESUME)) {
             continue;
         }
 
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        if (cmd.type == RING_CMD_START) {
+            s_ring_source = cmd.source;
+            s_ring_mode_active = cmd.mode;
+            s_auto_snooze_count = 0;
+            s_auto_snooze_exhausted = false;
+        }
         s_ringing = true;
-        if (buf) {
-            ring_render_cycle(buf, cycle_n, ring_amplitude());
+        s_ring_queued = false;
+        s_snoozing = false;
+        bool sound_enabled = s_sound_enabled;
+        int armed_idx = s_armed_idx;
+        xSemaphoreGive(s_lock);
+
+        if (sound_enabled &&
+            (s_ring_mode_active == ALARM_RING_BEEP || s_ring_mode_active == ALARM_RING_BOTH)) {
+            audio_alarm_start(ring_amplitude());
         }
         if (s_ring_cb) {
             s_ring_cb(true, s_ring_source);
         }
         ESP_LOGI(TAG, "ringing source=%d mode=%u armed_idx=%d sound=%d",
-                 (int)s_ring_source, (unsigned)s_ring_mode_active, s_armed_idx,
-                 (int)s_sound_enabled);
+                 (int)s_ring_source, (unsigned)s_ring_mode_active, armed_idx,
+                 (int)sound_enabled);
         /* Global mute: screen/dismiss/snooze/auto-snooze timing all still
          * work normally, just silently - a master off-switch, not a mode
          * change to the ringing entry's own Beep/Vib/Both. */
-        if (s_sound_enabled) {
+        if (sound_enabled) {
             ring_set_outputs(true);
         }
 
-        bool beep = s_sound_enabled &&
-                    (s_ring_mode_active == ALARM_RING_BEEP || s_ring_mode_active == ALARM_RING_BOTH);
-        bool vib  = s_sound_enabled &&
+        bool vib  = sound_enabled &&
                     (s_ring_mode_active == ALARM_RING_VIB || s_ring_mode_active == ALARM_RING_BOTH);
 
-        /* Ring until dismiss or snooze. The melody cycle is written in a tight
-         * loop so the I2S DMA stays continuously fed (no underrun crackle);
-         * max98357a_write blocks at the sample rate, pacing the playback. */
+        /* The audio task owns I2S TX and the speaker rail. This task only
+         * coordinates alarm timing, haptics, and the UI lifecycle. */
         TickType_t ring_started = xTaskGetTickCount();
-        while (s_ring_mode_pending < 0) {
-            if (beep && buf) {
-                size_t off = 0;
-                while (off < cycle_n && s_ring_mode_pending < 0) {
-                    size_t chunk = cycle_n - off;
-                    if (chunk > RING_CHUNK_SAMPLES) {
-                        chunk = RING_CHUNK_SAMPLES;
-                    }
-                    max98357a_write(buf + off, chunk);
-                    off += chunk;
-                    esp_lv_adapter_report_activity();
-                }
-            }
-            if (vib) {
-                ring_vibrate();
-                vTaskDelay(pdMS_TO_TICKS(300));
+        int finished = -1;
+        while (finished < 0) {
+            if (vib) ring_vibrate();
+            TickType_t wait = pdMS_TO_TICKS(vib ? 300 : 40);
+            if (xQueueReceive(s_ring_cmd, &cmd, wait) == pdTRUE) {
+                if (cmd.type == RING_CMD_DISMISS) finished = 0;
+                else if (cmd.type == RING_CMD_SNOOZE)
+                    finished = s_ring_source == ALARM_RING_SOURCE_TIMER ? 0 : 1;
             }
             /* Keep LVGL activity timestamp fresh so auto-light-sleep doesn't
              * cut the ring's rails under us. */
@@ -343,7 +292,7 @@ static void ring_task(void *arg)
              * actually armed (a bare alarmring test with nothing configured
              * must not spin its own 10-min snooze cycle). */
             if (ALARM_AUTO_SNOOZE_MS > 0 && s_ring_source == ALARM_RING_SOURCE_ALARM &&
-                s_armed_idx >= 0 &&
+                armed_idx >= 0 &&
                 pdTICKS_TO_MS(xTaskGetTickCount() - ring_started) >= ALARM_AUTO_SNOOZE_MS) {
                 if (s_auto_snooze_count < ALARM_AUTO_SNOOZE_MAX) {
                     s_auto_snooze_count++;
@@ -351,7 +300,7 @@ static void ring_task(void *arg)
                              (unsigned)s_auto_snooze_count,
                              (unsigned)ALARM_AUTO_SNOOZE_MAX,
                              (unsigned long)pdTICKS_TO_MS(xTaskGetTickCount() - ring_started));
-                    s_ring_mode_pending = 1;
+                    finished = 1;
                 } else if (!s_auto_snooze_exhausted) {
                     s_auto_snooze_exhausted = true;
                     ESP_LOGW(TAG, "auto-snooze limit reached; keeping final alarm ringing");
@@ -360,12 +309,12 @@ static void ring_task(void *arg)
         }
 
         ring_set_outputs(false);
-        int finished = s_ring_mode_pending;   /* 0=dismiss, 1=snooze */
-        s_ring_mode_pending = -1;
-        s_ringing = false;
+        audio_alarm_stop();
 
         /* Update snooze/dismiss state and RTC before the UI callback, so the
          * watch face can show the Zz icon on the very first update. */
+        xSemaphoreTake(s_lock, portMAX_DELAY);
+        s_ringing = false;
         if (s_ring_source == ALARM_RING_SOURCE_TIMER) {
             /* No RTC interaction - main/cd_timer.c already cleared its own
              * active state the moment the countdown hit zero and this ring
@@ -386,27 +335,13 @@ static void ring_task(void *arg)
             alarm_recompute_next();
             ESP_LOGI(TAG, "dismissed, recomputed (armed_idx=%d)", s_armed_idx);
         }
+        xSemaphoreGive(s_lock);
 
         if (s_ring_cb) {
             s_ring_cb(false, s_ring_source);
         }
     }
-
-    /* Task termination path (not currently used): release the ring buffer. */
-    if (buf) {
-        heap_caps_free(buf);
-    }
     vTaskDelete(NULL);
-}
-
-/* Notify the ring task to start with whatever s_ring_source/s_ring_mode_active
- * are already set to. Private - external callers go through
- * alarm_ring_now(), which sets those fields first. */
-static void ring_start(void)
-{
-    s_ring_mode_pending = -1;
-    s_snoozing = false;   /* a new ring means the snooze cycle is over */
-    xSemaphoreGive(s_ring_cmd);
 }
 
 esp_err_t alarm_ring_now(alarm_ring_source_t source, uint8_t ring_mode)
@@ -414,12 +349,16 @@ esp_err_t alarm_ring_now(alarm_ring_source_t source, uint8_t ring_mode)
     if (ring_mode > ALARM_RING_BOTH) {
         return ESP_ERR_INVALID_ARG;
     }
-    s_ring_source = source;
-    s_ring_mode_active = ring_mode;
-    s_auto_snooze_count = 0;
-    s_auto_snooze_exhausted = false;
-    ring_start();
-    return ESP_OK;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    if (s_ringing || s_ring_queued) {
+        xSemaphoreGive(s_lock);
+        return ESP_OK;
+    }
+    s_ring_queued = true;
+    esp_err_t err = ring_send((ring_cmd_t){ .type = RING_CMD_START, .source = source, .mode = ring_mode });
+    if (err != ESP_OK) s_ring_queued = false;
+    xSemaphoreGive(s_lock);
+    return err;
 }
 
 esp_err_t alarm_ring_test(void)
@@ -434,25 +373,33 @@ esp_err_t alarm_ring_test(void)
  * ringing, so it can't interfere with normal wake/sleep/shutdown behavior. */
 static void alarm_button_cb(void)
 {
-    if (s_ringing) {
-        alarm_dismiss();
-    }
+    alarm_dismiss();
 }
 
 /* ---- public API ---- */
 
 esp_err_t alarm_init(void)
 {
+    esp_err_t audio_err = audio_init();
+    if (audio_err != ESP_OK) {
+        ESP_LOGE(TAG, "audio init: %s", esp_err_to_name(audio_err));
+        return audio_err;
+    }
+    if (!s_lock) s_lock = xSemaphoreCreateMutex();
+    if (!s_lock) return ESP_ERR_NO_MEM;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     cfg_load();
     if (!s_ring_cmd) {
-        s_ring_cmd = xSemaphoreCreateBinary();
+        s_ring_cmd = xQueueCreate(8, sizeof(ring_cmd_t));
         if (!s_ring_cmd) {
+            xSemaphoreGive(s_lock);
             ESP_LOGE(TAG, "ring command semaphore allocation failed");
             return ESP_ERR_NO_MEM;
         }
     }
     if (s_ring_task == NULL) {
         if (xTaskCreate(ring_task, "alarm_ring", 4096, NULL, 5, &s_ring_task) != pdPASS) {
+            xSemaphoreGive(s_lock);
             ESP_LOGE(TAG, "ring task allocation failed");
             return ESP_ERR_NO_MEM;
         }
@@ -461,6 +408,7 @@ esp_err_t alarm_init(void)
     power_mgmt_register_button_cb(alarm_button_cb);
 
     alarm_recompute_next();
+    xSemaphoreGive(s_lock);
     ESP_LOGI(TAG, "init: armed_idx=%d", s_armed_idx);
     return ESP_OK;
 }
@@ -470,6 +418,7 @@ int alarm_add(uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask
     if (hour > 23 || min > 59 || ring_mode > ALARM_RING_BOTH) {
         return -1;
     }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     for (int i = 0; i < ALARM_MAX_COUNT; i++) {
         if (!s_entries[i].in_use) {
             s_entries[i].in_use = true;
@@ -483,17 +432,21 @@ int alarm_add(uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask
             ESP_LOGI(TAG, "add[%d]: %02u:%02u mode=%u wmask=0x%02x", i,
                      (unsigned)hour, (unsigned)min, (unsigned)ring_mode,
                      (unsigned)s_entries[i].weekday_mask);
+            xSemaphoreGive(s_lock);
             return i;
         }
     }
     ESP_LOGW(TAG, "add: all %d slots full", ALARM_MAX_COUNT);
+    xSemaphoreGive(s_lock);
     return -1;
 }
 
 esp_err_t alarm_update(int idx, uint8_t hour, uint8_t min, uint8_t ring_mode, uint8_t weekday_mask)
 {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     if (idx < 0 || idx >= ALARM_MAX_COUNT || !s_entries[idx].in_use ||
         hour > 23 || min > 59 || ring_mode > ALARM_RING_BOTH) {
+        xSemaphoreGive(s_lock);
         return ESP_ERR_INVALID_ARG;
     }
     s_entries[idx].hour = hour;
@@ -502,64 +455,89 @@ esp_err_t alarm_update(int idx, uint8_t hour, uint8_t min, uint8_t ring_mode, ui
     s_entries[idx].weekday_mask = weekday_mask ? weekday_mask : ALARM_WEEKDAY_ALL;
     cfg_save();
     alarm_recompute_next();
+    xSemaphoreGive(s_lock);
     return ESP_OK;
 }
 
 esp_err_t alarm_remove(int idx)
 {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     if (idx < 0 || idx >= ALARM_MAX_COUNT || !s_entries[idx].in_use) {
+        xSemaphoreGive(s_lock);
         return ESP_ERR_INVALID_ARG;
     }
     memset(&s_entries[idx], 0, sizeof(s_entries[idx]));
     cfg_save();
     alarm_recompute_next();
+    xSemaphoreGive(s_lock);
     return ESP_OK;
 }
 
 esp_err_t alarm_set_enabled(int idx, bool enabled)
 {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     if (idx < 0 || idx >= ALARM_MAX_COUNT || !s_entries[idx].in_use) {
+        xSemaphoreGive(s_lock);
         return ESP_ERR_INVALID_ARG;
     }
     s_entries[idx].enabled = enabled;
     cfg_save();
     alarm_recompute_next();
+    xSemaphoreGive(s_lock);
     return ESP_OK;
 }
 
 size_t alarm_get_all(alarm_entry_t *out, size_t max)
 {
     size_t n = (max < ALARM_MAX_COUNT) ? max : ALARM_MAX_COUNT;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     memcpy(out, s_entries, n * sizeof(alarm_entry_t));
+    xSemaphoreGive(s_lock);
     return n;
 }
 
 bool alarm_is_armed(void)
 {
-    return s_armed_idx >= 0;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool armed = s_armed_idx >= 0;
+    xSemaphoreGive(s_lock);
+    return armed;
 }
 
 int alarm_get_ringing_index(void)
 {
-    return s_armed_idx;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    int idx = s_armed_idx;
+    xSemaphoreGive(s_lock);
+    return idx;
 }
 
 bool alarm_is_ringing(void)
 {
-    return s_ringing;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool ringing = s_ringing;
+    xSemaphoreGive(s_lock);
+    return ringing;
 }
 
 bool alarm_get_sound_enabled(void)
 {
-    return s_sound_enabled;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool enabled = s_sound_enabled;
+    xSemaphoreGive(s_lock);
+    return enabled;
 }
 
 void alarm_set_sound_enabled(bool enabled)
 {
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     if (enabled == s_sound_enabled) {
+        xSemaphoreGive(s_lock);
         return;
     }
     s_sound_enabled = enabled;
+    xSemaphoreGive(s_lock);
+
     nvs_handle_t h;
     if (nvs_open(ALARM_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
         nvs_set_u8(h, "sound_en", enabled ? 1 : 0);
@@ -570,7 +548,10 @@ void alarm_set_sound_enabled(bool enabled)
 
 bool alarm_is_snoozing(void)
 {
-    return s_snoozing;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool snoozing = s_snoozing;
+    xSemaphoreGive(s_lock);
+    return snoozing;
 }
 
 esp_err_t alarm_check(void)
@@ -582,15 +563,17 @@ esp_err_t alarm_check(void)
     }
     /* Read both flags; a transient AF read failure must not be allowed to skip
      * the snooze-timer (TF) check, or a 10-min re-ring would silently die. */
+    xSemaphoreTake(s_lock, portMAX_DELAY);
     bool af = false;
     esp_err_t af_err = pcf85063a_alarm_triggered(twatch_rtc_dev, &af);
     bool tf = false;
     esp_err_t tf_err = pcf85063a_timer_triggered(twatch_rtc_dev, &tf);
     if (af_err != ESP_OK && tf_err != ESP_OK) {
+        xSemaphoreGive(s_lock);
         return ESP_FAIL;
     }
 
-    if ((af || tf) && !s_ringing) {
+    if ((af || tf) && !s_ringing && !s_ring_queued) {
         if (tf) {
             /* The PCF85063A timer re-loads and loops by itself; stop it now so
              * the snooze is a one-shot (the next ring is started explicitly by
@@ -598,16 +581,22 @@ esp_err_t alarm_check(void)
              * source/ring_mode are already set from the alarm that snoozed -
              * don't touch them, just resume ringing. */
             pcf85063a_timer_stop(twatch_rtc_dev);
-            ring_start();
+            s_ring_queued = true;
+            if (ring_send((ring_cmd_t){ .type = RING_CMD_RESUME }) != ESP_OK) s_ring_queued = false;
         } else {
             /* AF: a fresh alarm match. Ring using whichever entry is
              * currently armed; fall back to a safe default rather than
              * crashing if s_armed_idx is somehow stale. */
             uint8_t mode = (s_armed_idx >= 0 && s_entries[s_armed_idx].in_use)
                            ? s_entries[s_armed_idx].ring_mode : ALARM_RING_BEEP;
-            alarm_ring_now(ALARM_RING_SOURCE_ALARM, mode);
+            s_ring_queued = true;
+            if (ring_send((ring_cmd_t){ .type = RING_CMD_START,
+                                        .source = ALARM_RING_SOURCE_ALARM, .mode = mode }) != ESP_OK) {
+                s_ring_queued = false;
+            }
         }
     }
+    xSemaphoreGive(s_lock);
     return ESP_OK;
 }
 
@@ -620,18 +609,18 @@ esp_err_t alarm_handle_wake(void)
 
 esp_err_t alarm_dismiss(void)
 {
-    s_ring_mode_pending = 0;
-    return ESP_OK;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    esp_err_t err = s_ringing ? ring_send((ring_cmd_t){ .type = RING_CMD_DISMISS }) : ESP_OK;
+    xSemaphoreGive(s_lock);
+    return err;
 }
 
 esp_err_t alarm_snooze(void)
 {
-    if (s_ring_source == ALARM_RING_SOURCE_TIMER) {
-        /* No snooze concept for timers - just stop it. */
-        return alarm_dismiss();
-    }
-    s_ring_mode_pending = 1;
-    return ESP_OK;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    esp_err_t err = s_ringing ? ring_send((ring_cmd_t){ .type = RING_CMD_SNOOZE }) : ESP_OK;
+    xSemaphoreGive(s_lock);
+    return err;
 }
 
 void alarm_register_ring_cb(alarm_ring_cb_t cb)
