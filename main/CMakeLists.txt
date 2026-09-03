@@ -14,6 +14,7 @@ idf_component_register(
         "debug/debug_cmds.c"
         "debug/debug_gnss.c"
         "services/alarm.c"
+        "services/audio.c"
         "services/cd_timer.c"
         "services/daily_log.c"
         "services/gpx_log.c"

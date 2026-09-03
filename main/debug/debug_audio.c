@@ -13,10 +13,8 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_heap_caps.h"
-#include "max98357a.h"
 #include "t3902.h"
-#include "axp2101.h"
-#include "twatch_board.h"
+#include "audio.h"
 #include "debug_audio.h"
 
 /* Audio test: buffer holding the last recording (PSRAM), shared by rec/playrec. */
@@ -90,9 +88,7 @@ static void play_and_record(const int16_t *buf, size_t n, const char *tag, const
         return;
     }
     vTaskDelay(pdMS_TO_TICKS(50));
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);   /* amp */
-    esp_err_t err = max98357a_write(buf, n);
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
+    esp_err_t err = audio_play_pcm(buf, n);
     printf("%s: playback %s\n", tag, (err == ESP_OK) ? "ok" : esp_err_to_name(err));
     if (xSemaphoreTake(s_rec_done, pdMS_TO_TICKS(n * 1000 / AUDIO_SAMPLE_RATE + 5000)) != pdTRUE) {
         printf("%s: rec timed out\n", tag);
@@ -141,9 +137,7 @@ void debug_audio_tone(const char *args)
             buf[i] = (int16_t)(sinf(2.0f * 3.14159265f * hz * i / AUDIO_SAMPLE_RATE) * amp);
         }
         printf("tone: %d Hz, %d ms, amp %d (%u samples)\n", hz, ms, amp, (unsigned)n);
-        axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);   /* amp */
-        esp_err_t err = max98357a_write(buf, n);
-        axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
+        esp_err_t err = audio_play_pcm(buf, n);
         printf("tone: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
         heap_caps_free(buf);
     }
@@ -194,15 +188,13 @@ void debug_audio_playrec(const char *args)
         printf("playrec: nothing recorded yet (use rec first)\n");
     } else {
         printf("playrec: playing %u samples x3\n", (unsigned)s_rec_n);
-        axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);   /* amp */
         for (int r = 0; r < 3; r++) {
-            esp_err_t err = max98357a_write(s_rec_buf, s_rec_n);
+            esp_err_t err = audio_play_pcm(s_rec_buf, s_rec_n);
             if (err != ESP_OK) {
                 printf("playrec: %s\n", esp_err_to_name(err));
                 break;
             }
         }
-        axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
         printf("playrec: done\n");
     }
 }
