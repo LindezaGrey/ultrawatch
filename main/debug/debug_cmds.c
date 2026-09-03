@@ -203,7 +203,9 @@ void debug_cmd_crashls(const char *args)
 void debug_cmd_crashread(const char *args)
 {
     size_t name_len = strlen(args);
-    if (name_len == 0 || name_len >= 64) {
+    if (name_len == 0 || name_len >= 64 ||
+        strspn(args, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") != name_len ||
+        strstr(args, "..") != NULL) {
         printf("crashread: invalid filename\n");
     } else {
         char name[64];
@@ -681,11 +683,9 @@ void debug_cmd_disppwr(const char *args)
 }
 
 /* Recover a panel that stopped reflecting what it is sent (the shake-triggered
- * white screen), by re-running the full bring-up sequence rather than just the
- * wake commands disppwr sends. Deliberately does NOT cycle the DISP_PWR rail:
- * running this alone, after a disppwr that did not help, separates "the panel
- * controller lost its configuration" from "the panel is not being driven" -
- * only the first is fixable in software.
+ * white screen), by re-running the full bring-up sequence without cycling the
+ * DISP_PWR rail.  The command-only mode is useful for comparing a pure panel
+ * reinitialization with a reset-assisted recovery.
  *
  * Holds the LVGL lock across the re-init so the flush task cannot push pixels
  * at a panel that is mid-reset, then forces a full repaint (GRAM contents are

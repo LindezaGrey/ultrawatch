@@ -122,12 +122,11 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
 11. `[done]` **Alarm auto-snooze cap and escalation** (2026-09-03) — unanswered alarms retry at most six times (10-minute intervals), with generated speaker amplitude rising from roughly 10% to 50%; the final ring continues until dismissed.
 
 ## Trivial
-- uwatch_main.c:798 comment says `alarm HH:MM`, parser wants `alarm <hh> <mm>`.
-- `crashread` has no `../` sanitization (debug-only interface).
+- `[done]` **`crashread` filename validation** (2026-09-03) — the debug-only reader now accepts only a single safe crash-report filename, preventing directory traversal outside its crash-report directory.
 - `[done]` USB debug console oversized line recovery (2026-09-03) — a full unterminated input buffer is discarded with a diagnostic so later commands continue to be read.
 - lvgl_app.c:111: back-to-back GNSS requests can collapse (single volatile int, no queue).
 - lvgl_app.c:1890-1903: duplicated/stale screenshot comment block.
 - `[done]` Alarm ring task/resource allocation checks (2026-09-03) — `alarm_init()` returns `ESP_ERR_NO_MEM` with a diagnostic if its semaphore or task cannot be created.
-- co5300_deinit() leaks s_panel_io (dead code path).
-- Boot DISP_PWR pulse is 50 ms vs 200 ms in `disppwr` (twatch_board.c:198-203 vs uwatch_main.c:547-550) — match margins if a stuck panel ever survives the boot pulse.
-- `disppwr` sends only SLPOUT+brightness after a real power cut; works only if the CO5300 reloads OTP config on power-up — otherwise it needs the full s_init_cmds sequence.
+- `[done]` **CO5300 teardown** (2026-09-03) — the dormant `co5300_deinit()` path now releases its panel-I/O handle before freeing the SPI bus.
+- `[done]` **Boot display rail-cycle margin** (2026-09-03) — boot and diagnostic recovery now both hold DISP_PWR low for 200 ms.
+- `[done]` **`disppwr` reinitialization** (2026-09-03) — it routes through `display_controller_recover()`, which rail-cycles and reruns the complete CO5300 initialization sequence.

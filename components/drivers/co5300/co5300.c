@@ -119,6 +119,10 @@ esp_err_t co5300_deinit(void)
         esp_lcd_panel_del(s_panel);
         s_panel = NULL;
     }
+    if (s_panel_io) {
+        esp_lcd_panel_io_del(s_panel_io);
+        s_panel_io = NULL;
+    }
     spi_bus_free(CO5300_SPI_HOST);
     s_initialized = false;
     return ESP_OK;
