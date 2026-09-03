@@ -222,10 +222,10 @@ passend zum Gesamtkonzept.
     der Node-Übersicht) gelten **eigene, lokale Swipe-Regeln** (Swipe/Button
     zurück zur jeweils übergeordneten Seite) – diese lösen keine Ring-
     Navigation aus und werden unabhängig davon behandelt.
-  - Die BHI-Sensor- und NFC-Screens sind **nicht** über Swipe erreichbar (nur
-    über Debug-Konsolen-Befehle) und haben dementsprechend aktuell auch
-    keine Swipe-zurück-Geste – der Rückweg läuft dort ausschließlich über das
-    Inaktivitäts-Timeout.
+  - Der NFC-Screen ist über die Ring-Navigation erreichbar (nach Alarme); die
+    Scan-Oberfläche und ein NFC-A-Tag wurden auf Hardware erfolgreich getestet.
+    Der BHI-Sensor-Screen bleibt debug-only und kehrt über das
+    Inaktivitäts-Timeout zurück.
 
 ---
 

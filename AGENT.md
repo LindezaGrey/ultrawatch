@@ -155,7 +155,7 @@ cmake .. && make -j$(nproc)
 ./uwatch_sim
 ```
 
-Standard workflow for a new/changed screen: build it in the sim first, verify it looks right, **then** flash real hardware — much faster than round-tripping through a full `idf.py flash` for every UI tweak. Keep `sim/*_screen.c` in sync with `main/lvgl_app.c` by hand; there's no build-time link between the two.
+Standard workflow for a new/changed screen: build it in the sim first, verify it looks right, **then** flash real hardware — much faster than round-tripping through a full `idf.py flash` for every UI tweak. The simulator renders the shared `main/screens/*.c` sources through `sim/compat` and `sim/mock_hw`; firmware-only UI in `main/lvgl_app.c` still needs hardware verification.
 
 Interactive dev-shortcut keys (see `sim/main.c`): `R`/`T` preview the alarm/timer ringing screen, `A` jumps to the Alarms list, `S` jumps to the Settings category list, `P` dumps a screenshot to `/tmp/uwatch_sim_shot_NNN.ppm`.
 
