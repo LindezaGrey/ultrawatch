@@ -6,10 +6,12 @@
 #include "xl9555.h"
 #include "drv2605.h"
 #include "nvs_flash.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #define HAPTIC_NVS_NS  "haptic"
+static const char *TAG = "haptic";
 
 /* Effect ids from the DRV2605 datasheet's Waveform Library Effects List
  * (section 11.2) - library 1 (ERM, see drv2605_init()). 47 ("Buzz 1 - 100%")
@@ -80,6 +82,8 @@ static void haptic_play_test_task(void *arg)
 
 void haptic_play_test_async(uint8_t wave_id)
 {
-    xTaskCreate(haptic_play_test_task, "haptic_test", 2048,
-                (void *)(uintptr_t)wave_id, 3, NULL);
+    if (xTaskCreate(haptic_play_test_task, "haptic_test", 2048,
+                    (void *)(uintptr_t)wave_id, 3, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "test task allocation failed");
+    }
 }

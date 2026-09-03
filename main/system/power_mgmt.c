@@ -580,8 +580,10 @@ void power_mgmt_sparmodus_handle_wake(void)
         ESP_LOGI(TAG, "Ultra-Sparmodus: woke for an alarm, skipping the BOOT-exit watcher");
         return;
     }
-    xTaskCreate(sparmodus_boot_watch_task, "sparmodus_boot", 3072, NULL,
-                ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, NULL);
+    if (xTaskCreate(sparmodus_boot_watch_task, "sparmodus_boot", 3072, NULL,
+                    ESP_LV_ADAPTER_DEFAULT_TASK_PRIORITY, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Ultra-Sparmodus exit watcher allocation failed");
+    }
 }
 
 bool power_mgmt_get_night_mode_auto(void)
