@@ -225,6 +225,10 @@ void wifi_scan_init(void)
 {
     if (!s_mux) {
         s_mux = xSemaphoreCreateMutex();
+        if (!s_mux) {
+            ESP_LOGE(TAG, "results mutex allocation failed");
+            return;
+        }
     }
     nvs_handle_t h;
     if (nvs_open(WIFI_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
@@ -234,5 +238,7 @@ void wifi_scan_init(void)
         }
         nvs_close(h);
     }
-    xTaskCreate(wifi_scan_task, "wifi_scan", 4096, NULL, 3, NULL);
+    if (xTaskCreate(wifi_scan_task, "wifi_scan", 4096, NULL, 3, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "scan task allocation failed");
+    }
 }

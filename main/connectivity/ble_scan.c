@@ -270,11 +270,17 @@ void ble_scan_init(void)
 {
     if (!s_mux) {
         s_mux = xSemaphoreCreateMutex();
+        if (!s_mux) {
+            ESP_LOGE(TAG, "results mutex allocation failed");
+            return;
+        }
     }
     /* s_enabled deliberately stays false at boot regardless of what was
      * persisted last session - unlike WiFi/LoRa, this is a one-shot 30s
      * scan, not a state that makes sense to silently resume on its own;
      * the NVS value exists for a future "remember last choice" UI nicety,
      * not to auto-restart scanning. */
-    xTaskCreate(ble_scan_task, "ble_scan", 4096, NULL, 3, NULL);
+    if (xTaskCreate(ble_scan_task, "ble_scan", 4096, NULL, 3, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "scan task allocation failed");
+    }
 }

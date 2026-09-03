@@ -73,6 +73,10 @@ static void play_and_record(const int16_t *buf, size_t n, const char *tag, const
 {
     if (!s_rec_done) {
         s_rec_done = xSemaphoreCreateBinary();
+        if (!s_rec_done) {
+            printf("%s: no memory for recording completion signal\n", tag);
+            return;
+        }
     }
     xSemaphoreTake(s_rec_done, 0);
     if (!rec_ensure_buf(n)) {
@@ -81,7 +85,10 @@ static void play_and_record(const int16_t *buf, size_t n, const char *tag, const
     }
     s_rec_n = n;
     printf("%s", info_line);
-    xTaskCreate(rec_task, tag, 2048, NULL, 5, NULL);
+    if (xTaskCreate(rec_task, tag, 2048, NULL, 5, NULL) != pdPASS) {
+        printf("%s: recording task allocation failed\n", tag);
+        return;
+    }
     vTaskDelay(pdMS_TO_TICKS(50));
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);   /* amp */
     esp_err_t err = max98357a_write(buf, n);

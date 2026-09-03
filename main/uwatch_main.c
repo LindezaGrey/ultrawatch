@@ -342,7 +342,9 @@ void app_main(void)
     }
 
     /* Debug command loop over USB-Serial-JTAG. */
-    xTaskCreate(debug_task, "dbg", DBG_TASK_STACK, NULL, 5, NULL);
+    if (xTaskCreate(debug_task, "dbg", DBG_TASK_STACK, NULL, 5, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "debug task allocation failed");
+    }
 
     /* BLE debug bridge is currently disabled: the BT controller reserves DMA
      * that the 48-row display buffer needs, causing BLE connections to drop.
