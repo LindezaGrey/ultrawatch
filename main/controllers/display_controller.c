@@ -52,6 +52,9 @@ typedef struct {
 static QueueHandle_t s_queue;
 static volatile display_state_t s_state = DISPLAY_STATE_INITIALIZING;
 static bool s_lvgl_attached;
+/* A frame is transferred in several bands, but DISPLAY_CMD_DRAW_COMPLETE is
+ * only an edge: one completed band is enough to make the panel visible. */
+static bool s_draw_complete_queued;
 static uint8_t s_brightness = 0x80;
 static portMUX_TYPE s_sync_lock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -65,6 +68,33 @@ static void display_enqueue_async(const display_cmd_t *cmd, const char *name)
          * silently looking like a panel or UI failure. */
         ESP_LOGW(TAG, "%s request dropped: controller queue full", name);
     }
+}
+
+static void display_enqueue_draw_complete(void)
+{
+    const display_cmd_t cmd = { .type = DISPLAY_CMD_DRAW_COMPLETE };
+
+    taskENTER_CRITICAL(&s_sync_lock);
+    if (s_draw_complete_queued) {
+        taskEXIT_CRITICAL(&s_sync_lock);
+        return;
+    }
+    s_draw_complete_queued = true;
+    taskEXIT_CRITICAL(&s_sync_lock);
+
+    if (xQueueSend(s_queue, &cmd, 0) != pdPASS) {
+        taskENTER_CRITICAL(&s_sync_lock);
+        s_draw_complete_queued = false;
+        taskEXIT_CRITICAL(&s_sync_lock);
+        ESP_LOGW(TAG, "draw-complete request dropped: controller queue full");
+    }
+}
+
+static void display_draw_complete_dequeued(void)
+{
+    taskENTER_CRITICAL(&s_sync_lock);
+    s_draw_complete_queued = false;
+    taskEXIT_CRITICAL(&s_sync_lock);
 }
 
 static void display_reply(TaskHandle_t reply, esp_err_t err)
@@ -130,6 +160,9 @@ static void display_controller_task(void *arg)
     display_cmd_t cmd;
     for (;;) {
         xQueueReceive(s_queue, &cmd, portMAX_DELAY);
+        if (cmd.type == DISPLAY_CMD_DRAW_COMPLETE) {
+            display_draw_complete_dequeued();
+        }
         if (cmd.type == DISPLAY_CMD_INIT) {
             esp_err_t err = co5300_init(true);
             if (err == ESP_OK) {
@@ -181,7 +214,7 @@ static void display_controller_task(void *arg)
         if (cmd.type == DISPLAY_CMD_DRAW_COMPLETE && s_state == DISPLAY_STATE_AWAITING_DRAW) {
             if (esp_lv_adapter_lock(1000) != ESP_OK) {
                 vTaskDelay(pdMS_TO_TICKS(10));
-                xQueueSend(s_queue, &cmd, 0);
+                display_enqueue_draw_complete();
                 continue;
             }
             esp_err_t err = co5300_display_on();
@@ -385,8 +418,7 @@ void display_controller_note_draw_complete(void)
     if (!s_queue) {
         return;
     }
-    const display_cmd_t cmd = { .type = DISPLAY_CMD_DRAW_COMPLETE };
-    display_enqueue_async(&cmd, "draw-complete");
+    display_enqueue_draw_complete();
 }
 
 void display_controller_set_brightness(uint8_t level)
