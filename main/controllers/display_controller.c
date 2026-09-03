@@ -7,6 +7,8 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include <stdlib.h>
+#include <string.h>
 #include "lvgl_app.h"
 #include "twatch_board.h"
 
@@ -26,10 +28,18 @@ typedef enum {
 } display_cmd_type_t;
 
 typedef struct {
+    SemaphoreHandle_t done;
+    esp_err_t result;
+    uint8_t *read_data;
+    uint8_t *read_output;
+    size_t read_length;
+    unsigned refs;
+} display_sync_t;
+
+typedef struct {
     display_cmd_type_t type;
     TaskHandle_t reply;
-    SemaphoreHandle_t done;
-    esp_err_t *result;
+    display_sync_t *sync;
     uint8_t brightness;
     display_recovery_t recovery;
     display_diag_operation_t diag_operation;
@@ -43,6 +53,7 @@ static QueueHandle_t s_queue;
 static volatile display_state_t s_state = DISPLAY_STATE_INITIALIZING;
 static bool s_lvgl_attached;
 static uint8_t s_brightness = 0x80;
+static portMUX_TYPE s_sync_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static esp_err_t display_submit_sync(display_cmd_t *cmd, TickType_t timeout);
 
@@ -55,11 +66,32 @@ static void display_reply(TaskHandle_t reply, esp_err_t err)
 
 static void display_complete(const display_cmd_t *cmd, esp_err_t err)
 {
-    if (cmd->result) {
-        *cmd->result = err;
+    if (cmd->sync) {
+        cmd->sync->result = err;
+        xSemaphoreGive(cmd->sync->done);
+
+        bool release = false;
+        taskENTER_CRITICAL(&s_sync_lock);
+        release = --cmd->sync->refs == 0;
+        taskEXIT_CRITICAL(&s_sync_lock);
+        if (release) {
+            vSemaphoreDelete(cmd->sync->done);
+            free(cmd->sync->read_data);
+            free(cmd->sync);
+        }
     }
-    if (cmd->done) {
-        xSemaphoreGive(cmd->done);
+}
+
+static void display_sync_release(display_sync_t *sync)
+{
+    bool release = false;
+    taskENTER_CRITICAL(&s_sync_lock);
+    release = --sync->refs == 0;
+    taskEXIT_CRITICAL(&s_sync_lock);
+    if (release) {
+        vSemaphoreDelete(sync->done);
+        free(sync->read_data);
+        free(sync);
     }
 }
 
@@ -361,26 +393,8 @@ void display_controller_set_brightness(uint8_t level)
 
 esp_err_t display_controller_sleep(TickType_t timeout)
 {
-    if (!s_queue) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    SemaphoreHandle_t done = xSemaphoreCreateBinary();
-    if (!done) {
-        return ESP_ERR_NO_MEM;
-    }
-    esp_err_t result = ESP_FAIL;
-    const display_cmd_t cmd = {
-        .type = DISPLAY_CMD_SLEEP,
-        .done = done,
-        .result = &result,
-    };
-    if (xQueueSend(s_queue, &cmd, timeout) != pdPASS) {
-        vSemaphoreDelete(done);
-        return ESP_ERR_TIMEOUT;
-    }
-    xSemaphoreTake(done, portMAX_DELAY);
-    vSemaphoreDelete(done);
-    return result;
+    display_cmd_t cmd = { .type = DISPLAY_CMD_SLEEP };
+    return display_submit_sync(&cmd, timeout);
 }
 
 esp_err_t display_controller_power_off(TickType_t timeout)
@@ -392,17 +406,44 @@ esp_err_t display_controller_power_off(TickType_t timeout)
 static esp_err_t display_submit_sync(display_cmd_t *cmd, TickType_t timeout)
 {
     if (!s_queue) return ESP_ERR_INVALID_STATE;
-    SemaphoreHandle_t done = xSemaphoreCreateBinary();
-    if (!done) return ESP_ERR_NO_MEM;
-    esp_err_t result = ESP_FAIL;
-    cmd->done = done;
-    cmd->result = &result;
+    display_sync_t *sync = calloc(1, sizeof(*sync));
+    if (!sync) return ESP_ERR_NO_MEM;
+    sync->done = xSemaphoreCreateBinary();
+    if (!sync->done) {
+        free(sync);
+        return ESP_ERR_NO_MEM;
+    }
+    /* One reference belongs to this caller and one to the queued command.
+     * Either may finish first, so a timeout can return safely while the
+     * controller still owns the command and its completion storage. */
+    sync->refs = 2;
+    if (cmd->type == DISPLAY_CMD_DIAG_READ_REGISTER) {
+        sync->read_length = cmd->register_length;
+        sync->read_output = cmd->register_data;
+        sync->read_data = malloc(sync->read_length);
+        if (!sync->read_data) {
+            display_sync_release(sync);
+            display_sync_release(sync);
+            return ESP_ERR_NO_MEM;
+        }
+        cmd->register_data = sync->read_data;
+    }
+    cmd->sync = sync;
     if (xQueueSend(s_queue, cmd, timeout) != pdPASS) {
-        vSemaphoreDelete(done);
+        display_sync_release(sync);
+        display_sync_release(sync);
         return ESP_ERR_TIMEOUT;
     }
-    xSemaphoreTake(done, portMAX_DELAY);
-    vSemaphoreDelete(done);
+    if (xSemaphoreTake(sync->done, timeout) != pdTRUE) {
+        ESP_LOGW(TAG, "display command timed out after %lu ms", (unsigned long)(timeout * portTICK_PERIOD_MS));
+        display_sync_release(sync);
+        return ESP_ERR_TIMEOUT;
+    }
+    esp_err_t result = sync->result;
+    if (result == ESP_OK && sync->read_output) {
+        memcpy(sync->read_output, sync->read_data, sync->read_length);
+    }
+    display_sync_release(sync);
     return result;
 }
 
