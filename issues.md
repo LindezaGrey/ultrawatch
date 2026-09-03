@@ -5,7 +5,7 @@ Updated: 2026-09-03
 ## Recently Fixed
 
 - **Alarm ring-task buffer leak** — `main/services/alarm.c` now frees the ring buffer on task termination.
-- **Tracking/GNSS shared-state races** — added mutex protection in `main/services/tracking.c` and `components/drivers/m10q/m10q.c` for `s_fix`, `s_nav_status`, and session state.
+- **Tracking/GNSS shared-state races** — mutex protection now covers `s_fix`, `s_nav_status`, satellite lists, statistics snapshots, and session state; the tracking task performs sensor reads outside its state lock.
 - **`uwatch_main.c` command dispatcher** — re-indented `debug_process_cmd()` for readability.
 - **ESP-IDF version** — verified `espressif/idf:v6.0.2` is available locally; no Dockerfile change needed.
 - **IMU wake-state race** — `s_imu_wake_armed` is now protected by an ISR-safe critical section shared by the GPIO ISR and the sleep-entry/exit paths. Hardware gesture-wake regression remains to be run.

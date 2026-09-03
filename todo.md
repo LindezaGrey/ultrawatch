@@ -87,8 +87,8 @@ Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
    **Fix:** replaced `s_wake_gpio` with a `s_wake_sources` bitmask (`PM_WAKE_PWRKEY`/`BOOT`/`IMU`/`RTC`), OR'd in from `button_isr` under a critical section; `pm_wake_task` now processes every set bit in one pass instead of only the last writer. See ADR [0001](docs/adr/0001-wake-source-bitmask.md).
 
 ## Medium
-3. `[pending]` **tracking.c — tracking task holds `s_mux` across I2C reads + `esp_lv_adapter_report_activity()` (tracking.c:139-170).**
-   Can add ms-scale blockage to UI-side tracking reads. Shrink the critical section (sample step count outside the lock).
+3. `[done]` **tracking.c — tracking task held `s_mux` across I2C reads + `esp_lv_adapter_report_activity()`.** (2026-09-03)
+   The task now samples activity and step count outside the state lock, then rechecks the session before applying results.
 4. `[pending]` **m10q.c — data mutex taken inside ubxlib rx callbacks (`pos_cb`, `nav_status_cb`).**
    Correct, but verify ubxlib task priority vs UI priority for priority inversion.
 5. `[pending]` **`imon` busy-polls GPIO8 for 30s** — debug-only, low CPU impact, minor.
@@ -118,8 +118,8 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
 
 ## Low
 4. `[pending]` **DST inconsistency** — twatch_board.c:136 uses `struct tm tm = {0}` (tm_isdst=0) while lvgl_app.c:292 and m10q.c:165 use tm_isdst=-1; system clock ends up 1 h off during CEST (crash timestamps, time()).
-5. `[pending]` **parse_nav_sat() writes s_fix without s_data_mux** (m10q.c:418, via nav_sat_cb) — inconsistent with pos_cb/nav_status_cb; torn satellite list reads possible.
-6. `[pending]` **m10q_get_stats() reads s_stats unlocked** (m10q.c:787) while pos_cb mutates it.
+5. `[done]` **`parse_nav_sat()` wrote `s_fix` without `s_data_mux`** (2026-09-03) — satellite-list updates now use the same mutex as other receiver callbacks.
+6. `[done]` **`m10q_get_stats()` read `s_stats` unlocked** (2026-09-03) — readers and callback updates now take a coherent mutex-protected snapshot.
 7. `[pending]` **Night-mode red filter off-by-one** — lvgl_app.c:198: draw-bitmap coords are inclusive, count should be (x_end-x_start+1)*(y_end-y_start+1); last row/col of each flushed band stays unfiltered (faint fringe).
 8. `[pending]` **alarm ring_start() resets s_ring_mode_pending unconditionally** (alarm.c:287-292) — a snooze-timer fire landing on a dismiss press eats the dismiss and re-rings. Guard with `if (s_ringing) return;`.
 9. `[pending]` **Watch-face month index unguarded** — lvgl_app.c:307: `mon[t.month - 1]` with a garbled RTC month 0 reads out of bounds (weekday is range-checked, month isn't).
