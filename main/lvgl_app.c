@@ -651,9 +651,14 @@ static void gps_ctrl_task(void *arg)
         } else if (req == GPS_CTRL_REFRESH) {
             /* Boot LKP check: wait for a 3D fix so m10q's gate can persist the
              * last-known position. GNSS stays on (always-on mode); the fix just
-             * updates the LKP for the next session's position aiding. */
+            * updates the LKP for the next session's position aiding. */
             if (!gps_screen_is_powered()) {
-                m10q_power(true);
+                esp_err_t err = m10q_power(true);
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "GNSS position refresh startup failed: %s",
+                             esp_err_to_name(err));
+                    continue;
+                }
                 gps_screen_set_powered(true);
             }
             ESP_LOGI(TAG, "GNSS position refresh: acquiring 3D fix...");
@@ -693,7 +698,12 @@ static void gps_ctrl_task(void *arg)
             double seed_lat = 0, seed_lon = 0;
             bool have_seed = tracking_get_estimated_position(&seed_lat, &seed_lon);
             if (!gps_screen_is_powered()) {
-                m10q_power(true);
+                esp_err_t err = m10q_power(true);
+                if (err != ESP_OK) {
+                    ESP_LOGE(TAG, "GNSS tracking startup failed: %s", esp_err_to_name(err));
+                    tracking_fix_clear();
+                    continue;
+                }
                 gps_screen_set_powered(true);
             }
             /* IMU-assisted re-acquisition: seed the receiver with the estimated
@@ -740,9 +750,14 @@ static void gps_ctrl_task(void *arg)
              * purpose and must stay off - re-powering here (the task polls
              * every 50 ms) would undo the power-down ~50 ms after it and leave
              * the GNSS powered during sleep. */
-            gps_screen_set_powered(true);
-            m10q_power(true);
-            ESP_LOGI(TAG, "GNSS re-powered after wake");
+            esp_err_t err = m10q_power(true);
+            if (err == ESP_OK) {
+                gps_screen_set_powered(true);
+                ESP_LOGI(TAG, "GNSS re-powered after wake");
+            } else {
+                gps_screen_set_powered(false);
+                ESP_LOGE(TAG, "GNSS wake recovery failed: %s", esp_err_to_name(err));
+            }
         }
 
         /* Opportunistic MGA-INI position seed refresh - independent of
