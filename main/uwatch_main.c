@@ -61,6 +61,11 @@ static void debug_task(void *arg)
     uint32_t last_heap_log = 0;
 
     for (;;) {
+        if (len == sizeof(line) - 1) {
+            line[len] = '\0';
+            printf("debug: input line too long, discarded\n");
+            len = 0;
+        }
         int n = usb_serial_jtag_read_bytes(line + len, sizeof(line) - len - 1, pdMS_TO_TICKS(50));
         if (n < 0) {
             vTaskDelay(pdMS_TO_TICKS(100));

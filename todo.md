@@ -125,7 +125,7 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
 ## Trivial
 - uwatch_main.c:798 comment says `alarm HH:MM`, parser wants `alarm <hh> <mm>`.
 - `crashread` has no `../` sanitization (debug-only interface).
-- uwatch_main.c:107: a >255-char line without newline wedges the console buffer.
+- `[done]` USB debug console oversized line recovery (2026-09-03) — a full unterminated input buffer is discarded with a diagnostic so later commands continue to be read.
 - lvgl_app.c:111: back-to-back GNSS requests can collapse (single volatile int, no queue).
 - lvgl_app.c:1890-1903: duplicated/stale screenshot comment block.
 - alarm.c:305-310: semaphore/task creation unchecked.
