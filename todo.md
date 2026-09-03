@@ -123,7 +123,7 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
 7. `[done]` **Night-mode red filter off-by-one** (2026-09-03) — superseded by the adapter’s end-exclusive draw-bitmap API. `area_rounder_cb()` explicitly converts LVGL’s inclusive invalidation bounds before this callback computes its pixel count.
 8. `[done]` **Alarm `ring_start()` reset race** (2026-09-03) — superseded by the current ring state machine: `s_ringing` remains true until a pending dismiss/snooze is consumed, so RTC handling cannot start a second ring in that window.
 9. `[done]` **Watch-face month index unguarded** (2026-09-03) — superseded by `localtime_r()` formatting in `screens/watch_face.c`; no direct RTC month-array indexing remains.
-10. `[pending]` **sd_log_flush() drops ring content when fopen fails** (sd_log.c:354-359) — transient SD/MMC errors silently lose log lines; keep s_ring_len on open failure.
+10. `[done]` **System-log flush dropped its buffered batch on SD failure** (2026-09-03) — `syslog_capture.c` now restores a failed batch ahead of concurrently captured lines when mounting, opening, writing, or closing the log file fails.
 11. `[pending]` **Alarm auto-snooze has no retry cap** — observed 15 auto-snoozes over 2.5 h (SD log, 17. Aug). Consider a max-snooze count or escalating volume.
 
 ## Trivial

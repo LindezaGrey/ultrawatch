@@ -27,6 +27,33 @@ static SemaphoreHandle_t s_mux;
 static SemaphoreHandle_t s_flush_wake;
 static vprintf_like_t s_prev_vprintf;
 
+/* Put a failed flush back ahead of lines captured while SD I/O was in
+ * progress. Keeping the oldest batch takes priority if the fixed RAM buffer
+ * filled during the failure, so the next successful flush stays ordered. */
+static void syslog_restore(const char *data, size_t len)
+{
+    if (xSemaphoreTake(s_mux, portMAX_DELAY) != pdTRUE) {
+        return;
+    }
+    if (len >= SYSLOG_BUF_SIZE) {
+        memcpy(s_buf, data, SYSLOG_BUF_SIZE);
+        s_buf_len = SYSLOG_BUF_SIZE;
+    } else {
+        size_t retained_len = s_buf_len;
+        if (retained_len > SYSLOG_BUF_SIZE - len) {
+            retained_len = SYSLOG_BUF_SIZE - len;
+        }
+        memmove(s_buf + len, s_buf, retained_len);
+        memcpy(s_buf, data, len);
+        s_buf_len = len + retained_len;
+    }
+    bool full = s_buf_len >= SYSLOG_HIGH_WATER;
+    xSemaphoreGive(s_mux);
+    if (full) {
+        xSemaphoreGive(s_flush_wake);
+    }
+}
+
 /* Tees every ESP_LOGx line into the RAM buffer, then always passes through
  * to whatever was previously installed (console output, and/or ble_debug's
  * own hook if that's ever re-enabled - see its header comment already
@@ -96,14 +123,20 @@ static void syslog_flush(void)
          * debug console commands) deadlocks forever on its own
          * sd_log_session_begin(). */
         sd_log_session_end();
-        return;   /* no card - drop this window's log, matches every other logger's behavior */
+        syslog_restore(flush_copy, len);
+        return;
     }
     FILE *f = fopen(SYSLOG_FILE, "a");
+    bool saved = false;
     if (f) {
-        fwrite(flush_copy, 1, len, f);
-        fclose(f);
+        size_t written = fwrite(flush_copy, 1, len, f);
+        int close_rc = fclose(f);
+        saved = written == len && close_rc == 0;
     }
     sd_log_session_end();
+    if (!saved) {
+        syslog_restore(flush_copy, len);
+    }
 }
 
 void syslog_capture_service(uint32_t timeout_ms)
