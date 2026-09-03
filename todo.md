@@ -124,7 +124,7 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
 ## Trivial
 - `[done]` **`crashread` filename validation** (2026-09-03) — the debug-only reader now accepts only a single safe crash-report filename, preventing directory traversal outside its crash-report directory.
 - `[done]` USB debug console oversized line recovery (2026-09-03) — a full unterminated input buffer is discarded with a diagnostic so later commands continue to be read.
-- lvgl_app.c:111: back-to-back GNSS requests can collapse (single volatile int, no queue).
+- `[done]` **GNSS control request hand-off** (2026-09-03) — the intentionally single-slot, latest-request-wins GNSS command is now exchanged atomically between the UI and the slow control task.
 - lvgl_app.c:1890-1903: duplicated/stale screenshot comment block.
 - `[done]` Alarm ring task/resource allocation checks (2026-09-03) — `alarm_init()` returns `ESP_ERR_NO_MEM` with a diagnostic if its semaphore or task cannot be created.
 - `[done]` **CO5300 teardown** (2026-09-03) — the dormant `co5300_deinit()` path now releases its panel-I/O handle before freeing the SPI bus.

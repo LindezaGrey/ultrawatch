@@ -100,7 +100,12 @@ static TaskHandle_t s_nfc_ctrl_task;
 #define GPS_CTRL_OFF     2
 #define GPS_CTRL_REFRESH 3   /* one-shot boot position check */
 #define GPS_REFRESH_TIMEOUT_MS 120000
-static volatile int s_gps_ctrl_req;
+/* One pending command is intentional: if the user changes the GPS switch
+ * repeatedly while a slow power transition runs, only their latest choice
+ * should be applied.  The lock makes taking-and-clearing that command atomic
+ * with a concurrent UI update. */
+static int s_gps_ctrl_req;
+static portMUX_TYPE s_gps_ctrl_mux = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_gps_ctrl_task;
 #define LKP_REFRESH_INTERVAL_MS (60 * 1000)   /* NVS write throttle, not fix rate */
 static uint32_t s_gps_lkp_saved_ms;    /* xTaskGetTickCount()-scale, wraps like the others here */
@@ -633,8 +638,10 @@ static void gps_ctrl_task(void *arg)
 {
     (void)arg;
     for (;;) {
+        taskENTER_CRITICAL(&s_gps_ctrl_mux);
         int req = s_gps_ctrl_req;
         s_gps_ctrl_req = GPS_CTRL_NONE;
+        taskEXIT_CRITICAL(&s_gps_ctrl_mux);
         if (req == GPS_CTRL_ON && !gps_screen_is_powered()) {
             esp_err_t err = m10q_power(true);
             if (err == ESP_OK) {
@@ -798,7 +805,9 @@ static void gps_ctrl_task(void *arg)
  * the background control task so the UI never blocks. */
 static void gps_power(bool on)
 {
+    taskENTER_CRITICAL(&s_gps_ctrl_mux);
     s_gps_ctrl_req = on ? GPS_CTRL_ON : GPS_CTRL_OFF;
+    taskEXIT_CRITICAL(&s_gps_ctrl_mux);
 }
 
 /* gps_pwr_switch_cb() / gps_track_btn_cb() now live in
@@ -807,7 +816,9 @@ static void gps_power(bool on)
 /* One-shot boot-time GNSS position check (background). */
 static void gps_refresh(void)
 {
+    taskENTER_CRITICAL(&s_gps_ctrl_mux);
     s_gps_ctrl_req = GPS_CTRL_REFRESH;
+    taskEXIT_CRITICAL(&s_gps_ctrl_mux);
 }
 
 /* Public wrapper for console/other modules. */
