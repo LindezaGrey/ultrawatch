@@ -33,7 +33,9 @@ typedef struct {
 - **vibration**: `drv2605_play(wave)` pulses on the same cadence.
 - **both**: beep + haptic synchronized.
 - Loops until Dismiss/Snooze; `esp_lv_adapter_report_activity()` keeps the watch
-  awake.
+  awake. An unanswered alarm automatically snoozes at most six times for ten
+  minutes each; its generated tone rises from roughly 10% to 50% full scale on
+  those retries, then the final ring continues until dismissed.
 
 ## Integration
 

@@ -334,6 +334,9 @@ Anlegen, Anzeigen und Verwalten von Weckalarmen und Countdown-Timern.
   das Display ausgewählt** (Tap auf ein eigenes Snooze-Element im
   Alarm-Vollbild) – die einzige Stelle, an der Touch beim Alarm-Handling
   verwendet wird.
+- Bleibt ein Alarm unbeantwortet, wird er höchstens **sechsmal automatisch
+  für je 10 Minuten** verschoben. Jeder erneute Ton wird lauter; danach bleibt
+  der letzte Alarm hörbar, bis er vollständig gestoppt wird.
 
 ### 8.4 Offene Fragen
 - Genaue Preset-Werte für Timer und Alarme (siehe oben) – welche Werte decken

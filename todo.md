@@ -123,7 +123,7 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
 8. `[done]` **Alarm `ring_start()` reset race** (2026-09-03) — superseded by the current ring state machine: `s_ringing` remains true until a pending dismiss/snooze is consumed, so RTC handling cannot start a second ring in that window.
 9. `[done]` **Watch-face month index unguarded** (2026-09-03) — superseded by `localtime_r()` formatting in `screens/watch_face.c`; no direct RTC month-array indexing remains.
 10. `[done]` **System-log flush dropped its buffered batch on SD failure** (2026-09-03) — `syslog_capture.c` now restores a failed batch ahead of concurrently captured lines when mounting, opening, writing, or closing the log file fails.
-11. `[pending]` **Alarm auto-snooze has no retry cap** — observed 15 auto-snoozes over 2.5 h (SD log, 17. Aug). Consider a max-snooze count or escalating volume.
+11. `[done]` **Alarm auto-snooze cap and escalation** (2026-09-03) — unanswered alarms retry at most six times (10-minute intervals), with generated speaker amplitude rising from roughly 10% to 50%; the final ring continues until dismissed.
 
 ## Trivial
 - uwatch_main.c:798 comment says `alarm HH:MM`, parser wants `alarm <hh> <mm>`.
