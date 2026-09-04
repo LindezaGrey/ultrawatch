@@ -266,6 +266,10 @@ void app_main(void)
      * gone by the time it's needed after lvgl_app_start() returns. */
     bool sparmodus_explicit_wake = power_mgmt_sparmodus_was_deep_sleep_wake();
 
+    /* Memory-only SD cards reject the driver's routine SDIO probes (CMD52
+     * and CMD5).  Keep genuine warnings/errors, but hide that INFO noise. */
+    esp_log_level_set("sdspi_transaction", ESP_LOG_WARN);
+
     /* The RTC stores UTC; local display and scheduling use the configured
      * POSIX timezone. */
     setenv("TZ", CONFIG_UWATCH_TIMEZONE, 1);
