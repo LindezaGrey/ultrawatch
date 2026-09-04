@@ -266,9 +266,9 @@ void app_main(void)
      * gone by the time it's needed after lvgl_app_start() returns. */
     bool sparmodus_explicit_wake = power_mgmt_sparmodus_was_deep_sleep_wake();
 
-    /* Set the local timezone so UTC<->local conversions (RTC sync from GNSS,
-     * MGA-INI aiding) are correct. */
-    setenv("TZ", "CET-1CEST-2,M3.5.0/2,M10.5.0/3", 1);
+    /* The RTC stores UTC; local display and scheduling use the configured
+     * POSIX timezone. */
+    setenv("TZ", CONFIG_UWATCH_TIMEZONE, 1);
     tzset();
 
     esp_err_t err = nvs_flash_init();

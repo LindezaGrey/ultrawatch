@@ -278,6 +278,7 @@ void debug_cmd_panictest(const char *args)
     printf("panictest: triggering a null-pointer dereference...\n");
     vTaskDelay(pdMS_TO_TICKS(100));
     volatile uint32_t *p = (volatile uint32_t *)0;
+    // cppcheck-suppress nullPointer
     *p = 0xDEADBEEF;
     printf("panictest: should never reach here\n");
 }

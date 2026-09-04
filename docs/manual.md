@@ -114,12 +114,14 @@ touch. Touching the screen resets the timer.
 The displayed time is read from the on-board RTC (PCF85063A) every second, so
 it never drifts from the ESP32's internal clock.
 
-On the first GNSS fix the RTC is set from GPS UTC (converted to local time via
-the configured timezone). While a fix is present, the receiver's 1PPS output
-(GPIO13) is used to measure the RTC's drift and write a correction to the
-PCF85063A **OFFSET** register (step 4.34 ppm/LSB, ±64 ppm). The offset is
-persisted in NVS and re-applied on every boot, so the RTC keeps GPS accuracy
-even in the blind. `rtccal` re-runs the calibration manually (needs a fix).
+On the first GNSS fix the RTC is set directly from GPS UTC. Local display,
+alarms, night mode, and local-date logs use the POSIX timezone selected by
+`CONFIG_UWATCH_TIMEZONE` (CET/CEST by default). While a fix is present, the
+receiver's 1PPS output (GPIO13) is used to measure the RTC's drift and write a
+correction to the PCF85063A **OFFSET** register (step 4.34 ppm/LSB, ±64 ppm).
+The offset is persisted in NVS and re-applied on every boot, so the RTC keeps
+GPS accuracy even in the blind. `rtccal` re-runs the calibration manually
+(needs a fix).
 
 ## Architecture: background tasks + cached sensors
 

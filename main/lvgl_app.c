@@ -1388,14 +1388,6 @@ esp_err_t lvgl_app_start(void)
 }
 
 /* ---- Screenshot dump (debug) ----
- * Captures the active LVGL screen and prints it to the console as base64 of
- * RGB565 (little-endian) pixels, framed for the host decode script:
- *   ==SHOT:<w>x<h>==  <base64>  ==ENDSHOT==
- * Byte order matches the native RGB565 snapshot; the host script byte-swaps
- * for the big-endian panel if needed. Call in LVGL task context (with the
- * adapter lock held). */
-
-/* ---- Screenshot dump (debug) ----
  * Captures the active LVGL screen and streams it over the USB-JTAG console
  * as raw RGB565 (little-endian) pixels, framed for the host decode script:
  *   ==SHOT:<w>x<h>==  <raw pixels>  ==ENDSHOT==

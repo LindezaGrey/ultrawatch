@@ -30,7 +30,10 @@ CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 CONFIG_APP_PROJECT_VER_FROM_CONFIG=y
 CONFIG_APP_PROJECT_VER="1.0.0"
 
-# Partition table: custom (nvs / phy_init / 2 MB factory app / 512K coredump / 1 MB assets)
+# Local display/scheduling timezone; the hardware RTC itself stores UTC.
+CONFIG_UWATCH_TIMEZONE="CET-1CEST-2,M3.5.0/2,M10.5.0/3"
+
+# Partition table: custom (nvs / phy_init / 3 MB factory app / 512K coredump / 1 MB assets)
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 

@@ -13,12 +13,16 @@ jobs:
     container: espressif/idf:v6.0.2
     steps:
       - uses: actions/checkout@v6
-      - name: Build firmware
-        run: idf.py build
-      - name: Build simulator and capture the watch face
+      - name: Install verification tools
         run: |
           apt-get update
-          apt-get install --yes cmake pkg-config libsdl2-dev
+          apt-get install --yes cmake cppcheck libsdl2-dev pkg-config
+      - name: Build firmware
+        run: idf.py build
+      - name: Run static analysis
+        run: bash tools/run_cppcheck.sh
+      - name: Build simulator and capture the watch face
+        run: |
           cmake -S sim -B sim/build
           cmake --build sim/build --parallel 2
           SDL_VIDEODRIVER=offscreen UWATCH_SIM_SCREEN=watch \

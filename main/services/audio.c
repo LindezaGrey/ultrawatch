@@ -138,7 +138,7 @@ static void audio_task(void *arg)
             if (cmd.type == AUDIO_CMD_ALARM_STOP) {
                 alarm_active = false;
                 axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
-            } else if (cmd.type == AUDIO_CMD_ALARM_START && alarm) {
+            } else if (cmd.type == AUDIO_CMD_ALARM_START) {
                 alarm_n = render_alarm_cycle(alarm, alarm_cap, cmd.amplitude);
             } else {
                 audio_reply(&cmd, ESP_ERR_INVALID_STATE);
@@ -160,7 +160,7 @@ static void audio_task(void *arg)
                 if (cmd.type == AUDIO_CMD_ALARM_STOP) {
                     alarm_active = false;
                     axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
-                } else if (cmd.type == AUDIO_CMD_ALARM_START && alarm) {
+                } else if (cmd.type == AUDIO_CMD_ALARM_START) {
                     alarm_n = render_alarm_cycle(alarm, alarm_cap, cmd.amplitude);
                 } else {
                     audio_reply(&cmd, ESP_ERR_INVALID_STATE);

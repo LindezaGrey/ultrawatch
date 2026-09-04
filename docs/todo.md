@@ -81,19 +81,19 @@ Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
 1. `[done]` **RTC/PWRKEY/BOOT GPIO ISR re-arm at sleep entry** (2026-09-03) — `pm_arm_gpio_wakeup()` now restores the shared ISR sources after configuring their low-level wake conditions, preventing a post-wake button or RTC event from being silently missed. Battery-powered wake regression remains to be run.
 2. `[done]` **power_mgmt.c — `s_wake_gpio` last-writer-wins with simultaneous wake sources.** (2026-08-27)
    Gesture + alarm waking together attribute to one source; the other's selective ISR re-arm is skipped. Impact limited by the 1 Hz `alarm_check` polling while awake, but compounds with #1.
-   **Fix:** replaced `s_wake_gpio` with a `s_wake_sources` bitmask (`PM_WAKE_PWRKEY`/`BOOT`/`IMU`/`RTC`), OR'd in from `button_isr` under a critical section; `pm_wake_task` now processes every set bit in one pass instead of only the last writer. See ADR [0001](docs/adr/0001-wake-source-bitmask.md).
+   **Fix:** replaced `s_wake_gpio` with a `s_wake_sources` bitmask (`PM_WAKE_PWRKEY`/`BOOT`/`IMU`/`RTC`), OR'd in from `button_isr` under a critical section; `pm_wake_task` now processes every set bit in one pass instead of only the last writer. See ADR [0001](adr/0001-wake-source-bitmask.md).
 
 ## Medium
 3. `[done]` **tracking.c — tracking task held `s_mux` across I2C reads + `esp_lv_adapter_report_activity()`.** (2026-09-03)
    The task now samples activity and step count outside the state lock, then rechecks the session before applying results.
-4. `[pending]` **m10q.c — data mutex taken inside ubxlib rx callbacks (`pos_cb`, `nav_status_cb`).**
-   Correct, but verify ubxlib task priority vs UI priority for priority inversion.
+4. `[done]` **m10q.c — data mutex taken inside ubxlib rx callbacks (`pos_cb`, `nav_status_cb`).** (2026-09-04)
+   Verified safe: ubxlib runs the NAV message receiver at priority 19 and the streamed-position callback at priority 2, while LVGL runs at priority 6. `s_data_mux` is created with `xSemaphoreCreateMutex()`, so ESP-IDF FreeRTOS priority inheritance bounds any inversion when a higher-priority callback waits for a reader. Lock holders perform only bounded field updates or structure copies, with no I/O, delays, or nested locks; no code change is needed.
 5. `[done]` **`imon` GPIO8 monitor busy-poll** (2026-09-03) — superseded: the debug command samples at 10 ms intervals with `vTaskDelay()`, yielding between reads.
-6. `[pending]` **Display TE/VSync flush sync (co5300).** Panel TE is already enabled (DCS 0x35, co5300.c:26) and routed to `TWATCH_PIN_DISP_TE` GPIO6 (twatch_board.h:52), but GPIO6 is unused — LVGL flush is not gated on VSync. Before pursuing: confirm GPIO6 actually toggles at VSync (pin-watch/scope). If it does, an IRAM ISR + holding each 48-row band flush until the TE edge is the integration path. Enhancement, not a correctness fix — current partial-band QSPI DMA flush already avoids vTaskDelay pacing.
+6. `[done]` **Display TE/VSync flush sync (co5300).** (2026-09-04) — not applicable on the current hardware/configuration. With ALDO2 and board DISP_PWR both enabled and USB preventing auto-sleep, the `dispte` diagnostic observed GPIO6 flat low (`0` edges in 200 ms, no high level). A TE-gated wait would therefore stall the 40-row flush bands. Keep the existing partial-band QSPI DMA flush without delay-based pacing.
 
 ## Low
-- Mixed brace styles + magic numbers remain (already tracked in issues.md).
-- `ring_task` final `heap_caps_free()` closes the leak from issues.md (alarm.c:279-281) — verify on review.
+- `[done]` **Configuration and formatting cleanup review** (2026-09-04) — project-owned constants remain beside their owning modules; duplicated power-management GPIO values now reference the board pin map. Brace-style differences are confined to imported vendor sources and retain upstream formatting.
+- `[done]` **Alarm ring buffer ownership** (2026-09-04) — superseded by the audio-service refactor. `ring_task` no longer allocates a buffer; `audio_task` owns one fixed alarm-cycle buffer for its lifetime, so repeated rings do not allocate or leak memory. Queued PCM copies are released through `audio_reply()` or immediately if enqueueing fails.
 
 ## Process / Validation (blocked)
 - **Wrist-tilt wake must be validated on battery**, not USB: sleep is skipped while VBUS present (`power_mgmt_enter_sleep` returns ESP_ERR_NOT_SUPPORTED). Steps: `sdclear` → unplug USB → wait ~5s for sleep → wrist-tilt → reconnect → `sdin`, look for `entering sleep` + `AP suspend ... gpio8=1` then `wake: gpio=8` + `Auto sleep exited`. SD log currently shows zero sleep entries (29x `Auto sleep enter callback failed`).
@@ -125,7 +125,7 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
 - `[done]` **`crashread` filename validation** (2026-09-03) — the debug-only reader now accepts only a single safe crash-report filename, preventing directory traversal outside its crash-report directory.
 - `[done]` USB debug console oversized line recovery (2026-09-03) — a full unterminated input buffer is discarded with a diagnostic so later commands continue to be read.
 - `[done]` **GNSS control request hand-off** (2026-09-03) — the intentionally single-slot, latest-request-wins GNSS command is now exchanged atomically between the UI and the slow control task.
-- lvgl_app.c:1890-1903: duplicated/stale screenshot comment block.
+- `[done]` **Duplicated screenshot documentation** (2026-09-04) — removed the stale block that described base64 output and LVGL-task-only use; the remaining comment matches the raw RGB565 stream and internal locking implementation.
 - `[done]` Alarm ring task/resource allocation checks (2026-09-03) — `alarm_init()` returns `ESP_ERR_NO_MEM` with a diagnostic if its semaphore or task cannot be created.
 - `[done]` **CO5300 teardown** (2026-09-03) — the dormant `co5300_deinit()` path now releases its panel-I/O handle before freeing the SPI bus.
 - `[done]` **Boot display rail-cycle margin** (2026-09-03) — boot and diagnostic recovery now both hold DISP_PWR low for 200 ms.

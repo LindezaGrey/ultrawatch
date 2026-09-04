@@ -586,7 +586,7 @@ static esp_err_t bhi260ap_init_locked(i2c_master_dev_handle_t dev)
      * should correct GAMERV at the source. Needs physical verification
      * (rotate the watch on each axis, confirm the BHI screen's cube tracks
      * correctly; confirm wrist-tilt-wake still triggers correctly) - see
-     * todo.md. If wrong, revert this and restore the app-side conjugate. */
+     * docs/todo.md. If wrong, revert this and restore the app-side conjugate. */
     struct bhy2_orient_matrix gyro_orient = { .c = { -1, 0, 0, 0, -1, 0, 0, 0, -1 } };
     rslt = bhy2_set_orientation_matrix(BHY2_PHYS_SENSOR_ID_GYROSCOPE, gyro_orient, &s_bhy2);
     if (rslt != BHY2_OK) {

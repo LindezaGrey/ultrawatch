@@ -38,10 +38,10 @@
 
 static const char *TAG = "power_mgmt";
 
-#define PM_GPIO_PWRKEY 7    /* AXP2101 IRQ */
-#define PM_GPIO_BOOT   0
-#define PM_GPIO_IMU    8    /* BHI260AP INT (wake on wrist-raise/gesture) */
-#define PM_GPIO_RTC    1    /* PCF85063A INT (alarm / snooze timer) */
+#define PM_GPIO_PWRKEY TWATCH_PIN_AXP2101_IRQ
+#define PM_GPIO_BOOT   TWATCH_PIN_BOOT_BUTTON
+#define PM_GPIO_IMU    TWATCH_PIN_IMU_INT
+#define PM_GPIO_RTC    TWATCH_PIN_RTC_INT
 
 /* Wake source bits for s_wake_sources, one per ISR-attributed GPIO above.
  * Touch has no bit: it has no source-specific post-wake behavior. */
