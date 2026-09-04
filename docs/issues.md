@@ -8,7 +8,7 @@ Updated: 2026-09-04
 - **Tracking/GNSS shared-state races** — mutex protection now covers `s_fix`, `s_nav_status`, satellite lists, statistics snapshots, and session state; the tracking task performs sensor reads outside its state lock.
 - **`uwatch_main.c` command dispatcher** — re-indented `debug_process_cmd()` for readability.
 - **ESP-IDF version** — verified `espressif/idf:v6.0.2` is available locally; no Dockerfile change needed.
-- **IMU wake-state race** — `s_imu_wake_armed` is now protected by an ISR-safe critical section shared by the GPIO ISR and the sleep-entry/exit paths. Hardware gesture-wake regression remains to be run.
+- **IMU wake-state race** — `s_imu_wake_armed` is now protected by an ISR-safe critical section shared by the GPIO ISR and the sleep-entry/exit paths. Battery-powered wrist-tilt wake was confirmed working on hardware (2026-09-04).
 - **Crash-dump SD writes** — raw ELF and report saves now verify every write and the final flush before the flash copy is erased.
 - **Audio recording-task input guard** — `main/debug/debug_audio.c` now rejects an absent or empty buffer before calling `t3902_read()`.
 - **Battery runtime estimate** — the gauge now retains a real five-minute sample ring, so each percentage is paired with its original timestamp.

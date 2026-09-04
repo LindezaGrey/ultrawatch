@@ -78,7 +78,7 @@ ec7cfb3 docs: describe watch face HH:MM:SS + UTC layout; fix font comment
 Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
 
 ## High
-1. `[done]` **RTC/PWRKEY/BOOT GPIO ISR re-arm at sleep entry** (2026-09-03) — `pm_arm_gpio_wakeup()` now restores the shared ISR sources after configuring their low-level wake conditions, preventing a post-wake button or RTC event from being silently missed. Battery-powered wake regression remains to be run.
+1. `[done]` **RTC/PWRKEY/BOOT GPIO ISR re-arm at sleep entry** (2026-09-03) — `pm_arm_gpio_wakeup()` now restores the shared ISR sources after configuring their low-level wake conditions, preventing a post-wake button or RTC event from being silently missed. Battery-powered wrist-tilt wake was confirmed working on hardware (2026-09-04).
 2. `[done]` **power_mgmt.c — `s_wake_gpio` last-writer-wins with simultaneous wake sources.** (2026-08-27)
    Gesture + alarm waking together attribute to one source; the other's selective ISR re-arm is skipped. Impact limited by the 1 Hz `alarm_check` polling while awake, but compounds with #1.
    **Fix:** replaced `s_wake_gpio` with a `s_wake_sources` bitmask (`PM_WAKE_PWRKEY`/`BOOT`/`IMU`/`RTC`), OR'd in from `button_isr` under a critical section; `pm_wake_task` now processes every set bit in one pass instead of only the last writer. See ADR [0001](adr/0001-wake-source-bitmask.md).
@@ -95,8 +95,8 @@ Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
 - `[done]` **Configuration and formatting cleanup review** (2026-09-04) — project-owned constants remain beside their owning modules; duplicated power-management GPIO values now reference the board pin map. Brace-style differences are confined to imported vendor sources and retain upstream formatting.
 - `[done]` **Alarm ring buffer ownership** (2026-09-04) — superseded by the audio-service refactor. `ring_task` no longer allocates a buffer; `audio_task` owns one fixed alarm-cycle buffer for its lifetime, so repeated rings do not allocate or leak memory. Queued PCM copies are released through `audio_reply()` or immediately if enqueueing fails.
 
-## Process / Validation (blocked)
-- **Wrist-tilt wake must be validated on battery**, not USB: sleep is skipped while VBUS present (`power_mgmt_enter_sleep` returns ESP_ERR_NOT_SUPPORTED). Steps: `sdclear` → unplug USB → wait ~5s for sleep → wrist-tilt → reconnect → `sdin`, look for `entering sleep` + `AP suspend ... gpio8=1` then `wake: gpio=8` + `Auto sleep exited`. SD log currently shows zero sleep entries (29x `Auto sleep enter callback failed`).
+## Process / Validation
+- `[done]` **Battery-powered wrist-tilt wake** (2026-09-04) — confirmed working on hardware. USB operation cannot exercise this path because VBUS intentionally prevents automatic sleep.
 - `[done]` **BHI260AP gyroscope orientation matrix** (2026-08-27) — `bhi260ap_init()` sets `BHY2_PHYS_SENSOR_ID_GYROSCOPE`'s orientation matrix to `diag(-1,-1,-1)` (`bhi260ap.c`), replacing the app-side quaternion-conjugate hack previously in `lvgl_app.c`'s `bhi_cube_update()`. Fixes the rotation-sense mismatch at the source (before on-chip fusion) instead of only patching the cube widget, so gesture/activity detection benefit too. **Confirmed working on hardware**: cube tracks physical rotation correctly on all axes.
 
 ---
