@@ -1,71 +1,63 @@
-# Alarm Clock — Plan
+# Alarms and countdown timers
 
-Daily alarm with selectable ring mode (beep / vibration / both), snooze (10 min).
+The watch supports up to eight independent alarms plus one countdown timer.
+Alarm configuration is stored as an NVS blob in namespace `alarm`, key `cfg2`.
 
-## Config
+## Alarm entries
 
-Persisted in NVS namespace `"alarm"` / key `"cfg"`:
+Each alarm contains:
 
-```c
-typedef struct {
-    bool  enabled;
-    uint8_t hour, min;      /* daily alarm time */
-    uint8_t ring_mode;      /* 0=beep, 1=vibration, 2=beep+vibration */
-} alarm_config_t;
-```
+- enabled/disabled state;
+- local hour and minute;
+- ring mode: beep, vibration, or both;
+- weekday mask (`bit0=Sunday` through `bit6=Saturday`).
 
-`alarm_set(h, m, enabled, ring_mode)` — ring mode selectable per alarm.
+The PCF85063A provides one hardware alarm slot. `alarm.c` therefore computes
+the next occurrence across all enabled entries and programs that specific UTC
+weekday/time. It recomputes after every add, edit, delete, enable change, and
+completed ring. Local-to-UTC conversion is performed for the actual future
+occurrence, including its applicable DST offset.
 
-## Module: `main/services/alarm.c` + `alarm.h`
+## User interface
 
-- `alarm_init()` — load config, register GPIO1 ISR + wake source.
-- `alarm_arm()` / `alarm_disarm()` — enable/disable `AIE` + arm/disarm GPIO1 wake.
-- `alarm_is_armed()`.
-- `alarm_handle_wake()` — fires the ring if the RTC `AF` flag is set.
-- `alarm_start_ring()` / `alarm_stop_ring()`.
-- `alarm_dismiss()` — stop ring, clear AF + AIE, re-arm for next day.
-- `alarm_snooze()` — RTC countdown timer 600 s (10 min), wakes on `TIE`.
+The Alarms screen is part of the horizontal navigation ring, after Bluetooth
+and before NFC.
 
-## Ringing (respects `ring_mode`)
+- `+ Alarm` opens the alarm editor.
+- Hours change in one-hour steps and minutes in 30-minute steps.
+- Any weekday combination can be selected.
+- Each row has an enable switch; tapping the row edits or deletes it.
+- `+ Timer` offers 1/5/10/15/30/60/90/120-minute presets.
+- An active countdown and Cancel button are shown on the list screen.
 
-- **beep**: enable `BLDO2` amp rail, `max98357a_write()` repeats a 3× beep melody
-  (reuse the `tone` sine approach).
-- **vibration**: `drv2605_play(wave)` pulses on the same cadence.
-- **both**: beep + haptic synchronized.
-- Loops until Dismiss/Snooze; `esp_lv_adapter_report_activity()` keeps the watch
-  awake. An unanswered alarm automatically snoozes at most six times for ten
-  minutes each; its generated tone rises from roughly 10% to 50% full scale on
-  those retries, then the final ring continues until dismissed.
+## Ringing and snooze
 
-## Integration
+The shared ring engine serves both alarms and countdown timers. Beep playback
+uses the MAX98357A, vibration uses the DRV2605, and `both` synchronizes them.
+The global alarm-sound setting can mute both outputs.
 
-1. **power_mgmt.c** — arm `TWATCH_PIN_RTC_INT` (GPIO1) as a LOW_LEVEL light-sleep
-   wake source while an alarm is armed (mirror the IMU wake pattern); route a
-   wake to `alarm_handle_wake()`.
-2. **lvgl_app.c** — alarm **set screen** (swipe **up** from the watch face):
-   HH:MM +/- buttons, on/off toggle, ring-mode selector (Beep / Vibration /
-   Both), "Set" confirm. Exempt from the menu inactivity timeout.
-3. **lvgl_app.c** — **ringing screen**: "ALARM HH:MM", **Snooze 10 min** +
-   **Dismiss** buttons; auto-shown on wake via `esp_lv_adapter_request_wake()`.
-4. **uwatch_main.c** — console commands for headless testing:
-   - `alarm <hh> <mm> [beep|vib|both]`
-   - `alarm off`
-   - `alarm` (status)
+Alarm rings offer Dismiss and a fixed 10-minute Snooze. Countdown timers offer
+Dismiss only. PWR and BOOT also dismiss a ring. An unanswered alarm is
+automatically snoozed at most six times; the generated speaker amplitude rises
+from roughly 10% to 50%, then the final ring continues until dismissed.
 
-## Edge cases
+The RTC interrupt on GPIO1 wakes the watch for an alarm or snooze expiry.
+While already awake, `alarm_check()` polls the RTC flags once per second.
 
-- Daily repeat: clear `AF` + re-arm after each ring (RTC battery-backed, survives
-  reboots).
-- Wake from light sleep via GPIO1; ring detection while awake via the 1 Hz
-  `watch_face_update` timer checking `AF`.
-- Snooze = 10 min via the RTC countdown timer (`pcf85063a_set_timer_minutes(10, true)`,
-  using the 1/60 Hz clock `TCF=11`, so the value is in minutes). The PCF85063A
-  automatically re-loads and loops a countdown, so `alarm_check()` calls
-  `pcf85063a_timer_stop()` (TE=0 + clear TF) the moment it observes TF, making
-  the snooze a one-shot at the software level.
-- INT routing: the RTC pulls GPIO1 LOW while AF/TF is set (TI_TP=0, "INT follows
-  flag") and holds it until the flag is cleared. power_mgmt registers a GPIO1
-  edge ISR (like PWRKEY) and arms GPIO1 as a LOW_LEVEL light-sleep wake source
-  while `alarm_is_armed()`. A falling edge wakes `pm_wake_task`, which calls
-  `alarm_handle_wake()` (reads AF/TF → `ring_start()`) and restores the edge ISR.
-- `BLDO2` restored before playback, off after the ring stops.
+## Console commands
+
+| Command | Effect |
+|---|---|
+| `alarm` | Show ring/armed state and command help. |
+| `alarmls` | List configured alarms and slot indices. |
+| `alarmadd <hh> <mm> [beep\|vib\|both] [wmask]` | Add an alarm. |
+| `alarmrm <idx>` | Remove an alarm. |
+| `alarmen <idx> <0\|1>` | Disable or enable an alarm. |
+| `alarmring` | Start a test ring. |
+| `alarmdismiss` | Dismiss the active ring. |
+| `alarmsnooze` | Snooze the active alarm. |
+| `timer <seconds>` | Start a countdown. |
+| `timer off` | Cancel the countdown. |
+
+Implementation: `main/services/alarm.c`, `main/services/cd_timer.c`,
+`main/screens/alarm_screen.c`, and `main/screens/ring_screen.c`.

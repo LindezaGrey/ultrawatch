@@ -30,7 +30,7 @@ The panel has rounded corners; `assets/ui/safe_area_transparent.png` is the tran
 
 - Driven via the official **`espressif/esp_lcd_sh8601`** component (SH8601 is CO5300-register-compatible) on **SPI3_HOST** (dedicated QSPI pins D0-3 = 38/39/42/45, SCK 40, CS 41, RST 37), through esp_lcd's QSPI panel IO (`quad_mode`, `use_qspi_interface`). The 22-column GRAM offset is applied via `esp_lcd_panel_set_gap(panel, 0x16, 0)`.
 - The panel samples **RGB565 big-endian** (high byte first); host pixels are byte-swapped before transmission (`co5300.c`).
-- The panel requires **even x/y draw boundaries**; fills/shapes must use even-sized windows (48-row bands; 2-row circle bands).
+- The panel requires **even x/y draw boundaries**; fills/shapes must use even-sized windows (the current LVGL buffer uses 40-row bands; circle fills use 2-row bands).
 - Power: AXP2101 ALDO2 (display rail, 3.3 V) + XL9555 P7 `VCI_EN` high.
 
 ## Peripherals
@@ -67,7 +67,7 @@ The panel has rounded corners; `assets/ui/safe_area_transparent.png` is the tran
 
 | Device | CS | Notes |
 |---|---|---|
-| SD card | 21 | SD detect via XL9555 GPIO12 |
+| SD card | 21 | SD detect via XL9555 GPIO10 |
 | LoRa SX1262 | 36 | RESET=47, BUSY=48, IRQ=14 |
 | NFC ST25R3916 | 4 | IRQ=5 |
 

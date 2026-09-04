@@ -8,24 +8,23 @@ Referenzdokument und wird um weitere Screens ergänzt, sobald diese definiert si
 
 ## 1. Designprinzipien
 
-- **Schwarzer Hintergrund überall.** Da das Display ein OLED-Panel ist, verbrauchen
-  schwarze Pixel keinen (bzw. kaum) Strom. Alle Screens nutzen `#000000` als
-  Basis-Hintergrundfarbe. Weiße/farbige Elemente werden so klein und sparsam wie
-  möglich gehalten.
+- **Dunkler OLED-gerechter Hintergrund.** Der Hauptscreen und die Einstellungen
+  nutzen Schwarz; Funktions-Screens verwenden sehr dunkle grüne, braune oder
+  violette Tönungen zur Orientierung. Helle Flächen bleiben klein.
 - **Energieeffizienz hat Priorität** vor visueller Verspieltheit:
   - Keine großflächigen hellen Flächen, keine unnötigen Animationen.
   - Refresh-Rate der Sekundenanzeige minimal (nur die betroffenen Digits neu zeichnen,
     kein Full-Screen-Redraw).
   - Peripherie (GPS, LoRa, SD-Karte, etc.) wird nur bei Bedarf aktiv geschaltet;
     Zustand wird über Statusicons kommuniziert, nicht über Text.
-  - **Display-Timeout: komplettes Abschalten** nach Inaktivität (Wert TBD, z. B.
-    10–15 s, in Einstellungen konfigurierbar). Kein Always-on-Modus – das Display
-    geht vollständig aus, um maximal Strom zu sparen. Aufwecken erfolgt über
-    **einen der folgenden drei Trigger**: Power-Taste, Boot-Taste oder
-    Doppel-Tap auf das Display.
+  - **Display-Timeout: komplettes Abschalten** nach etwa 5 s Inaktivität. Kein
+    Always-on-Modus – das Display geht vollständig aus. Im Normalmodus wecken
+    Touch, Handgelenk-Geste, Power-Taste oder Boot-Taste; im Nachtmodus bleiben
+    nur die Tasten aktiv.
 - **Klarheit vor Dichte.** Wenige, große, gut lesbare Elemente statt vieler kleiner.
-- **Konsistente Statusleiste** über allen Screens hinweg (siehe Abschnitt 3), damit
-  der Nutzer den Systemzustand jederzeit unabhängig vom aktuellen Screen sieht.
+- **Statusleiste auf dem Hauptscreen** (siehe Abschnitt 3). Sie wurde von den
+  übrigen Screens entfernt, um dort mehr Platz und weniger visuelles Rauschen zu
+  haben.
 - **Abgerundete Ecken beachten.** Das 410×502-Panel hat physisch abgerundete Ecken
   (2.06" CO5300 AMOLED) – UI-Elemente, die zu nah an einer Ecke platziert werden,
   werden dort abgeschnitten bzw. vom Gehäuse verdeckt. Ein Safe-Area-Overlay liegt
@@ -34,8 +33,8 @@ Referenzdokument und wird um weitere Screens ergänzt, sobald diese definiert si
   gemessen: an den geraden Kanten (oben/unten/links/rechts) ca. **16 px** Randabstand,
   in den vier Ecken ein deutlich größerer abgerundeter Ausschnitt (Radius ca.
   **90–100 px**). Gilt für **alle** Screens, insbesondere für die Statusleiste
-  (Abschnitt 3; seit der Positionierungs-Korrektur bei y=54 mit ≥40px
-  Randabstand, davor bei y=4 ohne Rücksicht auf diesen Bereich platziert) und
+  (Abschnitt 3; obere Icon-Zeile bei y=30 mit mindestens 45 px
+  Randabstand) und
   für jedes andere eckennahe Element – nicht nur für die zentrierten
   Hauptelemente wie die Uhrzeit.
 - **Vor dem Flashen im Simulator verifizieren.** `sim/` (LVGL-PC-Simulator,
@@ -53,20 +52,24 @@ Referenzdokument und wird um weitere Screens ergänzt, sobald diese definiert si
 
 | # | Screen             | Zweck                                                | Status |
 |---|--------------------|--------------------------------------------------------|--------|
-| 1 | Hauptscreen (Zeit) | Lokalzeit groß, UTC klein, Zeitzone, Statusleiste       | spezifiziert (s. Abschnitt 4) |
-| 2 | GPS/Karte          | Position, Fix-Qualität, ggf. einfache Kartendarstellung | Entwurf (s. Abschnitt 6) |
-| 3 | LoRa-Nachrichten   | Empfangene/gesendete Nachrichten, Verbindungsstatus     | Entwurf (s. Abschnitt 7) |
-| 4 | Alarme/Timer       | Anlegen, Anzeigen, Verwalten von Alarmen und Timern     | Entwurf (s. Abschnitt 8) |
-| 5 | Einstellungen      | Systemkonfiguration (Zeitzone, Display, Peripherie, ...)| Entwurf (s. Abschnitt 9) |
+| 1 | Hauptscreen (Zeit) | Lokalzeit, UTC, Datum und Statusleiste                  | implementiert |
+| 2 | Aktivität          | Schritte, Aktivität und Sensordaten                    | implementiert |
+| 3 | GPS                | Skyplot, Position, Fix-Qualität und Tracking           | implementiert |
+| 4 | LoRa/Mesh          | Meshtastic-Nachrichten und Node-Übersicht               | implementiert |
+| 5 | WLAN               | WLAN-Scan                                                | implementiert |
+| 6 | Bluetooth          | BLE-Scan mit DMA-Speicherprüfung                        | implementiert |
+| 7 | Alarme/Timer       | Mehrere Alarme und Countdown-Timer                      | implementiert |
+| 8 | NFC                | Manueller NFC-A-Scan                                    | implementiert |
+| 9 | Einstellungen      | Systemkonfiguration                                     | implementiert |
 
-Screens 1–4 bilden den horizontalen Navigationsring; Einstellungen (5) liegt
+Screens 1–8 bilden den horizontalen Navigationsring; Einstellungen (9) liegt
 davon separat auf einer vertikalen Achse unterhalb des Hauptscreens (siehe
 Abschnitt 4.3). Navigation zwischen allen Screens erfolgt ausschließlich per
 **Swipe-Geste** – keine physischen Tasten/Krone für die Screen-Navigation.
 
 ---
 
-## 3. Statusleiste (global, auf allen Screens sichtbar)
+## 3. Statusleiste (nur auf dem Hauptscreen)
 
 Am oberen Bildschirmrand wird eine Reihe kleiner Icons angezeigt, die den Zustand
 verschiedener Peripheriegeräte/Subsysteme kommunizieren. Jedes Icon hat einen
@@ -100,18 +103,22 @@ bei Ein-/Ausblenden – stattdessen Graustufe für "inaktiv").
 | GPX-Tracking| aktiv         | Grün   | Track-Aufzeichnung läuft, wird auf SD-Karte geloggt |
 | LoRa        | off           | Grau   | LoRa-Modul ausgeschaltet                    |
 | LoRa        | powered/rx    | Grün   | LoRa aktiv und empfangsbereit               |
-| Bluetooth   | off           | Grau   | Bluetooth ausgeschaltet                     |
-| Bluetooth   | on, kein Gerät| Orange | Bluetooth aktiv, aber nicht verbunden       |
-| Bluetooth   | verbunden     | Grün   | Bluetooth aktiv und mit Gerät verbunden     |
+| NFC         | rail off      | Grau   | NFC-Versorgung noch nicht aktiviert          |
+| NFC         | rail on       | Grün   | NFC-Versorgung wurde aktiviert               |
+| Bluetooth   | debug getrennt| Grau   | Keine BLE-Debug-Verbindung                   |
+| Bluetooth   | debug verbunden| Grün  | BLE-Debug-Bridge verbunden (falls aktiviert) |
 | WLAN        | off           | Grau   | WLAN ausgeschaltet                          |
 | WLAN        | verbindet     | Orange | WLAN sucht/verbindet mit Netzwerk           |
 | WLAN        | verbunden     | Grün   | WLAN aktiv und verbunden                    |
 | Akkustand   | –             | –      | **Nur grafisches Füllstand-Symbol**, keine Prozentzahl in der Statusleiste (per explizitem Feedback entfernt – die genaue Zahl bekommt einen anderen Platz auf dem Hauptscreen); Farbe rot bei kritischem Stand (≤15 %) |
 | Ladezustand | nicht ladend  | – (Icon ausgeblendet oder grau) | Kein Ladekabel angeschlossen |
 | Ladezustand | ladend        | Grün (z. B. Blitz-Symbol) | Ladekabel angeschlossen, Akku lädt |
+| Alarm       | armed         | Grün   | Mindestens ein Alarm ist aktiviert          |
+| Alarm       | snoozing      | Rot    | Ein Alarm wartet auf das Snooze-Ende        |
 
-> Bluetooth/WLAN folgen dem gleichen Grau/Orange/Grün-Schema wie GPS/LoRa
-> (aus/verbindet/aktiv). Akkustand und Ladezustand sind Sonderfälle, da sie
+> WLAN folgt dem Grau/Orange/Grün-Schema für aus/sucht/gefunden. Das
+> Bluetooth-Icon gehört zur derzeit deaktivierten Debug-Bridge und kennt nur
+> getrennt/verbunden. Akkustand und Ladezustand sind Sonderfälle, da sie
 > primär eine Füllstandsanzeige bzw. einen Boolean (lädt/lädt nicht) statt eines
 > dreistufigen Zustands darstellen – Details (Icon-Form, Prozentanzeige als
 > Zahl oder rein grafisch) sind noch offen.
@@ -129,11 +136,11 @@ bei Ein-/Ausblenden – stattdessen Graustufe für "inaktiv").
 
 - Icons werden **von links nach rechts in fester Reihenfolge** angeordnet, in
   zwei Zeilen gruppiert nach Funktion (festgelegt, nicht mehr TBD):
-  - **Zeile 1 – alle Funkmodule** (RF): Bluetooth, WLAN, GNSS, LoRa/Meshtastic
+  - **Zeile 1 – alle Funkmodule** (RF): Bluetooth, WLAN, NFC, GNSS, LoRa/Meshtastic
     – ein Blick auf die obere Zeile beantwortet "sendet/empfängt gerade
     etwas".
   - **Zeile 2 – alles andere**: SD-Karte, GPX-Tracking (übernimmt jetzt das
-    frühere GNSS-Pin-Symbol), Ladezustand, Akkustand.
+    frühere GNSS-Pin-Symbol), Alarm, Ladezustand, Akkustand.
   - GNSS wird mit einem kleinen Satelliten-Icon dargestellt, LoRa mit einem
     3-Knoten-Mesh-Netzwerk-Icon statt dem reinen "LoRa"-Text – funktional
     unverändert, nur die Darstellung. LVGLs eingebauter Symbol-Font
@@ -147,11 +154,9 @@ bei Ein-/Ausblenden – stattdessen Graustufe für "inaktiv").
     Markenrechtsfrage bewusst umgangen); ein anderes Logo kann später
     eingesetzt werden, indem dieselbe Konvertierung auf eine neue PNG-Datei
     angewendet wird.
-- Größe: klein genug, um nicht abzulenken, aber eindeutig erkennbar (Vorschlag:
-  16×16 px bei aktueller Displayauflösung, anpassbar).
-- Icons ohne aktiven/relevanten Zustand können optional komplett ausgeblendet
-  statt grau dargestellt werden – **TBD, aktuell: immer sichtbar, nur eingefärbt**,
-  damit die Position stabil bleibt und der Nutzer sich orientieren kann.
+- Größe: 28×28 px beziehungsweise Montserrat 28 für Symbol-Glyphen.
+- Icons ohne aktiven/relevanten Zustand bleiben sichtbar und werden grau
+  eingefärbt, damit ihre Position stabil bleibt.
 
 ---
 
@@ -229,14 +234,25 @@ passend zum Gesamtkonzept.
 
 ---
 
-## 6. GPS/Karte-Screen (Entwurf)
+## 5. Aktivitäts-Screen (implementiert)
+
+Der read-only Aktivitäts-Screen zeigt die heutige Schrittzahl groß sowie die
+aufsummierte Dauer für Stillstand, Gehen, Laufen, Radfahren, Fahrzeug, Neigen
+und sonstige Aktivität. Die Werte stammen aus dem BHI260AP und denselben
+Tageszählern, die auf die SD-Karte geschrieben werden. Diagnosewerte wie
+Quaternion, Rohsensoren und Gesten bleiben dem debug-only BHI-Screen
+vorbehalten.
+
+---
+
+## 6. GPS-Screen (implementiert)
 
 ### 6.1 Zweck
 Anzeige der aktuellen Position sowie des GPS-Status im Detail (Ergänzung zum
 reinen Statusicon aus Abschnitt 3).
 
 ### 6.2 Vorschlag Layout
-1. Statusleiste (global, wie immer).
+1. Titel und GNSS-Zustand; die globale Statusleiste bleibt dem Hauptscreen vorbehalten.
 2. Fix-Status ausgeschrieben (z. B. "Kein Fix" / "Suche..." / "3D-Fix", passend
    zur Icon-Farbe grau/orange/grün).
 3. Koordinaten (Lat/Lon), **gleichzeitig in beiden Formaten, untereinander**
@@ -256,7 +272,7 @@ reinen Statusicon aus Abschnitt 3).
 
 ---
 
-## 7. LoRa-Nachrichten-Screen (Entwurf)
+## 7. LoRa-Nachrichten-Screen (implementiert)
 
 ### 7.1 Zweck
 Übersicht über ein **Meshtastic-kompatibles** LoRa-Mesh-Netzwerk: gesendete/
@@ -264,7 +280,7 @@ empfangene Nachrichten, erreichbare Knoten und Verbindungsdetails (Ergänzung
 zum Statusicon aus Abschnitt 3).
 
 ### 7.2 Vorschlag Layout
-1. Statusleiste (global).
+1. Titel und Mesh-Zustand; die globale Statusleiste bleibt dem Hauptscreen vorbehalten.
 2. Liste der letzten Nachrichten (Zeitstempel klein, Absender-Knoten, kurzer
    Text-Preview) – neueste oben, scrollbar per **vertikalem Wischen innerhalb
    der Liste** (Scroll-Geste, keine Screen-Navigation).
@@ -280,11 +296,10 @@ zum Statusicon aus Abschnitt 3).
    Punkt 2) – die Unterscheidung erfolgt über eine
    **Geschwindigkeits-/Distanzschwelle** (ein "Fling" löst den Screen-Wechsel
    aus, ein gemächliches Ziehen scrollt nur die Liste).
-5. **Senden-UI mit vier festen Presets**: "Bin ok", "Verzögerung", "Notfall",
-   "Standort senden" – Auswahl per Tap/Swipe aus einer Liste, kein
-   Freitext-Eintippen auf der Uhr. **Presets sind über den
-   Einstellungen-Screen editierbar** (siehe Abschnitt 9.2, Kategorie "Presets
-   verwalten"), diese vier sind die Standardbelegung.
+5. Vier Preset-Schaltflächen zeigen "Bin ok", "Verzögerung", "Notfall" und
+   "Standort senden". Senden ist noch nicht implementiert; die Schaltflächen
+   sind derzeit absichtlich ohne Aktion. Ihre Texte sind über den
+   Konsolenbefehl `presetset` editierbar, nicht über den Einstellungen-Screen.
 6. **Nachrichten werden dauerhaft auf der SD-Karte gespeichert**, als
    **einfaches Textlog** (nicht JSON/CSV) – ein Eintrag pro Zeile im Format
    `Zeitstempel | Absender | Nachricht` (Pipe-getrennt, z. B.
@@ -301,13 +316,13 @@ zum Statusicon aus Abschnitt 3).
 
 ---
 
-## 8. Alarme/Timer-Screen (Entwurf)
+## 8. Alarme/Timer-Screen (implementiert)
 
 ### 8.1 Zweck
 Anlegen, Anzeigen und Verwalten von Weckalarmen und Countdown-Timern.
 
 ### 8.2 Vorschlag Layout
-1. Statusleiste (global).
+1. Titel und Alarm-/Timer-Zustand; die globale Statusleiste bleibt dem Hauptscreen vorbehalten.
 2. Liste vorhandener Alarme/Timer (Uhrzeit bzw. verbleibende Zeit groß,
    Name/Label klein, Ein/Aus-Toggle pro Eintrag).
 3. **Presets zum Anlegen** neuer Alarme/Timer statt Freitext-/Zifferneingabe:
@@ -338,13 +353,13 @@ Anlegen, Anzeigen und Verwalten von Weckalarmen und Countdown-Timern.
   für je 10 Minuten** verschoben. Jeder erneute Ton wird lauter; danach bleibt
   der letzte Alarm hörbar, bis er vollständig gestoppt wird.
 
-### 8.4 Offene Fragen
-- Genaue Preset-Werte für Timer und Alarme (siehe oben) – welche Werte decken
-  den tatsächlichen Bedarf am besten ab?
+### 8.4 Presets
+- Timer: 1/5/10/15/30/60/90/120 Minuten.
+- Alarmzeiten werden in Stunden- und 30-Minuten-Schritten eingestellt.
 
 ---
 
-## 9. Einstellungen-Screen (Entwurf)
+## 9. Einstellungen-Screen (implementiert)
 
 ### 9.1 Zweck
 Zentrale Konfiguration von System- und Anzeigeverhalten.
@@ -355,16 +370,15 @@ Der Einstellungen-Screen ist eine Kategorie-Übersicht; jede Kategorie öffnet
 per Tap eine eigene Unterseite mit den zugehörigen Optionen.
 
 1. **Zeit & Zeitzone**
-   - Zeitzone (manuell oder automatisch via GPS)
-   - Zeitzonen-Abkürzung/Format
+   - Anzeige der konfigurierten Zeitzone und des UTC-Offsets
 2. **Display**
    - Timeout-Dauer
    - Helligkeit
 3. **Peripherie**
-   - GPS ein/aus (manuelles Powermanagement, unabhängig vom automatischen Zustand)
-   - LoRa ein/aus
-   - Bluetooth ein/aus
-   - WLAN ein/aus
+   - GPS ein/aus
+   - Bluetooth-Debug-Schalter (Bridge derzeit global deaktiviert)
+   - LoRa- und WLAN-Zustand werden angezeigt; diese Schalter sind derzeit
+     deaktiviert
 4. **Ton & Vibration**
    - Alarme
    - Benachrichtigungen (z. B. neue LoRa-Nachricht)
@@ -377,16 +391,13 @@ per Tap eine eigene Unterseite mit den zugehörigen Optionen.
      ihn sofort als Vorschau aus. Gilt für Alarm-/Timer-Klingeln und
      LoRa-Benachrichtigung gleichermaßen (ein Setting, kein separates pro
      Kontext).
-5. **Ultra-Sparmodus**
-   - Schwellwert (Prozent)
-   - Verhalten beim Verlassen (automatische Reaktivierung der Peripherie ja/nein)
-6. **Presets verwalten** (falls editierbar, s. Abschnitt 7/8)
-   - LoRa-Kurznachrichten-Presets
-   - Timer-/Alarm-Presets
-7. **Info**
+5. **Info**
    - Firmware-Version
    - Akkustand in Prozent
    - Speicherplatz auf SD-Karte
+6. **Ultra-Sparmodus**
+   - Schwellwert (Prozent)
+   - manuell ein/aus; automatische Aktivierung unter 10 %
 
 ### 9.3 Schnellzugriff
 **Display-Timeout und Helligkeit** sind per **Tap-and-Hold auf dem
@@ -399,7 +410,7 @@ Speichern-Schritt**. Jede Option wirkt unmittelbar nach der Auswahl/Änderung.
 Navigation innerhalb der Unterseiten erfolgt per **Swipe-zurück-Geste**
 (z. B. Swipe von links nach rechts, analog zu gängigen Touch-UIs). Diese Geste
 ist eine **lokale Regel der Einstellungs-Unterseiten** und unabhängig von der
-horizontalen Ring-Navigation zwischen den vier Hauptscreens sowie der
+horizontalen Ring-Navigation zwischen den acht Ring-Screens sowie der
 vertikalen Hauptscreen↔Einstellungen-Achse (siehe Abschnitt 4.3) – beide
 greifen nur, solange man sich auf der Einstellungen-Kategorieliste selbst
 befindet, nicht innerhalb einer Kategorie-Unterseite. Die Kategorieliste
@@ -424,31 +435,28 @@ und wenigstens die Kernfunktion (Uhrzeit) so lange wie möglich verfügbar zu ha
   rein intern** auf (z. B. für RTC-Housekeeping, Akkustand-Messung o. Ä.) –
   **ohne** dabei das Display anzusteuern oder neu zu zeichnen. Dieser
   automatische Wake ist für den Nutzer unsichtbar.
-- **Nur ein expliziter Wake-Trigger** (Power-Taste, Boot-Taste oder
-  Doppel-Tap, siehe Abschnitt 1) aktiviert das Display tatsächlich und zeigt
-  dann die aktuelle Uhrzeit an. Zwischen zwei expliziten Triggern bleibt das
-  zuletzt gezeichnete Bild unverändert auf dem Display stehen (siehe 10.3
-  unten zur Genauigkeit der angezeigten Zeit).
-- **Alle Peripherie wird aktiv abgeschaltet** (nicht nur in Ruhezustand versetzt):
-  GPS, LoRa, Bluetooth, WLAN, SD-Karte – unabhängig vom vorherigen Nutzer-Zustand.
+- **Nur ein expliziter Wake-Trigger** (Power-Taste, Boot-Taste oder RTC-Alarm)
+  aktiviert das Display tatsächlich und zeigt
+  dann die aktuelle Uhrzeit an. Nach dem normalen Inaktivitäts-Timeout wird das
+  Panel wieder dunkel geschaltet und der ESP32 kehrt in Deep-Sleep zurück.
+- Energieintensive aktive Funktionen werden beendet: GPS, LoRa, Bluetooth und
+  WLAN. Das SD-Dateisystem wird ausgehängt; bei gesteckter Karte kann ALDO1 zum
+  Schutz des gemeinsamen SPI2-Busses eingeschaltet bleiben. Die NFC-Versorgung
+  bleibt aus Zuverlässigkeitsgründen unverändert.
 - **Display-Darstellung im Ultra-Sparmodus:**
   - Nur die Uhrzeit, **ohne Sekunden** (Format `HH:MM`).
   - Schriftfarbe **Rot** statt Weiß (rote OLED-Subpixel verbrauchen tendenziell
     weniger Strom als weiße/blaue, zusätzlich signalisiert Rot visuell den
     Sparzustand).
   - **Reduzierte Displayhelligkeit.**
-  - Statusleiste entfällt vollständig (alle zugehörige Peripherie ist ohnehin
-    abgeschaltet).
-- Da der automatische Minuten-Wake das Display nicht berührt, ist kein
-  kontinuierliches Redraw nötig – **die zuletzt angezeigte Zeit bleibt auf
-  dem Display stehen**, bis der nächste explizite Wake-Trigger (Taste/Touch)
-  sie aktualisiert. Das bedeutet, die angezeigte Zeit ist potenziell veraltet,
-  bis sie durch einen bewussten Trigger neu gezeichnet wird – die minütlichen
-  internen Wakes dienen nicht der Displayaktualisierung.
+  - Statusleiste entfällt vollständig.
+- Der automatische Minuten-Wake berührt das Display nicht. Zwischen expliziten
+  Wakes bleibt das Panel aus; erst ein Tasten- oder RTC-Alarm-Wake zeichnet die
+  aktuelle Zeit neu.
 
 ### 10.4 Verhalten beim Verlassen
-- Der **Einstellungen-Screen bleibt im Ultra-Sparmodus erreichbar**: Einer der
-  drei Wake-Trigger (Power-Taste, Boot-Taste, Doppel-Tap, siehe Abschnitt 1)
+- Der **Einstellungen-Screen bleibt im Ultra-Sparmodus erreichbar**: Power- oder
+  Boot-Taste (beziehungsweise ein RTC-Alarm)
   weckt den ESP32-S3 aus dem Deep-Sleep und ermöglicht die normale
   Swipe-nach-unten-Geste vom Hauptscreen zum Einstellungen-Screen, um den
   Modus dort manuell zu verlassen.
@@ -473,16 +481,16 @@ und wenigstens die Kernfunktion (Uhrzeit) so lange wie möglich verfügbar zu ha
 - ~~Weitere Screens~~ → GPS/Karte, LoRa-Nachrichten, Alarme/Timer, Einstellungen
 - ~~Navigationskonzept~~ → ausschließlich Swipe-Gesten, geschlossener Ring
 - ~~Display-Timeout-Verhalten~~ → komplettes Abschalten
-- ~~Wake-Trigger~~ → Power-Taste, Boot-Taste, Doppel-Tap auf Display
+- ~~Wake-Trigger~~ → Normalmodus: Touch, Handgelenk-Geste, Power/Boot;
+  Ultra-Sparmodus: Power/Boot/RTC-Alarm
 - ~~Low-Battery-Verhalten~~ → Ultra-Sparmodus (s. Abschnitt 10)
 - ~~Statusicons~~ → zusätzlich Bluetooth, WLAN, Akkustand, Ladezustand (s. 3.2)
 - ~~Abgerundete Ecken~~ → Safe-Area-Overlay vorhanden (`assets/ui/safe_area_transparent.png`),
   ca. 16px Randabstand an geraden Kanten, ca. 90–100px Eckradius (s. Abschnitt 1);
-  Statusleiste entsprechend auf y=54 mit ≥40px Randabstand korrigiert
-- ~~Statusicons als Icons statt Text~~ → LVGL-Symbolfont (Montserrat 14, s.
-  `lv_symbol_def.h`) für SD/GPS/Bluetooth/WLAN/Ladezustand/Akku; GPX-Tracking
-  und LoRa bleiben Text (kein passendes Built-in-Symbol vorhanden, kein
-  Emoji-Font im Projekt eingebunden)
+  Statusleiste entsprechend auf y=30 mit ≥45px Randabstand korrigiert
+- ~~Statusicons als Icons statt Text~~ → LVGL-Symbolfont für
+  SD/Bluetooth/WLAN/Ladezustand/Akku/Alarm/GPX; eigene Bitmap-Icons für GNSS,
+  LoRa/Mesh und NFC (`main/screens/status_icons.h/.c`).
 - ~~LoRa-Kommunikationsart~~ → Mesh-Netzwerk, Meshtastic-kompatibel
 - ~~GPS-Screen: Karte vs. Status~~ → nur Koordinaten/Status, keine Kartendarstellung
 - ~~Eingabemethode Nachrichten/Alarme~~ → Presets statt Freitext/Zifferneingabe
@@ -491,15 +499,15 @@ und wenigstens die Kernfunktion (Uhrzeit) so lange wie möglich verfügbar zu ha
 - ~~Ultra-Sparmodus-Schwellwert~~ → 10 %, zusätzlich manuell aktivierbar
 - ~~Zurück-Navigation in Einstellungen~~ → Swipe-zurück-Geste
 - ~~Ultra-Sparmodus technisches Verhalten~~ → ESP32-S3 Deep-Sleep, minütliches
-  Wake, rote Zeitanzeige ohne Sekunden, reduzierte Helligkeit, alle Peripherie
-  aktiv abgeschaltet (s. Abschnitt 10.3)
+  Wake, rote Zeitanzeige ohne Sekunden, reduzierte Helligkeit und Abschalten
+  der energieintensiven Peripheriefunktionen (s. Abschnitt 10.3)
 - ~~Gesten-Konflikt Haupt-Ring vs. Einstellungen~~ → Einstellungen liegt
   außerhalb des horizontalen Rings (eigene vertikale Achse ab dem
   Hauptscreen), Unterseiten haben zusätzlich eigene lokale Swipe-Regeln
 - ~~Einstellungen im Ultra-Sparmodus erreichbar~~ → ja, per Wake-Trigger
-- ~~Display zwischen Wake-Zyklen~~ → zuletzt angezeigte Zeit bleibt stehen
+- ~~Display zwischen Wake-Zyklen~~ → Panel bleibt aus; expliziter Wake zeichnet neu
 - ~~Trigger-Unterscheidung Ultra-Sparmodus~~ → Minuten-Wake ist rein intern
-  (kein Display-Update), nur Taste/Touch aktiviert das Display
+  (kein Display-Update), nur Power/Boot/RTC-Alarm aktiviert das Display
 - ~~Einstellungen: sofort vs. speichern~~ → sofortige Übernahme, kein
   Speichern-Schritt
 - ~~Akkustand-Darstellung~~ → Batteriesymbol + Prozentzahl kombiniert
@@ -513,7 +521,8 @@ und wenigstens die Kernfunktion (Uhrzeit) so lange wie möglich verfügbar zu ha
 - ~~LoRa-Nachrichtenspeicherung~~ → dauerhaft auf SD-Karte, Textlog
   `Zeitstempel | Absender | Nachricht`; ohne SD-Karte nur im RAM
 - ~~LoRa-Presets~~ → "Bin ok", "Verzögerung", "Notfall", "Standort senden",
-  editierbar über den Einstellungen-Screen
+  derzeit nur per `presetset`-Konsolenbefehl editierbar; Senden noch nicht
+  implementiert
 - ~~LoRa-Benachrichtigung~~ → Vibration bei neuer Nachricht, global
 - ~~Node-Übersicht~~ → eigener Screen, eigene Swipe-Richtung (z. B. nach oben)
 - ~~Timer-Presets~~ → 1/5/10/15/30/60/90/120 min
@@ -529,10 +538,9 @@ und wenigstens die Kernfunktion (Uhrzeit) so lange wie möglich verfügbar zu ha
   weiterhin unter 10 % liegt
 
 **Noch offen:**
-Keine offenen Architektur- oder Detailfragen mehr. Alle in diesem Dokument
-aufgeworfenen Punkte sind geklärt. Weitere Klärungsbedarfe entstehen erst,
-sobald mit der konkreten Implementierung begonnen wird (z. B. exakte
-Pin-Belegung, Timing-Feinabstimmung, konkrete UI-Assets).
+Keine offenen Architekturfragen. Die wesentlichen Screens und Abläufe sind
+implementiert; verbleibende Hardware-Validierung wird in `docs/issues.md`
+geführt.
 
 ---
 
@@ -551,7 +559,7 @@ Großteil davon bereits im Normalbetrieb - live gemessen (Debug-Kommando
 **Konkrete Auswirkungen:**
 - Der BLE-Debug-Bridge (`ble_debug.c`) ist deshalb dauerhaft deaktiviert
   (`ble_debug_init()` in `uwatch_main.c` auskommentiert) - der
-  BT-Controller reserviert DMA-Speicher, der mit dem Display-Buffer
+  BT-Controller reserviert DMA-Speicher, der mit dem 40-Zeilen-Display-Buffer
   kollidiert.
 - Ein erster Versuch, einen reinen BLE-Scan-Screen (Bluetooth-Geräte
   auflisten, ohne Verbindungsaufbau) hinzuzufügen, endete live auf echter

@@ -74,8 +74,8 @@ So the host persists the calibration:
 
 - M_EN lives on XL9555 GPIO6 (`TWATCH_XL_GPIO_HAPTIC_EN`); matches the
   arduino-esp32 variant (`DRV_EN=6`).
-- The motor shares the speaker rail (BLDO2); nothing else on that rail is in
-  use yet.
+- The motor shares BLDO2 with the MAX98357A speaker amplifier. Playback and
+  haptic paths coordinate the rail around actual use.
 - The driver sits on I2C at `0x5A`; a read-back of the MODE register is used
   as a presence check at init (`DRV2605 initialized (mode=0x00, ERM, library
   1)`).

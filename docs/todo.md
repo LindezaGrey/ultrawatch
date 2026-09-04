@@ -1,4 +1,7 @@
-# UWatch TODO: docs/m10Q.md vs Code Implementation Differences
+# UWatch resolved engineering review log
+
+No active tasks remain in this file. Current open items are tracked in
+`docs/issues.md`; the sections below retain the resolved review history.
 
 ## Overview
 This document captures the differences between the `docs/m10Q.md` best-practices guide and the actual code changes implemented in this session. The two are largely **orthogonal** — they address different aspects of M10Q usage.
@@ -66,10 +69,11 @@ ec7cfb3 docs: describe watch face HH:MM:SS + UTC layout; fix font comment
 92842fc m10q: PPS-disciplined RTC calibration + GNSS time sync
 ```
 
-## Build & Flash Status
-- ✅ Build: Successful (Docker espressif/idf:v6.0.2)
-- ✅ Flash: 1,398,656 bytes written to ESP32-S3 via /dev/ttyACM0
-- ✅ Verified: Data verified after write, hard reset performed
+## Historical validation
+
+The changes in this log were built and hardware-tested during their respective
+sessions. Current build status belongs in the active development handoff, not
+in this historical checklist.
 
 ---
 
@@ -109,7 +113,7 @@ Full read-only review of main/, components/ (Bosch vendor lib at integration poi
 1. `[done]` **GNSS rail (BLDO1) never turns off when GPS is disabled** (2026-08-27) — `enter_sleep()` had since grown a `lvgl_gps_enabled()` check, but `exit_sleep()` still restored BLDO1 unconditionally on every wake, desyncing m10q's `s_powered` from the physical rail (`m10q_power(false)` then permanently no-ops) and leaving the rail stuck on (~25-30 mA) after the first wake with GPS off.
    **Fix:** made `exit_sleep()`'s BLDO1 restore conditional on `lvgl_gps_enabled()`, symmetric with `enter_sleep()`.
 2. `[done]` **Battery runtime estimate after five minutes** (2026-09-03) — resolved with a five-minute sample ring that keeps every percentage paired with its original timestamp.
-3. `[done]` **BLE vprintf hook recursion** (2026-09-03) — removed the self-logging call, preserve the chained hook’s `va_list`, and bound captured output. BLE initialization remains deliberately disabled while its DMA reservation conflicts with the display buffer.
+3. `[done]` **BLE vprintf hook recursion** (2026-09-03) — removed the self-logging call, preserved the chained hook’s `va_list`, and bounded captured output. The BLE debug bridge remains deliberately disabled while its DMA reservation conflicts with the display buffer; the guarded scan screen is separate.
 
 ## Low
 4. `[done]` **DST inconsistency** (2026-09-03) — superseded by UTC RTC storage and `pcf85063a_time_to_epoch()` in `twatch_board.c`; system-clock sync no longer uses local-time conversion or `tm_isdst`.

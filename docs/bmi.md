@@ -98,7 +98,9 @@ Sequence on sleep (`power_mgmt_enter_sleep`):
 2. `bhi260ap_ap_suspend()` — flush FIFO (`bhy2_flush_fifo(0xFF)`), then set the
    AP-suspend bit. The FIFO flush prevents a stale event from immediately
    re-waking the host.
-3. **ALDO4 stays on**; the other peripheral rails are powered off.
+3. **ALDO4 stays on**. Other rails follow their own policies: GNSS and audio
+   are stopped when idle, LoRa remains available, the display is put to sleep,
+   and a seated SD card keeps ALDO1 powered to avoid clamping SPI2.
 4. GPIO8 armed as `LOW_LEVEL` light-sleep wake (disabled in night mode).
 
 On wake (`power_mgmt_exit_sleep`):

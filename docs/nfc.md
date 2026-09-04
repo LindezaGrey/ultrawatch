@@ -79,9 +79,10 @@ encoding was written into CPUSLDO's register — where it is a reserved value,
 since CPUSLDO is 0.5–1.4 V in 50 mV steps — while the real NFC rail sat at its
 EFUSE default. Both are fixed.
 
-DLDO1 is now enabled at boot and **left on**, matching LilyGO's `initPMU()`.
-Power-cycling the rail per poll was tried and the chip did not reliably come
-back. Revisit only with a real re-enumeration test.
+DLDO1 is configured but left off at boot. The first NFC scan raises it during
+`st25r3916_open()`; after successful bring-up it remains on because repeated
+power-cycling did not restore the chip reliably. Revisit that policy only with
+a real re-enumeration test.
 
 > **A retracted measurement.** An earlier note claimed the chip's own ADC
 > measured VDD at ~2.28 V, below the 2.4 V minimum. That reading is not valid:
@@ -312,11 +313,11 @@ way out is an SD-detect interrupt plus a properly refcounted bus hold, so the
 rail can drop while the bus is genuinely idle — *not* going back to cutting it
 blind, which is what caused all of this.
 
-**Known gap:** a card inserted while the rail is down leaves the bus clamped
-until something re-evaluates. `sd_log_mount()` does, and the sleep/wake cycle
-calls it, so the window closes on its own within an idle timeout. Closing it
-properly needs an SD-detect interrupt on XL9555 P10, which nothing sets up
-today.
+**Known limitation:** there is no SD-detect interrupt. A card inserted while
+ALDO1 is down can clamp the bus until the next SPI2 session evaluates the
+fresh card-present predicate and raises the rail. SD mount, NFC open and other
+`spi2_power_hold()` users perform that evaluation; a normal wake deliberately
+does not mount the filesystem.
 
 ### The `spi2_power` abstraction
 

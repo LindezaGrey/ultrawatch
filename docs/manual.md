@@ -75,9 +75,9 @@ threshold simply re-triggers later).
 ## GPS power management
 
 The GNSS receiver (u-blox MIA-M10Q) is the most power-hungry peripheral
-(~8–14 mA when acquiring, ~5 mA tracking), so it is **powered off by default**
-and only switched on while the **GPS screen is open**. Leaving the screen (or
-the 5 s menu timeout) powers it back off. GNSS power transitions run on a
+(~8–14 mA when acquiring, ~5 mA tracking), so it is **powered off by default**.
+It is switched on while the GPS screen is open, for the boot-time position
+check, and for step-gated tracking fixes. GNSS power transitions run on a
 background task, so the UI never stalls during the seconds-long receiver
 probe/config.
 
@@ -104,7 +104,9 @@ touch. Touching the screen resets the timer.
 ## Wake / sleep
 
 - The watch auto-sleeps after ~5 s idle (display off, low power).
-- **Wake:** touch the screen, or press the **PWR** or **BOOT** button.
+- **Wake:** touch the screen, raise/tilt the wrist, press the **PWR** or
+  **BOOT** button, or let an armed RTC alarm fire. Wrist and touch wake are
+  disabled during night mode.
 - While charging / on USB power, the watch stays awake (no auto-sleep).
 - **Night mode:** between 23:00 and 07:00 the display shows a dim red watch
   face, and touch is disabled as a wake source (PWR/BOOT still wake).
@@ -137,14 +139,18 @@ the UI never blocks on the I2C bus:
 - **Audio** — MAX98357A amp on **I2S1** (STD TX) and T3902 PDM mic on **I2S0**
   (PDM RX), 16 kHz mono 16-bit. Two separate I2S controllers are used because
   the mode register is per-controller (STD and PDM cannot share one). The amp
-  rail (BLDO2) is on by default; the MAX98357A has no software volume (fixed
-  gain), so sample scaling is done in software.
-- **BLE** — NimBLE peripheral advertising as **UWatch** (service `0xDEAD`)
-  for wireless debugging. Connects with any BLE client (e.g. `bleak` on a PC).
+  rail (BLDO2) is normally off and is enabled only during playback; the
+  MAX98357A has no software volume (fixed gain), so sample scaling is done in
+  software.
+- **BLE scanner** — NimBLE is initialized on demand from the Bluetooth screen,
+  guarded by a free-DMA-memory check.
 
-## BLE debug bridge
+## BLE debug bridge (currently disabled)
 
-The watch advertises as **UWatch** with a GATT service `0xDEAD`:
+The firmware contains an experimental GATT debug bridge, but it is not started
+because its controller allocation conflicts with the display DMA buffer. The
+following UUIDs describe that dormant implementation; the watch does **not**
+currently advertise them:
 
 | Characteristic | UUID | Purpose |
 |---|---|---|
@@ -166,9 +172,8 @@ async def main():
 asyncio.run(main())
 ```
 
-This lets you watch the **step counter, GNSS state and tracking totals**
-wirelessly while walking. Note: the display draw buffer is smaller than
-default to leave internal DMA memory for the Bluetooth controller.
+If the bridge is re-enabled after its DMA conflict is resolved, it can expose
+the **step counter, GNSS state and tracking totals** wirelessly.
 
 ## Debug
 
@@ -205,11 +210,19 @@ available (type them and press Enter):
 
 ## Data storage (SD card)
 
-The SD card is only mounted while the watch is awake (unmounted and powered
-off on sleep, remounted on wake - see power_mgmt.c). When present it is
-mounted at `/sdcard`:
+The filesystem is mounted on demand only for an active read or write and is
+unmounted immediately afterward; waking the watch does not mount it. A seated
+card's ALDO1 rail remains powered even while unmounted because an unpowered
+card clamps the SPI2 MISO line used by LoRa and NFC. During an I/O session the
+filesystem is mounted at `/sdcard`:
 
 - **Screenshots** — `shot` saves PNG files to `/sdcard/shot/`.
+- **Daily telemetry** — steps, activity and battery samples are appended to
+  `/sdcard/log/steps.csv`, `activity.csv`, and `battery.csv`.
+- **GPX tracks** — active GPX sessions write timestamped files under
+  `/sdcard/log/gpx/`.
+- **Mesh and system logs** — received mesh text is appended to
+  `/sdcard/log/mesh.txt`; captured firmware logs go to `syslog.txt`.
 - **Crash dumps** — if the watch crashes, the ESP32 core dump is stored to a
   flash partition and, on the next boot with an SD card present, decoded to
   `/sdcard/log/crash/`:
