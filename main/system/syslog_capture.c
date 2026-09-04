@@ -18,7 +18,6 @@
  * periodic tick - leaves headroom for the one line that pushed it over,
  * which still gets appended (into the now-empty buffer) after the flush. */
 #define SYSLOG_HIGH_WATER         (SYSLOG_BUF_SIZE * 3 / 4)
-#define SYSLOG_FLUSH_INTERVAL_MS  10000
 #define SYSLOG_LINE_MAX           256
 
 static char s_buf[SYSLOG_BUF_SIZE];

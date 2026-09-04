@@ -7,9 +7,9 @@
  *
  * Chains onto whatever esp_log_set_vprintf() hook was already installed
  * (or the libc default) - console output is unaffected, this only adds a
- * second destination. Buffered in RAM and flushed to SD every
- * SYSLOG_FLUSH_INTERVAL_MS or immediately if the buffer fills first, so a
- * burst of logging never blocks the caller on SD I/O.
+ * second destination. Buffered in RAM and periodically flushed by the shared
+ * housekeeping task, or immediately if the buffer fills first, so a burst of
+ * logging never blocks the caller on SD I/O.
  */
 #pragma once
 
@@ -29,8 +29,9 @@ void syslog_capture_init(void);
  * syslog_vprintf()'s high-water-mark wake), then flushes whatever's
  * pending. Called in a loop from the shared housekeeping task
  * (main/housekeeping.c) instead of this module owning its own task -
- * reclaims a whole task stack (see docs/application.md section 12). Pass
- * 10000 (10s) to match this module's original standalone cadence. */
+ * reclaims a whole task stack (see docs/application.md section 12). The
+ * caller owns the periodic cadence; housekeeping aligns it with the daily
+ * telemetry tick. */
 void syslog_capture_service(uint32_t timeout_ms);
 
 #ifdef __cplusplus

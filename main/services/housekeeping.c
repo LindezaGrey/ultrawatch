@@ -31,10 +31,11 @@ static void housekeeping_task(void *arg)
     TickType_t last_daily = last_gpx;
 
     for (;;) {
-        /* Blocks up to 10s, or returns early on syslog's own buffer-full
-         * wake - so the gpx/daily cadence below is tracked by elapsed
-         * ticks, never by counting loop iterations. */
-        syslog_capture_service(10000);
+        /* Flush syslog on the same one-minute cadence as daily telemetry,
+         * or earlier on syslog's own buffer-high-water wake.  The gpx/daily
+         * cadence below is tracked by elapsed ticks, never by counting loop
+         * iterations, so early syslog wakes cannot postpone either logger. */
+        syslog_capture_service(HOUSEKEEPING_DAILY_INTERVAL_MS);
 
         TickType_t now = xTaskGetTickCount();
         if ((now - last_gpx) >= pdMS_TO_TICKS(HOUSEKEEPING_GPX_INTERVAL_MS)) {
