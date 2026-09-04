@@ -1,0 +1,229 @@
+[18:50:23.731] --- monitor start port=/dev/ttyACM0 baud=115200 log=/home/peter/SynologyDrive/Projekte/ultrawatch/logs/serial.log ---
+[18:50:23.733] --- connected to /dev/ttyACM0 ---
+[18:50:23.933] ESP-ROM:esp32s3-20210327
+[18:50:23.933] Build:Mar 27 2021
+[18:50:23.933] rst:0x15 (USB_UART_CHIP_RESET),boot:0x2b (SPI_FAST_FLASH_BOOT)
+[18:50:23.933] Saved PC:0x403887e0
+[18:50:23.933] SPIWP:0xee
+[18:50:23.933] mode:DIO, clock div:1
+[18:50:23.933] load:0x3fce2820,len:0x16bc
+[18:50:23.933] load:0x403c8700,len:0xf00
+[18:50:23.933] load:0x403cb700,len:0x31f0
+[18:50:23.933] entry 0x403c892c
+[18:50:23.933] I (24) boot: ESP-IDF v6.0.2 2nd stage bootloader
+[18:50:23.933] I (24) boot: compile time Aug 31 2026 14:57:57
+[18:50:23.933] I (25) boot: Multicore bootloader
+[18:50:23.933] I (25) boot: chip revision: v0.2
+[18:50:23.933] I (25) boot: efuse block revision: v1.3
+[18:50:23.933] I (25) qio_mode: Enabling QIO for flash chip WinBond
+[18:50:23.933] I (25) boot.esp32s3: Boot SPI Speed : 80MHz
+[18:50:23.933] I (26) boot.esp32s3: SPI Mode       : QIO
+[18:50:23.933] I (26) boot.esp32s3: SPI Flash Size : 16MB
+[18:50:23.933] I (26) boot: Enabling RNG early entropy source...
+[18:50:23.933] I (26) boot: Partition Table:
+[18:50:23.933] I (26) boot: ## Label            Usage          Type ST Offset   Length
+[18:50:23.933] I (27) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+[18:50:23.933] I (27) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+[18:50:23.933] I (28) boot:  2 factory          factory app      00 00 00010000 00300000
+[18:50:23.933] I (28) boot:  3 coredump         Unknown data     01 03 00310000 00080000
+[18:50:23.933] I (28) boot:  4 assets           Unknown data     01 82 00390000 00100000
+[18:50:23.933] I (29) boot: End of partition table
+[18:50:23.933] I (29) esp_image: segment 0: paddr=00010020 vaddr=3c1a0020 size=aa98ch (698764) map
+[18:50:23.933] I (138) esp_image: segment 1: paddr=000ba9b4 vaddr=3fca3400 size=05664h ( 22116) load
+[18:50:23.933] I (142) esp_image: segment 2: paddr=000c0020 vaddr=42000020 size=19fcd0h (1703120) map
+[18:50:24.334] I (406) esp_image: segment 3: paddr=0025fcf8 vaddr=3fca8a64 size=00758h (  1880) load
+[18:50:24.334] I (407) esp_image: segment 4: paddr=00260458 vaddr=40374000 size=1f358h (127832) load
+[18:50:24.334] I (432) esp_image: segment 5: paddr=0027f7b8 vaddr=50000000 size=00028h (    40) load
+[18:50:24.334] I (433) esp_image: segment 6: paddr=0027f7e8 vaddr=600fe000 size=0006ch (   108) load
+[18:50:24.334] I (446) boot: Loaded app from partition at offset 0x10000
+[18:50:24.334] I (446) boot: Disabling RNG early entropy source...
+[18:50:24.334] I (447) esp_psram: Found 8MB PSRAM device
+[18:50:24.334] I (447) esp_psram: Speed: 80MHz
+[18:50:24.334] I (448) cpu_start: Multicore app
+[18:50:25.135] I (1365) esp_psram: SPI SRAM memory test OK
+[18:50:25.135] I (1374) cpu_start: Pro cpu start user code
+[18:50:25.135] I (1374) cpu_start: cpu freq: 240000000 Hz
+[18:50:25.135] I (1374) app_init: Application information:
+[18:50:25.135] I (1374) app_init: Project name:     UWatch
+[18:50:25.135] I (1375) app_init: App version:      1.0.0
+[18:50:25.135] I (1375) app_init: Compile time:     Sep  2 2026 08:15:39
+[18:50:25.135] I (1375) app_init: ELF file SHA256:  5a63b6951...
+[18:50:25.135] I (1375) app_init: ESP-IDF:          v6.0.2
+[18:50:25.135] I (1375) efuse_init: Min chip rev:     v0.0
+[18:50:25.135] I (1375) efuse_init: Max chip rev:     v0.99
+[18:50:25.135] I (1375) efuse_init: Chip rev:         v0.2
+[18:50:25.135] I (1376) heap_init: Initializing. RAM available for dynamic allocation:
+[18:50:25.135] I (1376) heap_init: At 3FCB5240 len 000344D0 (209 KiB): RAM
+[18:50:25.135] I (1376) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+[18:50:25.135] I (1376) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+[18:50:25.135] I (1376) heap_init: At 600FE06C len 00001F7C (7 KiB): RTCRAM
+[18:50:25.135] I (1377) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+[18:50:25.135] I (1377) spi_flash: detected chip: winbond
+[18:50:25.135] I (1377) spi_flash: flash io: qio
+[18:50:25.135] I (1378) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+[18:50:25.135] I (1378) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+[18:50:25.135] I (1379) esp_core_dump_flash: Init core dump to flash
+[18:50:25.135] I (1379) esp_core_dump_flash: Found partition 'coredump' @ 310000 524288 bytes
+[18:50:25.135] I (1380) main_task: Started on CPU0
+[18:50:25.135] I (1380) esp_psram: Reserving pool of 32K of internal memory for DMA/internal allocations
+[18:50:25.135] I (1381) main_task: Calling app_main()
+[18:50:25.335] I (1424) xl9555: XL9555 found, config0=0x3f
+[18:50:25.535] I (1627) axp2101: AXP2101 found, chip id 0x4a
+[18:50:25.535] I (1635) axp2101: AXP2101 power tree configured
+[18:50:25.535] I (1637) twatch_board: battery: 4203mV, 97%
+[18:50:25.535] I (1637) pcf85063a: PCF85063A found (ctrl1=0x00)
+[18:50:25.535] I (1638) pcf85063a: RTC time: 2026-09-03 16:50:27 (wd=5)
+[18:50:25.535] I (1638) twatch_board: system clock synced from RTC (UTC)
+[18:50:25.535] I (1639) drv2605: DRV2605 initialized (mode=0x00, ERM, library 1)
+[18:50:25.535] I (1640) drv2605: restored calibration comp=0x04 emf=0xAE
+[18:50:25.535] I (1640) drv2605: calibration restored from NVS
+[18:50:25.535] I (1641) max98357a: MAX98357A ready (16000 Hz, mono 16-bit)
+[18:50:25.536] I (1642) t3902: T3902 ready (16000 Hz, PDM->PCM mono 16-bit)
+[18:50:25.536] I (1644) m10q: RTC offset restored: +4
+[18:50:25.536] I (1649) sx1262: SX1262 found, status=0xa2 chip_mode=0x2 (0x2=STDBY_RC expected)
+[18:50:25.536] W (1649) sx1262: device errors at boot: 0x0020 (cleared)
+[18:50:25.536] I (1657) sx1262: configured LoRa: 869525000 Hz SF8 bw=0x05 cr=0x01 sync=0x2b
+[18:50:25.536] I (1657) st25r3916: st25r3916 registered (CS/IRQ wired, DLDO1 powered on demand by poll)
+[18:50:25.536] I (1657) twatch_board: T-Watch Ultra board init finished
+[18:50:25.536] I (1657) uwatch: UWatch boot complete
+[18:50:25.536] I (1704) lvgl_app: assets SPIFFS mounted: 131524/956561 bytes used
+[18:50:25.536] I (1799) CST9217: Checkcode: 0x204ECACA
+[18:50:25.536] I (1801) CST9217: Resolution X: 410, Y: 502
+[18:50:25.736] I (1803) CST9217: Chip Type: 0x9220, ProjectID: 0x5A67
+[18:50:25.736] I (1809) cst9217: CST9217 native resolution: 410x502
+[18:50:25.736] I (1809) touch_controller: CST9217 ready
+[18:50:25.736] I (1810) sh8601: LCD panel create success, version: 2.0.1
+[18:50:25.936] I (2116) co5300: CO5300 initialized via SH8601 driver (410x502)
+[18:50:25.936] I (2137) esp_lvgl:adapter: Auto sleep enabled (mode=1, idle_timeout_ms=20000)
+[18:50:25.936] I (2138) esp_lvgl:adapter: LVGL adapter initialized successfully
+[18:50:25.936] I (2144) esp_lvgl:adapter: LVGL task started successfully
+[18:50:25.936] I (2145) sensor_cache: telemetry cache task started (1 s)
+[18:50:25.936] I (2156) alarm: armed entry 0: local 07:00 -> RTC UTC wday=5 05:00
+[18:50:25.936] I (2157) alarm: init complete
+[18:50:25.936] I (2158) pm: Frequency switching config: CPU_MAX: 240, APB_MAX: 80, APB_MIN: 80, Light sleep: ENABLED
+[18:50:25.936] I (2160) sleep: Code start at 0x42000020, total 1703118, data start at 0x3c000000, total 33554432 Bytes
+[18:50:25.936] I (2161) power_mgmt: esp_pm: DFS 240/80 MHz + auto light sleep
+[18:50:25.936] E (2164) gpio: gpio_install_isr_service(537): GPIO isr service already installed
+[18:50:26.136] W (2203) esp_lvgl:touch: LV_USE_GESTURE_RECOGNITION is disabled; only single-point pointer events are available
+[18:50:26.136] E (2204) gpio: gpio_install_isr_service(537): GPIO isr service already installed
+[18:50:26.136] W (2237) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2239) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2243) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2245) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2250) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2255) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2261) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2266) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2271) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2275) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2277) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2279) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2282) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] W (2284) display_ctrl: draw-complete request dropped: controller queue full
+[18:50:26.136] I (2285) esp_lvgl:touch: Touch input device registered successfully (IRQ mode: enabled)
+[18:50:26.136] I (2285) lvgl_app: touch registered
+[18:50:26.136] I (2285) lvgl_app: LVGL started (watch face)
+[18:50:26.136] I (2286) tracking: tracking disabled (TRACKING_ENABLED=0)
+[18:50:26.136] I (2287) main_task: Returned from app_main()
+[18:50:26.137] I (2391) bhi260ap: loaded firmware: 103676 bytes
+[18:50:26.137] I (2402) bhi260ap: product id: 0x89 (expected 0x89)
+[18:50:28.740] I (4994) mesh_log: packet from !9ea1ffac ch=0x05 rssi=-73dBm snr=12dB (unknown channel)
+[18:50:29.141] I (5283) bhi260ap: RAM firmware booted, kernel version 5991
+[18:50:29.341] I (5512) bhi260ap: BHI260AP ready (persisted steps 65852)
+[18:50:37.552] I (13759) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:50:37.552] I (13801) sdspi_transaction: cmd=5, R1 response: command not supported
+[18:50:37.753] I (13851) sd_log: SD mounted: 59 MB
+[18:50:45.966] I (22163) power_mgmt: entering sleep: panel DISPOFF+blank+SLPIN, IMU AP-suspend, rails off
+[18:50:45.966] I (22191) bhi260ap: AP suspend (host sleeping) intr_ctrl=0x2e gpio8=1
+[18:50:45.966] I (22196) power_mgmt: wake: sources=0x100
+[18:50:46.166] I (22241) power_mgmt: IMU wake: no gesture flag (scheduler meta), staying asleep
+[18:50:46.166] I (22241) power_mgmt: IMU wake was spurious, staying in light sleep
+[18:50:46.166] I (22241) power_mgmt: wake: sources=0x100
+[18:50:46.166] I (22241) power_mgmt: IMU wake: no gesture flag (scheduler meta), staying asleep
+[18:50:46.166] I (22242) power_mgmt: IMU wake was spurious, staying in light sleep
+[18:50:47.768] I (23972) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:50:47.768] I (24014) sdspi_transaction: cmd=5, R1 response: command not supported
+[18:50:47.969] I (24064) sd_log: SD mounted: 59 MB
+[18:50:55.180] heap: free=8365116 min=8255244 dma=62751
+[18:51:11.202] I (47399) mesh_log: packet from !8cf9cfd7 ch=0x77 rssi=-71dBm snr=11dB: NodeInfo: MH 04 https://meshhessen.de/
+[18:51:18.011] I (54182) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:51:18.011] I (54224) sdspi_transaction: cmd=5, R1 response: command not supported
+[18:51:18.011] I (54274) sd_log: SD mounted: 59 MB
+[18:51:25.021] I (61148) twatch_board: system clock synced from RTC (UTC)
+[18:51:25.221] heap: free=8364996 min=8255244 dma=62631
+[18:51:26.022] I (62265) power_mgmt: waking: src=0x100 causes=0x1 slept=40102ms panel=wake
+[18:51:26.022] I (62268) bhi260ap: AP resume (host awake)
+[18:51:26.422] I (62570) co5300: panel re-initialized (display off)
+[18:51:26.423] W (62677) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.423] W (62680) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.423] W (62688) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62695) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62701) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62708) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62714) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62721) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62725) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62760) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62771) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62775) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62783) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62791) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62797) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62807) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62814) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62816) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62823) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62827) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:26.623] W (62830) display_ctrl: draw-complete request dropped: controller queue full
+[18:51:28.225] I (64389) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:51:28.225] I (64431) sdspi_transaction: cmd=5, R1 response: command not supported
+[18:51:28.225] I (64481) sd_log: SD mounted: 59 MB
+[18:51:28.425] I (64609) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:51:28.425] I (64654) sdspi_transaction: cmd=5, R1 response: command not supported
+[18:51:28.625] I (64706) sd_log: SD mounted: 59 MB
+[18:51:34.837] I (70978) mesh_log: packet from !db29d5fc ch=0x77 rssi=-73dBm snr=13dB: TELEMETRY_APP
+[18:51:38.642] I (74864) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:51:38.642] I (74906) sdspi_transaction: cmd=5, R1 response: command not supported
+[18:51:38.842] I (74956) sd_log: SD mounted: 59 MB
+[18:51:39.643] I (75744) mesh_log: packet from !5c21e6f4 ch=0x77 rssi=-73dBm snr=12dB: NodeInfo: Goldstein
+[18:51:40.645] I (76863) mesh_log: packet from !d4fbea21 ch=0x77 rssi=-73dBm snr=13dB: NodeInfo: PKT Taunus
+[18:51:46.652] I (82854) power_mgmt: entering sleep: panel DISPOFF+blank+SLPIN, IMU AP-suspend, rails off
+[18:51:46.652] I (82883) bhi260ap: AP suspend (host sleeping) intr_ctrl=0x2e gpio8=1
+[18:51:46.652] I (82888) power_mgmt: wake: sources=0x100
+[18:51:46.853] I (82934) power_mgmt: IMU wake: no gesture flag (scheduler meta), staying asleep
+[18:51:46.853] I (82934) power_mgmt: IMU wake was spurious, staying in light sleep
+[18:51:46.853] I (82934) power_mgmt: wake: sources=0x100
+[18:51:46.853] I (82934) power_mgmt: IMU wake: no gesture flag (scheduler meta), staying asleep
+[18:51:46.853] I (82935) power_mgmt: IMU wake was spurious, staying in light sleep
+[18:51:48.855] I (85072) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:51:48.855] I (85114) sdspi_transaction: cmd=5, R1 response: command not supported
+[18:51:49.055] I (85164) sd_log: SD mounted: 59 MB
+[18:51:55.266] heap: free=8364996 min=8255244 dma=62631
+[18:52:15.706] I (111897) mesh_log: packet from !0aca5820 ch=0x77 rssi=-74dBm snr=10dB: POSITION_APP
+[18:52:19.110] I (115281) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:52:19.110] I (115323) sdspi_transaction: cmd=5, R1 response: command not supported
+[18:52:19.111] I (115372) sd_log: SD mounted: 59 MB
+[18:52:24.918] I (121148) twatch_board: system clock synced from RTC (UTC)
+[18:52:25.319] heap: free=8364996 min=8255244 dma=62631
+[18:52:29.324] I (125488) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:52:29.324] I (125530) sdspi_transaction: cmd=5, R1 response: command not supported
+[18:52:29.324] I (125579) sd_log: SD mounted: 59 MB
+[18:52:29.524] I (125697) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:52:29.524] I (125739) sdspi_transaction: cmd=5, R1 response: command not supported
+[18:52:29.524] I (125789) sd_log: SD mounted: 59 MB
+[18:52:55.160] heap: free=8364996 min=8255244 dma=62631
+[18:53:22.795] I (179035) mesh_log: packet from !cd57c1a2 ch=0x77 rssi=-74dBm snr=12dB: POSITION_APP
+[18:53:24.998] I (181148) twatch_board: system clock synced from RTC (UTC)
+[18:53:25.198] heap: free=8364996 min=8255244 dma=62631
+[18:53:29.805] I (185926) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:53:29.805] I (185968) sdspi_transaction: cmd=5, R1 response: command not supported
+[18:53:29.805] I (186018) sd_log: SD mounted: 59 MB
+[18:53:30.005] I (186133) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:53:30.005] I (186224) sd_log: SD mounted: 59 MB
+[18:53:32.810] I (188969) mesh_log: packet from !4c201030 ch=0x40 rssi=-73dBm snr=12dB: NodeInfo: HomeBase22
+[18:53:34.413] I (190558) mesh_log: packet from !9eecf664 ch=0x75 rssi=-74dBm snr=13dB (unknown channel)
+[18:53:35.414] I (191592) mesh_log: packet from !b03df660 ch=0x40 rssi=-74dBm snr=14dB: NodeInfo: DC3YB-home
+[18:53:40.222] I (196363) sdspi_transaction: cmd=52, R1 response: command not supported
+[18:53:40.222] I (196405) sdspi_transaction: cmd=5, R1 response: command not supported
+[18:53:40.222] I (196455) sd_log: SD mounted: 59 MB
+[18:53:45.030] --- monitor stop ---
