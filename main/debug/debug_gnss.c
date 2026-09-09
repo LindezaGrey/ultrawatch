@@ -7,6 +7,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <math.h>
+#include <ctype.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "m10q.h"
@@ -34,8 +36,6 @@ void debug_gnss_ver(const char *args)
 {
     (void)args;
     /* Dump UBX-MON-VER to identify the module (genuine u-blox vs clone). */
-    m10q_power(true);
-    vTaskDelay(pdMS_TO_TICKS(500));
     uGnssVersionType_t ver;
     memset(&ver, 0, sizeof(ver));
     if (m10q_get_versions(&ver) == ESP_OK) {
@@ -45,9 +45,8 @@ void debug_gnss_ver(const char *args)
         printf("gnssver: fw=%s\n", ver.fw);
         printf("gnssver: prot=%s\n", ver.prot);
     } else {
-        printf("gnssver: failed to read MON-VER\n");
+        printf("gnssver: no cached version; enable GPS first\n");
     }
-    m10q_power(false);
 }
 
 void debug_gnss_rtccal(const char *args)
@@ -97,8 +96,6 @@ void debug_gnss_status(const char *args)
                (unsigned long)st.ttf_avg_ms, (unsigned long)st.ttf_best_ms);
     }
     uint16_t agc = 0;
-    m10q_poll_agc();
-    vTaskDelay(pdMS_TO_TICKS(200));
     if (m10q_get_agc(&agc) == ESP_OK) {
         printf("gnss: agc=%u\n", (unsigned)agc);
     }
@@ -107,8 +104,8 @@ void debug_gnss_status(const char *args)
 void debug_gnss_check(const char *args)
 {
     (void)args;
-    /* Re-run the boot-time GNSS position check (background). */
-    printf("gpscheck: queued (GNSS powers on for a 3D fix, then off)\n");
+    /* Start a fresh background acquisition window. */
+    printf("gpscheck: queued (signal-aware GPS auto-off)\n");
     lvgl_gps_refresh();
 }
 
@@ -116,12 +113,14 @@ void debug_gnss_seed(const char *args)
 {
     /* Seed the receiver with an approximate position to speed acquisition.
      * Usage: "gnssseed <lat> <lon>". */
-    double lat = atof(args);
-    const char *sp = strchr(args, ' ');
-    if (sp && lat != 0) {
-        double lon = atof(sp + 1);
-        m10q_seed_position(lat, lon);
-        printf("gnssseed: seeded %.5f, %.5f\n", lat, lon);
+    char *end, *tail;
+    double lat = strtod(args, &end);
+    double lon = strtod(end, &tail);
+    bool parsed = end != args && tail != end;
+    while (isspace((unsigned char)*tail)) tail++;
+    if (parsed && !*tail && isfinite(lat) && isfinite(lon) && fabs(lat) <= 90 && fabs(lon) <= 180) {
+        lvgl_gps_seed_position(lat, lon);
+        printf("gnssseed: queued %.5f, %.5f (requires GPS on)\n", lat, lon);
     } else {
         printf("gnssseed: usage gnssseed <lat> <lon>\n");
     }

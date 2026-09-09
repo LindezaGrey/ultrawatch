@@ -42,13 +42,10 @@ uint32_t lvgl_flush_age_ms_get(void);
  * between ==SHOT:WxH== and ==ENDSHOT== markers (debug). Call from any task. */
 esp_err_t lvgl_app_dump_screenshot(void);
 
-/* One-shot GNSS position check (background): power on, wait for a 3D fix,
- * persist the last-known position if moved (50 m gate), power off. */
+/* Start/restart signal-aware acquisition: 60s poor reception, 180s hard limit. */
 void lvgl_gps_refresh(void);
-
-/* True while GNSS is deliberately enabled (GPS screen switch). Defaults off;
- * the power manager uses this to keep the GNSS rail alive across sleep. */
 bool lvgl_gps_enabled(void);
+bool lvgl_gps_timed_out(void);
 
 /* Enable/disable GNSS (single entry for the UI switch, console commands and
  * boot): persists the choice, updates the session on/off state and requests
@@ -70,3 +67,6 @@ void lvgl_mesh_screen_show(void);
 #ifdef __cplusplus
 }
 #endif
+
+const char *lvgl_gps_off_reason(void);
+void lvgl_gps_seed_position(double lat, double lon);

@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <stdlib.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -141,7 +142,7 @@ void power_mgmt_set_night_mode_auto(bool on) { s_pm_night_mode_auto = on; }
 bool power_mgmt_get_skip_sleep_on_usb(void) { return s_pm_skip_sleep_on_usb; }
 void power_mgmt_set_skip_sleep_on_usb(bool yes) { s_pm_skip_sleep_on_usb = yes; }
 
-static uint32_t s_pm_display_timeout_s = 5;
+static uint32_t s_pm_display_timeout_s = 10;
 static uint8_t s_pm_brightness = 0x80;
 
 uint32_t power_mgmt_get_display_timeout_s(void) { return s_pm_display_timeout_s; }
@@ -182,7 +183,7 @@ void lvgl_gps_set_enabled(bool on)
 
 bool lvgl_gps_enabled(void)
 {
-    return s_gnss_enabled;
+    return s_gnss_enabled || getenv("UWATCH_SIM_GPS_FIX");
 }
 
 esp_err_t esp_lv_adapter_report_activity(void)
@@ -197,6 +198,7 @@ const char *uwatch_firmware_version(void)
 
 m10q_state_t m10q_get_state(void)
 {
+    if (getenv("UWATCH_SIM_GPS_FIX")) return M10Q_STATE_FIXED;
     if (!s_gnss_enabled) {
         return M10Q_STATE_OFF;
     }
@@ -208,7 +210,10 @@ esp_err_t m10q_get_fix(m10q_fix_t *fix)
     memset(fix, 0, sizeof(*fix));
     m10q_state_t st = m10q_get_state();
     fix->valid = (st == M10Q_STATE_FIXED);
-    fix->fix_3d = fix->valid;
+    fix->fix_3d = fix->valid && !getenv("UWATCH_SIM_GPS_2D");
+    fix->pvt_received = fix->valid;
+    fix->heading_valid = fix->time_valid = fix->dop_valid = fix->sats_valid = fix->valid;
+    fix->sats_above_30 = 5; fix->sats_above_25 = 6; fix->best_cno = 45; fix->sats_total = 8;
     if (!fix->valid) {
         return ESP_OK;
     }
@@ -349,7 +354,7 @@ esp_err_t bhi260ap_consume_gestures(bool *wrist_tilt, bool *wake_gesture, bool *
  * at a fixed value, so the seconds-precision fix (vs. the firmware's old
  * minute-only tally) is actually visible in the sim without waiting a full
  * minute for the number to move. */
-esp_err_t daily_log_get_activity_seconds(const uint32_t *out[DAILY_ACT_COUNT])
+esp_err_t daily_log_get_activity_seconds(uint32_t out[DAILY_ACT_COUNT])
 {
     static uint32_t vals[DAILY_ACT_COUNT];
     vals[DAILY_ACT_STILL] = 19200;
@@ -360,7 +365,7 @@ esp_err_t daily_log_get_activity_seconds(const uint32_t *out[DAILY_ACT_COUNT])
     vals[DAILY_ACT_TILTING] = 240;
     vals[DAILY_ACT_UNKNOWN] = 120;
     for (int i = 0; i < DAILY_ACT_COUNT; i++) {
-        out[i] = &vals[i];
+        out[i] = vals[i];
     }
     return ESP_OK;
 }
@@ -462,8 +467,8 @@ void mesh_log_set_enabled(bool on) { s_mesh_radio_enabled = on; }
 size_t mesh_log_get_recent(mesh_msg_t *out, size_t max)
 {
     static const struct { uint32_t from; const char *text; uint8_t channel_hash; mesh_msg_kind_t kind; double age_s; } msgs[] = {
-        { 0x55c80e38, "Hello from the trailhead, see you at the summit around noon", 0x08, MESH_MSG_TEXT,    12.0 },
-        { 0x1a2b3c4d, "Zest",                                                       0x40, MESH_MSG_TEXT,    340.0 },
+        { 0x55c80e38, "ÄÖÜ äöü ß Grüße aus München!", 0x08, MESH_MSG_TEXT,    12.0 },
+        { 0x1a2b3c4d, "😀 👍 ❤️ 😉 😂 🎉 🚶",                                                       0x40, MESH_MSG_TEXT,    340.0 },
         { 0x2ee119ab, "NodeInfo: Kevin Hester",                                     0x08, MESH_MSG_OTHER,   610.0 },
         { 0x7c3d9a11, "",                                                           0x93, MESH_MSG_UNKNOWN, 900.0 },
         { 0x9f8e7d6c, "Good morning",                                               0x08, MESH_MSG_TEXT,    1820.0 },
@@ -500,8 +505,8 @@ size_t mesh_log_get_nodes(mesh_node_t *out, size_t max)
 {
     static const struct { uint32_t node_id; const char *name; int16_t rssi; int8_t snr; double age_s; } nodes[] = {
         { 0x2ee119ab, "Kevin Hester", -82, 5,  610.0 },
-        { 0x55c80e38, "",             -97, 6,  12.0 },
-        { 0x1a2b3c4d, "",             -103, 2, 340.0 },
+        { 0x55c80e38, "Jörg",         -97, 6,  12.0 },
+        { 0x1a2b3c4d, "Ute",          -103, 2, 340.0 },
         { 0x9f8e7d6c, "",             -91, 8,  1820.0 },
     };
     size_t n = sizeof(nodes) / sizeof(nodes[0]);
@@ -851,12 +856,15 @@ void cdtimer_check(void)
  * meaningful sim analogue for a physical SD socket. */
 bool sd_log_available(void)
 {
-    return ((long)time(NULL) / 10) % 2 == 0;
+    sd_log_status_t sd;
+    sd_log_get_status(&sd);
+    return sd.mounted;
 }
 
 bool twatch_sd_card_seated(void)
 {
-    return true;
+    const char *state = getenv("UWATCH_SIM_SD");
+    return !state || strcmp(state, "missing") != 0;
 }
 
 bool ble_debug_is_connected(void)
@@ -873,4 +881,25 @@ esp_err_t sd_log_get_space(uint64_t *total_bytes, uint64_t *free_bytes)
     if (total_bytes) { *total_bytes = 8ULL * 1024 * 1024 * 1024; }
     if (free_bytes) { *free_bytes = 3ULL * 1024 * 1024 * 1024; }
     return ESP_OK;
+}
+
+static uint32_t s_pm_return_timeout_s = 30;
+uint32_t power_mgmt_get_return_timeout_s(void) { return s_pm_return_timeout_s; }
+void power_mgmt_set_return_timeout_s(uint32_t seconds) { s_pm_return_timeout_s = seconds; }
+unsigned sim_display_activity_reports;
+void power_mgmt_report_activity(void) { sim_display_activity_reports++; }
+void power_mgmt_idle_poll(void) { }
+
+bool lvgl_gps_timed_out(void) { return getenv("UWATCH_SIM_GPS_TIMEOUT") != NULL && !lvgl_gps_enabled(); }
+
+const char *lvgl_gps_off_reason(void) { return lvgl_gps_timed_out() ? "Poor signal - GPS off" : "GNSS off"; }
+
+void sd_log_get_status(sd_log_status_t *out)
+{
+    *out = (sd_log_status_t){.mounted = false, .space_valid = true,
+        .total_bytes = 8ULL * 1024 * 1024 * 1024, .free_bytes = 3ULL * 1024 * 1024 * 1024};
+    const char *state = getenv("UWATCH_SIM_SD");
+    if (state && strcmp(state, "error") == 0) out->last_error = -1;
+    if (state && strcmp(state, "unknown") == 0) out->space_valid = false;
+    if (state && strcmp(state, "active") == 0) out->mounted = true;
 }

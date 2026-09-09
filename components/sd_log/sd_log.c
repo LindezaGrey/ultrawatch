@@ -37,6 +37,38 @@ static const char *TAG = "sd_log";
 #define SHOT_KEEP_MAX    10   /* retain only the newest screenshots */
 
 static bool s_sd_ready;
+static portMUX_TYPE s_status_mux = portMUX_INITIALIZER_UNLOCKED;
+static sd_log_status_t s_status;
+static void publish_status(bool mounted, esp_err_t error)
+{
+    portENTER_CRITICAL(&s_status_mux);
+    s_status.mounted = mounted;
+    s_status.last_error = error;
+    portEXIT_CRITICAL(&s_status_mux);
+}
+void sd_log_get_status(sd_log_status_t *out)
+{
+    if (!out) return;
+    portENTER_CRITICAL(&s_status_mux);
+    *out = s_status;
+    portEXIT_CRITICAL(&s_status_mux);
+}
+
+/* Called only while holding the SD session, before unmounting. */
+static void cache_space(void)
+{
+    uint64_t total = 0, free = 0;
+    esp_err_t err = esp_vfs_fat_info(SD_LOG_BASE, &total, &free);
+    portENTER_CRITICAL(&s_status_mux);
+    if (err == ESP_OK && free <= total) {
+        s_status.total_bytes = total;
+        s_status.free_bytes = free;
+        s_status.space_valid = true;
+    } else {
+        s_status.last_error = err == ESP_OK ? ESP_FAIL : err;
+    }
+    portEXIT_CRITICAL(&s_status_mux);
+}
 static sdmmc_card_t *s_card;
 
 /* ---- PNG encoding via libpng ---- */
@@ -207,6 +239,7 @@ static esp_err_t sd_log_mount_locked(void)
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "SD mount failed: %s", esp_err_to_name(err));
         s_sd_ready = false;
+        publish_status(false, err);
         sd_rail_reconcile();
         return err;
     }
@@ -214,6 +247,7 @@ static esp_err_t sd_log_mount_locked(void)
     mkdir(SD_LOG_DIR, 0755);   /* parent dir for crash dumps + daily activity CSVs */
     mkdir(SD_SHOT_DIR, 0755);
     s_sd_ready = true;
+    publish_status(true, ESP_OK);
     ESP_LOGI(TAG, "SD mounted: %u MB", (unsigned)(s_card->csd.capacity / 1024 / 1024));
     return ESP_OK;
 }
@@ -223,6 +257,7 @@ static esp_err_t sd_log_unmount_locked(void)
     if (!s_card) {
         return ESP_OK;   /* already unmounted */
     }
+    cache_space();
     s_sd_ready = false;
 
     esp_err_t err = esp_vfs_fat_sdcard_unmount(SD_LOG_BASE, s_card);
@@ -230,6 +265,10 @@ static esp_err_t sd_log_unmount_locked(void)
         ESP_LOGW(TAG, "SD unmount: %s", esp_err_to_name(err));
     }
     s_card = NULL;
+    portENTER_CRITICAL(&s_status_mux);
+    s_status.mounted = false;
+    if (err != ESP_OK) s_status.last_error = err;
+    portEXIT_CRITICAL(&s_status_mux);
 
     /* Reconcile ALDO1 only after a clean unmount - yanking the rail out from
      * under a still-mounted card is what leaves it in the undefined state
@@ -262,7 +301,9 @@ esp_err_t sd_log_unmount(void)
 
 bool sd_log_available(void)
 {
-    return s_sd_ready;
+    sd_log_status_t status;
+    sd_log_get_status(&status);
+    return status.mounted;
 }
 
 /* ---- On-demand session API ----
@@ -307,20 +348,12 @@ void sd_log_session_end(void)
 
 esp_err_t sd_log_get_space(uint64_t *total_bytes, uint64_t *free_bytes)
 {
-    if (!s_sd_ready) {
-        return ESP_ERR_NOT_FOUND;
-    }
-    uint64_t total = 0, free = 0;
-    esp_err_t err = esp_vfs_fat_info(SD_LOG_BASE, &total, &free);
-    if (err == ESP_OK) {
-        if (total_bytes) {
-            *total_bytes = total;
-        }
-        if (free_bytes) {
-            *free_bytes = free;
-        }
-    }
-    return err;
+    sd_log_status_t status;
+    sd_log_get_status(&status);
+    if (!status.space_valid) return ESP_ERR_NOT_FOUND;
+    if (total_bytes) *total_bytes = status.total_bytes;
+    if (free_bytes) *free_bytes = status.free_bytes;
+    return ESP_OK;
 }
 
 esp_err_t sd_log_clear(void)

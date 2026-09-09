@@ -252,6 +252,8 @@ static void mesh_log_task(void *arg)
             size_t text_len = pkt.data.payload_len;
             if (text_len > MESH_LOG_TEXT_MAX) {
                 text_len = MESH_LOG_TEXT_MAX;
+                /* Do not leave half a UTF-8 character at the byte limit. */
+                while (text_len && (pkt.data.payload[text_len] & 0xc0) == 0x80) text_len--;
             }
             memcpy(m.text, pkt.data.payload, text_len);
             m.text[text_len] = '\0';

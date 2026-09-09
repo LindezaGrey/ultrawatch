@@ -79,10 +79,7 @@ esp_err_t bhi260ap_get_step_count(uint32_t *steps);
  * reset automatically when a new calendar day is first sampled. */
 esp_err_t bhi260ap_get_daily_steps(uint32_t *steps);
 
-/* Feed the current lifetime step total into the daily counter. Called once per
- * minute by the logging module; `ymd` is the current calendar day
- * (year*10000+month*100+day). Change of day resets the daily total. */
-void bhi260ap_daily_sample(uint32_t lifetime, uint32_t ymd);
+
 
 /* Sensor status: ready flag and latest step count. Either out-param may be
  * NULL. Returns ESP_OK (never fails; reports the last known state). */
@@ -113,7 +110,7 @@ esp_err_t bhi260ap_get_activity(uint8_t *activity);
  * the FIFO reports is accounted for, even several in one bhi260ap_process_fifo()
  * drain, not just whichever class happened to be active at a poll instant).
  * Includes the live elapsed time for the currently-active class. Reset when
- * bhi260ap_daily_sample() sees a new calendar day. */
+ * bhi260ap_daily_update() sees a new calendar day. */
 esp_err_t bhi260ap_get_activity_ms(uint32_t out_ms[BHI260AP_ACTIVITY_COUNT]);
 
 /* Consume latched gesture events since the last call (wrist tilt, wake
@@ -147,3 +144,11 @@ void bhi260ap_meta_print(uint32_t n);
 #ifdef __cplusplus
 }
 #endif
+
+#include "activity_days.h"
+/* Called with a valid local calendar date; force checkpoints once per minute. */
+esp_err_t bhi260ap_daily_update(uint32_t ymd, bool force);
+esp_err_t bhi260ap_daily_checkpoint(void);
+esp_err_t bhi260ap_daily_snapshot(activity_day_t *out);
+esp_err_t bhi260ap_daily_pending(activity_day_t *out);
+esp_err_t bhi260ap_daily_ack(uint32_t ymd);

@@ -58,20 +58,20 @@ void activity_screen_update(lv_timer_t *timer)
 
     static const char *names[DAILY_ACT_COUNT] = {
         "Still", "Walking", "Running", "Cycling", "In vehicle", "Tilting", "Other" };
-    const uint32_t *secs[DAILY_ACT_COUNT];
-    if (daily_log_get_activity_seconds(secs) == ESP_OK) {
-        for (int i = 0; i < DAILY_ACT_COUNT; i++) {
-            char dur[16];
-            format_duration(*secs[i], dur, sizeof(dur));
-            /* Plain ASCII fixed-width padding, not a table widget - the
-             * cascadia_* bitmap fonts only cover 0x20-0x7E (see
-             * wifi_screen.c's own note on this), so a plain space-padded
-             * name column keeps the duration column aligned without
-             * needing LVGL flex/grid on 7 rows. */
-            char row[40];
-            snprintf(row, sizeof(row), "%-11s%s", names[i], dur);
-            lv_label_set_text(s_act_row_label[i], row);
-        }
+    uint32_t secs[DAILY_ACT_COUNT];
+    bool durations_ready = daily_log_get_activity_seconds(secs) == ESP_OK;
+    for (int i = 0; i < DAILY_ACT_COUNT; i++) {
+        char dur[16];
+        if (durations_ready) format_duration(secs[i], dur, sizeof(dur));
+        else snprintf(dur, sizeof(dur), "--");
+        /* Plain ASCII fixed-width padding, not a table widget - the
+         * cascadia_* bitmap fonts only cover 0x20-0x7E (see
+         * wifi_screen.c's own note on this), so a plain space-padded
+         * name column keeps the duration column aligned without
+         * needing LVGL flex/grid on 7 rows. */
+        char row[40];
+        snprintf(row, sizeof(row), "%-11s%s", names[i], dur);
+        lv_label_set_text(s_act_row_label[i], row);
     }
 }
 

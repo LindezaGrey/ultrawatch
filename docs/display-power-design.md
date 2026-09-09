@@ -184,3 +184,41 @@ Verification requires:
 The implementation is successful only if a draw is authoritative: any real
 LVGL draw eventually makes the display visible, while no panel lifecycle IO can
 run from a flush callback or race a panel reset.
+
+## Navigation and live inactivity settings
+
+`main/screens/navigation.c` is shared with the SDL simulator. It owns the
+four-screen ring, Apps launcher, parent navigation and return-home policy.
+Its injected monotonic clock includes sleep time; `power_mgmt_exit_sleep()`
+calls `navigation_resume()` under the LVGL lock before requesting the first
+visible frame. Settings and unfinished editors survive normal display sleep.
+An automatic return never reports display activity.
+
+`power_mgmt` owns the live display deadline (10 s default, persisted `disp_to`)
+and return setting (30 s default, persisted `return_to`). Explicit activity
+reports only update its timestamp under a critical section. A 100 ms LVGL
+timer feeds the adapter while the display deadline has not elapsed. The
+adapter uses a fixed 250 ms final idle gate, then the existing PAUSE callbacks;
+sleep entry rechecks the owned deadline after the adapter's flush wait. Thus
+sleep takes roughly the configured interval plus up to 250 ms of scheduling
+overhead, without modifying the managed adapter component or restarting it.
+The LVGL timer stops with the adapter during sleep; wake starts a fresh display
+interval. USB keep-awake and foreground NFC/alarm holds use this same policy.
+
+Normal sleep no longer touches GNSS power: its worker retains ownership of
+BLDO1 and may acquire in the background. Active tracking retains the IMU stream
+with the display off. Ultra-Sparmodus still owns its full shutdown sequence.
+
+Host verification: `cmake -S sim -B sim/build`, `cmake --build sim/build`, then
+`ctest --test-dir sim/build --output-on-failure`. The navigation test drives
+real LVGL pointer input with a controllable clock; physical sleep remains a
+firmware/hardware check. Screenshots use `UWATCH_SIM_SCREEN=apps` or
+`settings_disp` with `UWATCH_SIM_SHOT`, as for the existing screen previews.
+
+GNSS acquisition is bounded independently of display sleep: `gps_ctrl_task`
+uses `gps_reception.c` to switch off after 60 seconds without a fresh valid
+position. Position callback timestamps use `esp_timer_get_time()`, not LVGL
+uptime. The task polls instead of waiting inside a 120-second acquisition
+loop, so queued manual requests are handled throughout acquisition. It owns
+GNSS preference writes and shutdown; automatic cutoff saves the switch off.
+The pure reception policy is covered by the `gps_reception` CTest target.

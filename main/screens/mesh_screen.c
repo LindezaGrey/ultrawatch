@@ -12,6 +12,7 @@
  * here.
  */
 #include "screens.h"
+#include "navigation.h"
 #include <stdio.h>
 #include <time.h>
 #include "cascadia_fonts.h"
@@ -20,8 +21,8 @@
 #include "pcf85063a.h"
 
 static const lv_font_t *s_font_sec   = &cascadia_36;
-static const lv_font_t *s_font_small = &cascadia_22;
-static const lv_font_t *s_font_micro = &cascadia_18;
+static const lv_font_t *s_font_small = &mesh_text_22;
+static const lv_font_t *s_font_micro = &mesh_unicode_18;
 
 lv_obj_t *s_mesh_screen;
 lv_obj_t *s_node_screen;
@@ -152,7 +153,7 @@ static void mesh_preset_btn_cb(lv_event_t *e)
 
 /* Mesh -> Node overview is now handled at the indev level (an upward swipe
  * anywhere on the Mesh screen), same as every other nav-ring gesture - see
- * main/lvgl_app.c's swipe_event_cb(). A per-object PRESSED/RELEASED
+ * navigation.c's shared gesture handler. A per-object PRESSED/RELEASED
  * callback registered directly on the message list's own (natively
  * scrollable) container used to live here, but was reported unreliable
  * in practice - most likely LVGL's own scroll-gesture recognition on that
@@ -272,7 +273,7 @@ void lvgl_build_mesh_screen(void)
     }
 
     lv_obj_t *hint = lv_label_create(s_mesh_screen);
-    lv_label_set_text(hint, "< swipe left: GPS");
+    lv_label_set_text(hint, "Swipe up: Nodes");
     lv_obj_set_style_text_font(hint, s_font_micro, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -12);
@@ -324,8 +325,7 @@ static void node_screen_update(lv_timer_t *timer)
 static void node_back_btn_cb(lv_event_t *e)
 {
     (void)e;
-    lv_scr_load(s_mesh_screen);
-    mesh_screen_update(NULL);
+    navigation_back();
 }
 
 static void lvgl_build_node_screen(void)

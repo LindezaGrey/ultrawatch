@@ -4,6 +4,10 @@
  * See daily_log.h for the public interface.
  */
 #include "daily_log.h"
+#include "daily_archive.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include <sys/stat.h>
 #include "sensor_cache.h"
 #include "bhi260ap.h"
 #include "pcf85063a.h"
@@ -28,11 +32,11 @@ static const char *TAG = "daily_log";
 #define BATTERY_CSV    "/sdcard/log/battery.csv"
 #define LOG_INTERVAL_MS 60000   /* 1 min */
 
-static uint32_t s_steps;                 /* last sampled daily steps */
-/* Backing storage for daily_log_get_activity_seconds()'s returned pointers,
- * refreshed fresh from bhi260ap_get_activity_ms() on each call - not a
- * periodically-sampled tally anymore, see that function. */
-static uint32_t s_act_sec[DAILY_ACT_COUNT];
+static SemaphoreHandle_t s_log_mutex;
+static uint32_t s_steps;
+#define TOTALS_CSV "/sdcard/log/activity_totals.csv"
+#define SUMMARY_DIR "/sdcard/log/daily"
+void daily_log_init(void) { if (!s_log_mutex) s_log_mutex = xSemaphoreCreateMutex(); }
 static bool s_log_ready;                 /* CSV header written this boot */
 
 /* Short, greppable names for the AXP2101 charge state, so the CSV is readable
@@ -157,113 +161,90 @@ static void append_lines(const struct tm *lt, uint32_t lifetime)
     }
 }
 
-static bool s_have_last;
-static uint32_t s_last_ymd;
-
-/* One sample: called every DAILY_LOG_INTERVAL_MS from the shared
- * housekeeping task (main/housekeeping.c) - this used to be its own
- * always-running task's loop body; consolidated to reclaim a whole task
- * stack (see docs/application.md section 12). */
-void daily_log_tick(void)
+static bool local_date(struct tm *lt, uint32_t *ymd)
 {
     pcf85063a_time_t rtc;
-    if (!sensor_cache_get_rtc(&rtc)) {
-        return;
-    }
-    /* The RTC stores UTC; "day" for the daily counters/CSV means the
-     * wearer's LOCAL calendar day, so convert before computing ymd. */
+    if (!sensor_cache_get_rtc(&rtc) || rtc.year < 2020 || rtc.year > 2099 ||
+        rtc.month < 1 || rtc.month > 12 || rtc.day < 1 || rtc.day > 31) return false;
     time_t epoch = pcf85063a_time_to_epoch(&rtc);
+    if (!localtime_r(&epoch, lt)) return false;
+    *ymd = (uint32_t)(lt->tm_year + 1900) * 10000u + (lt->tm_mon + 1) * 100u + lt->tm_mday;
+    return true;
+}
+
+/* Reconcile once per second from housekeeping, with no SD access. */
+void daily_log_reconcile(void)
+{
     struct tm lt;
-    localtime_r(&epoch, &lt);
-    uint32_t ymd = (uint32_t)(lt.tm_year + 1900) * 10000u
-                   + (uint32_t)(lt.tm_mon + 1) * 100u + (uint32_t)lt.tm_mday;
+    uint32_t ymd;
+    if (local_date(&lt, &ymd)) bhi260ap_daily_update(ymd, false);
+}
 
-    /* Get the lifetime total first: it drives the daily counter and
-     * the CSV row alike. */
-    uint32_t lifetime = 0;
-    bhi260ap_get_step_count(&lifetime);
-
-    /* One mounted session covers every SD touch this tick (day-roll
-     * marker, header-on-first-run, the steps/activity rows) rather
-     * than mounting/unmounting separately for each - they always
-     * happen together, once a minute. */
-    bool sd_ok = (sd_log_session_begin() == ESP_OK);
-
-    if (s_have_last && ymd != s_last_ymd) {
-        ESP_LOGI(TAG, "new day %lu", (unsigned long)ymd);
-        if (sd_ok) {
-            FILE *s = fopen(STEPS_CSV, "a");
-            if (s) {
-                fprintf(s, "# day %04u-%02u-%02u\n",
-                        (unsigned)(lt.tm_year + 1900),
-                        (unsigned)(lt.tm_mon + 1), (unsigned)lt.tm_mday);
-                fclose(s);
-            }
-        }
+void daily_log_tick(void)
+{
+    if (!s_log_mutex) return;
+    xSemaphoreTake(s_log_mutex, portMAX_DELAY);
+    struct tm lt;
+    uint32_t ymd;
+    if (!local_date(&lt, &ymd)) goto done;
+    /* Checkpointing works without an SD card. Never invent zero sensor readings. */
+    esp_err_t update = bhi260ap_daily_update(ymd, true);
+    if (sd_log_session_begin() != ESP_OK) {
+        sd_log_session_end();
+        goto done;
     }
-    s_last_ymd = ymd;
-    s_have_last = true;
-
-    /* Feed lifetime + day id into the daily counter (reboot-safe),
-     * then cache today's total for display/logging. Same call also
-     * resets the BHI260AP driver's activity-duration tally on a day
-     * rollover (bhi260ap_daily_sample()), so there's one place
-     * deciding "is it a new day" for both day-scoped counters. */
-    bhi260ap_daily_sample(lifetime, ymd);
-    bhi260ap_get_daily_steps(&s_steps);
-
-    if (sd_ok) {
-        if (!s_log_ready) {
-            ensure_header();
-            s_log_ready = true;
+    mkdir(SUMMARY_DIR, 0755);
+    activity_day_t pending;
+    while (bhi260ap_daily_pending(&pending) == ESP_OK) {
+        if (!daily_archive_write(SUMMARY_DIR, &pending)) {
+            ESP_LOGW(TAG, "daily summary %lu deferred", (unsigned long)pending.ymd);
+            break;
         }
-        append_lines(&lt, lifetime);
+        if (bhi260ap_daily_ack(pending.ymd) != ESP_OK) break;
+    }
+    /* A full pending queue may have just been drained. */
+    if (update != ESP_OK) update = bhi260ap_daily_update(ymd, true);
+    activity_day_t day;
+    if (update == ESP_OK && bhi260ap_daily_snapshot(&day) == ESP_OK && day.ymd == ymd) {
+        s_steps = day.steps;
+        if (!s_log_ready) { ensure_header(); s_log_ready = true; }
+        append_lines(&lt, day.lifetime);
+        FILE *file = fopen(TOTALS_CSV, "a");
+        if (file) {
+            char clock[12], row[256];
+            strftime(clock, sizeof(clock), "%H:%M:%S", &lt);
+            daily_totals_format(row, sizeof(row), &day, clock);
+            bool ok = true;
+            if (ftell(file) == 0 && fputs(DAILY_TOTALS_HEADER, file) < 0) ok = false;
+            if (fputs(row, file) < 0) ok = false;
+            if (fclose(file) != 0) ok = false;
+            if (!ok) ESP_LOGW(TAG, "activity totals append failed");
+        }
     }
     sd_log_session_end();
+done:
+    xSemaphoreGive(s_log_mutex);
 }
 
 esp_err_t daily_log_get_steps(uint32_t *steps)
 {
-    if (!steps) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    *steps = s_steps;
-    return ESP_OK;
+    return steps ? bhi260ap_get_daily_steps(steps) : ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t daily_log_get_activity_seconds(const uint32_t *out[DAILY_ACT_COUNT])
+esp_err_t daily_log_get_activity_seconds(uint32_t out[DAILY_ACT_COUNT])
 {
-    if (!out) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    /* Zero-filled default: bhi260ap_get_activity_ms() fails (returns
-     * ESP_ERR_INVALID_STATE, leaving ms[] untouched) until the sensor
-     * finishes booting, a normal condition in the first few seconds after
-     * power-on - out[] must still always point at valid, defined data on
-     * return, matching this function's original never-fails contract.
-     * Callers (e.g. the dailylog console command) don't check the return
-     * value, matching that original contract. */
+    if (!out) return ESP_ERR_INVALID_ARG;
+    memset(out, 0, DAILY_ACT_COUNT * sizeof(*out));
     uint32_t ms[BHI260AP_ACTIVITY_COUNT] = {0};
-    bhi260ap_get_activity_ms(ms);
-    /* activity_class() maps each bhi260ap_activity_t 1:1 onto a
-     * daily_activity_t (see the switch above), so this just re-buckets the
-     * driver's per-class ms totals into daily_log's own enum and converts
-     * to seconds. */
-    memset(s_act_sec, 0, sizeof(s_act_sec));
-    for (int i = 0; i < BHI260AP_ACTIVITY_COUNT; i++) {
-        daily_activity_t c = activity_class((uint8_t)i);
-        uint32_t add_s = ms[i] / 1000;
-        if (s_act_sec[c] <= UINT32_MAX - add_s) {
-            s_act_sec[c] += add_s;
-        }
-    }
-    for (int i = 0; i < DAILY_ACT_COUNT; i++) {
-        out[i] = &s_act_sec[i];
-    }
+    esp_err_t err = bhi260ap_get_activity_ms(ms);
+    if (err != ESP_OK) return err;
+    for (int i = 0; i < BHI260AP_ACTIVITY_COUNT; i++) out[activity_class((uint8_t)i)] += ms[i] / 1000;
     return ESP_OK;
 }
 
 void daily_log_flush(void)
 {
-    /* No buffered ring for CSV: lines are written directly per minute. */
+    daily_log_tick();
+    /* Also save a live checkpoint if RTC/SD logging was unavailable. */
+    bhi260ap_daily_checkpoint();
 }

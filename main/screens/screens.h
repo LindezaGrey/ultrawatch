@@ -25,9 +25,7 @@ static inline lv_obj_t *screen_new(void)
     return scr;
 }
 
-/* Watch face (main/screens/watch_face.c). Not static: menu_timeout_cb()
- * and the nav-ring machinery in main/lvgl_app.c compare against it, same
- * as sim/nav.c does on the sim side. */
+/* Watch face. Screen handles are registered in navigation.c. */
 extern lv_obj_t *s_watch_screen;
 
 void lvgl_build_watch_face(void);
@@ -54,14 +52,7 @@ void gps_screen_update(lv_timer_t *timer);
 bool gps_screen_is_powered(void);
 void gps_screen_set_powered(bool on);
 
-/* Mesh screen + its Node-Overview sub-screen (main/screens/mesh_screen.c).
- * s_node_screen is extern since main/lvgl_app.c's menu_timeout_cb() (the
- * shared nav-ring inactivity timeout) checks it alongside every other
- * screen handle. lvgl_mesh_screen_show() (lvgl_app.c, firmware-only -
- * called from mesh_log.c's background listener) calls
- * lvgl_build_mesh_screen()/mesh_screen_update() below directly; the
- * Node-Overview sub-screen has no external entry point (only reachable
- * via the Mesh screen's own fling gesture), so it stays unexported. */
+/* Mesh and its node overview. */
 extern lv_obj_t *s_mesh_screen;
 extern lv_obj_t *s_node_screen;
 
@@ -84,10 +75,7 @@ extern lv_obj_t *s_ble_screen;
 void lvgl_build_ble_screen(void);
 void ble_screen_update(lv_timer_t *timer);
 
-/* Settings category list + its 6 sub-pages (main/screens/settings_screen.c).
- * All 7 screen handles are extern: main/lvgl_app.c's menu_timeout_cb()
- * (nav-ring inactivity timeout) and nav-ring array both check/reference
- * them directly, same as every other screen. */
+/* Settings and its subpages; preserved across normal display sleep. */
 extern lv_obj_t *s_settings_screen;
 extern lv_obj_t *s_set_tz_screen;
 extern lv_obj_t *s_set_disp_screen;
@@ -102,8 +90,8 @@ void settings_open_vib_screen(void);
 
 void lvgl_build_settings_screen(void);
 /* Reachable both from the Settings category list and via tap-and-hold on
- * the watch face (docs/application.md section 9.3) - main/lvgl_app.c's
- * watch_face_long_press_cb() calls this directly. */
+ * the watch face (docs/application.md section 9.3) - navigation.c's
+ * long-press handler calls this directly. */
 void lvgl_show_settings_disp(void);
 /* Category row -> sub-page dispatch (0=TZ, 1=Display, 2=Peripherie,
  * 3=Sound, 4=Info, 5=Ultra-Sparmodus). Not just the row-click handler's
@@ -112,14 +100,7 @@ void lvgl_show_settings_disp(void);
  * other entry point. */
 void settings_open_subpage(int idx);
 
-/* Alarms/Timers list + its 2 local sub-screens (create/edit one alarm,
- * start a timer): main/screens/alarm_screen.c. The ringing screen lives
- * in main/screens/ring_screen.c, same split as the sim already used.
- * All 4 screen handles + the ring screen's 3 widgets are extern:
- * main/lvgl_app.c's menu_timeout_cb()/nav-ring array check the screens,
- * and alarm_ring_cb() (firmware-only - runs on the alarm ring task, needs
- * esp_lv_adapter_lock()) sets the ring screen's title/time/snooze-button
- * directly for each new ring. */
+/* Alarms, editors and ringing UI. */
 extern lv_obj_t *s_alarm_screen;
 extern lv_obj_t *s_alarm_edit_screen;
 extern lv_obj_t *s_timer_screen;
@@ -134,26 +115,19 @@ void lvgl_build_timer_screen(void);
 void lvgl_build_ring_screen(void);
 void alarm_list_refresh(void);
 
-/* BHI260AP status screen (main/screens/bhi_screen.c). lvgl_show_bhi_screen()
- * (main/lvgl_app.c, firmware-only - needs esp_lv_adapter_lock()) calls
- * lvgl_build_bhi_screen() directly; s_bhi_screen is extern since
- * menu_timeout_cb() also checks it (BHI gets its own longer timeout,
- * BHI_TIMEOUT_MS, so the orientation cube stays up a bit longer). */
+/* Sensor diagnostics, reachable from the debug console. */
 extern lv_obj_t *s_bhi_screen;
 void lvgl_build_bhi_screen(void);
 /* bhi_screen_update() gates on being the active screen, so the call
  * inside lvgl_build_bhi_screen() (before lv_scr_load()) is a no-op -
  * callers must refresh again right after loading, same "load first,
- * then refresh" fix as mesh_screen_update()/nav_ring_go(). */
+ * then refresh" fix as mesh_screen_update()/navigation_open(). */
 void bhi_screen_update(lv_timer_t *timer);
 
-/* lv_tick_get() at the last touch - nav-ring inactivity timeout state
- * (main/lvgl_app.c's menu_timeout_cb() / sim/nav.c's equivalent). Extern
- * since main/screens/settings_screen.c's lvgl_show_settings_disp() (the
- * watch-face tap-and-hold shortcut) resets it directly, same as every
- * swipe does, so landing there via long-press doesn't immediately look
- * idle to the timeout check. */
-extern uint32_t s_last_touch_tick;
+extern lv_obj_t *s_nfc_screen;
+void lvgl_build_nfc_screen(void);
+void nfc_screen_create(lv_event_cb_t start_cb);
+extern lv_obj_t *s_nfc_status_label, *s_nfc_uid_label, *s_nfc_start_btn;
 
 #ifdef __cplusplus
 }

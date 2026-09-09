@@ -150,13 +150,13 @@ void bhi_screen_update(lv_timer_t *timer)
      * that just started, instead of showing "0" until a whole minute has
      * passed: Xh Ym once it's been going over an hour, Xm Ys under that,
      * Xs while it's still under a minute. */
-    const uint32_t *secs[DAILY_ACT_COUNT];
+    uint32_t secs[DAILY_ACT_COUNT];
     static const char *act_names[DAILY_ACT_COUNT] = {
         "Still", "Walk", "Run", "Cycle", "Vehicle", "Tilt", "Other" };
     if (daily_log_get_activity_seconds(secs) == ESP_OK) {
         for (int i = 0; i < DAILY_ACT_COUNT; i++) {
             if (s_daily_act_label[i]) {
-                uint32_t s = *secs[i];
+                uint32_t s = secs[i];
                 char dur[16];
                 if (s >= 3600) {
                     snprintf(dur, sizeof(dur), "%uh %um", (unsigned)(s / 3600), (unsigned)((s % 3600) / 60));
@@ -168,6 +168,10 @@ void bhi_screen_update(lv_timer_t *timer)
                 snprintf(buf, sizeof(buf), "%s %s", act_names[i], dur);
                 lv_label_set_text(s_daily_act_label[i], buf);
             }
+        }
+    } else {
+        for (int i = 0; i < DAILY_ACT_COUNT; i++) {
+            if (s_daily_act_label[i]) lv_label_set_text_fmt(s_daily_act_label[i], "%s --", act_names[i]);
         }
     }
 
@@ -255,7 +259,7 @@ void lvgl_build_bhi_screen(void)
     }
 
     lv_obj_t *hint = lv_label_create(s_bhi_screen);
-    lv_label_set_text(hint, "swipe right: clock   swipe left: NFC");
+    lv_label_set_text(hint, "Swipe right: Watch");
     lv_obj_set_style_text_font(hint, s_font_small, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -90);

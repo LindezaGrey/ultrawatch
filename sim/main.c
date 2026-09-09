@@ -17,6 +17,7 @@
 #include "screens.h"
 #include "screens/screens.h"   /* shared: lvgl_build_watch_face() */
 #include "nav.h"
+#include "screens/navigation.h"
 #include "screenshot.h"
 
 #define SIM_HOR_RES 410
@@ -26,8 +27,11 @@
 #define UWATCH_ASSETS_UI_DIR "."
 #endif
 
+int navigation_test_run(void);
+
 int main(void)
 {
+    if (getenv("UWATCH_SIM_TEST")) return navigation_test_run();
     lv_init();
     lv_tick_set_cb(SDL_GetTicks);
 
@@ -57,7 +61,11 @@ int main(void)
      * manager/compositor involved) and exit immediately after. */
     const char *screen_name = getenv("UWATCH_SIM_SCREEN");
     if (screen_name) {
-        if (strcmp(screen_name, "watch") == 0) {
+        if (strcmp(screen_name, "apps") == 0) {
+            navigation_open(NAV_APPS);
+        } else if (strcmp(screen_name, "nfc") == 0) {
+            navigation_open(NAV_NFC);
+        } else if (strcmp(screen_name, "watch") == 0) {
             sim_show_watch_face();
         } else if (strcmp(screen_name, "settings") == 0) {
             sim_settings_screen_build();
@@ -114,6 +122,9 @@ int main(void)
             lv_timer_handler();
             SDL_Delay(20);
         }
+        /* Capture a complete frame, not only the last timer-updated labels. */
+        lv_obj_invalidate(lv_screen_active());
+        lv_refr_now(disp);
         sim_screenshot_take(disp, autoshot_path);
         return 0;
     }

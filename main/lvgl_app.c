@@ -40,35 +40,34 @@
 #include "alarm.h"
 #include "cd_timer.h"
 #include "gpx_log.h"
+#include "gps_reception.h"
 #include "mesh_log.h"
 #include "st25r3916.h"
 #include "ndef.h"
 #include "ble_debug.h"
 #include "screens/screens.h"
+#include "screens/navigation.h"
 
 static const char *TAG = "lvgl_app";
 
 /* Fonts (embedded Cascadia Code bitmaps, see cascadia_fonts.h). */
 static const lv_font_t *s_font_time = &cascadia_72;   /* HH:MM:SS */
-static const lv_font_t *s_font_sec  = &cascadia_36;   /* UTC time */
 static const lv_font_t *s_font_small = &cascadia_22;  /* body text */
-static const lv_font_t *s_font_micro = &cascadia_18;  /* GPS diag line */
 
 /* BHI260AP status screen now lives in main/screens/bhi_screen.c. */
 
 /* GPS screen's own widgets/state now live in main/screens/gps_screen.c. */
+static gps_reception_reason_t s_gps_off_reason;
+static bool s_gps_seed_pending;
+static double s_gps_seed_lat, s_gps_seed_lon;
 static bool s_gps_enabled;                     /* persisted "GNSS on" choice */
 
 /* Mesh screen + Node-Overview sub-screen: main/screens/mesh_screen.c. */
 
-/* NFC screen (chained off BHI: swipe left again). One-shot scan on demand -
+/* NFC screen (opened from Apps). One-shot scan on demand -
  * st25r3916_open() holds the shared SPI2 bus rails (spi2_power.h) for as
  * long as a session is open, so scanning is explicit (a button), not
  * automatic on screen entry like GPS's always-on acquire. */
-static lv_obj_t *s_nfc_screen;
-static lv_obj_t *s_nfc_status_label;
-static lv_obj_t *s_nfc_uid_label;
-static lv_obj_t *s_nfc_start_btn;
 typedef enum {
     NFC_SCAN_IDLE = 0,
     NFC_SCAN_SCANNING,
@@ -98,8 +97,6 @@ static TaskHandle_t s_nfc_ctrl_task;
 #define GPS_CTRL_NONE    0
 #define GPS_CTRL_ON      1
 #define GPS_CTRL_OFF     2
-#define GPS_CTRL_REFRESH 3   /* one-shot boot position check */
-#define GPS_REFRESH_TIMEOUT_MS 120000
 /* One pending command is intentional: if the user changes the GPS switch
  * repeatedly while a slow power transition runs, only their latest choice
  * should be applied.  The lock makes taking-and-clearing that command atomic
@@ -108,7 +105,7 @@ static int s_gps_ctrl_req;
 static portMUX_TYPE s_gps_ctrl_mux = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_gps_ctrl_task;
 #define LKP_REFRESH_INTERVAL_MS (60 * 1000)   /* NVS write throttle, not fix rate */
-static uint32_t s_gps_lkp_saved_ms;    /* xTaskGetTickCount()-scale, wraps like the others here */
+static uint32_t s_gps_lkp_saved_ms;    /* monotonic milliseconds */
 
 /* Persisted "GNSS enabled" setting (NVS, namespace "gps", key "en"). */
 #define GPS_NVS_NS       "gps"
@@ -137,26 +134,10 @@ static void gps_save_enabled(bool on)
     }
 }
 
-/* Swipe detection at the input-device level (works regardless of widget). */
-#define SWIPE_DIST         60
-#define MENU_TIMEOUT_MS    5000   /* return to watch face after this idle */
-#define BHI_TIMEOUT_MS     10000  /* BHI screen keeps the cube up a bit longer */
-#define NFC_MENU_TIMEOUT_MS 10000  /* NFC screen: outlives one scan window (8s) */
 static lv_indev_t *s_touch_indev;
-static lv_point_t s_swipe_start;
-static bool s_swipe_active;
-uint32_t s_last_touch_tick;   /* lv_tick_get() at last touch - extern via screens/screens.h */
-
-static void swipe_event_cb(lv_event_t *e);
-static void watch_face_long_press_cb(lv_event_t *e);
-static void lvgl_build_nfc_screen(void);
 static void nfc_start_btn_cb(lv_event_t *e);
 static void nfc_ctrl_task(void *arg);
-static void gps_power(bool on);
-static void gps_refresh(void);
 static void gps_ctrl_task(void *arg);
-static void menu_timeout_cb(lv_timer_t *timer);
-static void lvgl_show_watch_face(void);
 /* Round invalidated areas to even coordinates (SH8601 requirement) BEFORE
  * LVGL renders, so the buffer content always matches the flushed area. */
 static void area_rounder_cb(lv_event_t *e)
@@ -330,20 +311,13 @@ static void lvgl_build_boot_screen(void)
     lv_obj_align(hash, LV_ALIGN_CENTER, 0, 80);
 }
 
-/* Watch face builder + 1 Hz update: main/screens/watch_face.c (shared
- * with the sim). menu_timeout_cb()'s timer is started separately, right
- * after lvgl_build_watch_face(), in boot_to_watch_face() below - see
- * watch_face.c's header comment for why. */
-
 /* Show the boot screen for a few seconds, then the watch face. */
 static void boot_to_watch_face(lv_timer_t *timer)
 {
     lv_timer_delete(timer);
     lv_obj_clean(lv_screen_active());
     lvgl_build_watch_face();
-
-    /* Menu inactivity timeout (runs forever; no-op on the watch face). */
-    lv_timer_create(menu_timeout_cb, 500, NULL);
+    navigation_note_activity();
 }
 
 /* BHI260AP status screen: main/screens/bhi_screen.c (shared with the
@@ -355,17 +329,7 @@ void lvgl_show_bhi_screen(void)
         ESP_LOGW(TAG, "show bhi: LVGL lock timeout");
         return;
     }
-    if (!s_bhi_screen) {
-        lvgl_build_bhi_screen();
-    }
-    lv_scr_load(s_bhi_screen);
-    bhi_screen_update(NULL);
-    /* Give the freshly-shown screen its own inactivity window - otherwise
-     * menu_timeout_cb (last touch could be minutes old, since this is
-     * reached via a debug console command, not a touch) bounces straight
-     * back to the watch face on its next 500 ms tick. Same fix as
-     * lvgl_mesh_screen_show(); this entry point was missing it. */
-    s_last_touch_tick = lv_tick_get();
+    navigation_open(NAV_BHI);
     esp_lv_adapter_unlock();
 }
 
@@ -392,25 +356,17 @@ void lvgl_mesh_screen_show(void)
         ESP_LOGW(TAG, "mesh screen show: LVGL lock timeout");
         return;
     }
-    if (!s_mesh_screen) {
-        lvgl_build_mesh_screen();
-    }
-    lv_scr_load(s_mesh_screen);
-    mesh_screen_update(NULL);
+    navigation_open(NAV_MESH);
     esp_lv_adapter_request_wake();
-    /* Give the freshly-shown screen its own inactivity window - otherwise
-     * menu_timeout_cb (last touch could be minutes old) bounces straight
-     * back to the watch face on its next 500 ms tick. */
-    s_last_touch_tick = lv_tick_get();
     esp_lv_adapter_unlock();
 }
 
 /* Settings category list + its 6 sub-pages: main/screens/settings_screen.c
  * (shared with the sim). lvgl_show_settings_disp() there is called
- * directly from watch_face_long_press_cb() below (tap-and-hold shortcut,
+ * from the shared navigation long-press handler (tap-and-hold shortcut,
  * docs/application.md section 9.3). */
 
-/* ---- NFC screen (chained off BHI: swipe left again) ---- */
+/* ---- NFC screen (opened from Apps) ---- */
 
 static void nfc_screen_update(lv_timer_t *timer)
 {
@@ -435,7 +391,7 @@ static void nfc_screen_update(lv_timer_t *timer)
         lv_obj_set_style_text_color(s_nfc_uid_label, lv_color_hex(0x9E9E9E), 0);
         /* Keep the watch awake for the scan window - otherwise auto-sleep
          * could cut rails st25r3916_open() is relying on mid-scan. */
-        esp_lv_adapter_report_activity();
+        power_mgmt_report_activity();
         break;
     }
     case NFC_SCAN_FOUND: {
@@ -577,52 +533,9 @@ static void nfc_ctrl_task(void *arg)
     }
 }
 
-static void lvgl_build_nfc_screen(void)
+void lvgl_build_nfc_screen(void)
 {
-    s_nfc_screen = screen_new();
-    lv_obj_set_style_bg_color(s_nfc_screen, lv_color_hex(0x201030), 0);
-
-    /* High-DPI sizing (AGENT.md "Display density & UI sizing"): title and
-     * the Start button promote to cascadia_36 (both short, fixed text
-     * with room to spare). Status/UID text stay at their current sizes -
-     * status can be a variable-length error string and the UID label
-     * uses WRAP mode with unpredictable line count, both risk pushing
-     * into the button below at a bigger font. */
-    lv_obj_t *title = lv_label_create(s_nfc_screen);
-    lv_label_set_text(title, "NFC");
-    lv_obj_set_style_text_font(title, s_font_sec, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
-
-    s_nfc_status_label = lv_label_create(s_nfc_screen);
-    lv_label_set_text(s_nfc_status_label, "");
-    lv_obj_set_style_text_font(s_nfc_status_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_nfc_status_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_nfc_status_label, LV_ALIGN_CENTER, 0, -60);
-
-    s_nfc_uid_label = lv_label_create(s_nfc_screen);
-    lv_label_set_text(s_nfc_uid_label, "");
-    lv_obj_set_style_text_font(s_nfc_uid_label, s_font_micro, 0);
-    lv_label_set_long_mode(s_nfc_uid_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(s_nfc_uid_label, 360);
-    lv_obj_set_style_text_align(s_nfc_uid_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(s_nfc_uid_label, LV_ALIGN_CENTER, 0, -10);
-
-    s_nfc_start_btn = lv_btn_create(s_nfc_screen);
-    lv_obj_set_size(s_nfc_start_btn, 140, 44);
-    lv_obj_align(s_nfc_start_btn, LV_ALIGN_CENTER, 0, 80);
-    lv_obj_add_event_cb(s_nfc_start_btn, nfc_start_btn_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *btn_lbl = lv_label_create(s_nfc_start_btn);
-    lv_label_set_text(btn_lbl, "Start");
-    lv_obj_set_style_text_font(btn_lbl, s_font_sec, 0);
-    lv_obj_center(btn_lbl);
-
-    lv_obj_t *hint = lv_label_create(s_nfc_screen);
-    lv_label_set_text(hint, "swipe right: BHI sensor");
-    lv_obj_set_style_text_font(hint, s_font_micro, 0);
-    lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -12);
-
+    nfc_screen_create(nfc_start_btn_cb);
     nfc_screen_update(NULL);
     lv_timer_create(nfc_screen_update, 500, NULL);
     if (s_nfc_ctrl_task == NULL) {
@@ -640,160 +553,74 @@ static void lvgl_build_nfc_screen(void)
 static void gps_ctrl_task(void *arg)
 {
     (void)arg;
+    gps_reception_t reception = { 0 };
+#if TRACKING_ENABLED
+    bool tracking_seeded = false;
+#endif
     for (;;) {
         taskENTER_CRITICAL(&s_gps_ctrl_mux);
         int req = s_gps_ctrl_req;
+        bool seed = s_gps_seed_pending;
+        double seed_lat = s_gps_seed_lat, seed_lon = s_gps_seed_lon;
+        s_gps_seed_pending = false;
         s_gps_ctrl_req = GPS_CTRL_NONE;
         taskEXIT_CRITICAL(&s_gps_ctrl_mux);
-        if (req == GPS_CTRL_ON && !gps_screen_is_powered()) {
-            esp_err_t err = m10q_power(true);
-            if (err == ESP_OK) {
-                gps_screen_set_powered(true);
-                ESP_LOGI(TAG, "GNSS powered on");
-            } else {
-                gps_screen_set_powered(false);
-                lvgl_gps_set_enabled(false);
-                ESP_LOGE(TAG, "GNSS power-on failed: %s", esp_err_to_name(err));
+        if (req != GPS_CTRL_NONE) {
+            bool on = req == GPS_CTRL_ON;
+            esp_err_t err = m10q_power(on);
+            gps_screen_set_powered(m10q_get_state() != M10Q_STATE_OFF);
+            if (err == ESP_OK && on) {
+                gps_reception_start(&reception, (uint32_t)(esp_timer_get_time() / 1000));
+                ESP_LOGI(TAG, "GNSS on: 60s poor reception, 180s maximum acquisition");
+            } else if (err != ESP_OK) {
+                ESP_LOGE(TAG, "GNSS power transition failed: %s", esp_err_to_name(err));
+                taskENTER_CRITICAL(&s_gps_ctrl_mux);
+                if (s_gps_ctrl_req == GPS_CTRL_NONE) s_gps_enabled = false;
+                taskEXIT_CRITICAL(&s_gps_ctrl_mux);
             }
-        } else if (req == GPS_CTRL_OFF && gps_screen_is_powered()) {
-            m10q_power(false);
-            gps_screen_set_powered(false);
-            ESP_LOGI(TAG, "GNSS powered off");
-        } else if (req == GPS_CTRL_REFRESH) {
-            /* Boot LKP check: wait for a 3D fix so m10q's gate can persist the
-             * last-known position. GNSS stays on (always-on mode); the fix just
-            * updates the LKP for the next session's position aiding. */
-            if (!gps_screen_is_powered()) {
-                esp_err_t err = m10q_power(true);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "GNSS position refresh startup failed: %s",
-                             esp_err_to_name(err));
-                    continue;
-                }
-                gps_screen_set_powered(true);
-            }
-            ESP_LOGI(TAG, "GNSS position refresh: acquiring 3D fix...");
-            uint32_t start = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-            bool got_fix = false;
-            for (;;) {
-                m10q_fix_t fix;
-                m10q_get_fix(&fix);
-                if (fix.valid && fix.fix_3d) {
-                    got_fix = true;
-                    break;
-                }
-                uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-                if (now - start >= GPS_REFRESH_TIMEOUT_MS) {
-                    break;
-                }
-                /* Keep the watch awake so auto-sleep can't cut the rail. */
-                esp_lv_adapter_report_activity();
-                vTaskDelay(pdMS_TO_TICKS(1000));
-            }
-            if (got_fix) {
-                m10q_fix_t fix;
-                m10q_get_fix(&fix);
-                ESP_LOGI(TAG, "GNSS position refresh: 3D fix (%.5f, %.5f)",
-                         fix.lat, fix.lon);
-            } else {
-                ESP_LOGW(TAG, "GNSS position refresh: no 3D fix within %u s",
-                         GPS_REFRESH_TIMEOUT_MS / 1000);
-            }
-            /* GNSS stays on (always-on mode); do NOT power it off here. */
-        }
-#if TRACKING_ENABLED
-        else if (tracking_fix_due()) {
-            /* Step-gated tracking: a tracking fix is due (every N steps).
-             * GNSS is already on in always-on mode, so just wait for a 3D fix
-             * and hand the position to tracking. */
-            double seed_lat = 0, seed_lon = 0;
-            bool have_seed = tracking_get_estimated_position(&seed_lat, &seed_lon);
-            if (!gps_screen_is_powered()) {
-                esp_err_t err = m10q_power(true);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "GNSS tracking startup failed: %s", esp_err_to_name(err));
-                    tracking_fix_clear();
-                    continue;
-                }
-                gps_screen_set_powered(true);
-            }
-            /* IMU-assisted re-acquisition: seed the receiver with the estimated
-             * position (last fix + steps x stride along the last course) so the
-             * warm start is faster and the on-time shorter. */
-            if (have_seed) {
-                m10q_seed_position(seed_lat, seed_lon);
-            }
-            ESP_LOGI(TAG, "GNSS tracking fix: acquiring 3D fix...");
-            uint32_t start = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-            bool got_fix = false;
-            for (;;) {
-                m10q_fix_t fix;
-                m10q_get_fix(&fix);
-                if (fix.valid && fix.fix_3d) {
-                    tracking_on_fix(fix.lat, fix.lon);
-                    m10q_update_last_position(fix.lat, fix.lon);
-                    got_fix = true;
-                    break;
-                }
-                uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-                if (now - start >= GPS_REFRESH_TIMEOUT_MS) {
-                    break;
-                }
-                esp_lv_adapter_report_activity();
-                vTaskDelay(pdMS_TO_TICKS(1000));
-            }
-            if (!got_fix) {
-                ESP_LOGW(TAG, "GNSS tracking fix: no 3D fix within %u s",
-                         GPS_REFRESH_TIMEOUT_MS / 1000);
-                /* No fix: don't block forever; try again after more steps. */
-                tracking_fix_clear();
-            }
-            /* GNSS stays on (always-on mode); do NOT power it off here. */
-        }
-#endif
-        else if (gps_screen_is_powered() && m10q_get_state() == M10Q_STATE_OFF &&
-                 !bhi260ap_is_suspended()) {
-            /* Auto-sleep cut the GNSS rail underneath us (power_mgmt told the
-             * driver, which set state=OFF). On wake the rail is restored but
-             * the module needs a fresh power-on + config, so re-arm it.
-             * Gated on !bhi260ap_is_suspended(): while the host is entering or
-             * in light sleep (AP-suspend set), the rail is being cut on
-             * purpose and must stay off - re-powering here (the task polls
-             * every 50 ms) would undo the power-down ~50 ms after it and leave
-             * the GNSS powered during sleep. */
-            esp_err_t err = m10q_power(true);
-            if (err == ESP_OK) {
-                gps_screen_set_powered(true);
-                ESP_LOGI(TAG, "GNSS re-powered after wake");
-            } else {
-                gps_screen_set_powered(false);
-                lvgl_gps_set_enabled(false);
-                ESP_LOGE(TAG, "GNSS wake recovery failed: %s", esp_err_to_name(err));
-            }
+            /* This worker serializes NVS writes as well as power transitions.
+             * A newer queued UI request is applied on the next iteration. */
+            gps_save_enabled(lvgl_gps_enabled());
         }
 
-        /* Opportunistic MGA-INI position seed refresh - independent of
-         * TRACKING_ENABLED. m10q_update_last_position() (the only thing
-         * that persists a fresh last-known-position for next session's
-         * MGA-INI POS aiding) used to be called ONLY from the tracking
-         * fix-due branch above, which is compiled out entirely when
-         * tracking is disabled - meaning ordinary GPS screen use or the
-         * boot-time refresh got a perfectly good fix, displayed it, and
-         * then never wrote it back. The next session kept re-seeding
-         * whatever position was last set by hand (gnssseed), however old
-         * or far away that had become - confirmed on hardware: a fix in
-         * Germany, MGA-INI POS still acking a UK coordinate hundreds of km
-         * off, months stale. A confidently-wrong position hint (radius
-         * 1km) is worse for acquisition than no hint at all.
-         *
-         * Any valid 3D fix, any time GNSS is powered, now refreshes it -
-         * throttled to once per LKP_REFRESH_INTERVAL_MS so a fix streaming
-         * at 1 Hz doesn't turn into an NVS write every second. */
+        if (seed && gps_screen_is_powered()) m10q_seed_position(seed_lat, seed_lon);
         if (gps_screen_is_powered()) {
-            m10q_fix_t fix;
+#if TRACKING_ENABLED
+            if (!tracking_fix_due()) tracking_seeded = false;
+            if (tracking_fix_due() && !tracking_seeded) {
+                double lat, lon;
+                if (tracking_get_estimated_position(&lat, &lon)) m10q_seed_position(lat, lon);
+                tracking_seeded = true;
+            }
+#endif
+            m10q_fix_t fix = { 0 };
             m10q_get_fix(&fix);
-            if (fix.valid && fix.fix_3d) {
-                uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+            uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+            gps_reception_reason_t reason = gps_reception_update(&reception, now, &fix);
+            if (reason != GPS_RECEPTION_OK) {
+                /* Do not replace a newer explicit on/off request with an
+                 * automatic shutdown. Claim this transition under the same lock. */
+                taskENTER_CRITICAL(&s_gps_ctrl_mux);
+                bool stop = s_gps_ctrl_req == GPS_CTRL_NONE;
+                if (stop) {
+                    s_gps_enabled = false;
+                    s_gps_off_reason = reason;
+                }
+                taskEXIT_CRITICAL(&s_gps_ctrl_mux);
+                if (stop) {
+                    ESP_LOGW(TAG, "GNSS auto-off: %s", lvgl_gps_off_reason());
+                    esp_err_t err = m10q_power(false);
+                    gps_screen_set_powered(m10q_get_state() != M10Q_STATE_OFF);
+                    if (err != ESP_OK) ESP_LOGE(TAG, "GNSS auto-off failed: %s", esp_err_to_name(err));
+                    gps_save_enabled(lvgl_gps_enabled());
+#if TRACKING_ENABLED
+                    tracking_fix_clear();
+#endif
+                }
+            } else if (fix.valid && fix.fix_3d && now - fix.updated_ms < 3000) {
+#if TRACKING_ENABLED
+                if (tracking_fix_due()) tracking_on_fix(fix.lat, fix.lon);
+#endif
                 if (now - s_gps_lkp_saved_ms >= LKP_REFRESH_INTERVAL_MS) {
                     m10q_update_last_position(fix.lat, fix.lon);
                     s_gps_lkp_saved_ms = now;
@@ -804,48 +631,57 @@ static void gps_ctrl_task(void *arg)
     }
 }
 
-/* Power the GNSS receiver on/off. The actual m10q power transition happens on
- * the background control task so the UI never blocks. */
-static void gps_power(bool on)
-{
-    taskENTER_CRITICAL(&s_gps_ctrl_mux);
-    s_gps_ctrl_req = on ? GPS_CTRL_ON : GPS_CTRL_OFF;
-    taskEXIT_CRITICAL(&s_gps_ctrl_mux);
-}
-
-/* gps_pwr_switch_cb() / gps_track_btn_cb() now live in
- * main/screens/gps_screen.c (shared with the sim). */
-
-/* One-shot boot-time GNSS position check (background). */
-static void gps_refresh(void)
-{
-    taskENTER_CRITICAL(&s_gps_ctrl_mux);
-    s_gps_ctrl_req = GPS_CTRL_REFRESH;
-    taskEXIT_CRITICAL(&s_gps_ctrl_mux);
-}
-
-/* Public wrapper for console/other modules. */
+/* An explicit check starts a fresh acquisition window, like the UI switch. */
 void lvgl_gps_refresh(void)
 {
-    gps_refresh();
+    lvgl_gps_set_enabled(true);
 }
 
-/* True while GNSS was deliberately enabled (GPS screen switch). Used by the
- * power manager to keep the GNSS rail alive across a sleep session instead of
- * cutting + re-powering it on every wake. */
 bool lvgl_gps_enabled(void)
 {
-    return s_gps_enabled;
+    taskENTER_CRITICAL(&s_gps_ctrl_mux);
+    bool enabled = s_gps_enabled;
+    taskEXIT_CRITICAL(&s_gps_ctrl_mux);
+    return enabled;
 }
 
-/* Enable/disable GNSS (single session entry point: UI switch, console, boot).
- * Persists the choice and requests the power transition on the GPS control
- * task, so every path feeds the same on/off state the power manager checks. */
+bool lvgl_gps_timed_out(void)
+{
+    taskENTER_CRITICAL(&s_gps_ctrl_mux);
+    bool timed_out = s_gps_off_reason != GPS_RECEPTION_OK;
+    taskEXIT_CRITICAL(&s_gps_ctrl_mux);
+    return timed_out;
+}
+
+const char *lvgl_gps_off_reason(void)
+{
+    taskENTER_CRITICAL(&s_gps_ctrl_mux);
+    gps_reception_reason_t reason = s_gps_off_reason;
+    taskEXIT_CRITICAL(&s_gps_ctrl_mux);
+    switch (reason) {
+    case GPS_POOR_SIGNAL: return "Poor signal - GPS off";
+    case GPS_NO_TELEMETRY: return "No data - GPS off";
+    case GPS_NO_FIX: return "No fix - GPS off";
+    default: return "GNSS off";
+    }
+}
+
+void lvgl_gps_seed_position(double lat, double lon)
+{
+    if (!isfinite(lat) || !isfinite(lon) || fabs(lat) > 90 || fabs(lon) > 180) return;
+    taskENTER_CRITICAL(&s_gps_ctrl_mux);
+    s_gps_seed_lat = lat; s_gps_seed_lon = lon;
+    s_gps_seed_pending = true;
+    taskEXIT_CRITICAL(&s_gps_ctrl_mux);
+}
+
 void lvgl_gps_set_enabled(bool on)
 {
+    taskENTER_CRITICAL(&s_gps_ctrl_mux);
     s_gps_enabled = on;
-    gps_save_enabled(on);
-    gps_power(on);
+    s_gps_off_reason = GPS_RECEPTION_OK;
+    s_gps_ctrl_req = on ? GPS_CTRL_ON : GPS_CTRL_OFF;
+    taskEXIT_CRITICAL(&s_gps_ctrl_mux);
 }
 
 /* Start/stop a step-gated tracking session. The display keeps working normally
@@ -857,7 +693,7 @@ void lvgl_tracking_start(void)
         ESP_LOGE(TAG, "tracking start failed");
         return;
     }
-    ESP_LOGI(TAG, "tracking started (step-gated GNSS, display stays on)");
+    ESP_LOGI(TAG, "tracking started (step-gated GNSS, display may sleep)");
 }
 
 void lvgl_tracking_stop(void)
@@ -924,191 +760,9 @@ static void alarm_ring_cb(bool ringing, alarm_ring_source_t source)
     esp_lv_adapter_unlock();
 }
 
-/* ---- Main navigation ring (docs/application.md section 4.3) ----
- *
- * A single closed ring: swipe left advances (Main -> GPS -> Mesh -> Alarms ->
- * Main -> ...), swipe right retreats - a modular index walk, replacing the
- * old per-screen if/else tree entirely. Settings is deliberately NOT in this
- * ring (moved out per explicit feedback: it now sits below Main on its own
- * vertical axis - swipe down from Main to enter, swipe up from Settings back
- * to Main - see the vertical-swipe handling in swipe_event_cb() below and
- * docs/application.md section 4.3/9.3). Vertical swipes are otherwise
- * unassigned on the ring screens themselves (spec: reserved, not built yet).
- *
- * NFC is part of this ring so its on-device scan UI is reachable again. The
- * BHI sensor and Power screens remain debug-only. */
-typedef struct {
-    lv_obj_t **screen;      /* &s_watch_screen, &s_gps_screen, ... */
-    void (*build)(void);    /* lazy builder; NULL for the watch face (built once at boot) */
-} nav_ring_entry_t;
-
-static const nav_ring_entry_t s_nav_ring[] = {
-    { &s_watch_screen,    NULL },
-    { &s_activity_screen, lvgl_build_activity_screen },
-    { &s_gps_screen,      lvgl_build_gps_screen },
-    { &s_mesh_screen,     lvgl_build_mesh_screen },
-    { &s_wifi_screen,     lvgl_build_wifi_screen },
-    { &s_ble_screen,      lvgl_build_ble_screen },
-    { &s_alarm_screen,    lvgl_build_alarm_screen },
-    { &s_nfc_screen,      lvgl_build_nfc_screen },
-};
-#define NAV_RING_COUNT (sizeof(s_nav_ring) / sizeof(s_nav_ring[0]))
-
-static int nav_ring_index_of(lv_obj_t *screen)
+static uint32_t navigation_clock_ms(void)
 {
-    for (size_t i = 0; i < NAV_RING_COUNT; i++) {
-        if (*s_nav_ring[i].screen == screen) {
-            return (int)i;
-        }
-    }
-    return -1;
-}
-
-static void nav_ring_go(int index)
-{
-    const nav_ring_entry_t *entry = &s_nav_ring[index];
-    if (entry->screen == &s_watch_screen) {
-        lvgl_show_watch_face();   /* also forces an immediate label refresh */
-        return;
-    }
-    if (!*entry->screen && entry->build) {
-        entry->build();
-    }
-    if (*entry->screen) {
-        lv_scr_load(*entry->screen);
-        /* mesh_screen_update() gates on lv_screen_active() == s_mesh_screen
-         * (unlike GPS/alarm's update functions, which are unconditional),
-         * so reaching Mesh via a ring-swipe left its conn/message labels
-         * stale until the next 1s timer tick - same "load first, then
-         * refresh" bug class as Phase 4's node-overview fix. Harmless
-         * no-op for every other screen (same guard). */
-        mesh_screen_update(NULL);
-    }
-}
-
-/* ---- Swipe navigation (indev-level: fires for every touch) ---- */
-
-static void swipe_event_cb(lv_event_t *e)
-{
-    lv_indev_t *indev = lv_indev_active();
-    lv_point_t p;
-    lv_indev_get_point(indev, &p);
-
-    if (lv_event_get_code(e) == LV_EVENT_PRESSED) {
-        s_swipe_start = p;
-        s_swipe_active = true;
-        s_last_touch_tick = lv_tick_get();
-        return;
-    }
-    if (lv_event_get_code(e) != LV_EVENT_RELEASED || !s_swipe_active) {
-        return;
-    }
-    s_swipe_active = false;
-    s_last_touch_tick = lv_tick_get();
-
-    int dy = p.y - s_swipe_start.y;
-    int dx = p.x - s_swipe_start.x;
-    if (abs(dx) < SWIPE_DIST && abs(dy) < SWIPE_DIST) {
-        return;
-    }
-    /* A real swipe this large should never also register as a tap on
-     * whatever widget happens to be under the release point (reported
-     * live: swiping on the Settings category list kept opening whichever
-     * full-width row the finger lifted over, since the release point is
-     * still "inside" that same wide row even after a large horizontal
-     * drag). Indev-level callbacks run before the event reaches the
-     * widget, so stopping processing here suppresses the widget's own
-     * PRESSED/RELEASED/CLICKED for this touch entirely. */
-    lv_indev_stop_processing(indev);
-    bool horiz = abs(dx) > abs(dy);
-    if (!horiz) {
-        /* Mesh -> Node overview: the only vertical gesture on a ring
-         * screen. Was a separate per-object callback on the message list's
-         * own (natively scrollable) container, registered for
-         * LV_EVENT_PRESSED/RELEASED there - reported flimsy/unreliable in
-         * practice, most likely LVGL's own scroll-gesture recognition on
-         * that scrollable object competing for the same press/release
-         * sequence. Handling it here instead, at the indev level (fires
-         * for every touch regardless of what's under it, same as every
-         * other swipe in this app), is the same fix class as that
-         * unreliability - see docs/application.md 7.2 point 4. */
-        if (lv_screen_active() == s_mesh_screen && dy < -SWIPE_DIST) {
-            lvgl_show_node_overview();
-            return;
-        }
-        /* Main <-> Settings: Settings lives outside the horizontal ring on
-         * its own vertical axis - swipe down from Main to enter, swipe up
-         * from Settings' own category list back to Main. Only the category
-         * list itself; the 6 sub-pages keep their own local swipe-back to
-         * the category list (settings_sub_swipe_cb, settings_screen.c),
-         * unrelated to this indev-level handler entirely. */
-        if (lv_screen_active() == s_watch_screen && dy > SWIPE_DIST) {
-            if (!s_settings_screen) {
-                lvgl_build_settings_screen();
-            }
-            lv_scr_load(s_settings_screen);
-        } else if (lv_screen_active() == s_settings_screen && dy < -SWIPE_DIST) {
-            lvgl_show_watch_face();
-        }
-        return;
-    }
-
-    int idx = nav_ring_index_of(lv_screen_active());
-    if (idx < 0) {
-        return;   /* not on a ring screen (e.g. BHI/NFC reached via debug command) - no gesture nav */
-    }
-    int next = (dx < 0) ? (int)((idx + 1) % NAV_RING_COUNT)
-                        : (int)((idx + NAV_RING_COUNT - 1) % NAV_RING_COUNT);
-    nav_ring_go(next);
-}
-
-static void watch_face_long_press_cb(lv_event_t *e)
-{
-    (void)e;
-    if (lv_screen_active() != s_watch_screen) {
-        return;
-    }
-    lvgl_show_settings_disp();
-}
-
-/* ---- Menu inactivity timeout ----
- * Any non-watch-face screen returns to the watch face after MENU_TIMEOUT_MS
- * without a touch. The BHI sensor screen keeps its orientation cube up for
- * BHI_TIMEOUT_MS (10 s); the GPS and alarm/ring screens are exempt (longer
- * observation). */
-static void menu_timeout_cb(lv_timer_t *timer)
-{
-    (void)timer;
-    lv_obj_t *cur = lv_screen_active();
-    if (cur == s_gps_screen || cur == s_alarm_screen || cur == s_ring_screen ||
-        cur == s_alarm_edit_screen || cur == s_timer_screen || cur == s_node_screen ||
-        cur == s_settings_screen || cur == s_set_tz_screen || cur == s_set_disp_screen ||
-        cur == s_set_periph_screen || cur == s_set_sound_screen || cur == s_set_info_screen ||
-        cur == s_set_vib_screen) {
-        return;
-    }
-    if (cur == s_watch_screen) {
-        return;
-    }
-    uint32_t timeout = (cur == s_bhi_screen) ? BHI_TIMEOUT_MS :
-                        (cur == s_nfc_screen) ? NFC_MENU_TIMEOUT_MS : MENU_TIMEOUT_MS;
-    if (lv_tick_get() - s_last_touch_tick >= timeout) {
-        lvgl_show_watch_face();
-    }
-}
-
-/* Load the watch face and refresh the clock labels. Full-screen invalidation
- * here is avoided: a 502-row full redraw queues ~11 band flushes in one cycle,
- * which transiently spikes internal DMA heap usage and can fail the SPI flush
- * (ESP_ERR_NO_MEM / screen corruption). Refreshing the labels re-reads the RTC
- * (time may have changed while a menu was open) at low cost. */
-static void lvgl_show_watch_face(void)
-{
-    lv_scr_load(s_watch_screen);
-    if (esp_lv_adapter_lock(-1) == ESP_OK) {
-        watch_face_update(NULL);
-        esp_lv_adapter_unlock();
-    }
+    return (uint32_t)(esp_timer_get_time() / 1000);
 }
 
 /* Sensor task: bring up the BHI260AP (RAM firmware upload + boot) once the
@@ -1227,10 +881,7 @@ esp_err_t lvgl_app_start(void)
 {
     mount_assets();
 
-    /* Load display timeout/brightness (+ the rest of power_mgmt's persisted
-     * settings) now: esp_lv_adapter_init() below needs the timeout
-     * immediately, well before power_mgmt_init()'s own (heavier, GPIO/task)
-     * setup runs later in this function. Safe to load twice. */
+    /* Load live inactivity settings and brightness before starting the UI. */
     power_mgmt_load_config();
 
     /* A missing touch controller must not prevent the watch face from
@@ -1249,10 +900,12 @@ esp_err_t lvgl_app_start(void)
     /* Auto light sleep: pause LVGL after idle, then tickless light sleep. */
     adapter_cfg_mut.auto_sleep.enable = true;
     adapter_cfg_mut.auto_sleep.mode = ESP_LV_ADAPTER_AUTO_SLEEP_MODE_PAUSE;
-    adapter_cfg_mut.auto_sleep.idle_timeout_ms = power_mgmt_get_display_timeout_s() * 1000;
+    /* power_mgmt owns the live timeout; the adapter supplies the final idle gate. */
+    adapter_cfg_mut.auto_sleep.idle_timeout_ms = 250;
     adapter_cfg_mut.auto_sleep.callbacks.on_enter_sleep = power_mgmt_enter_sleep;
     adapter_cfg_mut.auto_sleep.callbacks.on_exit_sleep = power_mgmt_exit_sleep;
     ESP_RETURN_ON_ERROR(esp_lv_adapter_init(&adapter_cfg_mut), TAG, "adapter init");
+    power_mgmt_report_activity();
 
     /* Draw buffers in internal DMA-capable RAM: PSRAM buffers would need a
      * temp internal-DMA copy per band flush, and rapid redraws exhaust the
@@ -1332,21 +985,17 @@ esp_err_t lvgl_app_start(void)
         s_touch_indev = esp_lv_adapter_register_touch(&touch_cfg);
         if (s_touch_indev) {
             ESP_LOGI(TAG, "touch registered");
-            /* Indev-level swipe detection: fires for every touch regardless of
-             * which widget/screen is active. */
-            lv_indev_add_event_cb(s_touch_indev, swipe_event_cb, LV_EVENT_PRESSED, NULL);
-            lv_indev_add_event_cb(s_touch_indev, swipe_event_cb, LV_EVENT_RELEASED, NULL);
-            /* Tap-and-hold on the watch face -> Display settings (section
-             * 9.3). LVGL's default long-press time (~400ms) is used as-is.
-             * A near-zero-movement long-press never crosses SWIPE_DIST, so
-             * this never fires the ring-swipe logic above too. */
-            lv_indev_add_event_cb(s_touch_indev, watch_face_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
         } else {
             ESP_LOGE(TAG, "touch registration failed");
         }
         /* The touch driver re-enables its GPIO interrupt; re-apply night mode
          * so touch stays disabled (no accidental wake) during night hours. */
         power_mgmt_recheck_night_mode();
+    }
+
+    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+        navigation_init(s_touch_indev, navigation_clock_ms);
+        esp_lv_adapter_unlock();
     }
 
     ESP_LOGI(TAG, "LVGL started (watch face)");
@@ -1372,13 +1021,7 @@ esp_err_t lvgl_app_start(void)
             ESP_LOGE(TAG, "GNSS control task allocation failed");
         }
     }
-    s_gps_enabled = gps_load_enabled();
-    gps_power(s_gps_enabled);
-    if (s_gps_enabled) {
-        /* One-shot boot-time position check to refresh the aided-start seed
-         * (last-known position in NVS) so the next power-on fixes fast. */
-        gps_refresh();
-    }
+    lvgl_gps_set_enabled(gps_load_enabled());
 
     /* Step-gated distance tracking (lifetime distance + steps). No-op while
      * TRACKING_ENABLED is 0. */

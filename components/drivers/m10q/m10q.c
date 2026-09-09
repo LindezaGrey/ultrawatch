@@ -32,6 +32,7 @@
 #include "u_gnss_module_type.h"
 #include "u_gnss_cfg_val_key.h"
 #include "m10q.h"
+#include "m10q_decode.h"
 #include "axp2101.h"
 #include "pcf85063a.h"
 
@@ -45,6 +46,9 @@ static i2c_master_dev_handle_t s_pmu;
 static i2c_master_dev_handle_t s_rtc;
 static bool s_powered;
 static bool s_opened;            /* uDeviceOpen done */
+static uGnssVersionType_t s_versions;
+static bool s_versions_valid;
+static bool s_session_time_synced;
 static uDeviceHandle_t s_gnss;   /* ubxlib GNSS device handle */
 
 static m10q_fix_t s_fix;
@@ -156,13 +160,17 @@ static void rtc_sync_from_utc(time_t utc)
     }
     time_t rtc_epoch = pcf85063a_time_to_epoch(&rt);
     int32_t delta = (int32_t)(utc - rtc_epoch);
+    m10q_data_lock();
     s_fix.rtc_offset_s = delta;
+    m10q_data_unlock();
 
     if (delta < -RTC_SYNC_MIN_DELTA_S || delta > RTC_SYNC_MIN_DELTA_S) {
         pcf85063a_time_t nt;
         pcf85063a_epoch_to_time(utc, &nt);
         if (pcf85063a_set_time(s_rtc, &nt) == ESP_OK) {
-            s_fix.rtc_offset_s = 0;    /* just applied; now in sync */
+            m10q_data_lock();
+            s_fix.rtc_offset_s = 0;
+            m10q_data_unlock();
             ESP_LOGI(TAG, "RTC set from GPS: %04d-%02d-%02d %02d:%02d:%02d (was %+ld s)",
                      (int)nt.year, nt.month, nt.day, nt.hour, nt.min, nt.sec,
                      (long)delta);
@@ -391,51 +399,12 @@ double m10q_distance_m(double lat1, double lon1, double lat2, double lon2)
     return 6371000.0 * 2.0 * atan2(sqrt(a), sqrt(1.0 - a));
 }
 
-/* ---- UBX-NAV-SAT parser for the skyplot ----
- * Frame: class 0x01 id 0x35, payload:
- *   iTOW(4) version(1) numSvs(1) reserved(2), then per SV (12 bytes):
- *   gnssId(1) svId(1) cno(1) elev(1 i1) azim(2 i2) prRes(2) flags(4)
- * flags bit0 = used-in-solution. */
-static void parse_nav_sat(const uint8_t *payload, size_t len)
-{
-    if (len < 8) {
-        return;
-    }
-    uint8_t numSvs = payload[5];
-    size_t off = 8;
-    uint16_t count = 0;
-    m10q_data_lock();
-    for (uint8_t i = 0; i < numSvs && off + 12 <= len && count < M10Q_MAX_SATS; i++, off += 12) {
-        uint8_t svId = payload[off + 1];
-        uint8_t cno = payload[off + 2];
-        int8_t elev = (int8_t)payload[off + 3];
-        int16_t azim = (int16_t)(payload[off + 4] | (payload[off + 5] << 8));
-        uint32_t flags = (uint32_t)payload[off + 8] |
-                         ((uint32_t)payload[off + 9] << 8) |
-                         ((uint32_t)payload[off + 10] << 16) |
-                         ((uint32_t)payload[off + 11] << 24);
-
-        if (cno == 0 && elev == 0) {
-            continue;   /* not visible/tracked */
-        }
-        m10q_sat_t *s = &s_fix.sats[count];
-        s->prn = svId;
-        s->elevation_deg = elev;
-        s->azimuth_deg = azim;
-        s->snr_db = (cno > 0) ? (int16_t)cno : -1;
-        s->used = (flags & 0x01) != 0;
-        count++;
-    }
-    s_fix.sat_in_view = count;
-    m10q_data_unlock();
-}
-
 /* NAV-SAT message callback (ubxlib task context). */
 static void nav_sat_cb(uDeviceHandle_t handle, const uGnssMessageId_t *pId,
                        int32_t errorCodeOrLength, void *pParam)
 {
     (void)pParam;
-    if (errorCodeOrLength <= 0 || pId == NULL ||
+    if (errorCodeOrLength < 16 || pId == NULL ||
         pId->type != U_GNSS_PROTOCOL_UBX || pId->id.ubx != 0x0135) {
         return;
     }
@@ -444,7 +413,10 @@ static void nav_sat_cb(uDeviceHandle_t handle, const uGnssMessageId_t *pId,
     if (buf) {
         if (uGnssMsgReceiveCallbackRead(handle, buf, (size_t)size) == size) {
             /* payload starts after 6-byte header (sync2+class+id+len2) */
-            parse_nav_sat((const uint8_t *)buf + 6, (size_t)size - 8);
+            m10q_data_lock();
+            m10q_decode_sat(&s_fix, (const uint8_t *)buf + 6, (size_t)size - 8,
+                            (uint32_t)(esp_timer_get_time() / 1000));
+            m10q_data_unlock();
         }
         heap_caps_free(buf);
     }
@@ -460,7 +432,7 @@ static void nav_status_cb(uDeviceHandle_t handle, const uGnssMessageId_t *pId,
                           int32_t errorCodeOrLength, void *pParam)
 {
     (void)pParam;
-    if (errorCodeOrLength <= 0 || pId == NULL ||
+    if (errorCodeOrLength != 24 || pId == NULL ||
         pId->type != U_GNSS_PROTOCOL_UBX || pId->id.ubx != 0x0103) {
         return;
     }
@@ -476,6 +448,7 @@ static void nav_status_cb(uDeviceHandle_t handle, const uGnssMessageId_t *pId,
             s_nav_status.tow_set    = (p[5] & 0x08) != 0;
             s_nav_status.ttff_ms    = (uint32_t)p[8] | ((uint32_t)p[9] << 8) |
                                       ((uint32_t)p[10] << 16) | ((uint32_t)p[11] << 24);
+            s_nav_status.updated_ms = (uint32_t)(esp_timer_get_time() / 1000);
             s_nav_status.updated    = true;
             m10q_data_unlock();
         }
@@ -483,53 +456,21 @@ static void nav_status_cb(uDeviceHandle_t handle, const uGnssMessageId_t *pId,
     }
 }
 
-/* Streamed position callback: updates s_fix on every PVT. Runs in the
- * ubxlib receiver task. */
-static void pos_cb(uDeviceHandle_t gnssHandle, int32_t errorCode,
-                   int32_t lat1e7, int32_t lon1e7, int32_t altMm,
-                   int32_t radiusMm, int32_t speedMmS, int32_t svs,
-                   int64_t timeUtc)
+/* Preserve statistics and RTC synchronization after a decoded PVT update. */
+static void position_updated(bool valid, double lat, double lon, uint16_t sats, time_t utc)
 {
-    (void)gnssHandle;
-    if (errorCode != 0 || lat1e7 == 0 || lon1e7 == 0) {
+    if (!valid) {
         if (s_had_fix) {
-            /* lost the fix: allow a new TTFF measurement next lock */
             s_had_fix = false;
             s_ttf_running = true;
-            s_ttf_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+            s_ttf_start_ms = (uint32_t)(esp_timer_get_time() / 1000);
         }
-        m10q_data_lock();
-        s_fix.valid = false;
-        m10q_data_unlock();
         return;
     }
-
-    m10q_data_lock();
-    s_fix.lat = lat1e7 / 1e7;
-    s_fix.lon = lon1e7 / 1e7;
-    s_fix.alt_m = altMm / 1000.0;
-    s_fix.sat_count = (svs > 0) ? (uint16_t)svs : 0;
-    s_fix.hacc_m = (radiusMm > 0) ? (uint16_t)((radiusMm + 500) / 1000) : 0;
-    s_fix.speed_kmh = (speedMmS > 0) ? (uint16_t)((speedMmS / 1000.0) * 3.6 + 0.5) : 0;
-    s_fix.course_deg = 0;
-    s_fix.valid = true;
-    s_fix.fix_3d = (svs >= 3);
-    s_fix.hdop = 0;
-
-    if (timeUtc > 0) {
-        time_t e = (time_t)timeUtc;
-        struct tm tm;
-        gmtime_r(&e, &tm);
-        s_fix.hour = (uint8_t)tm.tm_hour;
-        s_fix.minute = (uint8_t)tm.tm_min;
-        s_fix.second = (uint8_t)tm.tm_sec;
-    }
-    m10q_data_unlock();
-
     if (!s_had_fix) {
         s_had_fix = true;
-        uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-        uint32_t ttf_ms = (s_ttf_running && now_ms >= s_ttf_start_ms)
+        uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        uint32_t ttf_ms = s_ttf_running
                           ? (now_ms - s_ttf_start_ms) : 0;
         s_ttf_running = false;
         m10q_data_lock();
@@ -547,20 +488,55 @@ static void pos_cb(uDeviceHandle_t gnssHandle, int32_t errorCode,
         stats_save(&stats, ttf_sum_ms);
         ESP_LOGI(TAG, "FIX (power-on #%lu): %d sats, TTFF %u ms (avg %lu, best %lu)",
                  (unsigned long)s_power_on_count,
-                 (int)s_fix.sat_count, ttf_ms,
+                 (int)sats, ttf_ms,
                  (unsigned long)stats.ttf_avg_ms,
                  (unsigned long)stats.ttf_best_ms);
         int32_t olat = 0, olon = 0;
         lkp_load(&olat, &olon);
-        if (m10q_distance_m(olat / 1e7, olon / 1e7, s_fix.lat, s_fix.lon) >= 50) {
-            lkp_persist(s_fix.lat, s_fix.lon);
-        }
-        /* First fix with a time tag: sync the RTC and start PPS calibration. */
-        if (timeUtc > 0 && s_cal_task) {
-            s_pending_utc = (time_t)timeUtc;
-            xTaskNotify(s_cal_task, RTC_CAL_START_BIT, eSetBits);
+        if (m10q_distance_m(olat / 1e7, olon / 1e7, lat, lon) >= 50) {
+            lkp_persist(lat, lon);
         }
     }
+    if (utc > 0 && !s_session_time_synced && s_cal_task) {
+        s_session_time_synced = true;
+        s_pending_utc = utc;
+        xTaskNotify(s_cal_task, RTC_CAL_START_BIT, eSetBits);
+    }
+}
+
+/* Read the complete NAV-PVT epoch, including real fix type and heading. */
+static void nav_pvt_cb(uDeviceHandle_t handle, const uGnssMessageId_t *id,
+                       int32_t length, void *arg)
+{
+    (void)arg;
+    if (length != 100 || !id || id->type != U_GNSS_PROTOCOL_UBX || id->id.ubx != 0x0107) return;
+    uint8_t frame[100];
+    if (uGnssMsgReceiveCallbackRead(handle, (char *)frame, sizeof(frame)) != sizeof(frame)) return;
+    m10q_data_lock();
+    bool decoded = m10q_decode_pvt(&s_fix, frame + 6, 92, (uint32_t)(esp_timer_get_time() / 1000));
+    bool valid = s_fix.valid;
+    double lat = s_fix.lat, lon = s_fix.lon;
+    uint16_t sats = s_fix.sat_count;
+    time_t utc = 0;
+    if (s_fix.time_valid) {
+        pcf85063a_time_t date = { .year = s_fix.year, .month = s_fix.month, .day = s_fix.day,
+            .hour = s_fix.hour, .min = s_fix.minute, .sec = s_fix.second };
+        utc = pcf85063a_time_to_epoch(&date);
+    }
+    m10q_data_unlock();
+    if (decoded) position_updated(valid, lat, lon, sats, utc);
+}
+
+static void nav_dop_cb(uDeviceHandle_t handle, const uGnssMessageId_t *id,
+                       int32_t length, void *arg)
+{
+    (void)arg;
+    if (length != 26 || !id || id->type != U_GNSS_PROTOCOL_UBX || id->id.ubx != 0x0104) return;
+    uint8_t frame[26];
+    if (uGnssMsgReceiveCallbackRead(handle, (char *)frame, sizeof(frame)) != sizeof(frame)) return;
+    m10q_data_lock();
+    m10q_decode_dop(&s_fix, frame + 6, 18, (uint32_t)(esp_timer_get_time() / 1000));
+    m10q_data_unlock();
 }
 
 /* ---- Public API ---- */
@@ -606,7 +582,9 @@ esp_err_t m10q_power(bool on)
         /* Power the receiver rail and let it boot. */
         axp2101_enable_rail(s_pmu, AXP2101_BLDO1, true);
         vTaskDelay(pdMS_TO_TICKS(1000));
+        m10q_data_lock();
         s_powered = true;
+        m10q_data_unlock();
 
         if (!s_opened) {
             uDeviceCfg_t cfg;
@@ -638,7 +616,9 @@ esp_err_t m10q_power(bool on)
                 if (err != 0) {
                     ESP_LOGE(TAG, "uDeviceOpen failed again (power-on #%lu): %d",
                              (unsigned long)pwr_no, (int)err);
+                    m10q_data_lock();
                     s_powered = false;
+                    m10q_data_unlock();
                     uart_driver_delete(M10Q_UART_NUM);
                     axp2101_enable_rail(s_pmu, AXP2101_BLDO1, false);
                     return ESP_ERR_INVALID_STATE;
@@ -655,6 +635,16 @@ esp_err_t m10q_power(bool on)
             return ESP_FAIL;
         }
 
+        m10q_data_lock();
+        memset(&s_fix, 0, sizeof(s_fix));
+        s_fix.hdop = UINT16_MAX;
+        memset(&s_nav_status, 0, sizeof(s_nav_status));
+        m10q_data_unlock();
+        s_had_fix = false;
+        s_session_time_synced = false;
+        s_ttf_running = true;
+        s_ttf_start_ms = (uint32_t)(esp_timer_get_time() / 1000);
+
         /* Skyplot/status telemetry is optional: log its failures but keep the
          * receiver usable for position acquisition. */
         int32_t nav_sat_cfg = U_GNSS_CFG_SET_VAL_RAM(s_gnss, MSGOUT_UBX_NAV_SAT_UART1_U1, 1);
@@ -665,7 +655,7 @@ esp_err_t m10q_power(bool on)
         /* Start UBX-NAV-SAT reception for the skyplot. */
         uGnssMessageId_t navSat = { .type = U_GNSS_PROTOCOL_UBX, .id.ubx = 0x0135 };
         int32_t nav_sat_rx = uGnssMsgReceiveStart(s_gnss, &navSat, nav_sat_cb, NULL);
-        if (nav_sat_rx != 0) {
+        if (nav_sat_rx < 0) {
             ESP_LOGW(TAG, "UBX-NAV-SAT receive start failed: %d", (int)nav_sat_rx);
         }
 
@@ -677,7 +667,7 @@ esp_err_t m10q_power(bool on)
         }
         uGnssMessageId_t navStat = { .type = U_GNSS_PROTOCOL_UBX, .id.ubx = 0x0103 };
         int32_t nav_stat_rx = uGnssMsgReceiveStart(s_gnss, &navStat, nav_status_cb, NULL);
-        if (nav_stat_rx != 0) {
+        if (nav_stat_rx < 0) {
             ESP_LOGW(TAG, "UBX-NAV-STATUS receive start failed: %d", (int)nav_stat_rx);
         }
 
@@ -690,31 +680,35 @@ esp_err_t m10q_power(bool on)
         uGnssVersionType_t ver;
         memset(&ver, 0, sizeof(ver));
         if (uGnssInfoGetVersions(s_gnss, &ver) == 0) {
+            m10q_data_lock();
+            s_versions = ver;
+            s_versions_valid = true;
+            m10q_data_unlock();
             ESP_LOGI(TAG, "MON-VER: sw=%s hw=%s mod=%s fw=%s prot=%s",
                      ver.ver, ver.hw, ver.mod, ver.fw, ver.prot);
         }
 
-        /* Streamed position: callback fires on every PVT. */
-        int32_t sret = uGnssPosGetStreamedStart(s_gnss, 1000, pos_cb);
-        if (sret != 0) {
-            ESP_LOGE(TAG, "uGnssPosGetStreamedStart failed (power-on #%lu): %d",
-                     (unsigned long)pwr_no, (int)sret);
+        int32_t nav_rate = uGnssCfgSetRate(s_gnss, 1000, 1, -1);
+        if (nav_rate != 0) ESP_LOGW(TAG, "GNSS 1Hz configuration failed: %ld", (long)nav_rate);
+        int32_t rate_err = U_GNSS_CFG_SET_VAL_RAM(s_gnss, MSGOUT_UBX_NAV_PVT_UART1_U1, 1);
+        uGnssMessageId_t pvt = { .type = U_GNSS_PROTOCOL_UBX, .id.ubx = 0x0107 };
+        int32_t rx = rate_err == 0 ? uGnssMsgReceiveStart(s_gnss, &pvt, nav_pvt_cb, NULL) : rate_err;
+        if (rx < 0 || rate_err != 0) {
+            ESP_LOGE(TAG, "NAV-PVT startup failed: %ld", (long)rx);
             m10q_power(false);
             return ESP_FAIL;
         }
+        int32_t dop_cfg = U_GNSS_CFG_SET_VAL_RAM(s_gnss, MSGOUT_UBX_NAV_DOP_UART1_U1, 1);
+        uGnssMessageId_t dop = { .type = U_GNSS_PROTOCOL_UBX, .id.ubx = 0x0104 };
+        int32_t dop_rx = dop_cfg == 0 ? uGnssMsgReceiveStart(s_gnss, &dop, nav_dop_cb, NULL) : dop_cfg;
+        if (dop_cfg != 0 || dop_rx < 0) ESP_LOGW(TAG, "NAV-DOP unavailable: %ld", (long)dop_rx);
 
-        /* Reset TTFF state. */
-        s_had_fix = false;
-        s_ttf_running = true;
-        s_ttf_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-        s_fix.valid = false;
         s_power_on_count = pwr_no;
         power_on_count_save();
         ESP_LOGI(TAG, "POWER-ON #%lu complete (BLDO1 at %u baud)", (unsigned long)pwr_no,
                  (unsigned)M10Q_BAUD);
     } else {
         if (s_opened) {
-            uGnssPosGetStreamedStop(s_gnss);
             uGnssMsgReceiveStopAll(s_gnss);
             uGnssPwrOff(s_gnss);
             uDeviceClose(s_gnss, false);
@@ -724,16 +718,22 @@ esp_err_t m10q_power(bool on)
          * lock that would block light sleep. */
         uart_driver_delete(M10Q_UART_NUM);
         /* Persist LKP if we have a fresh fix. */
-        if (s_fix.valid) {
+        m10q_fix_t final_fix;
+        m10q_get_fix(&final_fix);
+        if (final_fix.valid) {
             int32_t olat = 0, olon = 0;
             lkp_load(&olat, &olon);
-            if (m10q_distance_m(olat / 1e7, olon / 1e7, s_fix.lat, s_fix.lon) >= 50) {
-                lkp_persist(s_fix.lat, s_fix.lon);
+            if (m10q_distance_m(olat / 1e7, olon / 1e7, final_fix.lat, final_fix.lon) >= 50) {
+                lkp_persist(final_fix.lat, final_fix.lon);
             }
         }
         axp2101_enable_rail(s_pmu, AXP2101_BLDO1, false);
+        m10q_data_lock();
         s_powered = false;
-        s_fix.valid = false;
+        memset(&s_fix, 0, sizeof(s_fix));
+        s_fix.hdop = UINT16_MAX;
+        memset(&s_nav_status, 0, sizeof(s_nav_status));
+        m10q_data_unlock();
         s_pending_utc = 0;
         /* Abort an in-flight PPS calibration (GNSS rail is now off). */
         if (s_cal_active) {
@@ -754,6 +754,7 @@ esp_err_t m10q_get_fix(m10q_fix_t *fix)
     m10q_data_lock();
     *fix = s_fix;
     m10q_data_unlock();
+    m10q_expire_snapshot(fix, (uint32_t)(esp_timer_get_time() / 1000));
     return ESP_OK;
 }
 
@@ -776,13 +777,12 @@ void m10q_update_last_position(double lat, double lon)
 
 m10q_state_t m10q_get_state(void)
 {
-    if (!s_powered) {
-        return M10Q_STATE_OFF;
-    }
     m10q_data_lock();
-    m10q_state_t st = s_fix.valid ? M10Q_STATE_FIXED : M10Q_STATE_ACQUIRING;
+    bool powered = s_powered;
+    bool valid = s_fix.valid && s_fix.pvt_received &&
+                 (uint32_t)(esp_timer_get_time() / 1000) - s_fix.updated_ms < M10Q_FRESH_MS;
     m10q_data_unlock();
-    return st;
+    return !powered ? M10Q_STATE_OFF : valid ? M10Q_STATE_FIXED : M10Q_STATE_ACQUIRING;
 }
 
 esp_err_t m10q_get_stats(m10q_stats_t *stats)
@@ -849,16 +849,18 @@ esp_err_t m10q_get_nav_status(m10q_nav_status_t *nav)
     m10q_data_lock();
     *nav = s_nav_status;
     m10q_data_unlock();
+    if ((uint32_t)(esp_timer_get_time() / 1000) - nav->updated_ms >= M10Q_FRESH_MS) nav->updated = false;
     return ESP_OK;
 }
 
 esp_err_t m10q_get_versions(uGnssVersionType_t *ver)
 {
-    if (!ver || !s_opened) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    memset(ver, 0, sizeof(*ver));
-    return uGnssInfoGetVersions(s_gnss, ver);
+    if (!ver) return ESP_ERR_INVALID_ARG;
+    m10q_data_lock();
+    bool available = s_versions_valid;
+    if (available) *ver = s_versions;
+    m10q_data_unlock();
+    return available ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
 /* Plausibility check on the local RTC (PCF85063A) before we ever inject its
@@ -941,9 +943,9 @@ void m10q_rtc_calibrate(void)
     if (!s_cal_task || s_cal_active) {
         return;
     }
-    m10q_data_lock();
-    bool ok = s_fix.valid && s_fix.sat_count >= 3;
-    m10q_data_unlock();
+    m10q_fix_t fix;
+    m10q_get_fix(&fix);
+    bool ok = fix.valid && fix.time_valid;
     if (ok) {
         xTaskNotify(s_cal_task, RTC_CAL_START_BIT, eSetBits);
     } else {

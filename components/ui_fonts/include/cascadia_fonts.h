@@ -27,4 +27,7 @@ extern const lv_font_t cascadia_36;   /* UTC / alarm time */
 extern const lv_font_t cascadia_22;   /* body text */
 extern const lv_font_t cascadia_18;   /* GPS diag line */
 
+extern const lv_font_t mesh_text_22;    /* Latin text with monochrome emoji fallback */
+extern const lv_font_t mesh_unicode_18; /* Compact Latin/emoji for node names and presets */
+
 #endif

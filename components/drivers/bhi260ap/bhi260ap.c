@@ -65,7 +65,13 @@ static bhi260ap_activity_t s_activity = BHI260AP_ACTIVITY_UNKNOWN;
  * as each transition is processed - see that function. Guarded by s_step_mux
  * (already exists for the day-scoped step counters; reused rather than adding
  * a second small mutex for the same "day-scoped BHI260AP counters" purpose). */
-static uint32_t s_activity_ms[BHI260AP_ACTIVITY_COUNT];
+static activity_days_t s_days;
+#define s_activity_ms s_days.current.ms
+static bool s_day_ready;
+static bool s_steps_loaded;
+static bool s_checkpoint_dirty;
+static SemaphoreHandle_t s_persist_mux;
+_Static_assert(BHI260AP_ACTIVITY_COUNT == ACTIVITY_CLASSES, "activity checkpoint layout");
 static int64_t s_activity_since_us;
 static volatile bool s_wrist_tilt;
 static volatile bool s_wake_gesture;
@@ -78,8 +84,8 @@ static volatile bool s_tilt_detector;
  * (each boot). The reported total is
  *     s_step_base + (s_step_count - s_step_at_base)
  * where s_step_base is persisted to NVS and s_step_at_base is the chip count
- * when the base was last folded (RAM only, starts at 0 on boot). Steps between
- * folds are at most STEP_FOLD_STEP lost on sudden power loss. */
+ * when the base was last folded (RAM only, starts at 0 on boot). The daily logger also checkpoints once per minute and on orderly shutdown.
+ * Sudden power loss can lose activity since the most recent successful checkpoint. */
 #define STEP_NVS_NS     "bhi260ap"
 #define STEP_NVS_KEY    "step_base"
 #define STEP_NVS_DAY    "day_start"
@@ -92,9 +98,9 @@ static volatile bool s_tilt_detector;
  * monotonic lifetime total, so it is immune to on-chip counter resets and
  * reboots: the last-sampled lifetime, today's total and the day-id are all
  * persisted. A new calendar day (different day-id) resets the total to 0. */
-static uint32_t s_daily_total;
-static uint32_t s_daily_last_lifetime;
-static uint32_t s_daily_id;
+#define s_daily_total s_days.current.steps
+#define s_daily_last_lifetime s_days.current.lifetime
+#define s_daily_id s_days.current.ymd
 
 static uint32_t s_step_at_base;
 static SemaphoreHandle_t s_step_mux;   /* guards step fold/total arithmetic */
@@ -113,6 +119,9 @@ static SemaphoreHandle_t s_bhy2_mux;
 
 static void step_base_load(void)
 {
+    memset(&s_days, 0, sizeof(s_days));
+    s_days.version = ACTIVITY_DAYS_VERSION;
+    s_day_ready = false;
     nvs_handle_t h;
     uint32_t v = 0;
     if (nvs_open(STEP_NVS_NS, NVS_READONLY, &h) != ESP_OK) {
@@ -137,37 +146,66 @@ static void step_base_load(void)
     if (nvs_get_u32(h, STEP_NVS_DAYLST, &s_daily_last_lifetime) != ESP_OK) {
         s_daily_last_lifetime = s_step_base;
     }
-    nvs_close(h);
-}
-
-static void step_base_save(void)
-{
-    nvs_handle_t h;
-    if (nvs_open(STEP_NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
-        return;
+    activity_days_t saved;
+    size_t size = sizeof(saved);
+    if (nvs_get_blob(h, "activity_days", &saved, &size) == ESP_OK &&
+        size == sizeof(saved) && saved.version == ACTIVITY_DAYS_VERSION &&
+        saved.pending_count <= ACTIVITY_PENDING_DAYS) {
+        s_days = saved;
+        s_step_base = saved.current.lifetime;
+    } else {
+        /* Migration: a minute checkpoint can be newer than the old 1000-step base. */
+        if (s_daily_last_lifetime > s_step_base) s_step_base = s_daily_last_lifetime;
+        s_daily_last_lifetime = s_step_base;
     }
-    nvs_set_u32(h, STEP_NVS_KEY, s_step_base);
-    nvs_commit(h);
     nvs_close(h);
 }
 
-/* Fold the steps accumulated since s_step_at_base into the persisted base.
- * Called from the polling task (parse_step_counter) and from AP-suspend
- * (LVGL task context), so it is guarded by a mutex. */
+/* NVS is serialized separately from short counter operations. */
+static esp_err_t checkpoint_save(void)
+{
+    activity_days_t copy;
+    xSemaphoreTake(s_step_mux, portMAX_DELAY);
+    copy = s_days;
+    xSemaphoreGive(s_step_mux);
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(STEP_NVS_NS, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_blob(h, "activity_days", &copy, sizeof(copy));
+        if (err == ESP_OK) err = nvs_commit(h);
+        nvs_close(h);
+    }
+    s_checkpoint_dirty = err != ESP_OK;
+    if (err != ESP_OK) ESP_LOGE(TAG, "activity checkpoint: %s", esp_err_to_name(err));
+    return err;
+}
+
+/* Must hold s_step_mux. Fold both counters into the same checkpoint epoch. */
+static void daily_capture_locked(int64_t now)
+{
+    uint32_t lifetime = s_step_base + (s_step_count - s_step_at_base);
+    activity_day_steps(&s_days.current, lifetime);
+    s_step_base = lifetime;
+    s_step_at_base = s_step_count;
+    if (s_day_ready) activity_day_credit(&s_days.current, s_activity, &s_activity_since_us, now);
+    else s_activity_since_us = now;
+}
+
+esp_err_t bhi260ap_daily_checkpoint(void)
+{
+    if (!s_initialized || !s_persist_mux) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(s_persist_mux, portMAX_DELAY);
+    xSemaphoreTake(s_step_mux, portMAX_DELAY);
+    daily_capture_locked(esp_timer_get_time());
+    xSemaphoreGive(s_step_mux);
+    esp_err_t err = checkpoint_save();
+    xSemaphoreGive(s_persist_mux);
+    return err;
+}
+
 static void step_fold(void)
 {
-    if (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
-        return;
-    }
-    uint32_t delta = s_step_count - s_step_at_base;
-    if (delta == 0) {
-        xSemaphoreGive(s_step_mux);
-        return;
-    }
-    s_step_base += delta;
-    s_step_at_base = s_step_count;
-    xSemaphoreGive(s_step_mux);
-    step_base_save();
+    bhi260ap_daily_checkpoint();
 }
 
 /* ---- I2C glue for the Bosch API ---- */
@@ -358,27 +396,15 @@ static void parse_activity(const struct bhy2_fifo_parse_data_info *callback_info
     /* Blocking take (not a 0-timeout try): if this silently failed to take
      * the mutex, s_activity would never advance to new_activity, corrupting
      * every later comparison, not just losing one sample. Contention here is
-     * brief arithmetic in bhi260ap_get_activity_ms()/bhi260ap_daily_sample(),
+     * brief arithmetic in bhi260ap_get_activity_ms()/bhi260ap_daily_update(),
      * so this essentially always succeeds immediately. */
     int64_t now = esp_timer_get_time();
-    if (s_step_mux != NULL && xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
-        int64_t elapsed_us = now - s_activity_since_us;
-        if (elapsed_us > 0) {
-            uint32_t elapsed_ms = (uint32_t)(elapsed_us / 1000);
-            if (s_activity_ms[s_activity] <= UINT32_MAX - elapsed_ms) {
-                s_activity_ms[s_activity] += elapsed_ms;
-            }
-        }
-        s_activity = new_activity;
-        s_activity_since_us = now;
-        xSemaphoreGive(s_step_mux);
-    } else {
-        /* Mutex unavailable (or not yet created): still advance activity
-         * state so recognition doesn't silently stick to a stale class, just
-         * without a duration credit for this segment. */
-        s_activity = new_activity;
-        s_activity_since_us = now;
-    }
+    if (s_step_mux == NULL) return;
+    xSemaphoreTake(s_step_mux, portMAX_DELAY);
+    if (s_day_ready) activity_day_credit(&s_days.current, s_activity, &s_activity_since_us, now);
+    s_activity = new_activity;
+    s_activity_since_us = now;
+    xSemaphoreGive(s_step_mux);
     ESP_LOGD(TAG, "activity: 0x%04x -> %d", activity, (int)s_activity);
 }
 
@@ -634,10 +660,10 @@ static esp_err_t bhi260ap_init_locked(i2c_master_dev_handle_t dev)
     /* Start the staleness clock now, so the re-init logic doesn't see an
      * immediate "stale" before the first FIFO sample arrives. */
     bhi260ap_mark_data();
-    if (!s_step_mux) {
-        s_step_mux = xSemaphoreCreateMutex();
-    }
-    step_base_load();
+    if (!s_step_mux) s_step_mux = xSemaphoreCreateMutex();
+    if (!s_persist_mux) s_persist_mux = xSemaphoreCreateMutex();
+    if (!s_step_mux || !s_persist_mux) return ESP_ERR_NO_MEM;
+    if (!s_steps_loaded) { step_base_load(); s_steps_loaded = true; }
     s_step_at_base = 0;
     s_step_count = 0;
     /* Start the activity-duration clock now too (deinit() also does this,
@@ -827,6 +853,7 @@ void bhi260ap_deinit(void)
      * nothing user-visible is waiting on. */
     bool bhy2_locked = (s_bhy2_mux != NULL) &&
                        (xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY) == pdTRUE);
+    bhi260ap_daily_checkpoint();
     /* The step/activity counters below are the ones s_step_mux guards; take it
      * too so a concurrent parse_activity()/get_activity_ms() can't observe
      * s_activity and s_activity_since_us half-reset. Proceed even if the take
@@ -848,7 +875,7 @@ void bhi260ap_deinit(void)
      * credit whatever class is active with the entire power-cycle gap as
      * elapsed time. s_activity_ms (today's totals) is NOT reset here - it's
      * day-scoped, reset only on an actual calendar-day rollover in
-     * bhi260ap_daily_sample(), and should survive a mid-day sensor
+     * bhi260ap_daily_update(), and should survive a mid-day sensor
      * power-cycle. */
     s_activity_since_us = esp_timer_get_time();
     s_wrist_tilt = false;
@@ -881,60 +908,84 @@ esp_err_t bhi260ap_get_step_count(uint32_t *steps)
 
 esp_err_t bhi260ap_get_daily_steps(uint32_t *steps)
 {
-    if (!s_initialized) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    /* Seed the default before the take, not inside it: a timed-out take used
-     * to leave *steps untouched while still returning ESP_OK, handing the
-     * caller back whatever was in its own variable. Same shape as
-     * bhi260ap_get_status(), which reports a known value either way. */
-    *steps = 0;
-    if (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
-        *steps = s_daily_total;
-        xSemaphoreGive(s_step_mux);
-    }
-    return ESP_OK;
+    if (!steps) return ESP_ERR_INVALID_ARG;
+    if (!s_initialized) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    bool ready = s_day_ready;
+    *steps = ready ? s_daily_total : 0;
+    xSemaphoreGive(s_step_mux);
+    return ready ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
-/* Feed the current lifetime step total into the daily counter. Called once per
- * minute (daily_log). `ymd` is the current calendar day (year*10000+month*100+day):
- * a change of day resets the daily total. Persists the running total + the
- * last-sampled lifetime so the count survives reboots without drift. */
-void bhi260ap_daily_sample(uint32_t lifetime, uint32_t ymd)
+esp_err_t bhi260ap_daily_update(uint32_t ymd, bool force)
 {
-    /* The mutex is created during BHI init; sample-from-boot (daily_log task)
-     * can race ahead of that, so guard against a NULL handle (a take on NULL
-     * asserts and reboots the watch). */
-    if (s_step_mux == NULL ||
-        xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
-        return;
+    if (!s_initialized || !s_persist_mux) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(s_persist_mux, portMAX_DELAY);
+    xSemaphoreTake(s_step_mux, portMAX_DELAY);
+    int64_t now = esp_timer_get_time();
+    bool changed = s_daily_id != ymd;
+    /* After boot, persisted counters belong entirely to the saved date.
+     * No powered-off interval is credited. New chip steps belong to today. */
+    if (s_day_ready) daily_capture_locked(now);
+    bool ok = activity_days_advance(&s_days, ymd, &s_activity_since_us, now);
+    s_day_ready = ok;
+    if (ok) {
+        if (changed) s_activity_since_us = now;
+        daily_capture_locked(now);
     }
-    if (s_daily_id != ymd) {
-        s_daily_id = ymd;
-        s_daily_total = 0;
-        s_daily_last_lifetime = lifetime;
-        /* Same day-rollover trigger resets the activity-duration tally -
-         * one place tracking "is it a new day", shared by both day-scoped
-         * counters this driver owns. */
-        memset(s_activity_ms, 0, sizeof(s_activity_ms));
-        ESP_LOGI(TAG, "daily reset, day=%lu", (unsigned long)ymd);
-    } else if (lifetime > s_daily_last_lifetime) {
-        s_daily_total += (lifetime - s_daily_last_lifetime);
-        s_daily_last_lifetime = lifetime;
-    }
-    uint32_t total = s_daily_total;
-    uint32_t last = s_daily_last_lifetime;
-    uint32_t id = s_daily_id;
     xSemaphoreGive(s_step_mux);
-
-    nvs_handle_t h;
-    if (nvs_open(STEP_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
-        nvs_set_u32(h, STEP_NVS_DAYID, id);
-        nvs_set_u32(h, STEP_NVS_DAYTOT, total);
-        nvs_set_u32(h, STEP_NVS_DAYLST, last);
-        nvs_commit(h);
-        nvs_close(h);
+    esp_err_t err = ESP_OK;
+    if (!ok) {
+        ESP_LOGW(TAG, "daily date %lu deferred (backward clock or full summary queue)", (unsigned long)ymd);
+        err = ESP_ERR_INVALID_STATE;
+    } else if (changed || force || s_checkpoint_dirty) {
+        err = checkpoint_save();
     }
+    xSemaphoreGive(s_persist_mux);
+    return err;
+}
+
+esp_err_t bhi260ap_daily_snapshot(activity_day_t *out)
+{
+    if (!out || !s_initialized || !s_persist_mux) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(s_persist_mux, portMAX_DELAY);
+    xSemaphoreTake(s_step_mux, portMAX_DELAY);
+    bool ready = s_day_ready;
+    if (ready) daily_capture_locked(esp_timer_get_time());
+    *out = s_days.current;
+    xSemaphoreGive(s_step_mux);
+    xSemaphoreGive(s_persist_mux);
+    return ready ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t bhi260ap_daily_pending(activity_day_t *out)
+{
+    if (!out || !s_initialized || !s_persist_mux) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(s_persist_mux, portMAX_DELAY);
+    bool have = s_days.pending_count > 0;
+    if (have) *out = s_days.pending[0];
+    xSemaphoreGive(s_persist_mux);
+    return have ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t bhi260ap_daily_ack(uint32_t ymd)
+{
+    if (!s_initialized || !s_persist_mux) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(s_persist_mux, portMAX_DELAY);
+    if (!s_days.pending_count || s_days.pending[0].ymd != ymd) {
+        xSemaphoreGive(s_persist_mux);
+        return ESP_ERR_INVALID_STATE;
+    }
+    activity_day_t first = s_days.pending[0];
+    activity_days_ack(&s_days);
+    esp_err_t err = checkpoint_save();
+    if (err != ESP_OK) {
+        memmove(s_days.pending + 1, s_days.pending, s_days.pending_count * sizeof(first));
+        s_days.pending[0] = first;
+        s_days.pending_count++;
+    }
+    xSemaphoreGive(s_persist_mux);
+    return err;
 }
 
 esp_err_t bhi260ap_get_status(bool *ready, uint32_t *steps)
@@ -1062,6 +1113,11 @@ esp_err_t bhi260ap_get_activity_ms(uint32_t out_ms[BHI260AP_ACTIVITY_COUNT])
     if (s_step_mux == NULL || xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
         memset(out_ms, 0, BHI260AP_ACTIVITY_COUNT * sizeof(out_ms[0]));
         return ESP_FAIL;
+    }
+    if (!s_day_ready) {
+        memset(out_ms, 0, BHI260AP_ACTIVITY_COUNT * sizeof(out_ms[0]));
+        xSemaphoreGive(s_step_mux);
+        return ESP_ERR_INVALID_STATE;
     }
     for (int i = 0; i < BHI260AP_ACTIVITY_COUNT; i++) {
         out_ms[i] = s_activity_ms[i];

@@ -12,11 +12,7 @@
  * new one is genuinely needed on both sides, mirror it into mock_hw.h
  * first.
  *
- * menu_timeout_cb()'s 500ms timer is deliberately NOT started here: it's
- * nav-ring infrastructure shared across every screen, not watch-face
- * logic, and doesn't exist in the sim at all (sim/main.c has no
- * menu-timeout concept yet). main/lvgl_app.c's boot_to_watch_face()
- * starts it separately, right after calling lvgl_build_watch_face().
+ * Shared navigation owns return-home timing independently of this screen.
  */
 #include "screens.h"
 #include "status_bar.h"

@@ -290,14 +290,14 @@ void debug_cmd_dailylog(const char *args)
     uint32_t lifetime = 0;
     daily_log_get_steps(&steps);
     esp_err_t lr = bhi260ap_get_step_count(&lifetime);
-    const uint32_t *sec[DAILY_ACT_COUNT];
+    uint32_t sec[DAILY_ACT_COUNT] = {0};
     daily_log_get_activity_seconds(sec);
     static const char *names[DAILY_ACT_COUNT] = {
         "still", "walking", "running", "cycling", "vehicle", "tilting", "unknown" };
     printf("dailylog: day_steps=%lu lifetime=%lu lt_rc=%d\n",
            (unsigned long)steps, (unsigned long)lifetime, (int)lr);
     for (int i = 0; i < DAILY_ACT_COUNT; i++) {
-        printf("dailylog: %-8s %lu s\n", names[i], (unsigned long)*sec[i]);
+        printf("dailylog: %-8s %lu s\n", names[i], (unsigned long)sec[i]);
     }
     daily_log_flush();
     printf("dailylog: sd=%d\n", sd_log_available() ? 1 : 0);

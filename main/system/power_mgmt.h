@@ -12,13 +12,8 @@ extern "C" {
 
 void power_mgmt_init(void);
 
-/* Loads the NVS-persisted settings (night mode, USB-sleep, display timeout,
- * brightness) without touching GPIOs/tasks/ISRs. power_mgmt_init() already
- * calls this itself; exposed separately so lvgl_app_start() can load
- * power_mgmt_get_display_timeout_s() *before* esp_lv_adapter_init() (which
- * needs it immediately, ahead of where power_mgmt_init()'s heavier GPIO/task
- * setup has to run relative to sensor_cache_init()/alarm_init()). Safe to
- * call twice - power_mgmt_init() calling it again is a harmless re-load. */
+/* Load persisted settings before UI startup, without touching hardware.
+ * power_mgmt_init() also calls this during startup. */
 void power_mgmt_load_config(void);
 
 /* Adapter auto-sleep callbacks (PAUSE mode). */
@@ -70,13 +65,16 @@ void power_mgmt_set_night_mode_auto(bool on);
 bool power_mgmt_get_skip_sleep_on_usb(void);
 void power_mgmt_set_skip_sleep_on_usb(bool yes);
 
-/* Display auto-off timeout, in seconds (default 5). Persisted in NVS, but
- * NOT applied live: it only takes effect via esp_lv_adapter_init()'s
- * auto_sleep.idle_timeout_ms at next boot - the adapter component exposes
- * no runtime reconfigure API. Documented exception to this project's usual
- * immediate-apply convention. */
+/* Live, NVS-persisted inactivity settings, in seconds. Defaults: 10 / 30. */
 uint32_t power_mgmt_get_display_timeout_s(void);
 void power_mgmt_set_display_timeout_s(uint32_t seconds);
+uint32_t power_mgmt_get_return_timeout_s(void);
+void power_mgmt_set_return_timeout_s(uint32_t seconds);
+/* Report explicit user activity or a foreground operation's display hold.
+ * Thread-safe; background GNSS and tracking must not report display activity. */
+void power_mgmt_report_activity(void);
+/* Called periodically under the LVGL lock while awake. */
+void power_mgmt_idle_poll(void);
 
 /* Normal (non-night-mode) display brightness, 0-255 (default 0x80).
  * Persisted in NVS and applied immediately through display_controller

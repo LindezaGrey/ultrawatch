@@ -323,7 +323,7 @@ static void ring_task(void *arg)
             }
             /* Keep LVGL activity timestamp fresh so auto-light-sleep doesn't
              * cut the ring's rails under us. */
-            esp_lv_adapter_report_activity();
+            power_mgmt_report_activity();
 
             /* Unanswered for too long -> snooze automatically. Alarms only
              * (timers have no snooze concept - they just keep ringing until

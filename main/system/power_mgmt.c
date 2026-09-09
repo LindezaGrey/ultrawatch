@@ -9,6 +9,7 @@
  * On wake: rails + panel restored.
  */
 #include "power_mgmt.h"
+#include "daily_log.h"
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
@@ -32,9 +33,11 @@
 #include "sensor_cache.h"
 #include "lvgl_app.h"
 #include "screens/screens.h"
+#include "screens/navigation.h"
 #include "alarm.h"
 #include "sd_log.h"
 #include "mesh_log.h"
+#include "tracking.h"
 
 static const char *TAG = "power_mgmt";
 
@@ -158,12 +161,18 @@ static void axp_irq_describe(uint32_t irq, char *out, size_t out_len)
 #define PM_NVS_KEY_NIGHT  "night_auto"
 #define PM_NVS_KEY_USB    "skip_usb"
 #define PM_NVS_KEY_DISP_TO "disp_to"
+#define PM_NVS_KEY_RETURN_TO "return_to"
 #define PM_NVS_KEY_BRIGHT  "bright"
 #define PM_NVS_KEY_SPARMODUS "sparmodus"
 
 static bool s_night_mode_auto = true;    /* default: auto-enter night mode */
 static bool s_skip_sleep_on_usb = true;  /* default: never sleep on USB */
-static uint32_t s_display_timeout_s = 5; /* default: matches the historical 5000 ms literal */
+static uint32_t s_display_timeout_s = 10;
+static uint32_t s_return_timeout_s = 30;
+/* Cross-task activity reports (alarm, power keys) share one monotonic clock. */
+static portMUX_TYPE s_idle_mux = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t s_display_activity_ms;
+
 static uint8_t s_brightness = 0x80;      /* default: matches the historical 0x80 literal */
 static bool s_sparmodus_active = false;  /* Ultra-Sparmodus, docs/application.md section 10 */
 
@@ -272,7 +281,8 @@ static void pm_config_save(void)
     if (nvs_open(PM_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
         nvs_set_u8(h, PM_NVS_KEY_NIGHT, s_night_mode_auto ? 1 : 0);
         nvs_set_u8(h, PM_NVS_KEY_USB, s_skip_sleep_on_usb ? 1 : 0);
-        nvs_set_u32(h, PM_NVS_KEY_DISP_TO, s_display_timeout_s);
+        nvs_set_u32(h, PM_NVS_KEY_DISP_TO, power_mgmt_get_display_timeout_s());
+        nvs_set_u32(h, PM_NVS_KEY_RETURN_TO, power_mgmt_get_return_timeout_s());
         nvs_set_u8(h, PM_NVS_KEY_BRIGHT, s_brightness);
         nvs_set_u8(h, PM_NVS_KEY_SPARMODUS, s_sparmodus_active ? 1 : 0);
         nvs_commit(h);
@@ -293,8 +303,11 @@ static void pm_config_load(void)
             s_skip_sleep_on_usb = (v != 0);
         }
         uint32_t to = 0;
-        if (nvs_get_u32(h, PM_NVS_KEY_DISP_TO, &to) == ESP_OK && to > 0) {
+        if (nvs_get_u32(h, PM_NVS_KEY_DISP_TO, &to) == ESP_OK && to >= 5 && to <= 60) {
             s_display_timeout_s = to;
+        }
+        if (nvs_get_u32(h, PM_NVS_KEY_RETURN_TO, &to) == ESP_OK && to >= 15 && to <= 120) {
+            s_return_timeout_s = to;
         }
         v = 0;
         if (nvs_get_u8(h, PM_NVS_KEY_BRIGHT, &v) == ESP_OK && v > 0) {
@@ -310,16 +323,61 @@ static void pm_config_load(void)
 
 uint32_t power_mgmt_get_display_timeout_s(void)
 {
-    return s_display_timeout_s;
+    portENTER_CRITICAL(&s_idle_mux);
+    uint32_t value = s_display_timeout_s;
+    portEXIT_CRITICAL(&s_idle_mux);
+    return value;
 }
 
 void power_mgmt_set_display_timeout_s(uint32_t seconds)
 {
-    if (seconds == 0 || seconds == s_display_timeout_s) {
-        return;
-    }
+    if (seconds < 5 || seconds > 60) return;
+    portENTER_CRITICAL(&s_idle_mux);
     s_display_timeout_s = seconds;
+    portEXIT_CRITICAL(&s_idle_mux);
     pm_config_save();
+    power_mgmt_report_activity();
+}
+
+uint32_t power_mgmt_get_return_timeout_s(void)
+{
+    portENTER_CRITICAL(&s_idle_mux);
+    uint32_t value = s_return_timeout_s;
+    portEXIT_CRITICAL(&s_idle_mux);
+    return value;
+}
+
+void power_mgmt_set_return_timeout_s(uint32_t seconds)
+{
+    if (seconds < 15 || seconds > 120) return;
+    portENTER_CRITICAL(&s_idle_mux);
+    s_return_timeout_s = seconds;
+    portEXIT_CRITICAL(&s_idle_mux);
+    pm_config_save();
+}
+
+void power_mgmt_report_activity(void)
+{
+    portENTER_CRITICAL(&s_idle_mux);
+    s_display_activity_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    portEXIT_CRITICAL(&s_idle_mux);
+}
+
+static bool display_idle_expired(void)
+{
+    portENTER_CRITICAL(&s_idle_mux);
+    uint32_t elapsed = (uint32_t)(esp_timer_get_time() / 1000) - s_display_activity_ms;
+    bool expired = elapsed >= s_display_timeout_s * 1000;
+    portEXIT_CRITICAL(&s_idle_mux);
+    return expired;
+}
+
+void power_mgmt_idle_poll(void)
+{
+    /* The adapter has no runtime timeout setter. Keep its short final idle
+     * gate fed until our live deadline, without changing the user timestamp.
+     * Its PAUSE/wake state machine remains the sole sleep mechanism. */
+    if (!display_idle_expired()) esp_lv_adapter_report_activity();
 }
 
 uint8_t power_mgmt_get_brightness(void)
@@ -478,6 +536,7 @@ void power_mgmt_sparmodus_enter_sleep(void)
      * cost. Not worth trading that for Sparmodus's incremental savings on
      * an already low-priority peripheral. */
 
+    daily_log_flush();
     sd_log_unmount();
     /* VBUS-insert IRQ is a one-time PMIC register write (persists on its
      * own power, independent of the ESP32's sleep/reset cycle) - only
@@ -531,7 +590,7 @@ static void sparmodus_boot_watch_task(void *arg)
         if (gpio_get_level(PM_GPIO_BOOT) == 0) {
             uint32_t held_ms = 0;
             while (gpio_get_level(PM_GPIO_BOOT) == 0) {
-                esp_lv_adapter_report_activity();
+                power_mgmt_report_activity();
                 vTaskDelay(pdMS_TO_TICKS(50));
                 held_ms += 50;
                 if (held_ms >= PM_SPARMODUS_EXIT_HOLD_MS) {
@@ -722,6 +781,7 @@ void power_mgmt_shutdown(void)
     if (display_err != ESP_OK) {
         ESP_LOGW(TAG, "shutdown display off: %s", esp_err_to_name(display_err));
     }
+    daily_log_flush();
     sd_log_unmount();
     axp2101_soft_poweroff(twatch_pmu_dev);
 }
@@ -761,7 +821,7 @@ static void pm_wake_task(void *arg)
             bool vbus = false;
             if (s_skip_sleep_on_usb &&
                     axp2101_is_vbus_present(twatch_pmu_dev, &vbus) == ESP_OK && vbus) {
-                esp_lv_adapter_report_activity();
+                power_mgmt_report_activity();
             }
             /* Safety net for snooze-timer wakes: RTC INT (GPIO1) is active-low.
              * If the line is held LOW on a timeout tick, the edge-ISR wake
@@ -1017,6 +1077,8 @@ static void pm_arm_gpio_wakeup(void)
 esp_err_t power_mgmt_enter_sleep(void *ctx)
 {
     (void)ctx;
+    /* Recheck after the adapter's flush wait: activity can arrive on another task. */
+    if (!display_idle_expired()) return ESP_ERR_NOT_SUPPORTED;
 
     bool vbus = false;
     axp2101_is_vbus_present(twatch_pmu_dev, &vbus);
@@ -1045,7 +1107,8 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
         ESP_LOGW(TAG, "display sleep: %s", esp_err_to_name(display_err));
         return display_err;
     }
-    bhi260ap_ap_suspend();
+    /* Tracking needs live FIFO samples even with the display off. */
+    if (!tracking_is_active()) bhi260ap_ap_suspend();
 
     /* Disable unused peripheral rails. ALDO4 (sensor) is kept ON: the
      * BHI260AP runs its wake-up sensors in AP-suspend mode (wrist-raise wake)
@@ -1056,25 +1119,8 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
      * listening, and a rail power-cycle would mean re-running the whole
      * TCXO/RF-switch/frequency bring-up sequence on every wake instead of
      * just continuing to listen. */
-    /* GNSS (BLDO1): cut the rail only when GNSS is neither deliberately
-     * enabled NOR actively mid-acquisition. With the GPS-screen switch on
-     * (lvgl_gps_enabled()), the receiver is kept alive across the whole
-     * sleep session so wake-ups don't pay the ~4 s cold re-power + warm
-     * start each time. gps_screen_is_powered() covers the other real case:
-     * a one-shot boot-time/console "gpscheck" refresh (GPS_CTRL_REFRESH)
-     * powers the module on without setting the persisted switch flag - if
-     * light-sleep cut the rail mid-search there, a walk with enough wrist
-     * motion to repeatedly trigger wrist-raise wake (see button_isr's own
-     * "storm the CPU" comment on why that source exists) would restart
-     * acquisition from a cold power-on every single wake, and a fix could
-     * take many minutes to never actually land - confirmed as the likely
-     * cause of a live "walked outside for several minutes, no fix" report.
-     * When neither is true the rail is cut as usual and stays off. */
-    if (lvgl_gps_enabled() || gps_screen_is_powered()) {
-        ESP_LOGI(TAG, "GNSS enabled/active: keeping BLDO1 rail on across sleep");
-    } else {
-        m10q_power(false);                                       /* GNSS (tells the driver) */
-    }
+    /* The GNSS worker owns BLDO1 during normal operation, including display
+     * sleep. Do not race its power transitions or interrupt a background fix. */
     /* BLDO2 (speaker) isn't touched here - it's left off at boot (see
      * axp2101_set_default_power()) and only powered around actual playback
      * (alarm.c, debug_audio.c). DLDO1 (NFC) is left on: it's registered
@@ -1095,6 +1141,7 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
      * LoRa RX from its DIO1 interrupt during light sleep. It's cut only when
      * the socket is empty - see spi2_power.h and sd_log.c's
      * sd_rail_reconcile(). */
+    daily_log_flush();
     sd_log_unmount();
 
     pm_arm_gpio_wakeup();
@@ -1121,14 +1168,6 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
 
     /* Restore rails. ALDO3 (LoRa) stayed on across sleep, untouched; the
      * rest are rearmed. */
-    /* GNSS (BLDO1): mirror enter_sleep's condition. Restoring this
-     * unconditionally desyncs m10q's s_powered from the physical rail (the
-     * driver never learns it came back on), which makes every later
-     * m10q_power(false) in enter_sleep a silent no-op and leaves BLDO1
-     * permanently on (~25-30 mA) once GPS is switched off mid-session. */
-    if (lvgl_gps_enabled() || gps_screen_is_powered()) {
-        axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO1, true);
-    }
     /* BLDO2 (speaker) isn't restored here - it stays off across sleep and
      * wake alike; see enter_sleep's comment. */
 
@@ -1186,6 +1225,12 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
      * unplugged and undisturbed), and synthetic SLPIN/SLPOUT cycling does
      * not reproduce it. This makes the failure self-healing rather than
      * preventing it. See the `dispfix` debug command for manual recovery. */
+    /* Apply the wall-clock return policy while the panel is still dark. */
+    if (esp_lv_adapter_lock(-1) == ESP_OK) {
+        navigation_resume();
+        esp_lv_adapter_unlock();
+    }
+    power_mgmt_report_activity();
     display_controller_request_visible(DISPLAY_REASON_WAKE);
 
     /* Resume the IMU wake-up streams now that the panel is up - see the

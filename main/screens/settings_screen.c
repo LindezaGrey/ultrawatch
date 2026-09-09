@@ -7,10 +7,10 @@
  * "Presets verwalten" is deferred (see Phase 5 plan) - LoRa preset text is
  * still editable, just via the `presetset` debug command instead of a
  * Settings category (this project deliberately has no on-watch text
- * keyboard). Everything here applies immediately except the display
- * timeout, which is flagged as taking effect after a restart.
+ * keyboard). Settings apply immediately and persist across restarts.
  */
 #include "screens.h"
+#include "navigation.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -24,6 +24,7 @@
 #include "haptic.h"
 #include "sensor_cache.h"
 #include "sd_log.h"
+#include "twatch_board.h"
 #include "portable_log.h"
 
 static const lv_font_t *s_font_small = &cascadia_22;  /* body text */
@@ -37,6 +38,7 @@ static lv_obj_t *s_set_tz_offset_label;
 
 lv_obj_t *s_set_disp_screen;
 static lv_obj_t *s_set_disp_timeout_label;
+static lv_obj_t *s_set_return_timeout_label;
 static lv_obj_t *s_set_disp_bright_label;
 
 lv_obj_t *s_set_periph_screen;
@@ -76,37 +78,6 @@ static void lvgl_build_settings_info_screen(void);
 static void settings_sparmodus_refresh(void);
 static void lvgl_build_settings_sparmodus_screen(void);
 static void settings_back_cb(lv_event_t *e);
-
-/* Local swipe-down-to-go-back gesture, shared by every Settings sub-page -
- * a top-to-bottom swipe anywhere on the sub-page returns to the category
- * list, same as tapping the "< Back" button (user_data is that button's
- * own click callback, invoked directly so both paths share one body). */
-static void settings_sub_swipe_cb(lv_event_t *e)
-{
-    lv_indev_t *indev = lv_indev_active();
-    lv_point_t p;
-    lv_indev_get_point(indev, &p);
-
-    static lv_point_t start;
-    static bool active;
-
-    if (lv_event_get_code(e) == LV_EVENT_PRESSED) {
-        start = p;
-        active = true;
-        return;
-    }
-    if (lv_event_get_code(e) != LV_EVENT_RELEASED || !active) {
-        return;
-    }
-    active = false;
-    int dx = p.x - start.x;
-    int dy = p.y - start.y;
-    if (dy < 60 || abs(dy) <= abs(dx)) {
-        return;   /* only a top-to-bottom swipe counts as "back" */
-    }
-    void (*back_cb)(lv_event_t *) = (void (*)(lv_event_t *))lv_event_get_user_data(e);
-    back_cb(e);
-}
 
 /* Category row -> sub-page dispatch, shared by all 6 rows. Each sub-page
  * is lazily built on first visit, same pattern as every other local
@@ -158,23 +129,7 @@ static void settings_row_click_cb(lv_event_t *e)
 static void settings_back_cb(lv_event_t *e)
 {
     (void)e;
-    /* Build the category list if it does not exist yet. It usually does,
-     * because the normal way into a sub-page is a row click on that very
-     * screen - but not always: lvgl_show_settings_disp() is called straight
-     * from the watch face's tap-and-hold shortcut (lvgl_app.c), which jumps
-     * into the Display sub-page without ever creating the list. Going "back"
-     * from there used to call lv_scr_load(NULL).
-     *
-     * That froze the watch, silently. LV_ASSERT_OBJ(NULL) fails, LV_LOG_ERROR
-     * is compiled out (LV_USE_LOG off), and LVGL's default LV_ASSERT_HANDLER
-     * is `while(1);` - so the LVGL task spun forever with no message, taking
-     * touch down with it. Three identical backtraces before this was found;
-     * lvglinfo is what settled it, by showing the category list absent from
-     * the display's screen array while the sub-page was active. */
-    if (!s_settings_screen) {
-        lvgl_build_settings_screen();
-    }
-    lv_scr_load(s_settings_screen);
+    navigation_back();
 }
 
 void lvgl_build_settings_screen(void)
@@ -271,8 +226,6 @@ static void lvgl_build_settings_tz_screen(void)
 {
     s_set_tz_screen = screen_new();
     lv_obj_set_style_bg_color(s_set_tz_screen, lv_color_hex(0x000000), 0);
-    lv_obj_add_event_cb(s_set_tz_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_back_cb);
-    lv_obj_add_event_cb(s_set_tz_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_back_cb);
 
     lv_obj_t *back = lv_button_create(s_set_tz_screen);
     lv_obj_set_size(back, 92, 46);
@@ -305,11 +258,12 @@ static void lvgl_build_settings_tz_screen(void)
     settings_tz_refresh();
 }
 
-/* ---- Display: timeout (persists, takes effect after restart) + brightness
+/* ---- Display: live sleep and return-home timeouts + brightness
  * (applies immediately) ---- */
 
 static const uint32_t s_disp_timeout_opts[] = { 5, 10, 15, 20, 30, 60 };
 #define DISP_TIMEOUT_OPT_COUNT (sizeof(s_disp_timeout_opts) / sizeof(s_disp_timeout_opts[0]))
+static const uint32_t s_return_timeout_opts[] = { 15, 30, 60, 120 };
 static const uint8_t s_disp_bright_opts[] = { 64, 128, 192, 255 };
 #define DISP_BRIGHT_OPT_COUNT (sizeof(s_disp_bright_opts) / sizeof(s_disp_bright_opts[0]))
 
@@ -319,9 +273,12 @@ static void settings_disp_refresh(void)
         return;
     }
     char buf[48];
-    snprintf(buf, sizeof(buf), "Timeout: %us (after restart)",
+    snprintf(buf, sizeof(buf), "Sleep: %us",
              (unsigned)power_mgmt_get_display_timeout_s());
     lv_label_set_text(s_set_disp_timeout_label, buf);
+
+    snprintf(buf, sizeof(buf), "Return home: %us", (unsigned)power_mgmt_get_return_timeout_s());
+    lv_label_set_text(s_set_return_timeout_label, buf);
 
     uint8_t level = power_mgmt_get_brightness();
     snprintf(buf, sizeof(buf), "Brightness: %u%%", (unsigned)(level * 100 / 255));
@@ -341,6 +298,16 @@ static void settings_disp_timeout_btn_cb(lv_event_t *e)
     settings_disp_refresh();
 }
 
+static void settings_return_timeout_btn_cb(lv_event_t *e)
+{
+    int delta = (int)(intptr_t)lv_event_get_user_data(e);
+    uint32_t current = power_mgmt_get_return_timeout_s();
+    int index = 0;
+    for (int i = 0; i < 4; i++) if (s_return_timeout_opts[i] == current) index = i;
+    power_mgmt_set_return_timeout_s(s_return_timeout_opts[(index + 4 + delta) % 4]);
+    settings_disp_refresh();
+}
+
 static void settings_disp_bright_btn_cb(lv_event_t *e)
 {
     int delta = (int)(intptr_t)lv_event_get_user_data(e);
@@ -354,12 +321,29 @@ static void settings_disp_bright_btn_cb(lv_event_t *e)
     settings_disp_refresh();
 }
 
+static lv_obj_t *display_setting_row(int y, lv_event_cb_t callback)
+{
+    lv_obj_t *label = lv_label_create(s_set_disp_screen);
+    lv_obj_set_style_text_font(label, s_font_small, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_align(label, LV_ALIGN_TOP_MID, 0, y);
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *button = lv_button_create(s_set_disp_screen);
+        lv_obj_set_size(button, 150, 58);
+        lv_obj_align(button, LV_ALIGN_TOP_MID, i ? 88 : -88, y + 32);
+        lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, (void *)(intptr_t)(i ? 1 : -1));
+        lv_obj_t *text = lv_label_create(button);
+        lv_label_set_text(text, i ? "+" : "-");
+        lv_obj_set_style_text_font(text, s_font_sec, 0);
+        lv_obj_center(text);
+    }
+    return label;
+}
+
 static void lvgl_build_settings_disp_screen(void)
 {
     s_set_disp_screen = screen_new();
     lv_obj_set_style_bg_color(s_set_disp_screen, lv_color_hex(0x000000), 0);
-    lv_obj_add_event_cb(s_set_disp_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_back_cb);
-    lv_obj_add_event_cb(s_set_disp_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_back_cb);
 
     lv_obj_t *back = lv_button_create(s_set_disp_screen);
     lv_obj_set_size(back, 92, 46);
@@ -376,51 +360,9 @@ static void lvgl_build_settings_disp_screen(void)
     lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
 
-    s_set_disp_timeout_label = lv_label_create(s_set_disp_screen);
-    lv_obj_set_style_text_font(s_set_disp_timeout_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_set_disp_timeout_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_set_disp_timeout_label, LV_ALIGN_TOP_MID, 0, 164);
-
-    lv_obj_t *t_minus = lv_button_create(s_set_disp_screen);
-    lv_obj_set_size(t_minus, 165, 72);
-    lv_obj_align(t_minus, LV_ALIGN_TOP_LEFT, 20, 204);
-    lv_obj_t *tml = lv_label_create(t_minus);
-    lv_label_set_text(tml, "-");
-    lv_obj_set_style_text_font(tml, s_font_sec, 0);
-    lv_obj_center(tml);
-    lv_obj_add_event_cb(t_minus, settings_disp_timeout_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
-
-    lv_obj_t *t_plus = lv_button_create(s_set_disp_screen);
-    lv_obj_set_size(t_plus, 165, 72);
-    lv_obj_align(t_plus, LV_ALIGN_TOP_RIGHT, -20, 204);
-    lv_obj_t *tpl = lv_label_create(t_plus);
-    lv_label_set_text(tpl, "+");
-    lv_obj_set_style_text_font(tpl, s_font_sec, 0);
-    lv_obj_center(tpl);
-    lv_obj_add_event_cb(t_plus, settings_disp_timeout_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)1);
-
-    s_set_disp_bright_label = lv_label_create(s_set_disp_screen);
-    lv_obj_set_style_text_font(s_set_disp_bright_label, s_font_small, 0);
-    lv_obj_set_style_text_color(s_set_disp_bright_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_set_disp_bright_label, LV_ALIGN_TOP_MID, 0, 320);
-
-    lv_obj_t *b_minus = lv_button_create(s_set_disp_screen);
-    lv_obj_set_size(b_minus, 165, 72);
-    lv_obj_align(b_minus, LV_ALIGN_TOP_LEFT, 20, 360);
-    lv_obj_t *bml = lv_label_create(b_minus);
-    lv_label_set_text(bml, "-");
-    lv_obj_set_style_text_font(bml, s_font_sec, 0);
-    lv_obj_center(bml);
-    lv_obj_add_event_cb(b_minus, settings_disp_bright_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
-
-    lv_obj_t *b_plus = lv_button_create(s_set_disp_screen);
-    lv_obj_set_size(b_plus, 165, 72);
-    lv_obj_align(b_plus, LV_ALIGN_TOP_RIGHT, -20, 360);
-    lv_obj_t *bpl = lv_label_create(b_plus);
-    lv_label_set_text(bpl, "+");
-    lv_obj_set_style_text_font(bpl, s_font_sec, 0);
-    lv_obj_center(bpl);
-    lv_obj_add_event_cb(b_plus, settings_disp_bright_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)1);
+    s_set_disp_timeout_label = display_setting_row(150, settings_disp_timeout_btn_cb);
+    s_set_return_timeout_label = display_setting_row(260, settings_return_timeout_btn_cb);
+    s_set_disp_bright_label = display_setting_row(370, settings_disp_bright_btn_cb);
 
     settings_disp_refresh();
 }
@@ -432,7 +374,7 @@ void lvgl_show_settings_disp(void)
     }
     lv_scr_load(s_set_disp_screen);
     settings_disp_refresh();
-    s_last_touch_tick = lv_tick_get();
+    navigation_note_activity();
 }
 
 /* ---- Peripherie: GPS/Bluetooth real toggles, LoRa/WiFi shown disabled
@@ -478,8 +420,6 @@ static void lvgl_build_settings_periph_screen(void)
 {
     s_set_periph_screen = screen_new();
     lv_obj_set_style_bg_color(s_set_periph_screen, lv_color_hex(0x000000), 0);
-    lv_obj_add_event_cb(s_set_periph_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_back_cb);
-    lv_obj_add_event_cb(s_set_periph_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_back_cb);
 
     lv_obj_t *back = lv_button_create(s_set_periph_screen);
     lv_obj_set_size(back, 92, 46);
@@ -615,8 +555,6 @@ static void lvgl_build_settings_sound_screen(void)
 {
     s_set_sound_screen = screen_new();
     lv_obj_set_style_bg_color(s_set_sound_screen, lv_color_hex(0x000000), 0);
-    lv_obj_add_event_cb(s_set_sound_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_back_cb);
-    lv_obj_add_event_cb(s_set_sound_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_back_cb);
 
     lv_obj_t *back = lv_button_create(s_set_sound_screen);
     lv_obj_set_size(back, 92, 46);
@@ -709,13 +647,7 @@ static void settings_vib_row_open_cb(lv_event_t *e)
 static void settings_vib_back_cb(lv_event_t *e)
 {
     (void)e;
-    /* Same guard as settings_back_cb: the vibration page is only reachable
-     * from the sound page today, so this should never be NULL - but the cost
-     * of being wrong is a silent freeze, not a visual glitch. */
-    if (!s_set_sound_screen) {
-        lvgl_build_settings_sound_screen();
-    }
-    lv_scr_load(s_set_sound_screen);
+    navigation_back();
 }
 
 /* Tapping a pattern both selects it (persisted) and fires it immediately -
@@ -757,8 +689,6 @@ static void lvgl_build_settings_vib_screen(void)
     /* Swipe-back returns to the Sound screen, not the category list - a
      * nested sub-page, same one-level-up convention as Mesh's Node
      * overview swiping back to Mesh rather than the watch face. */
-    lv_obj_add_event_cb(s_set_vib_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_vib_back_cb);
-    lv_obj_add_event_cb(s_set_vib_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_vib_back_cb);
 
     lv_obj_t *back = lv_button_create(s_set_vib_screen);
     lv_obj_set_size(back, 92, 46);
@@ -822,22 +752,27 @@ static void settings_info_refresh(lv_timer_t *timer)
     }
     lv_label_set_text(s_set_info_batt_label, buf);
 
-    uint64_t total = 0, free = 0;
-    if (sd_log_get_space(&total, &free) == ESP_OK) {
-        snprintf(buf, sizeof(buf), "SD: %.1f / %.1f GB free",
-                 free / 1073741824.0, total / 1073741824.0);
+    sd_log_status_t sd;
+    sd_log_get_status(&sd);
+    const char *state = !twatch_sd_card_seated() ? "No card" :
+                        sd.last_error != ESP_OK ? "SD error" :
+                        sd.mounted ? "Active" : "Inserted - idle";
+    char sd_text[128];
+    if (sd.space_valid) {
+        snprintf(sd_text, sizeof(sd_text), "SD: %s\nLast known: %.1f GB total\n%.1f GB used / %.1f GB free",
+                 state, sd.total_bytes / 1073741824.0,
+                 (sd.total_bytes - sd.free_bytes) / 1073741824.0,
+                 sd.free_bytes / 1073741824.0);
     } else {
-        snprintf(buf, sizeof(buf), "SD: not available");
+        snprintf(sd_text, sizeof(sd_text), "SD: %s\nSize not measured yet", state);
     }
-    lv_label_set_text(s_set_info_sd_label, buf);
+    lv_label_set_text(s_set_info_sd_label, sd_text);
 }
 
 static void lvgl_build_settings_info_screen(void)
 {
     s_set_info_screen = screen_new();
     lv_obj_set_style_bg_color(s_set_info_screen, lv_color_hex(0x000000), 0);
-    lv_obj_add_event_cb(s_set_info_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_back_cb);
-    lv_obj_add_event_cb(s_set_info_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_back_cb);
 
     lv_obj_t *back = lv_button_create(s_set_info_screen);
     lv_obj_set_size(back, 92, 46);
@@ -903,8 +838,6 @@ static void lvgl_build_settings_sparmodus_screen(void)
 {
     s_set_sparmodus_screen = screen_new();
     lv_obj_set_style_bg_color(s_set_sparmodus_screen, lv_color_hex(0x000000), 0);
-    lv_obj_add_event_cb(s_set_sparmodus_screen, settings_sub_swipe_cb, LV_EVENT_PRESSED, (void *)settings_back_cb);
-    lv_obj_add_event_cb(s_set_sparmodus_screen, settings_sub_swipe_cb, LV_EVENT_RELEASED, (void *)settings_back_cb);
 
     lv_obj_t *back = lv_button_create(s_set_sparmodus_screen);
     lv_obj_set_size(back, 92, 46);

@@ -29,22 +29,27 @@ static void housekeeping_task(void *arg)
 
     TickType_t last_gpx = xTaskGetTickCount();
     TickType_t last_daily = last_gpx;
+    bool sampled = false;
 
     for (;;) {
         /* Flush syslog on the same one-minute cadence as daily telemetry,
          * or earlier on syslog's own buffer-high-water wake.  The gpx/daily
          * cadence below is tracked by elapsed ticks, never by counting loop
          * iterations, so early syslog wakes cannot postpone either logger. */
-        syslog_capture_service(HOUSEKEEPING_DAILY_INTERVAL_MS);
+        syslog_capture_service(1000);
+        daily_log_reconcile();
 
         TickType_t now = xTaskGetTickCount();
         if ((now - last_gpx) >= pdMS_TO_TICKS(HOUSEKEEPING_GPX_INTERVAL_MS)) {
             gpx_log_tick();
             last_gpx = now;
         }
-        if ((now - last_daily) >= pdMS_TO_TICKS(HOUSEKEEPING_DAILY_INTERVAL_MS)) {
+        uint32_t steps;
+        if ((!sampled && daily_log_get_steps(&steps) == ESP_OK) ||
+            (now - last_daily) >= pdMS_TO_TICKS(HOUSEKEEPING_DAILY_INTERVAL_MS)) {
             daily_log_tick();
             last_daily = now;
+            sampled = true;
         }
     }
 }
@@ -54,6 +59,7 @@ void housekeeping_init(void)
     if (s_task) {
         return;
     }
+    daily_log_init();
     if (xTaskCreate(housekeeping_task, "housekeeping", HOUSEKEEPING_TASK_STACK, NULL, 2, &s_task) != pdPASS) {
         s_task = NULL;
         ESP_LOGE(TAG, "task allocation failed");

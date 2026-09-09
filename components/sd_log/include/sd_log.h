@@ -18,6 +18,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "sd_log_status.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,6 +40,7 @@ esp_err_t sd_log_unmount(void);
  * the brief window between a sd_log_session_begin() and its matching
  * sd_log_session_end(), not for the whole awake session (see above). */
 bool sd_log_available(void);
+void sd_log_get_status(sd_log_status_t *out);
 
 /* Acquire a mounted session: mounts on the first (0->1) caller, and every
  * call must be paired with exactly one sd_log_session_end(), including on
@@ -55,9 +57,8 @@ esp_err_t sd_log_session_begin(void);
  * (->0) release. */
 void sd_log_session_end(void);
 
-/* Total/free bytes on the card, via esp_vfs_fat_info(). ESP_ERR_NOT_FOUND
- * if no card is mounted (check sd_log_available() first, or just handle
- * the error). */
+/* Last successful filesystem measurement, retained while unmounted.
+ * Read-only RAM access; ESP_ERR_NOT_FOUND until measured this boot. */
 esp_err_t sd_log_get_space(uint64_t *total_bytes, uint64_t *free_bytes);
 
 /* Write a screenshot (RGB565 little-endian, w*h pixels) to

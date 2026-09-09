@@ -29,6 +29,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <math.h>
 
 static const char *TAG = "gpx_log";
 
@@ -118,20 +119,13 @@ const char *gpx_log_current_path(void)
 static void append_trackpoint(void)
 {
     m10q_fix_t fix;
-    if (m10q_get_fix(&fix) != ESP_OK || !fix.valid) {
+    if (m10q_get_fix(&fix) != ESP_OK || !fix.valid || !fix.time_valid) {
         ESP_LOGD(TAG, "tick: no valid fix, skipping point");
         return;
     }
-    pcf85063a_time_t rtc;
-    if (!sensor_cache_get_rtc(&rtc)) {
-        ESP_LOGD(TAG, "tick: RTC unavailable, skipping point");
-        return;
-    }
-    time_t epoch = pcf85063a_time_to_epoch(&rtc);
-    struct tm utc;
-    gmtime_r(&epoch, &utc);
-    char ts[24];
-    strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%SZ", &utc);
+    char ts[32];
+    snprintf(ts, sizeof(ts), "%04u-%02u-%02uT%02u:%02u:%02uZ",
+             fix.year, fix.month, fix.day, fix.hour, fix.minute, fix.second);
 
     if (sd_log_session_begin() != ESP_OK) {
         sd_log_session_end();
@@ -143,8 +137,9 @@ static void append_trackpoint(void)
         sd_log_session_end();
         return;
     }
-    fprintf(f, "<trkpt lat=\"%.6f\" lon=\"%.6f\"><ele>%.1f</ele><time>%s</time></trkpt>\n",
-            fix.lat, fix.lon, fix.alt_m, ts);
+    fprintf(f, "<trkpt lat=\"%.6f\" lon=\"%.6f\">", fix.lat, fix.lon);
+    if (fix.fix_3d && isfinite(fix.alt_m)) fprintf(f, "<ele>%.1f</ele>", fix.alt_m);
+    fprintf(f, "<time>%s</time></trkpt>\n", ts);
     fclose(f);
     sd_log_session_end();
     s_point_count++;

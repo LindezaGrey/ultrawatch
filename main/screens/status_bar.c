@@ -141,18 +141,14 @@ void update_status_bar(const status_bar_t *bar)
         return;
     }
 
-    /* Green = card seated and idle - the normal resting state under the
-     * on-demand SD lifecycle (sd_log_session_begin()/end(), see sd_log.h):
-     * the card is mounted only for the brief window a write is actually in
-     * flight, specifically so a card left mounted for the whole awake
-     * session can't be corrupted by an unclean power loss while idle. Red =
-     * actively mounted/writing right now (sd_log_available() true only
-     * during that window). Grey = no card seated. (Earlier attempt at this
-     * had it backwards because the card was, at the time, still mounted
-     * for the entire awake session rather than on demand - fixed properly
-     * now, see sd_log.c.) */
-    lv_obj_set_style_text_color(bar->sd, sd_log_available() ? STATUS_COLOR_RED :
-                                (twatch_sd_card_seated() ? STATUS_COLOR_GREEN : STATUS_COLOR_GREY), 0);
+    /* Presence is separate from the on-demand mount state. Orange preserves
+     * a recorded mount/filesystem error until the next successful session. */
+    sd_log_status_t sd;
+    sd_log_get_status(&sd);
+    lv_color_t sd_color = !twatch_sd_card_seated() ? STATUS_COLOR_GREY :
+                          sd.last_error != ESP_OK ? STATUS_COLOR_ORANGE :
+                          sd.mounted ? STATUS_COLOR_RED : STATUS_COLOR_GREEN;
+    lv_obj_set_style_text_color(bar->sd, sd_color, 0);
 
     m10q_state_t gps_st = m10q_get_state();
     lv_obj_set_style_image_recolor(bar->gps,

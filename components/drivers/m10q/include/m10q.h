@@ -25,54 +25,7 @@ extern "C" {
 #define M10Q_PIN_RX  44
 #define M10Q_PIN_PPS 13
 
-#define M10Q_MAX_SATS 24
-
-/* L1 user-equivalent range error for HDOP-derived horizontal accuracy. */
-#define M10Q_UERE_M   5
-
-typedef enum {
-    M10Q_STATE_OFF = 0,      /* powered down (rail off) */
-    M10Q_STATE_ACQUIRING,    /* powered on, no valid fix yet */
-    M10Q_STATE_FIXED,        /* valid fix */
-} m10q_state_t;
-
-typedef struct {
-    uint8_t prn;             /* satellite PRN */
-    int16_t elevation_deg;   /* 0..90 */
-    int16_t azimuth_deg;     /* 0..359 */
-    int16_t snr_db;          /* C/N0, -1 = not tracked */
-    bool    used;            /* used in the current fix */
-} m10q_sat_t;
-
-typedef struct {
-    bool     valid;
-    bool     fix_3d;            /* true when the fix is 3D (not just 2D) */
-    double   lat;            /* degrees, N+ */
-    double   lon;            /* degrees, E+ */
-    double   alt_m;
-    uint16_t sat_count;      /* satellites used in the fix */
-    uint16_t sat_in_view;
-    uint16_t speed_kmh;      /* ground speed from RMC, knots -> km/h */
-    uint16_t course_deg;     /* track angle 0..359 */
-    uint16_t hdop;           /* HDOP * 10 */
-    uint16_t hacc_m;         /* estimated horizontal accuracy = HDOP * UERE */
-    uint8_t  hour;
-    uint8_t  minute;
-    uint8_t  second;
-    int32_t  rtc_offset_s;     /* GPS time - RTC time (seconds), 0 if unknown */
-    m10q_sat_t sats[M10Q_MAX_SATS];
-} m10q_fix_t;
-
-/* Receiver navigation status from UBX-NAV-STATUS (0x01 0x03), updated
- * asynchronously while powered on. updated=false until the first message. */
-typedef struct {
-    bool     updated;
-    uint8_t  gps_fix;         /* 0=no fix, 2=2D, 3=3D */
-    bool     gps_fix_ok;      /* flags bit0 (valid fix available) */
-    bool     wkns_set;        /* flags bit2 (GPS week number valid) */
-    bool     tow_set;         /* flags bit3 (GPS time-of-week valid) */
-    uint32_t ttff_ms;         /* module-reported last time-to-first-fix */
-} m10q_nav_status_t;
+#include "m10q_types.h"
 
 /* Cumulative fix statistics (persisted in NVS, namespace "m10q"). */
 typedef struct {
@@ -140,7 +93,7 @@ void m10q_set_raw_dump(bool on);
  * so the MIA-M10Q emits its 1PPS signal on GPIO 13. */
 void m10q_rtc_calibrate(void);
 
-/* Read module version info (UBX-MON-VER) for hardware identification. */
+/* Read version info cached at power-on; never changes receiver power. */
 esp_err_t m10q_get_versions(uGnssVersionType_t *ver);
 
 #ifdef __cplusplus

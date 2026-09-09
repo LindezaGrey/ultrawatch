@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "m10q.c"
+    SRCS "m10q.c" "m10q_decode.c"
     INCLUDE_DIRS "include"
     REQUIRES
         ubxlib

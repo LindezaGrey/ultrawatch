@@ -3,8 +3,8 @@
  * firmware and the host sim - see watch_face.c's header comment for the
  * mechanism (real header names, intercepted by stubs under sim/compat/).
  *
- * GNSS is powered on demand: the BLDO1 rail is enabled when this screen is
- * opened and disabled when it is left. The always-on VRTC backup rail keeps
+ * GNSS power is controlled by the switch and the background acquisition
+ * worker, including signal-aware automatic shutdown. The always-on VRTC backup rail keeps
  * the receiver's ephemeris/RTC alive, so each power-up is a warm/hot start.
  *
  * The background power-transition worker (gps_ctrl_task, a real FreeRTOS
@@ -46,12 +46,11 @@ static lv_obj_t *s_gps_track_label;            /* tracking stats (distance/steps
 static lv_obj_t *s_gps_track_btn;              /* Start/Stop tracking button */
 static lv_obj_t *s_gps_pwr_switch;             /* GNSS on/off switch */
 
-/* Owns the "is GNSS powered" flag and its power-on timestamp - see the
+/* Owns the "is GNSS powered" flag - see the
  * file header comment for why this needs a getter/setter instead of a
  * plain file-static now that gps_ctrl_task (main/lvgl_app.c) and the
  * Settings/Peripherie screen (also lvgl_app.c) both touch it. */
 static volatile bool s_gps_powered;
-static uint32_t s_gps_acq_start_ms;            /* power-on timestamp */
 
 bool gps_screen_is_powered(void)
 {
@@ -61,11 +60,7 @@ bool gps_screen_is_powered(void)
 void gps_screen_set_powered(bool on)
 {
     s_gps_powered = on;
-    if (on) {
-        s_gps_acq_start_ms = lv_tick_get();
-    }
-    ESP_LOGI("gps_screen", "set_powered(%d) acq_start_ms=%lu", (int)on,
-             (unsigned long)s_gps_acq_start_ms);
+    ESP_LOGI("gps_screen", "set_powered(%d)", (int)on);
 }
 
 static lv_obj_t *gps_ring(int radius)
@@ -111,16 +106,7 @@ static lv_color_t gps_snr_color(int snr)
  * for the original `lv_font_conv` invocation). Using the plain-ASCII
  * "D M S" letter notation instead (e.g. "48d07m24sN"), a common fallback
  * for the same reason on other text-only GPS displays. */
-static void format_dms(double deg, bool is_lat, char *out, size_t outlen)
-{
-    char dir = is_lat ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'W');
-    deg = fabs(deg);
-    int d = (int)deg;
-    double m_full = (deg - d) * 60.0;
-    int m = (int)m_full;
-    int s = (int)((m_full - m) * 60.0 + 0.5);
-    snprintf(out, outlen, "%dd%02dm%02ds%c", d, m, s, dir);
-}
+
 
 void gps_screen_update(lv_timer_t *timer)
 {
@@ -138,43 +124,38 @@ void gps_screen_update(lv_timer_t *timer)
     m10q_state_t st = m10q_get_state();
     char buf[96];
 
-    /* While acquiring, keep the watch awake (no auto-sleep) so the GNSS rail
-     * stays powered. Once a fix is obtained, stop reporting activity: the
-     * adapter's idle timeout then auto-sleeps the watch ~5 s after the fix,
-     * powering BLDO1 off (VRTC backup keeps ephemeris for the next session). */
-    if (st != M10Q_STATE_FIXED || !fix.valid) {
-        esp_lv_adapter_report_activity();
-    }
     if (st == M10Q_STATE_FIXED && fix.valid) {
-        snprintf(buf, sizeof(buf), "Fix: %d sats  acc %um  HDOP %.1f",
-                 (int)fix.sat_count, (unsigned)fix.hacc_m, fix.hdop / 10.0);
+        char dop[12];
+        if (fix.dop_valid) snprintf(dop, sizeof(dop), "%.1f", fix.hdop / 10.0);
+        else snprintf(dop, sizeof(dop), "--");
+        snprintf(buf, sizeof(buf), "%s: %u sats  acc %um  DOP %s",
+                 fix.fix_3d ? "3D" : "2D", fix.sat_count, fix.hacc_m, dop);
         lv_label_set_text(s_gps_status_label, buf);
 
-        char dms_lat[16], dms_lon[16];
-        format_dms(fix.lat, true, dms_lat, sizeof(dms_lat));
-        format_dms(fix.lon, false, dms_lon, sizeof(dms_lon));
-        snprintf(buf, sizeof(buf), "%.5f, %.5f  %.0f m\n%s  %s",
-                 fix.lat, fix.lon, fix.alt_m, dms_lat, dms_lon);
+        char altitude[20];
+        if (fix.fix_3d) snprintf(altitude, sizeof(altitude), "%.0f m", fix.alt_m);
+        else snprintf(altitude, sizeof(altitude), "Alt --");
+        snprintf(buf, sizeof(buf), "%.5f, %.5f  %s",
+                 fix.lat, fix.lon, altitude);
         lv_label_set_text(s_gps_pos_label, buf);
 
-        snprintf(buf, sizeof(buf), "Speed: %u km/h  course %u deg",
-                 (unsigned)fix.speed_kmh, (unsigned)fix.course_deg);
+        char course[16];
+        if (fix.heading_valid) snprintf(course, sizeof(course), "%u deg", fix.course_deg);
+        else snprintf(course, sizeof(course), "--");
+        snprintf(buf, sizeof(buf), "Speed: %u km/h  course %s", fix.speed_kmh, course);
         lv_label_set_text(s_gps_speed_label, buf);
 
         snprintf(buf, sizeof(buf), "%02u:%02u:%02u UTC  (%u in view)",
                  (unsigned)fix.hour, (unsigned)fix.minute, (unsigned)fix.second,
-                 (unsigned)fix.sat_in_view);
-        lv_label_set_text(s_gps_sats_label, buf);
+                 (unsigned)fix.sats_total);
+        lv_label_set_text(s_gps_sats_label, fix.time_valid ? buf : "UTC unavailable");
     } else if (st == M10Q_STATE_ACQUIRING) {
-        uint32_t now = lv_tick_get();
-        uint32_t elapsed = (now - s_gps_acq_start_ms) / 1000;
-        snprintf(buf, sizeof(buf), "Acquiring... (%lus)", (unsigned long)elapsed);
-        lv_label_set_text(s_gps_status_label, buf);
+        lv_label_set_text(s_gps_status_label, "Seeking fix");
         lv_label_set_text(s_gps_pos_label, "");
         lv_label_set_text(s_gps_speed_label, "");
         lv_label_set_text(s_gps_sats_label, "");
     } else {
-        lv_label_set_text(s_gps_status_label, "GNSS off");
+        lv_label_set_text(s_gps_status_label, lvgl_gps_off_reason());
         lv_label_set_text(s_gps_pos_label, "");
         lv_label_set_text(s_gps_speed_label, "");
         lv_label_set_text(s_gps_sats_label, "");
@@ -182,23 +163,9 @@ void gps_screen_update(lv_timer_t *timer)
 
     /* Diagnostics line: receiver state, RX traffic, TTFF. */
     if (s_gps_diag_label) {
-        uint32_t rx = 0, lines = 0;
-        m10q_get_dbg(&rx, &lines);
-        (void)lines;
-        m10q_stats_t stats;
-        if (m10q_get_stats(&stats) == ESP_OK) {
-            snprintf(buf, sizeof(buf),
-                     "st=%d rx=%lu gsv=%lu fix=%lu ttf=%lums",
-                     (int)m10q_get_state(), (unsigned long)rx,
-                     (unsigned long)m10q_get_gsv_count(),
-                     (unsigned long)stats.total_fixes,
-                     (unsigned long)stats.ttf_avg_ms);
-        } else {
-            snprintf(buf, sizeof(buf),
-                     "st=%d rx=%lu gsv=%lu",
-                     (int)m10q_get_state(), (unsigned long)rx,
-                     (unsigned long)m10q_get_gsv_count());
-        }
+        if (fix.sats_valid) snprintf(buf, sizeof(buf), "Strong: %u  Best: %u dBHz",
+                                     fix.sats_above_30, fix.best_cno);
+        else snprintf(buf, sizeof(buf), "Satellite data unavailable");
         lv_label_set_text(s_gps_diag_label, buf);
     }
 
@@ -210,17 +177,20 @@ void gps_screen_update(lv_timer_t *timer)
             break;
         }
         if (i < (int)fix.sat_in_view && fix.sats[i].snr_db >= 0 &&
-                (fix.sats[i].elevation_deg > 0 || fix.sats[i].azimuth_deg > 0)) {
+                (fix.sats[i].elevation_deg >= 0 && fix.sats[i].elevation_deg <= 90 &&
+                 fix.sats[i].azimuth_deg >= 0 && fix.sats[i].azimuth_deg < 360)) {
             m10q_sat_t *s = &fix.sats[i];
             int x, y;
             gps_sat_xy(s->azimuth_deg, s->elevation_deg, &x, &y);
-            lv_obj_set_pos(s_gps_dots[i], x - 7, y - 7);
+            lv_obj_set_pos(s_gps_dots[i], x - 16, y - 10);
             lv_obj_set_style_bg_color(s_gps_dots[i], gps_snr_color(s->snr_db), 0);
             lv_obj_set_style_border_width(s_gps_dots[i], s->used ? 0 : 2, 0);
             lv_obj_set_style_border_color(s_gps_dots[i], lv_color_hex(0xAAAAAA), 0);
             lv_obj_clear_flag(s_gps_dots[i], LV_OBJ_FLAG_HIDDEN);
             char prn[8];
-            snprintf(prn, sizeof(prn), "%u", (unsigned)s->prn);
+            static const char constellation[] = "GSECIJR";
+            char prefix = s->gnss_id < 7 ? constellation[s->gnss_id] : '?';
+            snprintf(prn, sizeof(prn), "%c%u", prefix, (unsigned)s->prn);
             lv_label_set_text_fmt(lv_obj_get_child(s_gps_dots[i], 0), "%s", prn);
         } else {
             lv_obj_add_flag(s_gps_dots[i], LV_OBJ_FLAG_HIDDEN);
@@ -355,11 +325,11 @@ void lvgl_build_gps_screen(void)
     lv_obj_set_style_text_color(w, lv_color_hex(0x66AA66), 0);
     lv_obj_set_pos(w, GPS_SKY_CX - GPS_SKY_RADIUS - 12, GPS_SKY_CY - 14);
 
-    /* Satellite dots: 14 px circles with PRN label inside. */
+    /* Satellite markers include constellation and PRN. */
     for (int i = 0; i < M10Q_MAX_SATS; i++) {
         lv_obj_t *dot = lv_obj_create(s_gps_screen);
-        lv_obj_set_size(dot, 14, 14);
-        lv_obj_set_style_radius(dot, 7, 0);
+        lv_obj_set_size(dot, 32, 20);
+        lv_obj_set_style_radius(dot, 10, 0);
         lv_obj_set_style_bg_color(dot, lv_color_hex(0x888888), 0);
         lv_obj_set_style_border_width(dot, 2, 0);
         lv_obj_set_style_border_color(dot, lv_color_hex(0xAAAAAA), 0);
@@ -368,6 +338,8 @@ void lvgl_build_gps_screen(void)
         lv_label_set_text(prn, "");
         lv_obj_set_style_text_font(prn, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(prn, lv_color_hex(0x000000), 0);
+        lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_pad_all(dot, 0, 0);
         lv_obj_center(prn);
         lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
         s_gps_dots[i] = dot;
@@ -390,13 +362,13 @@ void lvgl_build_gps_screen(void)
     lv_label_set_text(s_gps_speed_label, "");
     lv_obj_set_style_text_font(s_gps_speed_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_speed_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_align(s_gps_speed_label, LV_ALIGN_TOP_MID, 0, 380);
+    lv_obj_align(s_gps_speed_label, LV_ALIGN_TOP_MID, 0, 356);
 
     s_gps_sats_label = lv_label_create(s_gps_screen);
     lv_label_set_text(s_gps_sats_label, "");
     lv_obj_set_style_text_font(s_gps_sats_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_sats_label, lv_color_hex(0x80D8FF), 0);
-    lv_obj_align(s_gps_sats_label, LV_ALIGN_TOP_MID, 0, 406);
+    lv_obj_align(s_gps_sats_label, LV_ALIGN_TOP_MID, 0, 382);
 
     s_gps_diag_label = lv_label_create(s_gps_screen);
     lv_label_set_text(s_gps_diag_label, "");
@@ -409,7 +381,7 @@ void lvgl_build_gps_screen(void)
     lv_label_set_text(s_gps_track_label, "");
     lv_obj_set_style_text_font(s_gps_track_label, s_font_small, 0);
     lv_obj_set_style_text_color(s_gps_track_label, lv_color_hex(0x9E9E9E), 0);
-    lv_obj_align(s_gps_track_label, LV_ALIGN_TOP_MID, 0, 404);
+    lv_obj_align(s_gps_track_label, LV_ALIGN_TOP_MID, 0, 408);
 
     /* Bigger touch target (was 120x34/cascadia_22 - too small next to every
      * other button this app's high-DPI pass already enlarged). */

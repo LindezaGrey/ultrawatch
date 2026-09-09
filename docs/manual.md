@@ -5,24 +5,21 @@ This manual describes the current user-facing behaviour.
 
 ## Screens
 
-The **clock (watch face)** is the main screen shown after boot. From it you
-swipe in a direction to open a menu, and swipe back the opposite way to return.
+The **clock (watch face)** is the main screen shown after boot.
 
 | Screen | Navigation |
-|---|---|---|
-| Clock (watch face) | start of the horizontal ring |
-| Activity | swipe left from Clock |
-| GPS | swipe left from Activity |
-| Mesh | swipe left from GPS |
-| Wi-Fi | swipe left from Mesh |
-| Bluetooth | swipe left from Wi-Fi |
-| Alarms & timers | swipe left from Bluetooth |
-| NFC | swipe left from Alarms; swipe right returns to Alarms |
-| Settings | swipe down from Clock; swipe up returns |
+|---|---|
+| Activity | Swipe left from Watch |
+| GPS | Swipe left from Activity |
+| Mesh | Swipe left from GPS; left again returns to Watch |
+| Apps | Swipe up from Watch; swipe down returns |
+| Alarms/Timer, NFC, Wi-Fi, Bluetooth | Tap in Apps; swipe right returns to Apps |
+| Settings | Swipe down from Watch; swipe up returns |
+| Display settings | Hold Watch, or open Settings → Display |
+| Node overview | Swipe up from Mesh |
 
-```
-Clock → Activity → GPS → Mesh → Wi-Fi → Bluetooth → Alarms → NFC → Clock
-```
+The horizontal ring wraps in both directions: Watch ↔ Activity ↔ GPS ↔ Mesh ↔
+Watch. Swipe right or use a Back button on subpages to return to their parent.
 
 - **NFC** — tap **Start** to scan an NFC-A tag. The reader is active only for
   the explicit scan, so simply visiting the screen has no radio activity.
@@ -52,6 +49,9 @@ when idle.
 
 ## Distance tracking
 
+Tracking is currently disabled by `TRACKING_ENABLED=0`. The following describes
+the background path when enabled.
+
 The GPS screen has a **Start**/**Stop** button (bottom centre) plus a stats
 line showing the tracked distance, step count and average step length. Tracking
 can also be controlled from the console (`track`, `track stop`).
@@ -60,7 +60,7 @@ While a tracking session is active:
 
 - The watch face shows a **solid red dot** in the top-right corner; the rest of
   the screen keeps working normally (you can swipe between screens).
-- The watch stays awake so the BHI260AP step counter keeps running.
+- The display may sleep while the BHI260AP step counter continues running.
 - Every **50 steps** the GNSS receiver is powered on once, a **3D fix** is
   awaited (VRTC backup makes this a warm/hot start), the position is recorded,
   and the receiver is powered back off.
@@ -74,42 +74,55 @@ threshold simply re-triggers later).
 
 ## GPS power management
 
-The GNSS receiver (u-blox MIA-M10Q) is the most power-hungry peripheral
-(~8–14 mA when acquiring, ~5 mA tracking), so it is **powered off by default**.
-It is switched on while the GPS screen is open, for the boot-time position
-check, and for step-gated tracking fixes. GNSS power transitions run on a
-background task, so the UI never stalls during the seconds-long receiver
-probe/config.
+The GPS switch (or `gnsson` / `gpscheck` console command) starts a receiver
+session. Power-on/configuration runs in the background. Once ready, the
+receiver gets **60 seconds with weak or missing reception**. Five distinct
+satellite reports smooth the signal estimate: an average of at least four
+healthy, code-locked satellites at 30 dBHz extends acquisition; it falls back
+to weak reception below four at 25 dBHz. A fresh valid position renews the
+budget. Even with strong signals, no-fix acquisition is capped at **180 seconds**.
+These initial thresholds need verification on the watch outdoors and indoors.
 
-**On power-up** the watch runs a one-shot GNSS position check in the
-background: it powers the receiver, waits for a **3D fix** (up to 120 s; the
-VRTC backup normally makes it a warm/hot start in a few seconds), updates the
-persisted last-known position if the new fix is **more than 50 m** away from
-the stored one, then powers the receiver back off.
+On timeout the worker saves GPS as off. The page reports **Poor signal**,
+**No data**, or **No fix - GPS off**. Turn the switch on again, or run
+`gnsson` / `gpscheck`,
+to retry. Screen navigation, screen wake and GPX logging do not restart GPS.
+An active GPX session remains open and resumes adding points after GPS is
+manually re-enabled and has a fix.
 
-Despite being unpowered, the receiver's always-on **VRTC backup rail** keeps its
-RTC and ephemeris alive (~28 µA), so the next power-up is a **warm/hot start**
-(~1–5 s to a fix) instead of a ~25 s cold start.
+This is an indoor/poor-reception heuristic, not a definite indoor classification:
+a blocked antenna or weak reception outdoors can also trigger it. Reading the
+same cached fix repeatedly does not extend the budget. The monotonic clock
+continues during display sleep. The VRTC backup supply is retained when GPS
+powers off.
 
-If the watch auto-sleeps while the GPS screen is open, the GNSS rail is cut
-gracefully and re-powered (with a fresh config) on wake.
-
-The skyplot and fix data update once per second while the screen is open.
+The GPS enabled preference survives reboot. A boot with GPS enabled uses the
+same acquisition limit. After an automatic cutoff, it stays disabled across
+reboots until explicitly enabled again.
 
 ## Auto-return
 
-Any menu returns to the clock automatically after **5 seconds** without a
-touch. Touching the screen resets the timer.
+Read-only pages and app lists return to Watch after **30 seconds** without
+interaction by default. Settings, alarm editing, timer entry and ringing are
+exempt. Holding a touch keeps the inactivity timer fresh.
+
+The return timer includes normal sleep: a quick wake resumes the page; a wake
+after the deadline shows Watch. The timer never wakes the display by itself.
+Unsaved editor state survives normal display sleep, but not a reboot/deep sleep.
 
 ## Wake / sleep
 
-- The watch auto-sleeps after ~5 s idle (display off, low power).
-- **Wake:** touch the screen, raise/tilt the wrist, press the **PWR** or
-  **BOOT** button, or let an armed RTC alarm fire. Wrist and touch wake are
-  disabled during night mode.
-- While charging / on USB power, the watch stays awake (no auto-sleep).
-- **Night mode:** between 23:00 and 07:00 the display shows a dim red watch
-  face, and touch is disabled as a wake source (PWR/BOOT still wake).
+- The display sleeps after about **10 seconds** idle by default. Existing saved
+  timeout values are retained.
+- Display settings provide separate **Sleep** (5/10/15/20/30/60 s) and
+  **Return home** (15/30/60/120 s) controls. Both apply immediately and persist.
+- **Wake:** touch, wrist gesture, PWR, BOOT or an armed RTC alarm. Wrist and
+  touch wake are disabled during night mode.
+- USB prevents sleep by default; this can be disabled in Settings.
+- GPS acquisition continues without keeping the display lit. Visible NFC scans
+  and ringing may keep it awake. Tracking remains disabled by the existing
+  build setting; its background path no longer requires a lit display.
+- **Night mode:** 23:00–07:00 uses the dim red watch face.
 
 ## Time source
 
@@ -186,7 +199,7 @@ available (type them and press Enter):
 | `sdls` | List screenshot files on the SD card. |
 | `bhi` | Dump all BHI260AP sensor values. |
 | `gnss` | Dump GNSS state, fix (position/speed/sats/accuracy) and per-satellite azimuth/elevation/SNR. |
-| `gpscheck` | Re-run the one-shot GNSS position check (background, like on power-up). |
+| `gpscheck` | Start/restart GPS acquisition; signal-aware auto-off (60 s weak reception, 180 s acquisition cap). |
 | `rtccal` | Re-run the PPS-based RTC drift calibration now (needs a GNSS fix; ~120 s window). |
 | `lpk` | Show the persisted last-known position (degrees). |
 | `track` | Start a step-gated tracking session (shows a red dot on the watch face). |
@@ -240,3 +253,53 @@ filesystem is mounted at `/sdcard`:
   assets partition.
 - The RTC (PCF85063A) is synced from GPS UTC on the first fix and disciplined
   via the GNSS 1PPS (GPIO13) into the OFFSET register (see "Time source").
+
+GPS positions, satellite reports and HDOP expire after three seconds. The
+skyplot retains the strongest 24 satellites, while reception statistics use
+all reports. The screen distinguishes 2D/3D; unavailable altitude/course/HDOP
+show as missing. GPX skips stale fixes and fixes without valid UTC, timestamps
+points with receiver UTC, and omits altitude for 2D fixes. `gnssver` reads the
+version cached at power-on without interrupting an active receiver session.
+
+Mesh messages use a Latin Unicode font at 22 px, with an 18 px monochrome
+emoji fallback. Node names and preset buttons use the compact Unicode font.
+German umlauts (ÄÖÜäöü), ß and common emoji are included. This is bitmap glyph
+support: complex joined emoji, skin-tone combinations and country flags are
+not shaped into a single symbol. Existing message rows still clip long text.
+
+Daily activity uses the local calendar date. Startup reconciles the saved date
+before exposing daily counters: same-day boots restore steps and durations;
+later boots queue the previous recorded day and start today. Powered-off days
+and powered-off time are not invented as activity. While running, housekeeping
+checks the date about once per second; rollover occurs on the first check
+that observes the new date, so activity near the boundary has sampling latency.
+Backward date changes are deferred rather than repeatedly resetting totals.
+
+Steps, lifetime baseline and accumulated activity milliseconds are stored in
+one NVS checkpoint each minute, at rollover, before orderly shutdown/deep sleep,
+and before sensor reinitialization. Sudden power loss can lose the interval
+since the last successful checkpoint. Old firmware's lost activity durations
+cannot be recovered; existing step counters are migrated.
+
+`/sdcard/log/activity_totals.csv` contains minute samples with date, time,
+daily/lifetime steps and accumulated **still, walking, running, cycling,
+vehicle, tilting and unknown seconds**. `/sdcard/log/daily/YYYYMMDD.csv` contains
+one completed-day summary with the same columns (time is blank, since a summary
+may be recovered after a missed midnight). Existing CSV formats are retained.
+
+Completed summaries remain in the NVS checkpoint until the SD file has been
+written and synchronized successfully. Retries overwrite that date's file,
+so a restart between writing and acknowledging cannot duplicate summaries.
+The queue holds 16 recorded days without SD access; when full, rollover is
+blocked and daily counters are unavailable until summaries can be drained.
+Minute samples missed without a card are not replayed; accumulated totals are
+retained. Summary seconds are whole seconds; checkpoints retain milliseconds.
+
+Settings → Info distinguishes SD **Inserted - idle**, **Active**, **No card**
+and a recorded **SD error**. Capacity, used space and free space show the last
+successful measurement this boot, labeled “Last known”; they remain visible
+while unmounted or absent. No measurement is displayed until a filesystem
+session has completed. Replacing the card updates these values after its next
+successful session. Viewing Info does not mount the card. The main SD icon is
+green for inserted/idle, red for mounted, grey for absent and orange for a
+recorded mount/filesystem error.

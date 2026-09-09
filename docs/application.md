@@ -17,7 +17,7 @@ Referenzdokument und wird um weitere Screens ergänzt, sobald diese definiert si
     kein Full-Screen-Redraw).
   - Peripherie (GPS, LoRa, SD-Karte, etc.) wird nur bei Bedarf aktiv geschaltet;
     Zustand wird über Statusicons kommuniziert, nicht über Text.
-  - **Display-Timeout: komplettes Abschalten** nach etwa 5 s Inaktivität. Kein
+  - **Display-Timeout: komplettes Abschalten** standardmäßig nach etwa 10 s Inaktivität (sofort einstellbar). Kein
     Always-on-Modus – das Display geht vollständig aus. Im Normalmodus wecken
     Touch, Handgelenk-Geste, Power-Taste oder Boot-Taste; im Nachtmodus bleiben
     nur die Tasten aktiv.
@@ -62,10 +62,10 @@ Referenzdokument und wird um weitere Screens ergänzt, sobald diese definiert si
 | 8 | NFC                | Manueller NFC-A-Scan                                    | implementiert |
 | 9 | Einstellungen      | Systemkonfiguration                                     | implementiert |
 
-Screens 1–8 bilden den horizontalen Navigationsring; Einstellungen (9) liegt
-davon separat auf einer vertikalen Achse unterhalb des Hauptscreens (siehe
-Abschnitt 4.3). Navigation zwischen allen Screens erfolgt ausschließlich per
-**Swipe-Geste** – keine physischen Tasten/Krone für die Screen-Navigation.
+Screens 1–4 bilden den horizontalen Navigationsring. Apps bündelt Alarme/Timer,
+NFC, WLAN und Bluetooth. Swipe nach oben vom Hauptscreen öffnet Apps; Swipe
+nach unten öffnet Einstellungen. Apps und Einstellungen öffnen Unterseiten
+per Tap. Physische Tasten sind für die Screen-Navigation nicht erforderlich.
 
 ---
 
@@ -194,43 +194,43 @@ passend zum Gesamtkonzept.
   aktualisiert sich die Abkürzung automatisch.
 - Die UTC-Zeit dient als stabile Referenz, unabhängig von der lokal eingestellten
   Zeitzone – nützlich z. B. für Logging, GPS-Zeitstempel, Funkprotokolle.
-- Navigation erfolgt über **Swipe-Gesten**, der Hauptscreen (Zeit) ist dabei
-  der zentrale Ausgangspunkt. Zwei unabhängige Achsen (festgelegt):
+- **Horizontaler Ring:** Hauptscreen ↔ Aktivität ↔ GPS ↔ Mesh ↔ Hauptscreen.
+  Swipe links geht vorwärts, Swipe rechts rückwärts.
+- **Swipe oben vom Hauptscreen:** Apps mit Alarme/Timer, NFC, WLAN und Bluetooth.
+  Ein Tap öffnet die App. Swipe unten in Apps kehrt zum Hauptscreen zurück.
+- **Swipe unten vom Hauptscreen:** Einstellungen. Swipe oben auf der
+  Kategorieliste kehrt zum Hauptscreen zurück.
+- **Halten auf dem Hauptscreen:** Display-Einstellungen direkt öffnen.
+- **Mesh → Node-Übersicht:** Swipe oben.
+- **Zurück auf Unterseiten:** Swipe rechts oder vorhandener Back-Button führt
+  zur übergeordneten Seite. Vibration → Ton, Einstellungen-Unterseite →
+  Einstellungen, Alarm-Editor/Timer → Alarme, Node-Übersicht → Mesh,
+  einzelne App → Apps. Vertikales Scrollen bleibt den Widgets überlassen.
+- BHI bleibt über die Debug-Konsole erreichbar; Swipe rechts führt zur Uhr.
+- Firmware und Simulator verwenden dieselbe Hierarchie und Gestenbehandlung
+  (`main/screens/navigation.c`). Der NFC-Simulator zeigt eine Vorschau ohne
+  Hardware-Scan.
 
-  ```
-                    [ Einstellungen ]
-                          ↑ swipe-up
-                          ↓ swipe-down
-  [ Hauptscreen ] ⟶ Aktivität ⟶ GPS/Karte ⟶ LoRa/Mesh ⟶ WLAN ⟶ Bluetooth ⟶ Alarme/Timer ⟶ NFC ⟶ zurück
-        ⟵                                                              ⟵
-  ```
+### 4.4 Zwei unabhängige Inaktivitätszeiten
 
-  - **Horizontal – geschlossener Ring** (Hauptscreen, Aktivität, GPS/Karte,
-    LoRa/Mesh, WLAN, Bluetooth, Alarme/Timer, NFC): Swipe nach links
-    schaltet einen Screen im Ring weiter, Swipe nach rechts einen zurück;
-    durchgängiges Wischen in eine Richtung führt durch alle Screens
-    wieder zum Hauptscreen. Reihenfolge nach Nutzungshäufigkeit sortiert
-    (am häufigsten benötigter Screen am nächsten zum Hauptscreen).
-  - **Vertikal, nur auf dem Hauptscreen – Einstellungen liegt außerhalb des
-    Rings**: Swipe nach unten auf dem Hauptscreen öffnet Einstellungen,
-    Swipe nach oben auf der Einstellungen-Kategorieliste geht zurück zum
-    Hauptscreen. Einstellungen war ursprünglich Teil des horizontalen Rings,
-    wurde aber bewusst herausgelöst (kein Screen, den man beiläufig
-    durchwischt) – zusätzlich weiterhin per Tap-and-Hold auf dem Hauptscreen
-    erreichbar (direkt zur Display-Unterseite, siehe Abschnitt 9.3).
-  - Auf dem Mesh-Screen ist die vertikale Swipe-up-Geste bereits für die
-    Node-Übersicht belegt (siehe Abschnitt 7.2) – vertikale Gesten sind sonst
-    auf keinem Ring-Screen außer dem Hauptscreen belegt.
-  - **Wichtig:** Diese Ring-/Achsen-Navigation gilt nur für den Wechsel
-    zwischen den Ring-Screens und Einstellungen selbst. Innerhalb von
-    Unterseiten (z. B. den Einstellungs-Kategorien, siehe Abschnitt 9.3, oder
-    der Node-Übersicht) gelten **eigene, lokale Swipe-Regeln** (Swipe/Button
-    zurück zur jeweils übergeordneten Seite) – diese lösen keine Ring-
-    Navigation aus und werden unabhängig davon behandelt.
-  - Der NFC-Screen ist über die Ring-Navigation erreichbar (nach Alarme); die
-    Scan-Oberfläche und ein NFC-A-Tag wurden auf Hardware erfolgreich getestet.
-    Der BHI-Sensor-Screen bleibt debug-only und kehrt über das
-    Inaktivitäts-Timeout zurück.
+- **Sleep:** Standard 10 s; Auswahl 5/10/15/20/30/60 s. Schaltet das Display
+  aus und nutzt den normalen Light-Sleep-Pfad. Bereits gespeicherte Werte
+  bleiben erhalten. Änderungen wirken sofort und werden in NVS gespeichert.
+- **Return home:** Standard 30 s; Auswahl 15/30/60/120 s. Gemessen ab der
+  letzten Berührung bzw. Navigation, inklusive der Zeit im Schlaf.
+- Bei kurzem Schlaf wird dieselbe Seite fortgesetzt. Ist die Rückkehrzeit beim
+  Aufwecken überschritten, erscheint die Uhr bereits im ersten neuen Bild.
+  Die Rückkehrzeit allein weckt das Display nicht und verlängert Sleep nicht.
+- Einstellungen einschließlich Ultra-Sparmodus, Alarm-Editor und Timer-Eingabe
+  bleiben beim normalen Display-Schlaf erhalten. Klingeln ist ebenfalls von
+  der automatischen Rückkehr ausgenommen. Deep-Sleep startet die Firmware neu
+  und erhält keine ungespeicherten Formulare.
+- Berührung/Halten zählt als Aktivität. Ein sichtbarer NFC-Scan und Klingeln
+  dürfen das Display wachhalten. Hintergrund-GNSS und Tracking dürfen bei
+  ausgeschaltetem Display weiterarbeiten; sie setzen den Display-Timer nicht
+  zurück. Das bestehende `TRACKING_ENABLED=0` bleibt unverändert.
+- Die Einstellung „nicht auf USB schlafen“ bleibt erhalten und ist standardmäßig
+  aktiviert; sie unterdrückt Display-Schlaf, aber nicht die Rückkehr zur Uhr.
 
 ---
 
@@ -246,6 +246,20 @@ vorbehalten.
 ---
 
 ## 6. GPS-Screen (implementiert)
+
+**GNSS bei schlechtem Empfang:** Ohne frischen Fix wird nach 60 s mit
+schwachem oder fehlendem Signal abgeschaltet. Fünf Satellitenmeldungen glätten
+die Bewertung: mindestens vier gesunde Satelliten mit Code-Lock ab 30 dBHz
+verlängern die Suche, unter vier ab 25 dBHz gilt der Empfang wieder als schwach.
+Auch bei starkem Signal gilt eine Grenze von 180 s ohne frischen Fix.
+Dies gilt bei ausgeschaltetem Display. Die Anzeige nennt „Poor signal“,
+„No data“ oder „No fix - GPS off“; GPS wird ausgeschaltet und dies gespeichert.
+Ein neuer Versuch erfordert explizites
+Einschalten (oder `gnsson`/`gpscheck`); Aufwecken startet GPS nicht erneut.
+Dies ist eine Indoor-/Schlechtempfang-Heuristik, keine sichere Indoor-Erkennung.
+Eine laufende GPX-Aufzeichnung bleibt geöffnet, schreibt ohne Fix aber keine
+Punkte und setzt nach manuellem Einschalten und neuem Fix fort.
+
 
 ### 6.1 Zweck
 Anzeige der aktuellen Position sowie des GPS-Status im Detail (Ergänzung zum
@@ -372,7 +386,7 @@ per Tap eine eigene Unterseite mit den zugehörigen Optionen.
 1. **Zeit & Zeitzone**
    - Anzeige der konfigurierten Zeitzone und des UTC-Offsets
 2. **Display**
-   - Timeout-Dauer
+   - Sleep-Timeout und separate Rückkehrzeit zum Hauptscreen
    - Helligkeit
 3. **Peripherie**
    - GPS ein/aus
@@ -407,14 +421,9 @@ müssen.
 Änderungen werden **sofort übernommen** – es gibt **keinen separaten
 Speichern-Schritt**. Jede Option wirkt unmittelbar nach der Auswahl/Änderung.
 
-Navigation innerhalb der Unterseiten erfolgt per **Swipe-zurück-Geste**
-(z. B. Swipe von links nach rechts, analog zu gängigen Touch-UIs). Diese Geste
-ist eine **lokale Regel der Einstellungs-Unterseiten** und unabhängig von der
-horizontalen Ring-Navigation zwischen den acht Ring-Screens sowie der
-vertikalen Hauptscreen↔Einstellungen-Achse (siehe Abschnitt 4.3) – beide
-greifen nur, solange man sich auf der Einstellungen-Kategorieliste selbst
-befindet, nicht innerhalb einer Kategorie-Unterseite. Die Kategorieliste
-selbst wird per Swipe-nach-oben wieder verlassen (zurück zum Hauptscreen).
+Unterseiten verwenden die zentrale Zurück-Regel aus Abschnitt 4.3:
+Swipe rechts oder Back-Button führt zur übergeordneten Seite. Die
+Einstellungen-Kategorieliste wird per Swipe oben verlassen.
 
 ---
 
@@ -479,7 +488,7 @@ und wenigstens die Kernfunktion (Uhrzeit) so lange wie möglich verfügbar zu ha
 
 **Geklärt:**
 - ~~Weitere Screens~~ → GPS/Karte, LoRa-Nachrichten, Alarme/Timer, Einstellungen
-- ~~Navigationskonzept~~ → ausschließlich Swipe-Gesten, geschlossener Ring
+- ~~Navigationskonzept~~ → kurzer Swipe-Ring, Apps-Launcher und Einstellungen
 - ~~Display-Timeout-Verhalten~~ → komplettes Abschalten
 - ~~Wake-Trigger~~ → Normalmodus: Touch, Handgelenk-Geste, Power/Boot;
   Ultra-Sparmodus: Power/Boot/RTC-Alarm

@@ -12,6 +12,7 @@
  * title/time/snooze-button directly for each new ring (see screens.h).
  */
 #include "screens.h"
+#include "navigation.h"
 #include <stdio.h>
 #include <string.h>
 #include "cascadia_fonts.h"
@@ -359,8 +360,7 @@ static void alarm_edit_delete_btn_cb(lv_event_t *e)
 static void alarm_edit_back_btn_cb(lv_event_t *e)
 {
     (void)e;
-    lv_scr_load(s_alarm_screen);
-    alarm_list_refresh();
+    navigation_back();
 }
 
 void lvgl_build_alarm_edit_screen(void)
@@ -528,8 +528,7 @@ static void timer_preset_btn_cb(lv_event_t *e)
 static void timer_back_btn_cb(lv_event_t *e)
 {
     (void)e;
-    lv_scr_load(s_alarm_screen);
-    alarm_list_refresh();
+    navigation_back();
 }
 
 void lvgl_build_timer_screen(void)

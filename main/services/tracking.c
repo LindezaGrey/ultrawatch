@@ -1,8 +1,8 @@
 /*
  * services/tracking.c - step-gated distance tracking.
  *
- * A tracking session keeps the watch awake (display stays on; the watch face
- * shows a red dot) and uses the always-on BHI260AP step counter as the
+ * A tracking session allows display sleep (the watch face shows a red dot)
+ * and uses the always-on BHI260AP step counter as the
  * trigger: every TRACK_STEPS_PER_FIX steps the GNSS receiver is pulsed once
  * for a position fix, the haversine distance since the previous fix is
  * accumulated, and the receiver is powered back off. Lifetime distance + steps
@@ -125,9 +125,6 @@ static void tracking_task(void *arg)
         if (!active) {
             continue;
         }
-        /* Keep the watch awake (no auto-sleep) so the BHI step counter keeps
-         * running and the GNSS rail isn't cut mid-session. */
-        esp_lv_adapter_report_activity();
         uint32_t steps = 0;
         if (bhi260ap_get_step_count(&steps) != ESP_OK) {
             continue;
@@ -315,7 +312,7 @@ bool tracking_get_estimated_position(double *lat, double *lon)
 void tracking_on_fix(double lat, double lon)
 {
     m10q_fix_t f;
-    bool have_course = m10q_get_fix(&f) == ESP_OK;
+    bool have_course = m10q_get_fix(&f) == ESP_OK && f.valid && f.heading_valid;
     uint32_t steps = 0;
     bool have_steps = bhi260ap_get_step_count(&steps) == ESP_OK;
 

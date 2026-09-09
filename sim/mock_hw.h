@@ -92,6 +92,7 @@ typedef struct {
     uint16_t chg_ma;
     int16_t  batt_temp_c10;
     bool     valid;
+    uint32_t updated_ms;
 } sensor_cache_t;
 
 void sensor_cache_get(sensor_cache_t *out);
@@ -119,40 +120,7 @@ bool power_mgmt_get_sparmodus_active(void);
 void power_mgmt_set_sparmodus_active(bool on);
 
 /* --- m10q.h subset --- */
-#define M10Q_MAX_SATS 24
-
-typedef enum {
-    M10Q_STATE_OFF = 0,
-    M10Q_STATE_ACQUIRING,
-    M10Q_STATE_FIXED,
-} m10q_state_t;
-
-typedef struct {
-    uint8_t  prn;
-    int16_t  elevation_deg;
-    int16_t  azimuth_deg;
-    int16_t  snr_db;
-    bool     used;
-} m10q_sat_t;
-
-typedef struct {
-    bool     valid;
-    bool     fix_3d;
-    double   lat;
-    double   lon;
-    double   alt_m;
-    uint16_t sat_count;
-    uint16_t sat_in_view;
-    uint16_t speed_kmh;
-    uint16_t course_deg;
-    uint16_t hdop;
-    uint16_t hacc_m;
-    uint8_t  hour;
-    uint8_t  minute;
-    uint8_t  second;
-    int32_t  rtc_offset_s;
-    m10q_sat_t sats[M10Q_MAX_SATS];
-} m10q_fix_t;
+#include "m10q_types.h"
 
 typedef struct {
     uint32_t total_fixes;
@@ -204,7 +172,7 @@ typedef enum {
     DAILY_ACT_COUNT,
 } daily_activity_t;
 
-esp_err_t daily_log_get_activity_seconds(const uint32_t *out[DAILY_ACT_COUNT]);
+esp_err_t daily_log_get_activity_seconds(uint32_t out[DAILY_ACT_COUNT]);
 
 /* --- tracking.h subset ---
  * Kept around even though gps_screen.c no longer calls into it (Phase 3
@@ -399,6 +367,7 @@ esp_err_t sd_log_get_space(uint64_t *total_bytes, uint64_t *free_bytes);
  * Real lvgl_gps_set_enabled() drives the GNSS power task; the sim has no
  * task, so this mock just calls mock_gnss_set_enabled() directly. */
 bool lvgl_gps_enabled(void);
+bool lvgl_gps_timed_out(void);
 void lvgl_gps_set_enabled(bool on);
 
 /* --- esp_lv_adapter.h subset ---
@@ -414,3 +383,13 @@ const char *uwatch_firmware_version(void);
 #ifdef __cplusplus
 }
 #endif
+
+uint32_t power_mgmt_get_return_timeout_s(void);
+void power_mgmt_set_return_timeout_s(uint32_t seconds);
+void power_mgmt_report_activity(void);
+void power_mgmt_idle_poll(void);
+
+const char *lvgl_gps_off_reason(void);
+
+#include "sd_log_status.h"
+void sd_log_get_status(sd_log_status_t *out);

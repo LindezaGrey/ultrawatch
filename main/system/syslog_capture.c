@@ -140,8 +140,13 @@ static void syslog_flush(void)
 
 void syslog_capture_service(uint32_t timeout_ms)
 {
-    xSemaphoreTake(s_flush_wake, pdMS_TO_TICKS(timeout_ms));
-    syslog_flush();
+    static TickType_t last_flush;
+    bool signaled = xSemaphoreTake(s_flush_wake, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+    TickType_t now = xTaskGetTickCount();
+    if (signaled || now - last_flush >= pdMS_TO_TICKS(60000)) {
+        syslog_flush();
+        last_flush = now;
+    }
 }
 
 void syslog_capture_init(void)
