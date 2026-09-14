@@ -18,6 +18,7 @@
 #include "esp_timer.h"
 #include "battery_observation.h"
 #include "lvgl_app.h"
+#include "twatch_brookesia_bridge.h"
 
 static const char *TAG = "phase1";
 enum { EXPECTED_FLASH_BYTES = 16 * 1024 * 1024, EXPECTED_PSRAM_BYTES = 8 * 1024 * 1024 };
@@ -73,6 +74,7 @@ void app_main(void)
     }
 #endif
     ESP_ERROR_CHECK(lvgl_app_init());
+    ESP_LOGI(TAG, "BROOKESIA_HAL panel_touch=%s", twatch_brookesia_bridge_ready() ? "ready" : "unavailable");
     // IDF initializes TWDT and subscribes both idle tasks through sdkconfig.
     // The existing main task owns these checks; no extra task/ISR is needed.
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));

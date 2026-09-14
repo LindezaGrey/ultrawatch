@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Initialize the V1.0 CO5300 over the schematic QSPI pins. */
 esp_err_t twatch_display_init(void);
 
@@ -25,3 +29,7 @@ esp_err_t twatch_display_rotation_demo(void);
 
 /* Exercise panel sleep/wake while leaving PMU rails enabled. */
 esp_err_t twatch_display_sleep_wake_demo(void);
+
+#ifdef __cplusplus
+}
+#endif
