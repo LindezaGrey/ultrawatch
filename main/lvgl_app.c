@@ -69,7 +69,7 @@ static void rtc_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
     twatch_rtc_snapshot_t rtc;
-    if (!twatch_board_read_rtc(&rtc)) {
+    if (twatch_board_read_rtc(&rtc) != ESP_OK) {
         char text[24];
         lv_snprintf(text, sizeof(text), "UTC --:--:--");
         lv_label_set_text(utc_label, text);
