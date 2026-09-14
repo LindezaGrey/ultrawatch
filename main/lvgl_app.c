@@ -106,6 +106,9 @@ esp_err_t lvgl_app_init(void)
     lv_label_set_text(utc_label, "UTC --:--:--");
     lv_obj_set_style_text_font(utc_label, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_align(utc_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(utc_label, lv_color_hex(0xFF0000), 0);
+    lv_obj_set_width(utc_label, 300);
+    lv_obj_set_height(utc_label, 52);
     lv_obj_align(utc_label, LV_ALIGN_TOP_MID, 0, 190);
     lv_timer_create(rtc_timer_cb, 1000, NULL);
     rtc_timer_cb(NULL);
