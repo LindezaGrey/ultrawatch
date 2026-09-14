@@ -11,6 +11,7 @@ static const char *TAG = "lvgl_app";
 static lv_display_t *display;
 static lv_color_t draw_buffer[410 * 16];
 static lv_indev_t *touch_input;
+static lv_obj_t *utc_label;
 
 /* The LilyGO Ultra port expands partial invalidation areas to the panel's
  * left edge; CO5300 updates can otherwise shift narrow redraws sideways. */
@@ -59,6 +60,28 @@ static void button_event_cb(lv_event_t *event)
     lv_label_set_text(label, text);
 }
 
+static uint8_t bcd_to_binary(uint8_t value)
+{
+    return (uint8_t)(((value >> 4) * 10) + (value & 0x0f));
+}
+
+static void rtc_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    twatch_rtc_snapshot_t rtc;
+    if (!twatch_board_read_rtc(&rtc)) {
+        char text[24];
+        lv_snprintf(text, sizeof(text), "UTC --:--:--");
+        lv_label_set_text(utc_label, text);
+        return;
+    }
+    char text[24];
+    lv_snprintf(text, sizeof(text), "UTC %02u:%02u:%02u",
+                bcd_to_binary(rtc.hours & 0x3f), bcd_to_binary(rtc.minutes & 0x7f),
+                bcd_to_binary(rtc.seconds & 0x7f));
+    lv_label_set_text(utc_label, text);
+}
+
 esp_err_t lvgl_app_init(void)
 {
     lv_init();
@@ -79,6 +102,11 @@ esp_err_t lvgl_app_init(void)
     lv_obj_set_style_text_font(label, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(label);
+    utc_label = lv_label_create(lv_screen_active());
+    lv_label_set_text(utc_label, "UTC --:--:--");
+    lv_obj_set_style_text_font(utc_label, &lv_font_montserrat_22, 0);
+    lv_obj_align(utc_label, LV_ALIGN_TOP_MID, 0, 18);
+    lv_timer_create(rtc_timer_cb, 1000, NULL);
     lv_obj_t *touch_count = lv_label_create(lv_screen_active());
     lv_label_set_text(touch_count, "Touches: 0");
     lv_obj_set_style_text_font(touch_count, &lv_font_montserrat_22, 0);
