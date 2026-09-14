@@ -49,7 +49,7 @@ milestone passes. The unmodified vendor baseline may initialize them.
 
 | Device / published part | Bus and GPIOs | Power / reset / enables | Reference driver; dependencies | Evidence / status |
 | --- | --- | --- | --- | --- |
-| RTC U4 PCF85063ATL | I2C `0x51` per H; IRQ GPIO1 | VBACKUP, MS621FE backup cell | SensorPCF85063; shared I2C | Address and register map supported by local `baseline/.pio/libdeps/twatch_ultra/SensorLib/src/REG/PCF85063Constants.h`; fitted chip, voltage/time/IRQ UNVERIFIED |
+| RTC U4 PCF85063ATL | I2C `0x51` per H; IRQ GPIO1; application interpretation UTC | VBACKUP, MS621FE backup cell | SensorPCF85063; shared I2C | Address and register map supported by local `baseline/.pio/libdeps/twatch_ultra/SensorLib/src/REG/PCF85063Constants.h`; fitted chip, voltage/time/IRQ UNVERIFIED |
 | Motion U7 BHI260AP | I2C `0x28`; IRQ GPIO8; RS0104 level translator | ALDO4 -> VDD1V8, VDD3V3 translator side; reset pulled to VDD1V8 | SensorBHI260AP plus firmware; shared I2C/rail | S3, H; exact device identity and firmware UNVERIFIED; deferred |
 | GNSS U2 MIA-M10Q | UART MCU TX43/RX44, PPS GPIO13; UART instance UNVERIFIED | BLDO1 -> GPS_VDD; VRTC backup; no speculative backup disable | GPS/TinyGPSPlus; supply and UART | S1/S2/S5, V; UART direction verified by MCU net names; operation UNVERIFIED |
 | microSD | Shared SPI MOSI34/MISO33/CLK35, CS21; detect P12/index10 | ALDO1 -> SD_VDD | SD; SPI and rail | S1/S2/S3, V; no card/mount/format tests |
