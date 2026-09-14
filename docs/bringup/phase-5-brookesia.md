@@ -26,6 +26,13 @@ LoRa disabled until the shell passes the one-hour lifecycle test.
 
 No Brookesia dependency or board API is guessed in the firmware.
 
+The pinned source was inspected locally. Its HAL adaptor (`0.8.4`) initializes
+devices through `esp_board_manager` and the board package (`0.8.0`) supplies
+standard LCD/touch YAML entries. The Ultra's proven path cannot use those
+entries unchanged: CO5300 writes use the custom QSPI transaction sequence and
+both display enable and touch reset are XL9555 outputs. A custom bridge is
+therefore required before enabling the stock display/touch adaptor.
+
 The temporary geometry diagnostic was disabled again after the mask photo was
 captured. The restored UI-default image was flashed and the operator confirmed
 that the LVGL screen is visible and touchable. This keeps the board HAL and
