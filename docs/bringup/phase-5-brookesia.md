@@ -47,6 +47,10 @@ for dark-background operation. It is enabled in the current build as a
 power/burn-in mitigation experiment; the effect and current draw require
 physical confirmation after flashing.
 
+The inverted image is **device-tested**: the operator confirmed the display
+renders correctly and touch remains functional after flashing. A current-draw
+measurement is still required before quantifying the power benefit.
+
 ## Required next change
 
 Add only the minimal T-Watch Ultra board bridge. It must expose the Brookesia
