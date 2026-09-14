@@ -20,6 +20,13 @@ expected to consume board configuration and register the HAL interfaces.
 - T-Watch Ultra provider bridge: **build-tested**; startup acquisition and
   physical shell behavior remain **UNVERIFIED** until the new image is flashed.
 
+The isolated bridge image was flashed and captured with elevated USB access.
+Device boot evidence is **device-tested**: ESP-IDF 6.0.2 reached `READY`, the
+CO5300 reported `410x502 QSPI`, LVGL initialized, and health samples remained
+stable. The capture also reports 16 MB flash, 8 MB PSRAM, and battery voltage
+4171 mV. The serial device may be invisible to sandboxed commands; use elevated
+access for hardware logs.
+
 ## Required next change
 
 Add only the minimal T-Watch Ultra board bridge. It must expose the Brookesia
