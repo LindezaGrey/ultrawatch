@@ -53,12 +53,14 @@ The inverted image is **device-tested**: the operator confirmed the display
 renders correctly and touch remains functional after flashing. A current-draw
 measurement is still required before quantifying the power benefit.
 
-## Required next change
+## Next step
 
-Add only the minimal T-Watch Ultra board bridge. It must expose the Brookesia
-panel and touch interfaces while delegating all hardware ownership to the
-existing `twatch_board` and LVGL paths. Keep Wi-Fi, audio, GNSS, NFC, SD,
-sensors, and LoRa disabled until the shell passes the one-hour lifecycle test.
+The minimal board bridge and provider-backed LVGL path are complete. The next
+change should add the smallest Brookesia application shell or navigation demo,
+while continuing to delegate hardware ownership to `twatch_board`. Keep
+Wi-Fi, audio, GNSS, NFC, SD, sensors, and LoRa disabled until that shell is
+stable. The one-hour lifecycle gate is waived by operator decision; preserve
+the shorter soak and interactive device evidence.
 
 The bridge now registers `TWatchUltra:CO5300` and `TWatchUltra:CST9220`.
 Panel draws delegate to `twatch_display_flush`; touch remains polling through
