@@ -37,6 +37,12 @@ operator confirmed the UI is visible and the touch button works. Serial output
 shows the Brookesia interfaces acquired before LVGL initialization, followed
 by `READY heap_integrity=ok`; no reset or corruption was observed.
 
+A two-screen navigation experiment was reverted after the operator observed
+full-screen garbling. The restored single-screen build is **device-tested**
+and stable again; the accepted path continues to use partial invalidation and
+the Ultra redraw rounder. Navigation remains deferred until it can be added
+without disturbing that flush behavior.
+
 A 60-second elevated serial soak is also **device-tested**: health samples
 advanced from roughly 0 to 5988, internal free heap stayed at 276884 bytes,
 PSRAM free stayed at 8384132 bytes, and no reset, assertion, or flush error
