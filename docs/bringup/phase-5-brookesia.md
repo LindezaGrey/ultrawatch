@@ -76,9 +76,9 @@ behavior remain unverified.
 
 ## Next step
 
-The minimal board bridge and provider-backed LVGL path are complete. The next
-change should add the smallest Brookesia application shell or navigation demo,
-while continuing to delegate hardware ownership to `twatch_board`. Keep
+The minimal board bridge, provider-backed LVGL path, and RTC-backed UTC clock
+are complete. The next change should add the smallest Brookesia application
+shell or navigation demo, while continuing to delegate hardware ownership to `twatch_board`. Keep
 Wi-Fi, audio, GNSS, NFC, SD, sensors, and LoRa disabled until that shell is
 stable. The one-hour lifecycle gate is waived by operator decision; preserve
 the shorter soak and interactive device evidence.
