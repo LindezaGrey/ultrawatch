@@ -17,7 +17,8 @@ expected to consume board configuration and register the HAL interfaces.
   `2c09459a97a82c8d477c543eb2b43f4956b8a5be`.
 - Brookesia HAL interface and utility components: **build-tested** with
   ESP-IDF 6.0.2; the application binary links successfully.
-- Physical Brookesia shell integration: **UNVERIFIED**.
+- T-Watch Ultra provider bridge: **build-tested**; startup acquisition and
+  physical shell behavior remain **UNVERIFIED** until the new image is flashed.
 
 ## Required next change
 
@@ -25,6 +26,10 @@ Add only the minimal T-Watch Ultra board bridge. It must expose the Brookesia
 panel and touch interfaces while delegating all hardware ownership to the
 existing `twatch_board` and LVGL paths. Keep Wi-Fi, audio, GNSS, NFC, SD,
 sensors, and LoRa disabled until the shell passes the one-hour lifecycle test.
+
+The bridge now registers `TWatchUltra:CO5300` and `TWatchUltra:CST9220`.
+Panel draws delegate to `twatch_display_flush`; touch remains polling through
+`twatch_board_read_touch`. No interrupt line or second bus owner is claimed.
 
 No Brookesia dependency or board API is guessed in the firmware.
 
