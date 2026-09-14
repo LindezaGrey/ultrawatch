@@ -59,6 +59,11 @@ The inverted image is **device-tested**: the operator confirmed the display
 renders correctly and touch remains functional after flashing. A current-draw
 measurement is still required before quantifying the power benefit.
 
+The read-only RTC candidate probe is **device-tested**: boot output reports
+`RTC_PROBE candidate=0x51 present=1`. This confirms an I²C responder at the
+schematic address without claiming PCF85063 identity, register semantics, or
+backup/IRQ behavior.
+
 ## Next step
 
 The minimal board bridge and provider-backed LVGL path are complete. The next
