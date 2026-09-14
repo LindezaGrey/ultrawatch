@@ -1,0 +1,3 @@
+[submodule "vendor/esp-brookesia"]
+	path = vendor/esp-brookesia
+	url = https://github.com/espressif/esp-brookesia.git
