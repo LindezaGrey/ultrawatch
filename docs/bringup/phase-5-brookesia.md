@@ -37,6 +37,11 @@ operator confirmed the UI is visible and the touch button works. Serial output
 shows the Brookesia interfaces acquired before LVGL initialization, followed
 by `READY heap_integrity=ok`; no reset or corruption was observed.
 
+A 60-second elevated serial soak is also **device-tested**: health samples
+advanced from roughly 0 to 5988, internal free heap stayed at 276884 bytes,
+PSRAM free stayed at 8384132 bytes, and no reset, assertion, or flush error
+appeared. The full one-hour lifecycle gate remains pending.
+
 ## Required next change
 
 Add only the minimal T-Watch Ultra board bridge. It must expose the Brookesia
