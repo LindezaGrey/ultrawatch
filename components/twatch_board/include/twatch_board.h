@@ -16,6 +16,12 @@ typedef struct {
 } twatch_power_snapshot_t;
 
 typedef struct {
+    uint8_t control1;
+    uint8_t seconds, minutes, hours, day, weekday, month, year;
+    bool bcd_fields_plausible;
+} twatch_rtc_snapshot_t;
+
+typedef struct {
     uint8_t dcdc_control, dc1_voltage, ldo_control[2], aldo2_voltage;
     uint8_t expander_output[2], expander_polarity[2], expander_config[2];
     bool dc1_enabled, aldo2_enabled, dc1_setting_valid, aldo2_setting_valid;
@@ -38,6 +44,8 @@ esp_err_t twatch_board_prepare_display_touch(void);
 esp_err_t twatch_board_probe_touch(uint8_t *address, bool *present);
 /* Read-only ACK probe for the schematic PCF85063 candidate at 0x51. */
 esp_err_t twatch_board_probe_rtc(bool *present);
+/* Read-only PCF85063 control/time registers; does not set or clear the clock. */
+esp_err_t twatch_board_read_rtc(twatch_rtc_snapshot_t *snapshot);
 
 /* Read the vendor CST92xx identity and geometry fields after address probing. */
 esp_err_t twatch_board_read_touch_info(void);

@@ -67,6 +67,10 @@ void app_main(void)
     }
     bool rtc_present = false;
     ESP_ERROR_CHECK(twatch_board_probe_rtc(&rtc_present));
+    if (rtc_present) {
+        twatch_rtc_snapshot_t rtc_snapshot;
+        ESP_ERROR_CHECK(twatch_board_read_rtc(&rtc_snapshot));
+    }
     ESP_ERROR_CHECK(twatch_display_init());
 #if DISPLAY_INVERTED
     ESP_ERROR_CHECK(twatch_display_set_inverted(true));

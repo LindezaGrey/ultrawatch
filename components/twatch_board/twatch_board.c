@@ -34,6 +34,7 @@ static i2c_master_bus_handle_t bus;
 static i2c_master_dev_handle_t pmu;
 static i2c_master_dev_handle_t expander;
 static i2c_master_dev_handle_t touch;
+static i2c_master_dev_handle_t rtc;
 static bool ready;
 
 static esp_err_t read_device_regs(i2c_master_dev_handle_t device, uint8_t reg, uint8_t *data, size_t count)
@@ -243,6 +244,40 @@ esp_err_t twatch_board_probe_rtc(bool *present)
     ESP_LOGI(TAG, "RTC_PROBE candidate=0x%02x present=%u identity=unverified",
              RTC_CANDIDATE_ADDRESS, *present);
     if (err != ESP_OK && err != ESP_ERR_NOT_FOUND && err != ESP_ERR_TIMEOUT) return err;
+    return ESP_OK;
+}
+
+static bool bcd_byte_plausible(uint8_t value, uint8_t max_value)
+{
+    return (value & 0x0f) <= 9 && ((value >> 4) & 0x0f) <= (max_value / 10);
+}
+
+esp_err_t twatch_board_read_rtc(twatch_rtc_snapshot_t *snapshot)
+{
+    if (!snapshot) return ESP_ERR_INVALID_ARG;
+    if (!ready) return ESP_ERR_INVALID_STATE;
+    if (!rtc) {
+        const i2c_device_config_t config = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address = RTC_CANDIDATE_ADDRESS,
+            .scl_speed_hz = I2C_SPEED_HZ,
+        };
+        ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bus, &config, &rtc), TAG, "Add RTC candidate");
+    }
+    twatch_rtc_snapshot_t value = {0};
+    uint8_t time_regs[7];
+    ESP_RETURN_ON_ERROR(read_device_regs(rtc, 0x00, &value.control1, 1), TAG, "Read RTC control");
+    ESP_RETURN_ON_ERROR(read_device_regs(rtc, 0x04, time_regs, sizeof(time_regs)), TAG, "Read RTC time");
+    value.seconds = time_regs[0]; value.minutes = time_regs[1]; value.hours = time_regs[2];
+    value.day = time_regs[3]; value.weekday = time_regs[4]; value.month = time_regs[5]; value.year = time_regs[6];
+    value.bcd_fields_plausible = bcd_byte_plausible(value.seconds & 0x7f, 59) &&
+        bcd_byte_plausible(value.minutes & 0x7f, 59) && bcd_byte_plausible(value.hours & 0x3f, 23) &&
+        bcd_byte_plausible(value.day & 0x3f, 31) && (value.weekday & 0xf8) == 0 &&
+        bcd_byte_plausible(value.month & 0x1f, 12);
+    *snapshot = value;
+    ESP_LOGI(TAG, "RTC_READ ctrl1=%02x time=%02x/%02x/%02x date=%02x wd=%02x/%02x/%02x bcd_plausible=%u",
+             value.control1, value.hours, value.minutes, value.seconds, value.day,
+             value.weekday, value.month, value.year, value.bcd_fields_plausible);
     return ESP_OK;
 }
 
