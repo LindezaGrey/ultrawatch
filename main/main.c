@@ -70,6 +70,12 @@ void app_main(void)
     if (rtc_present) {
         twatch_rtc_snapshot_t rtc_snapshot;
         ESP_ERROR_CHECK(twatch_board_read_rtc(&rtc_snapshot));
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        twatch_rtc_snapshot_t rtc_followup;
+        ESP_ERROR_CHECK(twatch_board_read_rtc(&rtc_followup));
+        ESP_LOGI(TAG, "RTC_TICK_CHECK first=%02x/%02x/%02x followup=%02x/%02x/%02x",
+                 rtc_snapshot.hours, rtc_snapshot.minutes, rtc_snapshot.seconds,
+                 rtc_followup.hours, rtc_followup.minutes, rtc_followup.seconds);
     }
     ESP_ERROR_CHECK(twatch_display_init());
 #if DISPLAY_INVERTED
