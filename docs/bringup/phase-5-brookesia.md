@@ -32,6 +32,11 @@ The delayed probe then initialized `TWatchUltra`, registered and acquired both
 logged `BROOKESIA_HAL_PROBE panel_touch=ready` at about 16 seconds. Subsequent
 health and PMU samples continued normally.
 
+The provider-backed LVGL image was then flashed and **device-tested**. The
+operator confirmed the UI is visible and the touch button works. Serial output
+shows the Brookesia interfaces acquired before LVGL initialization, followed
+by `READY heap_integrity=ok`; no reset or corruption was observed.
+
 ## Required next change
 
 Add only the minimal T-Watch Ultra board bridge. It must expose the Brookesia
