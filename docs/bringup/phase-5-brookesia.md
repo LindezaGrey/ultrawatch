@@ -64,6 +64,11 @@ The read-only RTC candidate probe is **device-tested**: boot output reports
 schematic address without claiming PCF85063 identity, register semantics, or
 backup/IRQ behavior.
 
+The register read is also **device-tested**: control `0x00` and the seven
+time/date bytes decoded as plausible BCD (`21:10:52`, date `14/09/26`, weekday
+`02`). This validates the expected register layout only; no clock write,
+oscillator, backup-cell, or alarm test has been performed.
+
 ## Next step
 
 The minimal board bridge and provider-backed LVGL path are complete. The next
