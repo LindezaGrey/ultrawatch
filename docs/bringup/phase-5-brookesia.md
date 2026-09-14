@@ -25,3 +25,8 @@ board configuration/adaptor. Keep Wi-Fi, audio, GNSS, NFC, SD, sensors, and
 LoRa disabled until the shell passes the one-hour lifecycle test.
 
 No Brookesia dependency or board API is guessed in the firmware.
+
+The temporary geometry diagnostic was disabled again after the mask photo was
+captured. The restored UI-default image was flashed and the operator confirmed
+that the LVGL screen is visible and touchable. This keeps the board HAL and
+rendering path accepted while Brookesia components are evaluated separately.
