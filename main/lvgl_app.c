@@ -5,6 +5,7 @@
 #include "lvgl.h"
 #include "twatch_display.h"
 #include "twatch_board.h"
+#include "twatch_brookesia_bridge.h"
 
 static const char *TAG = "lvgl_app";
 static lv_display_t *display;
@@ -29,10 +30,9 @@ static void flush_cb(lv_display_t *display_handle, const lv_area_t *area, uint8_
     /* CO5300 QSPI expects each RGB565 pixel in big-endian byte order.
      * Match LilyGO's Ultra LVGL helper before sending the draw buffer. */
     lv_draw_sw_rgb565_swap(px_map, width * height);
-    esp_err_t err = twatch_display_flush((uint16_t)area->x1, (uint16_t)area->y1,
-                                         (uint16_t)width, (uint16_t)height, px_map);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "display flush failed: %s", esp_err_to_name(err));
+    if (!twatch_brookesia_bridge_draw((uint32_t)area->x1, (uint32_t)area->y1,
+                                      (uint32_t)(area->x2 + 1), (uint32_t)(area->y2 + 1), px_map)) {
+        ESP_LOGE(TAG, "Brookesia panel flush failed");
     }
     lv_display_flush_ready(display_handle);
 }
@@ -41,7 +41,7 @@ static void touch_read_cb(lv_indev_t *input, lv_indev_data_t *data)
 {
     (void)input;
     twatch_touch_sample_t sample;
-    if (twatch_board_read_touch(&sample) == ESP_OK && sample.pressed) {
+    if (twatch_brookesia_bridge_read_touch(&sample) && sample.pressed) {
         data->point.x = sample.x;
         data->point.y = sample.y;
         data->state = LV_INDEV_STATE_PRESSED;

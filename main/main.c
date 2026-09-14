@@ -73,6 +73,7 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 #endif
+    ESP_ERROR_CHECK(twatch_brookesia_bridge_start() ? ESP_OK : ESP_FAIL);
     ESP_ERROR_CHECK(lvgl_app_init());
     // IDF initializes TWDT and subscribes both idle tasks through sdkconfig.
     // The existing main task owns these checks; no extra task/ISR is needed.
@@ -82,17 +83,11 @@ void app_main(void)
              CONFIG_ESP_TASK_WDT_TIMEOUT_S);
     battery_observation_t battery_run = {0};
     uint64_t next_telemetry_ms = 0;
-    bool brookesia_probe_done = false;
     for (uint32_t sample = 0;; ++sample) {
         require_integrity();
         ESP_ERROR_CHECK(esp_task_wdt_reset());
         lvgl_app_tick();
         const uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
-        if (!brookesia_probe_done && now_ms >= 15000) {
-            const bool ready = twatch_brookesia_bridge_ready();
-            ESP_LOGI(TAG, "BROOKESIA_HAL_PROBE panel_touch=%s", ready ? "ready" : "unavailable");
-            brookesia_probe_done = true;
-        }
         if (now_ms < next_telemetry_ms) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;

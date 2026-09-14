@@ -23,6 +23,9 @@ constexpr const char *PANEL_NAME = "TWatchUltra:CO5300";
 constexpr const char *TOUCH_NAME = "TWatchUltra:CST9220";
 constexpr const char *GROUP_ID = "t_watch_ultra_display";
 
+esp_brookesia::hal::InterfaceHandle<PanelIface> panel_handle;
+esp_brookesia::hal::InterfaceHandle<TouchIface> touch_handle;
+
 class Panel final : public PanelIface {
 public:
     Panel()
@@ -120,7 +123,31 @@ BROOKESIA_PLUGIN_REGISTER(esp_brookesia::hal::Device, DeviceImpl, std::string(DE
 
 extern "C" bool twatch_brookesia_bridge_ready(void)
 {
-    auto panel = esp_brookesia::hal::acquire_interface<PanelIface>(PANEL_NAME);
-    auto touch = esp_brookesia::hal::acquire_interface<TouchIface>(TOUCH_NAME);
-    return static_cast<bool>(panel) && static_cast<bool>(touch);
+    return twatch_brookesia_bridge_start();
+}
+
+extern "C" bool twatch_brookesia_bridge_start(void)
+{
+    if (!panel_handle) panel_handle = esp_brookesia::hal::acquire_interface<PanelIface>(PANEL_NAME);
+    if (!touch_handle) touch_handle = esp_brookesia::hal::acquire_interface<TouchIface>(TOUCH_NAME);
+    return static_cast<bool>(panel_handle) && static_cast<bool>(touch_handle);
+}
+
+extern "C" bool twatch_brookesia_bridge_draw(uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2,
+                                               const uint8_t *data)
+{
+    return panel_handle && panel_handle->draw_bitmap(x1, y1, x2, y2, data);
+}
+
+extern "C" bool twatch_brookesia_bridge_read_touch(twatch_touch_sample_t *sample)
+{
+    if (!touch_handle || sample == nullptr) return false;
+    std::vector<TouchIface::Point> points;
+    if (!touch_handle->read_points(points)) return false;
+    sample->pressed = !points.empty();
+    if (sample->pressed) {
+        sample->x = static_cast<uint16_t>(points.front().x);
+        sample->y = static_cast<uint16_t>(points.front().y);
+    }
+    return true;
 }
