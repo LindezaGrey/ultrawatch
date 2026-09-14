@@ -23,6 +23,7 @@
 static const char *TAG = "phase1";
 enum { EXPECTED_FLASH_BYTES = 16 * 1024 * 1024, EXPECTED_PSRAM_BYTES = 8 * 1024 * 1024 };
 #define DISPLAY_GEOMETRY_TEST 0
+#define DISPLAY_INVERTED 1
 
 static void require_integrity(void)
 {
@@ -65,6 +66,9 @@ void app_main(void)
         }
     }
     ESP_ERROR_CHECK(twatch_display_init());
+#if DISPLAY_INVERTED
+    ESP_ERROR_CHECK(twatch_display_set_inverted(true));
+#endif
 #if DISPLAY_GEOMETRY_TEST
     ESP_ERROR_CHECK(twatch_display_geometry_test());
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));

@@ -3,6 +3,7 @@
 #include "esp_err.h"
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -10,6 +11,8 @@ extern "C" {
 
 /* Initialize the V1.0 CO5300 over the schematic QSPI pins. */
 esp_err_t twatch_display_init(void);
+/* Enable or disable CO5300 hardware color inversion after initialization. */
+esp_err_t twatch_display_set_inverted(bool inverted);
 
 /* Draw a bounded four-quadrant RGB565 pattern for physical bring-up. */
 esp_err_t twatch_display_test_pattern(void);

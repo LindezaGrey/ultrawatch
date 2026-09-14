@@ -103,6 +103,12 @@ esp_err_t twatch_display_init(void)
     return ESP_OK;
 }
 
+esp_err_t twatch_display_set_inverted(bool inverted)
+{
+    if (!initialized) return ESP_ERR_INVALID_STATE;
+    return send_command(inverted ? 0x21 : 0x20, NULL, 0);
+}
+
 static esp_err_t set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 {
     x0 += DISPLAY_OFFSET_X;

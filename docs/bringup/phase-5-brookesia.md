@@ -42,6 +42,11 @@ advanced from roughly 0 to 5988, internal free heap stayed at 276884 bytes,
 PSRAM free stayed at 8384132 bytes, and no reset, assertion, or flush error
 appeared. The full one-hour lifecycle gate remains pending.
 
+The board layer now exposes explicit CO5300 hardware inversion (`0x21`/`0x20`)
+for dark-background operation. It is enabled in the current build as a
+power/burn-in mitigation experiment; the effect and current draw require
+physical confirmation after flashing.
+
 ## Required next change
 
 Add only the minimal T-Watch Ultra board bridge. It must expose the Brookesia
