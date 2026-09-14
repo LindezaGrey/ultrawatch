@@ -65,6 +65,8 @@ void app_main(void)
             ESP_LOGW(TAG, "Touch identity read did not validate: %s", esp_err_to_name(touch_info_err));
         }
     }
+    bool rtc_present = false;
+    ESP_ERROR_CHECK(twatch_board_probe_rtc(&rtc_present));
     ESP_ERROR_CHECK(twatch_display_init());
 #if DISPLAY_INVERTED
     ESP_ERROR_CHECK(twatch_display_set_inverted(true));

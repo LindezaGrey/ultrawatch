@@ -36,6 +36,8 @@ esp_err_t twatch_board_prepare_display_touch(void);
 
 /* Probe documented CST9217 candidate addresses without writing registers. */
 esp_err_t twatch_board_probe_touch(uint8_t *address, bool *present);
+/* Read-only ACK probe for the schematic PCF85063 candidate at 0x51. */
+esp_err_t twatch_board_probe_rtc(bool *present);
 
 /* Read the vendor CST92xx identity and geometry fields after address probing. */
 esp_err_t twatch_board_read_touch_info(void);
