@@ -18,6 +18,7 @@
 #include "esp_timer.h"
 #include "battery_observation.h"
 #include "lvgl_app.h"
+#include "twatch_brookesia_bridge.h"
 
 static const char *TAG = "phase1";
 enum { EXPECTED_FLASH_BYTES = 16 * 1024 * 1024, EXPECTED_PSRAM_BYTES = 8 * 1024 * 1024 };
@@ -81,11 +82,17 @@ void app_main(void)
              CONFIG_ESP_TASK_WDT_TIMEOUT_S);
     battery_observation_t battery_run = {0};
     uint64_t next_telemetry_ms = 0;
+    bool brookesia_probe_done = false;
     for (uint32_t sample = 0;; ++sample) {
         require_integrity();
         ESP_ERROR_CHECK(esp_task_wdt_reset());
         lvgl_app_tick();
         const uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
+        if (!brookesia_probe_done && now_ms >= 15000) {
+            const bool ready = twatch_brookesia_bridge_ready();
+            ESP_LOGI(TAG, "BROOKESIA_HAL_PROBE panel_touch=%s", ready ? "ready" : "unavailable");
+            brookesia_probe_done = true;
+        }
         if (now_ms < next_telemetry_ms) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
