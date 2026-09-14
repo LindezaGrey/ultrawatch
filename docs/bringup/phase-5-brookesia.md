@@ -13,16 +13,18 @@ expected to consume board configuration and register the HAL interfaces.
 
 - Board display/touch path: device-tested.
 - LVGL partial redraw with Ultra invalidation rounder: device-tested.
-- Brookesia source/components: not present in the workspace.
-- Brookesia-to-IDF compatibility: **UNVERIFIED** for the pinned snapshot and
-  this project's ESP-IDF 6.0.2 environment.
+- Brookesia source/components: pinned as a submodule at
+  `2c09459a97a82c8d477c543eb2b43f4956b8a5be`.
+- Brookesia HAL interface and utility components: **build-tested** with
+  ESP-IDF 6.0.2; the application binary links successfully.
+- Physical Brookesia shell integration: **UNVERIFIED**.
 
 ## Required next change
 
-Fetch the exact pinned Brookesia source or registry component lock, inspect the
-closest Waveshare AMOLED board adaptor, and add only the minimal T-Watch Ultra
-board configuration/adaptor. Keep Wi-Fi, audio, GNSS, NFC, SD, sensors, and
-LoRa disabled until the shell passes the one-hour lifecycle test.
+Add only the minimal T-Watch Ultra board bridge. It must expose the Brookesia
+panel and touch interfaces while delegating all hardware ownership to the
+existing `twatch_board` and LVGL paths. Keep Wi-Fi, audio, GNSS, NFC, SD,
+sensors, and LoRa disabled until the shell passes the one-hour lifecycle test.
 
 No Brookesia dependency or board API is guessed in the firmware.
 
