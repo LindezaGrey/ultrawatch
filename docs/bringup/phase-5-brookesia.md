@@ -17,8 +17,8 @@ expected to consume board configuration and register the HAL interfaces.
   `2c09459a97a82c8d477c543eb2b43f4956b8a5be`.
 - Brookesia HAL interface and utility components: **build-tested** with
   ESP-IDF 6.0.2; the application binary links successfully.
-- T-Watch Ultra provider bridge: **build-tested**; startup acquisition and
-  physical shell behavior remain **UNVERIFIED** until the new image is flashed.
+- T-Watch Ultra provider bridge: **device-tested** with a delayed probe after
+  normal UI startup.
 
 The isolated bridge image was flashed and captured with elevated USB access.
 Device boot evidence is **device-tested**: ESP-IDF 6.0.2 reached `READY`, the
@@ -26,6 +26,11 @@ CO5300 reported `410x502 QSPI`, LVGL initialized, and health samples remained
 stable. The capture also reports 16 MB flash, 8 MB PSRAM, and battery voltage
 4171 mV. The serial device may be invisible to sandboxed commands; use elevated
 access for hardware logs.
+
+The delayed probe then initialized `TWatchUltra`, registered and acquired both
+`TWatchUltra:CO5300` and `TWatchUltra:CST9220`, released both handles, and
+logged `BROOKESIA_HAL_PROBE panel_touch=ready` at about 16 seconds. Subsequent
+health and PMU samples continued normally.
 
 ## Required next change
 
