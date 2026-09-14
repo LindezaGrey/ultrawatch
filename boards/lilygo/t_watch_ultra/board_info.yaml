@@ -1,0 +1,10 @@
+board: lilygo_t_watch_ultra
+chip: esp32s3
+version: 1.0.0
+description: "LilyGO T-Watch Ultra V1.0"
+manufacturer: "LilyGO"
+metadata:
+  radio_variant: SX1262
+  display: "CO5300 AMOLED 410x502"
+  touch: CST9220
+  power_manager: AXP2101

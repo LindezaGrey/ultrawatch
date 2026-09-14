@@ -1,0 +1,9 @@
+{
+  "panel": "CO5300",
+  "resolution": [410, 502],
+  "mask": "rounded_rectangle",
+  "corner_radius_px_estimate": 90,
+  "source_photo": "PXL_20260914_200107416.jpg",
+  "status": "estimated_from_front_facing_photo",
+  "limitations": "Camera perspective and lens distortion prevent pixel-precise extraction from the photograph."
+}
