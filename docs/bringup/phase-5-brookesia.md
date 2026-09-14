@@ -37,3 +37,15 @@ The temporary geometry diagnostic was disabled again after the mask photo was
 captured. The restored UI-default image was flashed and the operator confirmed
 that the LVGL screen is visible and touchable. This keeps the board HAL and
 rendering path accepted while Brookesia components are evaluated separately.
+
+## Redraw distortion diagnosis
+
+Early LVGL builds showed diagonal or sideways corruption only in newly updated
+text regions; the static full-screen quadrant and geometry patterns were clean.
+This isolated the fault to partial-update geometry rather than panel timing,
+color order, or QSPI signal integrity. The CO5300 Ultra path requires the
+LilyGO invalidation rounder: force `x1` to zero for narrow invalidations and
+apply the panel's even-coordinate adjustments to `x2`, `y1`, and `y2`. With
+that callback enabled, the operator confirmed clean counter and `Touches`
+redraws. The RGB565 swap and transaction-size changes were retained for
+LilyGO compatibility but were not the root-cause fix.

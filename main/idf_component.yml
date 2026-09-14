@@ -1,0 +1,8 @@
+dependencies:
+  lvgl/lvgl: "9.4.0"
+  espressif/brookesia_hal_interface:
+    path: ../vendor/esp-brookesia/hal/brookesia_hal_interface
+    require: public
+  espressif/brookesia_lib_utils:
+    path: ../vendor/esp-brookesia/utils/brookesia_lib_utils
+    require: public
