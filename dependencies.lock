@@ -1,0 +1,63 @@
+dependencies:
+  espressif/brookesia_hal_interface:
+    dependencies:
+    - name: espressif/brookesia_lib_utils
+      override_path: ../../utils/brookesia_lib_utils
+      require: public
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/hal/brookesia_hal_interface
+      type: local
+    version: 0.8.2
+  espressif/brookesia_lib_utils:
+    dependencies:
+    - name: idf
+      version: '>=6.0,<=6.2'
+    - name: espressif/cmake_utilities
+      require: public
+      version: 0.*
+    - name: espressif/esp-boost
+      require: public
+      version: 0.6.*
+    source:
+      path: vendor/esp-brookesia/utils/brookesia_lib_utils
+      type: local
+    version: 0.8.2
+  espressif/cmake_utilities:
+    component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.3
+  espressif/esp-boost:
+    component_hash: 332946a64356203e9443a3bae9cec93ef8aab6df37de2f61270c972f238f9b3f
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.5'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.6.0
+  idf:
+    source:
+      type: idf
+    version: 6.0.2
+  lvgl/lvgl:
+    component_hash: 17e68bfd21f0edf4c3ee838e2273da840bf3930e5dbc3bfa6c1190c3aed41f9f
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 9.4.0
+direct_dependencies:
+- espressif/brookesia_hal_interface
+- espressif/brookesia_lib_utils
+- lvgl/lvgl
+manifest_hash: a5bec31a2a09d9b964c1af9a41fce115853859818a9ced721bb76d81f52847af
+target: esp32s3
+version: 3.0.0
