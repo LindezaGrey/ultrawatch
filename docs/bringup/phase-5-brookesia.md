@@ -70,8 +70,9 @@ time/date bytes decoded as plausible BCD (`21:10:52`, date `14/09/26`, weekday
 oscillator, backup-cell, or alarm test has been performed.
 
 A read-only tick check is **device-tested**: the RTC advanced from `21:13:55`
-to `21:13:57` over a two-second interval. No clock configuration was changed;
-backup-cell retention and alarm/IRQ behavior remain unverified.
+to `21:13:57` UTC over a two-second interval. The RTC is documented as UTC;
+no clock configuration was changed. Backup-cell retention and alarm/IRQ
+behavior remain unverified.
 
 ## Next step
 
