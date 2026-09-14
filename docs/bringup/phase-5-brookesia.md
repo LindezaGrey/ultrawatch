@@ -112,3 +112,11 @@ apply the panel's even-coordinate adjustments to `x2`, `y1`, and `y2`. With
 that callback enabled, the operator confirmed clean counter and `Touches`
 redraws. The RGB565 swap and transaction-size changes were retained for
 LilyGO compatibility but were not the root-cause fix.
+
+## UTC clock validation
+
+The UI clock reads the PCF85063 candidate at `0x51` and formats the decoded
+BCD registers as UTC. Device validation after flashing commit `27bfc12`
+confirmed that the displayed value advances each second. The earlier
+`UTC --:--:--` display was caused by an inverted `esp_err_t` success check in
+the LVGL callback; successful reads were being treated as failures.
