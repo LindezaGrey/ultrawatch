@@ -12,6 +12,7 @@ static lv_display_t *display;
 static lv_color_t draw_buffer[410 * 16];
 static lv_indev_t *touch_input;
 static lv_obj_t *utc_label;
+static lv_obj_t *menu_panel;
 
 /* The LilyGO Ultra port expands partial invalidation areas to the panel's
  * left edge; CO5300 updates can otherwise shift narrow redraws sideways. */
@@ -58,6 +59,17 @@ static void button_event_cb(lv_event_t *event)
     char text[32];
     lv_snprintf(text, sizeof(text), "Touches: %u", ++count);
     lv_label_set_text(label, text);
+}
+
+static void menu_toggle_cb(lv_event_t *event)
+{
+    (void)event;
+    if (menu_panel == NULL) return;
+    if (lv_obj_has_flag(menu_panel, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_clear_flag(menu_panel, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(menu_panel, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 static uint8_t bcd_to_binary(uint8_t value)
@@ -124,6 +136,23 @@ esp_err_t lvgl_app_init(void)
     lv_obj_set_style_text_font(button_label, &lv_font_montserrat_24, 0);
     lv_obj_center(button_label);
     lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_CLICKED, touch_count);
+    lv_obj_t *menu_button = lv_button_create(lv_screen_active());
+    lv_obj_set_size(menu_button, 140, 50);
+    lv_obj_align(menu_button, LV_ALIGN_TOP_MID, 0, 425);
+    lv_obj_t *menu_label = lv_label_create(menu_button);
+    lv_label_set_text(menu_label, "Menu");
+    lv_obj_set_style_text_font(menu_label, &lv_font_montserrat_22, 0);
+    lv_obj_center(menu_label);
+    lv_obj_add_event_cb(menu_button, menu_toggle_cb, LV_EVENT_CLICKED, NULL);
+    menu_panel = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(menu_panel, 300, 110);
+    lv_obj_align(menu_panel, LV_ALIGN_TOP_MID, 0, 285);
+    lv_obj_t *menu_text = lv_label_create(menu_panel);
+    lv_label_set_text(menu_text, "Brookesia Menu\nDisplay   Touch   Power");
+    lv_obj_set_style_text_font(menu_text, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_align(menu_text, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(menu_text);
+    lv_obj_add_flag(menu_panel, LV_OBJ_FLAG_HIDDEN);
     ESP_LOGI(TAG, "LVGL ready display=410x502 buffer_lines=16");
     return ESP_OK;
 }
