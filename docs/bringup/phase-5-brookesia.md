@@ -69,6 +69,10 @@ time/date bytes decoded as plausible BCD (`21:10:52`, date `14/09/26`, weekday
 `02`). This validates the expected register layout only; no clock write,
 oscillator, backup-cell, or alarm test has been performed.
 
+A read-only tick check is **device-tested**: the RTC advanced from `21:13:55`
+to `21:13:57` over a two-second interval. No clock configuration was changed;
+backup-cell retention and alarm/IRQ behavior remain unverified.
+
 ## Next step
 
 The minimal board bridge and provider-backed LVGL path are complete. The next
