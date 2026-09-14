@@ -40,7 +40,9 @@ by `READY heap_integrity=ok`; no reset or corruption was observed.
 A 60-second elevated serial soak is also **device-tested**: health samples
 advanced from roughly 0 to 5988, internal free heap stayed at 276884 bytes,
 PSRAM free stayed at 8384132 bytes, and no reset, assertion, or flush error
-appeared. The full one-hour lifecycle gate remains pending.
+appeared. The full one-hour lifecycle gate was intentionally skipped by
+operator decision; the shorter soak and interactive device tests remain the
+available evidence.
 
 The board layer now exposes explicit CO5300 hardware inversion (`0x21`/`0x20`)
 for dark-background operation. It is enabled in the current build as a
