@@ -22,6 +22,8 @@ static lv_obj_t *menu_screen;
 static lv_obj_t *home_screen;
 static lv_obj_t *diagnostics_screen;
 static lv_obj_t *diagnostics_label;
+static lv_obj_t *sensor_screen;
+static lv_obj_t *sensor_label;
 static bool display_inverted = true;
 
 typedef struct {
@@ -156,6 +158,25 @@ static void diagnostics_open_cb(lv_event_t *event)
 {
     (void)event;
     if (diagnostics_screen != NULL) lv_screen_load(diagnostics_screen);
+}
+
+static void sensor_open_cb(lv_event_t *event)
+{
+    (void)event;
+    if (sensor_screen != NULL) lv_screen_load(sensor_screen);
+}
+
+static void sensor_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if (sensor_label == NULL) return;
+    int16_t x = 0, y = 0, z = 0;
+    if (bhi260ap_core_get_accel(&x, &y, &z)) {
+        lv_label_set_text_fmt(sensor_label, "Corrected accelerometer\n\nX: %d mg\nY: %d mg\nZ: %d mg",
+                              (x * 1000) / 4096, (y * 1000) / 4096, (z * 1000) / 4096);
+    } else {
+        lv_label_set_text(sensor_label, "Corrected accelerometer\n\nWaiting for sample...");
+    }
 }
 
 static void diagnostics_timer_cb(lv_timer_t *timer)
@@ -315,9 +336,17 @@ esp_err_t lvgl_app_init(void)
     lv_obj_set_style_text_font(diagnostics_button_label, &lv_font_montserrat_24, 0);
     lv_obj_center(diagnostics_button_label);
     lv_obj_add_event_cb(diagnostics_button, diagnostics_open_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *sensor_button = lv_button_create(menu_screen);
+    lv_obj_set_size(sensor_button, 260, 68);
+    lv_obj_align(sensor_button, LV_ALIGN_TOP_MID, 0, 325);
+    lv_obj_t *sensor_button_label = lv_label_create(sensor_button);
+    lv_label_set_text(sensor_button_label, "Sensors");
+    lv_obj_set_style_text_font(sensor_button_label, &lv_font_montserrat_24, 0);
+    lv_obj_center(sensor_button_label);
+    lv_obj_add_event_cb(sensor_button, sensor_open_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *back_button = lv_button_create(menu_screen);
-    lv_obj_set_size(back_button, 260, 78);
-    lv_obj_align(back_button, LV_ALIGN_TOP_MID, 0, 335);
+    lv_obj_set_size(back_button, 260, 68);
+    lv_obj_align(back_button, LV_ALIGN_TOP_MID, 0, 405);
     lv_obj_t *back_label = lv_label_create(back_button);
     lv_label_set_text(back_label, "Back");
     lv_obj_set_style_text_font(back_label, &lv_font_montserrat_24, 0);
@@ -344,6 +373,24 @@ esp_err_t lvgl_app_init(void)
     lv_obj_set_style_text_font(diag_back_label, &lv_font_montserrat_24, 0);
     lv_obj_center(diag_back_label);
     lv_obj_add_event_cb(diag_back, menu_back_cb, LV_EVENT_CLICKED, NULL);
+    sensor_screen = lv_obj_create(NULL);
+    lv_obj_t *sensor_title = lv_label_create(sensor_screen);
+    lv_label_set_text(sensor_title, "Sensors");
+    lv_obj_set_style_text_font(sensor_title, &lv_font_montserrat_28, 0);
+    lv_obj_align(sensor_title, LV_ALIGN_TOP_MID, 0, 55);
+    sensor_label = lv_label_create(sensor_screen);
+    lv_obj_set_style_text_font(sensor_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_align(sensor_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(sensor_label, LV_ALIGN_TOP_MID, 0, 140);
+    lv_timer_create(sensor_timer_cb, 1000, NULL);
+    lv_obj_t *sensor_back = lv_button_create(sensor_screen);
+    lv_obj_set_size(sensor_back, 260, 78);
+    lv_obj_align(sensor_back, LV_ALIGN_TOP_MID, 0, 360);
+    lv_obj_t *sensor_back_label = lv_label_create(sensor_back);
+    lv_label_set_text(sensor_back_label, "Back");
+    lv_obj_set_style_text_font(sensor_back_label, &lv_font_montserrat_24, 0);
+    lv_obj_center(sensor_back_label);
+    lv_obj_add_event_cb(sensor_back, menu_back_cb, LV_EVENT_CLICKED, NULL);
     ESP_LOGI(TAG, "LVGL ready display=410x502 buffer_lines=16");
     return ESP_OK;
 }
