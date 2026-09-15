@@ -147,6 +147,8 @@ battery, USB, charge, and UTC values populate on the Diagnostics page. This is
 now **device-tested**. The one-hour lifecycle gate remains waived by operator
 decision.
 
-The pending follow-up extends the same cache with the read-only XL9555/rail
-snapshot, showing display-enable and touch-reset latch state on Diagnostics.
-It is build-tested and awaits device validation.
+The same cache now includes the read-only XL9555/rail snapshot, showing
+display-enable and touch-reset latch state on Diagnostics. The operator
+confirmed the line after flashing commit `0a395cf`; this is **device-tested**.
+The next peripheral in the plan is BHI260AP, but its ALDO4 rail sequencing and
+identity remain unverified and no speculative enable or probe is permitted.
