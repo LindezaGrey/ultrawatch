@@ -73,6 +73,11 @@ capture was taken with RTS/DTR disabled to avoid the USB reset/re-enumeration
 race. Full System Super visual confirmation and a longer no-reboot run remain
 pending.
 
+The recovery build also normalizes the CST92xx idle/status response to an
+empty touch sample. This prevents the upstream polling task from treating a
+normal no-finger packet as a formatted warning on every poll; transport errors
+still fail the read. The change is build-tested and awaits device validation.
+
 ## System Super enablement preparation
 
 With the filesystem gate passed, `BROOKESIA_SYSTEM_RUNTIME` is enabled. The

@@ -145,7 +145,16 @@ public:
     bool read_points(std::vector<Point> &points) override
     {
         twatch_touch_sample_t sample{};
-        if (twatch_board_read_touch(&sample) != ESP_OK) {
+        const esp_err_t result = twatch_board_read_touch(&sample);
+        if (result == ESP_ERR_INVALID_RESPONSE) {
+            // CST92xx emits a non-touch idle/status packet while no finger is
+            // present. Treat it as an empty sample; returning false makes the
+            // upstream polling task allocate a formatted warning on every
+            // poll and can exhaust the service task heap.
+            points.clear();
+            return true;
+        }
+        if (result != ESP_OK) {
             return false;
         }
         points.clear();

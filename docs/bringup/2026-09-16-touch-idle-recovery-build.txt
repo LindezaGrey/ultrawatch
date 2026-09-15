@@ -1,0 +1,11 @@
+Touch idle-packet recovery build
+================================
+
+The flashed recovery image reached the Brookesia Display service but later
+aborted in `Display::read_touch()` while formatting repeated warnings for the
+CST9220 idle packet (`ack=0x06`). The board touch adapter now treats
+`ESP_ERR_INVALID_RESPONSE` as an empty sample, while preserving other I2C
+transport errors as failures.
+
+Validation: incremental ESP-IDF build passed. App image size is 0x4519b0 bytes;
+46% of the app partition remains free. No flash performed for this build.
