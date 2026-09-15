@@ -14,6 +14,8 @@ static lv_indev_t *touch_input;
 static lv_obj_t *utc_label;
 static lv_obj_t *menu_panel;
 static lv_obj_t *menu_text;
+static lv_obj_t *menu_screen;
+static lv_obj_t *home_screen;
 static bool display_inverted = true;
 
 /* The LilyGO Ultra port expands partial invalidation areas to the panel's
@@ -66,20 +68,13 @@ static void button_event_cb(lv_event_t *event)
 static void menu_toggle_cb(lv_event_t *event)
 {
     (void)event;
-    if (menu_panel == NULL) return;
-    if (lv_obj_has_flag(menu_panel, LV_OBJ_FLAG_HIDDEN)) {
-        lv_obj_clear_flag(menu_panel, LV_OBJ_FLAG_HIDDEN);
-        twatch_power_snapshot_t power;
-        if (twatch_board_read_power(&power) == ESP_OK) {
-            char status[96];
-            lv_snprintf(status, sizeof(status), "Battery: %umV\nUSB: %s  Charge: %s",
-                        power.battery_mv, power.usb_present ? "yes" : "no",
-                        power.charging ? "yes" : "no");
-            lv_label_set_text(menu_text, status);
-        }
-    } else {
-        lv_obj_add_flag(menu_panel, LV_OBJ_FLAG_HIDDEN);
-    }
+    if (menu_screen != NULL) lv_screen_load(menu_screen);
+}
+
+static void menu_back_cb(lv_event_t *event)
+{
+    (void)event;
+    if (home_screen != NULL) lv_screen_load(home_screen);
 }
 
 static void menu_display_cb(lv_event_t *event)
@@ -130,6 +125,7 @@ esp_err_t lvgl_app_init(void)
     lv_indev_set_type(touch_input, LV_INDEV_TYPE_POINTER);
     lv_indev_set_display(touch_input, display);
     lv_indev_set_read_cb(touch_input, touch_read_cb);
+    home_screen = lv_screen_active();
     lv_obj_t *label = lv_label_create(lv_screen_active());
     lv_label_set_text(label, "ESP-Brookesia\nT-Watch Ultra");
     lv_obj_set_style_text_font(label, &lv_font_montserrat_28, 0);
@@ -176,6 +172,27 @@ esp_err_t lvgl_app_init(void)
     lv_obj_add_flag(menu_text, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(menu_text, menu_display_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_flag(menu_panel, LV_OBJ_FLAG_HIDDEN);
+    menu_screen = lv_obj_create(NULL);
+    lv_obj_t *menu_title = lv_label_create(menu_screen);
+    lv_label_set_text(menu_title, "Brookesia Menu");
+    lv_obj_set_style_text_font(menu_title, &lv_font_montserrat_28, 0);
+    lv_obj_align(menu_title, LV_ALIGN_TOP_MID, 0, 55);
+    lv_obj_t *display_button = lv_button_create(menu_screen);
+    lv_obj_set_size(display_button, 260, 78);
+    lv_obj_align(display_button, LV_ALIGN_TOP_MID, 0, 145);
+    lv_obj_t *display_label = lv_label_create(display_button);
+    lv_label_set_text(display_label, "Toggle Display");
+    lv_obj_set_style_text_font(display_label, &lv_font_montserrat_24, 0);
+    lv_obj_center(display_label);
+    lv_obj_add_event_cb(display_button, menu_display_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *back_button = lv_button_create(menu_screen);
+    lv_obj_set_size(back_button, 260, 78);
+    lv_obj_align(back_button, LV_ALIGN_TOP_MID, 0, 285);
+    lv_obj_t *back_label = lv_label_create(back_button);
+    lv_label_set_text(back_label, "Back");
+    lv_obj_set_style_text_font(back_label, &lv_font_montserrat_24, 0);
+    lv_obj_center(back_label);
+    lv_obj_add_event_cb(back_button, menu_back_cb, LV_EVENT_CLICKED, NULL);
     ESP_LOGI(TAG, "LVGL ready display=410x502 buffer_lines=16");
     return ESP_OK;
 }
