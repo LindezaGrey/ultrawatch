@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include "esp_lcd_panel_io.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -11,6 +12,8 @@ extern "C" {
 
 /* Initialize the V1.0 CO5300 over the schematic QSPI pins. */
 esp_err_t twatch_display_init(void);
+/* Adapter metadata handle; drawing remains on the validated custom QSPI path. */
+esp_lcd_panel_io_handle_t twatch_display_get_panel_io(void);
 /* Enable or disable CO5300 hardware color inversion after initialization. */
 esp_err_t twatch_display_set_inverted(bool inverted);
 

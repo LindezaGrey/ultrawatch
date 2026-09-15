@@ -3,6 +3,7 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_check.h"
+#include "esp_lcd_io_spi.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -31,6 +32,7 @@ static const display_cmd_t init_sequence[] = {
 };
 
 static spi_device_handle_t device;
+static esp_lcd_panel_io_handle_t panel_io;
 static bool initialized;
 static uint16_t line_buffer[DISPLAY_WIDTH * 16];
 
@@ -85,6 +87,21 @@ esp_err_t twatch_display_init(void)
         ESP_LOGE(TAG, "Add CO5300 QSPI device: %s", esp_err_to_name(err));
         return err;
     }
+    /* Brookesia's LVGL adapter requires a valid esp_lcd panel-I/O object even
+     * though the proven custom QSPI transaction path owns actual drawing. */
+    const esp_lcd_panel_io_spi_config_t io_config = {
+        .cs_gpio_num = DISPLAY_CS,
+        .dc_gpio_num = -1,
+        .spi_mode = 0,
+        .pclk_hz = 45 * 1000 * 1000,
+        .trans_queue_depth = 1,
+        .lcd_cmd_bits = 8,
+        .lcd_param_bits = 8,
+        .flags = { .quad_mode = 1 },
+    };
+    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI3_HOST,
+                                                  &io_config, &panel_io), TAG,
+                        "Create CO5300 adapter panel IO");
     for (size_t pass = 0; pass < 2; ++pass) {
         for (size_t index = 0; index < sizeof(init_sequence) / sizeof(init_sequence[0]); ++index) {
             const display_cmd_t *entry = &init_sequence[index];
@@ -101,6 +118,11 @@ esp_err_t twatch_display_init(void)
              DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_CS, DISPLAY_RST, DISPLAY_SCLK,
              DISPLAY_D0, DISPLAY_D1, DISPLAY_D2, DISPLAY_D3);
     return ESP_OK;
+}
+
+esp_lcd_panel_io_handle_t twatch_display_get_panel_io(void)
+{
+    return panel_io;
 }
 
 esp_err_t twatch_display_set_inverted(bool inverted)

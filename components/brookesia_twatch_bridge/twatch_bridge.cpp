@@ -55,7 +55,7 @@ public:
          * LVGL adapter still needs the bus classification and alignment metadata;
          * its flush callback is replaced below with draw_bitmap(). */
         specific = DriverSpecific{
-            .io_handle = nullptr,
+            .io_handle = twatch_display_get_panel_io(),
             .panel_handle = nullptr,
             .bus_type = BusType::Generic,
             .frame_buffer_count = 1,
