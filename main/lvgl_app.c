@@ -6,6 +6,9 @@
 #include "twatch_display.h"
 #include "twatch_board.h"
 #include "twatch_brookesia_bridge.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 
 static const char *TAG = "lvgl_app";
 static lv_display_t *display;
@@ -19,6 +22,46 @@ static lv_obj_t *home_screen;
 static lv_obj_t *diagnostics_screen;
 static lv_obj_t *diagnostics_label;
 static bool display_inverted = true;
+
+typedef struct {
+    twatch_power_snapshot_t power;
+    twatch_rtc_snapshot_t rtc;
+    bool power_valid;
+    bool rtc_valid;
+} diagnostics_snapshot_t;
+
+/* I2C belongs to this worker; LVGL callbacks only consume a short-lived
+ * snapshot so rendering never blocks on peripheral I/O. */
+static diagnostics_snapshot_t diagnostics_snapshot;
+static SemaphoreHandle_t diagnostics_snapshot_mutex;
+
+static void diagnostics_sample_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        twatch_power_snapshot_t power = {0};
+        twatch_rtc_snapshot_t rtc = {0};
+        const bool power_valid = twatch_board_read_power(&power) == ESP_OK;
+        const bool rtc_valid = twatch_board_read_rtc(&rtc) == ESP_OK;
+        if (xSemaphoreTake(diagnostics_snapshot_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            if (power_valid) diagnostics_snapshot.power = power;
+            if (rtc_valid) diagnostics_snapshot.rtc = rtc;
+            diagnostics_snapshot.power_valid = power_valid;
+            diagnostics_snapshot.rtc_valid = rtc_valid;
+            xSemaphoreGive(diagnostics_snapshot_mutex);
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+static bool diagnostics_snapshot_copy(diagnostics_snapshot_t *copy)
+{
+    if (!copy || !diagnostics_snapshot_mutex) return false;
+    if (xSemaphoreTake(diagnostics_snapshot_mutex, pdMS_TO_TICKS(20)) != pdTRUE) return false;
+    *copy = diagnostics_snapshot;
+    xSemaphoreGive(diagnostics_snapshot_mutex);
+    return true;
+}
 
 /* The LilyGO Ultra port expands partial invalidation areas to the panel's
  * left edge; CO5300 updates can otherwise shift narrow redraws sideways. */
@@ -89,19 +132,21 @@ static void diagnostics_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
     if (diagnostics_label == NULL) return;
-    twatch_power_snapshot_t power = {0};
-    twatch_rtc_snapshot_t rtc = {0};
-    if (twatch_board_read_power(&power) != ESP_OK || twatch_board_read_rtc(&rtc) != ESP_OK) return;
+    diagnostics_snapshot_t snapshot;
+    if (!diagnostics_snapshot_copy(&snapshot) ||
+        !snapshot.power_valid || !snapshot.rtc_valid) return;
+    const twatch_power_snapshot_t *power = &snapshot.power;
+    const twatch_rtc_snapshot_t *rtc = &snapshot.rtc;
     char text[160];
     lv_snprintf(text, sizeof(text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC",
-                power.battery_mv, power.usb_present ? "yes" : "no",
-                power.charging ? "yes" : "no", rtc.hours, rtc.minutes, rtc.seconds);
+                power->battery_mv, power->usb_present ? "yes" : "no",
+                power->charging ? "yes" : "no", rtc->hours, rtc->minutes, rtc->seconds);
     lv_label_set_text(diagnostics_label, text);
     lv_obj_invalidate(diagnostics_label);
     static uint32_t update_count;
     if ((update_count++ % 10U) == 0U) {
         ESP_LOGI(TAG, "Diagnostics update RTC=%02x:%02x:%02x battery=%umV",
-                 rtc.hours, rtc.minutes, rtc.seconds, power.battery_mv);
+                 rtc->hours, rtc->minutes, rtc->seconds, power->battery_mv);
     }
 }
 
@@ -124,22 +169,30 @@ static uint8_t bcd_to_binary(uint8_t value)
 static void rtc_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
-    twatch_rtc_snapshot_t rtc;
-    if (twatch_board_read_rtc(&rtc) != ESP_OK) {
+    diagnostics_snapshot_t snapshot;
+    if (!diagnostics_snapshot_copy(&snapshot) || !snapshot.rtc_valid) {
         char text[24];
         lv_snprintf(text, sizeof(text), "UTC --:--:--");
         lv_label_set_text(utc_label, text);
         return;
     }
+    const twatch_rtc_snapshot_t *rtc = &snapshot.rtc;
     char text[24];
     lv_snprintf(text, sizeof(text), "UTC %02u:%02u:%02u",
-                bcd_to_binary(rtc.hours & 0x3f), bcd_to_binary(rtc.minutes & 0x7f),
-                bcd_to_binary(rtc.seconds & 0x7f));
+                bcd_to_binary(rtc->hours & 0x3f), bcd_to_binary(rtc->minutes & 0x7f),
+                bcd_to_binary(rtc->seconds & 0x7f));
     lv_label_set_text(utc_label, text);
 }
 
 esp_err_t lvgl_app_init(void)
 {
+    diagnostics_snapshot_mutex = xSemaphoreCreateMutex();
+    if (diagnostics_snapshot_mutex == NULL) return ESP_ERR_NO_MEM;
+    if (xTaskCreate(diagnostics_sample_task, "diag_sample", 4096, NULL, 2, NULL) != pdPASS) {
+        vSemaphoreDelete(diagnostics_snapshot_mutex);
+        diagnostics_snapshot_mutex = NULL;
+        return ESP_ERR_NO_MEM;
+    }
     lv_init();
     display = lv_display_create(410, 502);
     if (display == NULL) return ESP_ERR_NO_MEM;
@@ -234,14 +287,8 @@ esp_err_t lvgl_app_init(void)
     lv_label_set_text(diag_title, "Diagnostics");
     lv_obj_set_style_text_font(diag_title, &lv_font_montserrat_28, 0);
     lv_obj_align(diag_title, LV_ALIGN_TOP_MID, 0, 55);
-    twatch_power_snapshot_t power = {0};
-    twatch_board_read_power(&power);
-    twatch_rtc_snapshot_t rtc = {0};
-    twatch_board_read_rtc(&rtc);
     char diag_text[160];
-    lv_snprintf(diag_text, sizeof(diag_text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC",
-                power.battery_mv, power.usb_present ? "yes" : "no",
-                power.charging ? "yes" : "no", rtc.hours, rtc.minutes, rtc.seconds);
+    lv_snprintf(diag_text, sizeof(diag_text), "Battery: --\nUSB: --  Charge: --\nRTC: --:--:-- UTC");
     diagnostics_label = lv_label_create(diagnostics_screen);
     lv_label_set_text(diagnostics_label, diag_text);
     lv_obj_set_style_text_font(diagnostics_label, &lv_font_montserrat_22, 0);

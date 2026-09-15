@@ -133,3 +133,14 @@ toggle, and return to the home screen on the device.
 The menu's read-only PMU status line (battery voltage, USB presence, and
 charging state) was flashed with commit `eb022f5` and device-tested. It performs
 no PMU writes or rail changes.
+
+## Diagnostics sampling ownership
+
+The diagnostics and home UTC labels now consume a cached snapshot populated by
+the `diag_sample` FreeRTOS task. The task performs the read-only PMU and RTC I²C
+transactions once per second, then publishes the most recent valid values under
+a mutex. LVGL timers only copy and render that snapshot; they do not perform I²C
+work or block on peripheral transactions. This keeps the LVGL tick path bounded
+and makes the diagnostics refresh independent of the UI page currently loaded.
+The change is build-tested; device validation is pending the next authorized
+flash.
