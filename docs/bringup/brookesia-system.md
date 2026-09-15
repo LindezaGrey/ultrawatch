@@ -606,3 +606,22 @@ the earlier single-register wrapper; no bus speed, timeout, priority, or
 locking behavior changes. The wrapper is evidence instrumentation and may
 perturb contention timing. Build passed; device validation and flash are
 pending.
+
+## Full-transfer diagnostic device result (6ba48bd)
+
+Flash hash verified and adapter UI started normally. Operator completed the
+requested Diagnostics/touch/Back sequence and idle interval; screen remained
+usable by report. At uptime 118.761 s, main priority 1 PMU read (0x34/reg0x00)
+returned ESP_ERR_TIMEOUT after 166801 us with lock_timeout=1. The nonfatal
+telemetry path logged the failure, skipped the incomplete snapshot, and HEALTH
+continued; no reboot or panic occurred. Later BHI, touch, RTC and health logs
+continued through uptime 140.931 s. No other qualifying I2C_XFER event appeared,
+so the delaying LVGL transfer was not named by this thresholded capture.
+
+This confirms the semaphore failure is intermittent and safely recoverable in
+the current firmware. It does not identify the semaphore holder: a long or
+stalled LVGL transaction can still be inferred only indirectly from the prior
+JTAG snapshot. Exact active transfer address/status remains unverified. The
+instrumentation itself may alter scheduling; do not treat absence of another
+event as proof of absence. No bus, priority, timeout or PMU change was made.
+Evidence: 2026-09-15-i2c-all-xfer-{flash.log,serial.log}.
