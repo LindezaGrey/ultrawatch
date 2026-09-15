@@ -13,8 +13,10 @@ next implementation will add the verified HIRQ path from the schematic:
 
 The first runtime check will configure no sensor stream. It will verify GPIO8
 idle level, host interrupt status reads, bounded event delivery, and clean
-shutdown of the task and GPIO handler. A single low-rate virtual sensor stream
-will be added only after this handoff passes on the watch.
+shutdown of the task and GPIO handler. After that gate passes, the test stream
+will use corrected accelerometer virtual sensor ID 4 at 1 Hz with zero report
+latency. The latest x/y/z sample will be cached for diagnostics and logged;
+other sensors remain disabled.
 
 Source evidence: the T-Watch Ultra V1.0 schematic labels U7 HIRQ on GPIO8 and
 routes the signal through U8 RS0104. See `docs/hardware-matrix.md` and the
