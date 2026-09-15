@@ -1,5 +1,8 @@
 #include <inttypes.h>
 #include <string.h>
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "bhi260ap_core.h"
 #include "bhy2.h"
 #include "twatch_board.h"
@@ -9,6 +12,7 @@
 static const char *TAG = "bhi260ap_core";
 static struct bhy2_dev device;
 static bool initialized;
+static TaskHandle_t irq_task_handle;
 extern const uint8_t _binary_BHI260AP_fw_start[];
 extern const uint8_t _binary_BHI260AP_fw_end[];
 
@@ -76,5 +80,45 @@ esp_err_t bhi260ap_core_list_virtual_sensors(uint8_t *present, size_t present_si
         }
     }
     ESP_LOGI(TAG, "virtual sensor list retrieved count=%u", (unsigned)*count);
+    return ESP_OK;
+}
+
+static void IRAM_ATTR bhi_irq_isr(void *arg)
+{
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    vTaskNotifyGiveFromISR((TaskHandle_t)arg, &higher_priority_task_woken);
+    if (higher_priority_task_woken) portYIELD_FROM_ISR();
+}
+
+static void bhi_irq_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        uint32_t notifications = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
+        if (notifications == 0) continue;
+        uint8_t status = 0;
+        int8_t result = bhy2_get_interrupt_status(&status, &device);
+        ESP_LOGI(TAG, "irq event count=%" PRIu32 " status=0x%02x result=%d", notifications, status, result);
+    }
+}
+
+esp_err_t bhi260ap_core_start_irq_probe(void)
+{
+    if (!initialized) return ESP_ERR_INVALID_STATE;
+    if (irq_task_handle) return ESP_OK;
+    gpio_config_t config = {
+        .pin_bit_mask = 1ULL << 8,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_POSEDGE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&config));
+    esp_err_t service = gpio_install_isr_service(0);
+    if (service != ESP_OK && service != ESP_ERR_INVALID_STATE) return service;
+    BaseType_t created = xTaskCreate(bhi_irq_task, "bhi_irq", 3072, NULL, 5, &irq_task_handle);
+    if (created != pdPASS) return ESP_ERR_NO_MEM;
+    ESP_ERROR_CHECK(gpio_isr_handler_add(GPIO_NUM_8, bhi_irq_isr, irq_task_handle));
+    ESP_LOGI(TAG, "irq probe GPIO8 configured idle=%d", gpio_get_level(GPIO_NUM_8));
     return ESP_OK;
 }
