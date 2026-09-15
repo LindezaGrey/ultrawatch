@@ -176,6 +176,10 @@ void app_main(void)
                  power.status1, power.status2, power.adc_control, power.usb_present,
                  power.battery_present, power.charging, power.charger_state,
                  power.irq_status[0], power.irq_status[1], power.irq_status[2], power.poweroff_enable);
+#if BROOKESIA_SYSTEM_RUNTIME
+        ESP_LOGI(TAG, "BROOKESIA_STAGE current=%" PRIu32 " running=%u",
+                 twatch_brookesia_system_last_stage(), brookesia_system_running);
+#endif
         if (power.battery_voltage_available) {
             ESP_LOGI("phase2", "battery_mv=%u", power.battery_mv);
         } else {
