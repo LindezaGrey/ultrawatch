@@ -32,3 +32,8 @@ the application responsive, but produced no FIFO callback samples during the
 capture. In that image GPIO8 reported idle level `0`. This leaves interrupt
 polarity/mode and FIFO status unresolved; the stream gate is therefore not
 passed and no motion data is yet claimed as device-tested.
+
+After the callback-table fix (`b0a7953`) and FIFO fallback poll (`ba70ef0`),
+the stream is device-tested. The watch reported interrupt status `0x0b`, then
+delivered repeated ID 4 callbacks with stationary samples such as
+`x=1378 y=-230 z=3870`; FIFO processing returned `0` throughout the capture.
