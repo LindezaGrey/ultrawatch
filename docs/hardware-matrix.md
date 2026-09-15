@@ -410,3 +410,8 @@ input/drawing. System Super/DisplaySource remain disabled pending their separate
 handoff. See `docs/bringup/brookesia-system.md`, "Adapter-owned watch UI
 preparation", for ownership, completion contract and required device checks.
 This image has no device result yet.
+
+Adapter image 429e37c flashed and starts successfully; flushes advance,
+short-run heap remains stable at 179120 bytes and worker stack margin >=3828
+bytes in the capture. Visual/touch confirmation pending. See
+`docs/bringup/2026-09-15-adapter-owned-ui-serial.log` and bring-up notes.

@@ -251,3 +251,23 @@ Adapter-owned UI build passed on pinned ESP-IDF 6.0.2. See
 2026-09-15-adapter-owned-ui-build.txt for exact artifact identity and source
 comparison checks. Dependency lock only adds the existing adapter as a direct
 dependency; no versions changed. Not flashed; all device checks above remain pending.
+
+## Adapter-owned UI device capture (429e37c)
+
+Flashed over /dev/ttyACM0 at 921600 baud; esptool verified data hashes and reset
+via RTS. Firmware identity matches 2026-09-15-adapter-owned-ui-build.txt.
+The bounded 55-second serial capture ended normally via timeout (exit 124).
+Startup confirms `LVGL ready owner=adapter ... sync_flush=1`. Service binding
+cycles pass with heap integrity; first-use internal heap falls 238696 -> 208956,
+cycle2 unchanged, cycle3 208856. Main health samples from 18.59–53.63 seconds
+report stable internal_free=179120 and heap_integrity=ok. Adapter health from
+23.43–53.43 seconds advances 57 -> 510 successful flushes; smallest observed
+worker stack margin is 3828 bytes. RTC and accelerometer updates continue.
+No crash, assertion, or watchdog error observed in this short capture.
+Evidence: 2026-09-15-adapter-owned-ui-{flash.log,serial.log}.
+
+Device-tested: upload, startup, continuing adapter execution and short-run heap
+observations. Operator display/touch confirmation remains pending; serial
+flushes alone do not establish visual correctness. Longer-run stability and
+power consumption are not established. Next: verify clean UTC/navigation/
+Diagnostics/Sensors on the physical screen before System Super integration.
