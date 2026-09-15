@@ -13,6 +13,8 @@ static lv_color_t draw_buffer[410 * 16];
 static lv_indev_t *touch_input;
 static lv_obj_t *utc_label;
 static lv_obj_t *menu_panel;
+static lv_obj_t *menu_text;
+static bool display_inverted = true;
 
 /* The LilyGO Ultra port expands partial invalidation areas to the panel's
  * left edge; CO5300 updates can otherwise shift narrow redraws sideways. */
@@ -69,6 +71,17 @@ static void menu_toggle_cb(lv_event_t *event)
         lv_obj_clear_flag(menu_panel, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(menu_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void menu_display_cb(lv_event_t *event)
+{
+    (void)event;
+    display_inverted = !display_inverted;
+    if (twatch_display_set_inverted(display_inverted) == ESP_OK) {
+        lv_label_set_text(menu_text, display_inverted ?
+                          "Display: inverted\nTouch: polling\nPower: read-only" :
+                          "Display: normal\nTouch: polling\nPower: read-only");
     }
 }
 
@@ -147,11 +160,13 @@ esp_err_t lvgl_app_init(void)
     menu_panel = lv_obj_create(lv_screen_active());
     lv_obj_set_size(menu_panel, 300, 110);
     lv_obj_align(menu_panel, LV_ALIGN_TOP_MID, 0, 285);
-    lv_obj_t *menu_text = lv_label_create(menu_panel);
-    lv_label_set_text(menu_text, "Brookesia Menu\nDisplay   Touch   Power");
+    menu_text = lv_label_create(menu_panel);
+    lv_label_set_text(menu_text, "Display: inverted\nTouch: polling\nPower: read-only");
     lv_obj_set_style_text_font(menu_text, &lv_font_montserrat_22, 0);
     lv_obj_set_style_text_align(menu_text, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(menu_text);
+    lv_obj_add_flag(menu_text, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(menu_text, menu_display_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_flag(menu_panel, LV_OBJ_FLAG_HIDDEN);
     ESP_LOGI(TAG, "LVGL ready display=410x502 buffer_lines=16");
     return ESP_OK;
