@@ -3,8 +3,9 @@ Date: 2026-09-15
 Target: LilyGO T-Watch Ultra V1.0, ESP32-S3, SX1262 variant
 Framework: ESP-IDF 6.0.2 (pinned project environment)
 
-Result: build-tested; flash and physical-device validation are pending explicit
-operator authorization.
+Result: build-tested and flashed after explicit operator authorization. The
+device re-enumerated as `/dev/ttyACM0` after reset; serial capture began after
+boot output had already passed, so boundary-log device evidence is pending.
 
 Command:
   source /home/peter/esp/esp-idf/export.sh >/dev/null 2>&1 && idf.py build
