@@ -19,12 +19,14 @@
 #include "battery_observation.h"
 #include "lvgl_app.h"
 #include "twatch_brookesia_bridge.h"
+#include "brookesia_system_entry.h"
 #include "bhi260ap_core.h"
 
 static const char *TAG = "phase1";
 enum { EXPECTED_FLASH_BYTES = 16 * 1024 * 1024, EXPECTED_PSRAM_BYTES = 8 * 1024 * 1024 };
 #define DISPLAY_GEOMETRY_TEST 0
 #define DISPLAY_INVERTED 1
+#define BROOKESIA_SYSTEM_RUNTIME 1
 
 static void require_integrity(void)
 {
@@ -112,7 +114,11 @@ void app_main(void)
     }
 #endif
     ESP_ERROR_CHECK(twatch_brookesia_bridge_start() ? ESP_OK : ESP_FAIL);
+#if BROOKESIA_SYSTEM_RUNTIME
+    ESP_ERROR_CHECK(twatch_brookesia_system_start() ? ESP_OK : ESP_FAIL);
+#else
     ESP_ERROR_CHECK(lvgl_app_init());
+#endif
     // IDF initializes TWDT and subscribes both idle tasks through sdkconfig.
     // The existing main task owns these checks; no extra task/ISR is needed.
     ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
@@ -124,7 +130,9 @@ void app_main(void)
     for (uint32_t sample = 0;; ++sample) {
         require_integrity();
         ESP_ERROR_CHECK(esp_task_wdt_reset());
+#if !BROOKESIA_SYSTEM_RUNTIME
         lvgl_app_tick();
+#endif
         const uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
         if (now_ms < next_telemetry_ms) {
             vTaskDelay(pdMS_TO_TICKS(10));

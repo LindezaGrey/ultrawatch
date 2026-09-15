@@ -1,0 +1,6 @@
+# Name, Type, SubType, Offset, Size, Flags
+# Retain vendor NVS location; native Phase 1 does not initialize or modify NVS.
+nvs, data, nvs, 0x9000, 0x5000,
+# Reserved gap 0xe000-0xffff overlaps vendor OTA metadata; unused by this app.
+# System Super resources and native assets require a larger application slot.
+factory, app, factory, 0x10000, 0x800000,
