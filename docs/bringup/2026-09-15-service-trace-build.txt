@@ -1,0 +1,7 @@
+ESP-IDF 6.0.2; idf.py build; standalone trace depth 6.
+Bootloader binary size 0x5260 bytes. 0x2da0 bytes (36%) free.
+twatch_ultra_phase1.bin binary size 0x246320 bytes. Smallest app partition is 0x800000 bytes. 0x5b9ce0 bytes (72%) free.
+Project build complete. To flash, run:
+build/twatch_ultra_phase1.elf sha256=b8d13c8a306a459ae253a0b745f675dec458a67e1f3309655bdb1f609a2810bb
+build/twatch_ultra_phase1.bin sha256=6acbb99d6d297d87db60ae39a6e72cca494d622d7561a0d86bc31477b3fa5d84
+Build-tested only; device allocation attribution pending.

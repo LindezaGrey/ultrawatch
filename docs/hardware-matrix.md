@@ -327,3 +327,18 @@ Native LVGL starts and subsequent heap samples are stable at 187908 bytes.
 Evidence: docs/bringup/2026-09-15-service-cycles-serial.log.
 Visual/touch confirmation pending for this image. Next investigation: attribute
 retained allocations with heap tracing or JTAG before declaring cleanup complete.
+
+## First-cycle allocation trace preparation
+
+Operator confirmed screen/touch after dcb12b0. Next diagnostic enables IDF
+standalone heap tracing, depth 6, with 2048 records allocated in PSRAM before
+the first-cycle baseline. Tracing covers first-cycle init/bind/cleanup and the
+100 ms sampling interval, then stops and dumps surviving internal allocations.
+Summary includes capacity/high-water/overflow. Overflow invalidates completeness;
+PSRAM trace records exclude ISR allocations (per IDF esp_heap_trace.h).
+Concurrent sensor and logging tasks can contribute records. Surviving allocations
+are candidates, not automatically leaks. Trace buffer is detached/freed before
+native UI. Decode PCs using the exact matching ELF and addr2line; retain build
+identity alongside the serial trace. Tracing alters timing and heap accounting;
+compare attribution rather than demanding identical deltas to dcb12b0.
+No automatic flash; allocation owners remain unverified until device capture.
