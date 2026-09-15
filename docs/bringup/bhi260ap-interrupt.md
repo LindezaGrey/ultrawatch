@@ -47,3 +47,9 @@ current implementation retains a bounded one-second FIFO-status fallback when
 GPIO8 does not deliver an edge. GPIO8 delivery is therefore still an open
 optimization/debugging item, not a prerequisite for the validated sensor data
 path.
+
+The interrupt issue was resolved in commit `8b4e6cc`: the BHI host interrupt
+control now includes `BHY2_ICTL_EDGE` (`intr=0x40`) to match the ESP32 GPIO8
+rising-edge handler, and each notification drains the FIFO up to four times.
+Device logs show repeated callbacks, `fifo_result=0`, and final status `0x00`
+after draining, confirming that the queue is being emptied correctly.
