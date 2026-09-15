@@ -126,6 +126,10 @@ flashed in commit `3a5a28d` and device-tested. The action updates the overlay
 status without loading a second LVGL screen; touch polling remains active and
 power controls remain read-only.
 
+The menu was then moved to a separate LVGL page with larger controls and a
+Back action in commit `638c783`. The operator confirmed page entry, display
+toggle, and return to the home screen on the device.
+
 The menu's read-only PMU status line (battery voltage, USB presence, and
 charging state) was flashed with commit `eb022f5` and device-tested. It performs
 no PMU writes or rail changes.
