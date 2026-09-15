@@ -1,0 +1,6 @@
+Full I2C transfer attribution: build-tested only, not flashed
+Pinned ESP-IDF 6.0.2 idf.py build: exit 0
+git diff --check: passed
+Scope: PMU, expander, touch and BHI synchronous transfers
+No bus configuration, timeout, priority, or locking changes
+Device validation pending

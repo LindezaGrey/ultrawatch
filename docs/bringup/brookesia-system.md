@@ -595,3 +595,14 @@ manual no-hit exit. The automatic breakpoint-hit command sequence still has
 not run since revision. This run does not strengthen attribution beyond the
 previous snapshot showing LVGL in the I2C event wait. Keep that limitation
 explicit; do not claim a particular touch transfer or driver bug is proven.
+
+## Full I2C transfer attribution preparation
+
+The next diagnostic wraps every board-level synchronous I2C transfer, including
+touch packets and acknowledgements and BHI bulk FIFO reads. It reports task
+name, priority, device address, write/read byte counts, elapsed time, result,
+and lock-timeout classification for failed or >=50 ms transfers. This extends
+the earlier single-register wrapper; no bus speed, timeout, priority, or
+locking behavior changes. The wrapper is evidence instrumentation and may
+perturb contention timing. Build passed; device validation and flash are
+pending.

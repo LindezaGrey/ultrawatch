@@ -52,25 +52,49 @@ static unsigned device_address(i2c_master_dev_handle_t device)
     return 0; // Unknown handle; never invent an address for diagnostic output.
 }
 
+static esp_err_t timed_transmit_receive(i2c_master_dev_handle_t device,
+                                        const uint8_t *write_data, size_t write_size,
+                                        uint8_t *read_data, size_t read_size)
+{
+    const int64_t started_us = esp_timer_get_time();
+    const esp_err_t result = i2c_master_transmit_receive(device, write_data, write_size,
+                                                         read_data, read_size, I2C_TIMEOUT_MS);
+    const int64_t elapsed_us = esp_timer_get_time() - started_us;
+    if (result != ESP_OK || elapsed_us >= 50000) {
+        ESP_LOGW(TAG, "I2C_XFER kind=read task=%s priority=%u addr=0x%02x "
+                 "write_bytes=%u read_bytes=%u elapsed_us=%" PRId64
+                 " result=%s lock_timeout=%u",
+                 pcTaskGetName(NULL), (unsigned)uxTaskPriorityGet(NULL), device_address(device),
+                 (unsigned)write_size, (unsigned)read_size, elapsed_us,
+                 esp_err_to_name(result), result == ESP_ERR_TIMEOUT);
+    }
+    return result;
+}
+
+static esp_err_t timed_transmit(i2c_master_dev_handle_t device,
+                                const uint8_t *data, size_t size)
+{
+    const int64_t started_us = esp_timer_get_time();
+    const esp_err_t result = i2c_master_transmit(device, data, size, I2C_TIMEOUT_MS);
+    const int64_t elapsed_us = esp_timer_get_time() - started_us;
+    if (result != ESP_OK || elapsed_us >= 50000) {
+        ESP_LOGW(TAG, "I2C_XFER kind=write task=%s priority=%u addr=0x%02x "
+                 "write_bytes=%u read_bytes=0 elapsed_us=%" PRId64
+                 " result=%s lock_timeout=%u",
+                 pcTaskGetName(NULL), (unsigned)uxTaskPriorityGet(NULL), device_address(device),
+                 (unsigned)size, elapsed_us, esp_err_to_name(result),
+                 result == ESP_ERR_TIMEOUT);
+    }
+    return result;
+}
+
 static esp_err_t read_device_regs(i2c_master_dev_handle_t device, uint8_t reg, uint8_t *data, size_t count)
 {
     // Match vendor single-register reads; do not assume burst auto-increment.
     // Transmit byte selects the register; there is no PMU value write.
     for (size_t index = 0; index < count; ++index) {
         uint8_t address = reg + index;
-        const int64_t started_us = esp_timer_get_time();
-        esp_err_t err = i2c_master_transmit_receive(device, &address, 1, &data[index], 1, I2C_TIMEOUT_MS);
-        const int64_t elapsed_us = esp_timer_get_time() - started_us;
-        if (err != ESP_OK || elapsed_us >= 50000) {
-            // Pinned IDF 6.0.2 synchronous path returns ESP_ERR_TIMEOUT when
-            // bus_lock_mux cannot be acquired. Transfer status failures return
-            // ESP_ERR_INVALID_RESPONSE. Re-audit this classification on upgrade.
-            ESP_LOGW(TAG, "I2C_READ task=%s priority=%u addr=0x%02x reg=0x%02x "
-                     "elapsed_us=%" PRId64 " result=%s lock_timeout=%u",
-                     pcTaskGetName(NULL), (unsigned)uxTaskPriorityGet(NULL),
-                     device_address(device), address, elapsed_us, esp_err_to_name(err),
-                     err == ESP_ERR_TIMEOUT);
-        }
+        esp_err_t err = timed_transmit_receive(device, &address, 1, &data[index], 1);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "I2C address=0x%02x reg=0x%02x failed: %s",
                      device_address(device), address, esp_err_to_name(err));
@@ -193,7 +217,7 @@ static esp_err_t update_expander_bit(uint8_t reg, uint8_t mask, bool set)
     const uint8_t expected = set ? (before | mask) : (before & (uint8_t)~mask);
     if (before != expected) {
         const uint8_t command[2] = {reg, expected};
-        ESP_RETURN_ON_ERROR(i2c_master_transmit(expander, command, sizeof(command), I2C_TIMEOUT_MS),
+        ESP_RETURN_ON_ERROR(timed_transmit(expander, command, sizeof(command)),
                             TAG, "XL configuration write failed; state may be partial");
     }
     uint8_t after;
@@ -217,12 +241,12 @@ esp_err_t twatch_board_prepare_bhi(void)
     const uint8_t expected_voltage = (uint8_t)((voltage & (uint8_t)~VOLTAGE_CODE_MASK) | ALDO4_CODE);
     if (voltage != expected_voltage) {
         const uint8_t command[2] = {PMU_ALDO4_VOLTAGE, expected_voltage};
-        ESP_RETURN_ON_ERROR(i2c_master_transmit(pmu, command, sizeof(command), I2C_TIMEOUT_MS),
+        ESP_RETURN_ON_ERROR(timed_transmit(pmu, command, sizeof(command)),
                             TAG, "ALDO4 voltage write failed; state may be partial");
     }
     if (control != expected_control) {
         const uint8_t command[2] = {PMU_LDO_CONTROL, expected_control};
-        ESP_RETURN_ON_ERROR(i2c_master_transmit(pmu, command, sizeof(command), I2C_TIMEOUT_MS),
+        ESP_RETURN_ON_ERROR(timed_transmit(pmu, command, sizeof(command)),
                             TAG, "ALDO4 enable write failed; state may be partial");
     }
     uint8_t after_control, after_voltage;
@@ -351,7 +375,7 @@ esp_err_t twatch_board_bhi_read(uint8_t reg, uint8_t *data, size_t length)
             .device_address = BHI_CANDIDATE_ADDRESS, .scl_speed_hz = I2C_SPEED_HZ};
         ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bus, &config, &bhi), TAG, "Add BHI260AP candidate");
     }
-    return i2c_master_transmit_receive(bhi, &reg, 1, data, length, I2C_TIMEOUT_MS);
+    return timed_transmit_receive(bhi, &reg, 1, data, length);
 }
 
 esp_err_t twatch_board_bhi_write(uint8_t reg, const uint8_t *data, size_t length)
@@ -366,7 +390,7 @@ esp_err_t twatch_board_bhi_write(uint8_t reg, const uint8_t *data, size_t length
     uint8_t buffer[255];
     buffer[0] = reg;
     memcpy(&buffer[1], data, length);
-    return i2c_master_transmit(bhi, buffer, length + 1, I2C_TIMEOUT_MS);
+    return timed_transmit(bhi, buffer, length + 1);
 }
 
 static bool bcd_byte_plausible(uint8_t value, uint8_t max_value)
@@ -416,22 +440,22 @@ esp_err_t twatch_board_read_touch_info(void)
                             "Add confirmed CST92xx touch address");
     }
     const uint8_t enter_command[] = {0xd1, 0x01};
-    ESP_RETURN_ON_ERROR(i2c_master_transmit(touch, enter_command, sizeof(enter_command),
-                                            I2C_TIMEOUT_MS), TAG, "Enter CST92xx command mode");
+    ESP_RETURN_ON_ERROR(timed_transmit(touch, enter_command, sizeof(enter_command)),
+                        TAG, "Enter CST92xx command mode");
     vTaskDelay(pdMS_TO_TICKS(10));
     uint8_t checkcode_bytes[4], resolution[4], chip_bytes[4], firmware[8];
     const uint8_t checkcode_reg[] = {0xd1, 0xfc};
     const uint8_t resolution_reg[] = {0xd1, 0xf8};
     const uint8_t chip_reg[] = {0xd2, 0x04};
     const uint8_t firmware_reg[] = {0xd2, 0x08};
-    ESP_RETURN_ON_ERROR(i2c_master_transmit_receive(touch, checkcode_reg, 2, checkcode_bytes, 4,
-                                                    I2C_TIMEOUT_MS), TAG, "Read CST92xx checkcode");
-    ESP_RETURN_ON_ERROR(i2c_master_transmit_receive(touch, resolution_reg, 2, resolution, 4,
-                                                    I2C_TIMEOUT_MS), TAG, "Read CST92xx resolution");
-    ESP_RETURN_ON_ERROR(i2c_master_transmit_receive(touch, chip_reg, 2, chip_bytes, 4,
-                                                    I2C_TIMEOUT_MS), TAG, "Read CST92xx chip type");
-    ESP_RETURN_ON_ERROR(i2c_master_transmit_receive(touch, firmware_reg, 2, firmware, 8,
-                                                    I2C_TIMEOUT_MS), TAG, "Read CST92xx firmware");
+    ESP_RETURN_ON_ERROR(timed_transmit_receive(touch, checkcode_reg, 2, checkcode_bytes, 4),
+                        TAG, "Read CST92xx checkcode");
+    ESP_RETURN_ON_ERROR(timed_transmit_receive(touch, resolution_reg, 2, resolution, 4),
+                        TAG, "Read CST92xx resolution");
+    ESP_RETURN_ON_ERROR(timed_transmit_receive(touch, chip_reg, 2, chip_bytes, 4),
+                        TAG, "Read CST92xx chip type");
+    ESP_RETURN_ON_ERROR(timed_transmit_receive(touch, firmware_reg, 2, firmware, 8),
+                        TAG, "Read CST92xx firmware");
     const uint32_t checkcode = ((uint32_t)checkcode_bytes[3] << 24) |
                                ((uint32_t)checkcode_bytes[2] << 16) |
                                ((uint32_t)checkcode_bytes[1] << 8) | checkcode_bytes[0];
@@ -463,13 +487,13 @@ esp_err_t twatch_board_read_touch(twatch_touch_sample_t *sample)
     *sample = (twatch_touch_sample_t){0};
     uint8_t command[] = {0xd0, 0x00};
     uint8_t packet[15] = {0};
-    ESP_RETURN_ON_ERROR(i2c_master_transmit_receive(touch, command, sizeof(command), packet,
-                                                    sizeof(packet), I2C_TIMEOUT_MS), TAG,
+    ESP_RETURN_ON_ERROR(timed_transmit_receive(touch, command, sizeof(command), packet,
+                                               sizeof(packet)), TAG,
                         "Read CST92xx touch packet");
     const uint8_t ack = 0xab;
     uint8_t acknowledge[] = {0xd0, 0x00, ack};
-    ESP_RETURN_ON_ERROR(i2c_master_transmit(touch, acknowledge, sizeof(acknowledge),
-                                            I2C_TIMEOUT_MS), TAG, "Acknowledge CST92xx packet");
+    ESP_RETURN_ON_ERROR(timed_transmit(touch, acknowledge, sizeof(acknowledge)),
+                        TAG, "Acknowledge CST92xx packet");
     if (packet[6] != ack) {
         if ((read_count++ % 100U) == 0U) {
             ESP_LOGW(TAG, "TOUCH_PACKET ack=0x%02x raw=%02x %02x %02x %02x %02x %02x %02x",

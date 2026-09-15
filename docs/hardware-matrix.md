@@ -480,3 +480,7 @@ Full-stack JTAG follow-up did not reproduce semaphore timeout. Explicit
 breakpoint deletion/resume/detach was verified by running core states and
 continued serial health. Active transfer address remains unverified; firmware
 d08530f unchanged.
+
+Full transfer attribution preparation now covers touch and BHI transactions in
+addition to PMU/expander register reads, with task/priority/address/timing logs.
+No I2C configuration or scheduling change; device validation pending.
