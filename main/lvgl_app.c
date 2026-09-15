@@ -272,10 +272,10 @@ esp_err_t lvgl_app_init(void)
     lv_obj_t *diagnostics_button = lv_button_create(menu_screen);
     lv_obj_set_size(diagnostics_button, 260, 78);
     lv_obj_align(diagnostics_button, LV_ALIGN_TOP_MID, 0, 235);
-    lv_obj_t *diagnostics_label = lv_label_create(diagnostics_button);
-    lv_label_set_text(diagnostics_label, "Diagnostics");
-    lv_obj_set_style_text_font(diagnostics_label, &lv_font_montserrat_24, 0);
-    lv_obj_center(diagnostics_label);
+    lv_obj_t *diagnostics_button_label = lv_label_create(diagnostics_button);
+    lv_label_set_text(diagnostics_button_label, "Diagnostics");
+    lv_obj_set_style_text_font(diagnostics_button_label, &lv_font_montserrat_24, 0);
+    lv_obj_center(diagnostics_button_label);
     lv_obj_add_event_cb(diagnostics_button, diagnostics_open_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *back_button = lv_button_create(menu_screen);
     lv_obj_set_size(back_button, 260, 78);
