@@ -121,7 +121,7 @@ esp_err_t bhi260ap_core_start_irq_probe(void)
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_HIGH_LEVEL,
+        .intr_type = GPIO_INTR_POSEDGE,
     };
     ESP_ERROR_CHECK(gpio_config(&config));
     esp_err_t service = gpio_install_isr_service(0);
