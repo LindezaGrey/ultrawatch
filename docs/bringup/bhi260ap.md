@@ -15,7 +15,9 @@ The requested Bosch SensorAPI repository provides the generic artifact
 `firmware/bhi260ap/BHI260AP.fw`. It is vendored at
 `components/bhi260ap_core/BHI260AP.fw` (103,676 bytes, SHA-256
 `318def511fd8eb762bf1e61cf02cfd6ecac70f8627d3bacfa7d24a1641f9e915`) and
-embedded by the ESP-IDF component. The LilyGo-specific GPIO image remains in
+embedded by the ESP-IDF component. Bosch's generated C representation is also
+preserved as `components/bhi260ap_core/BHI260AP.fw.h`; parsing its byte array
+produces the same 103,676-byte SHA-256. The LilyGo-specific GPIO image remains in
 the historical SensorLib cache for comparison; it is no longer the selected
 artifact for the native port.
 
