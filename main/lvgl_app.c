@@ -88,7 +88,7 @@ static void diagnostics_open_cb(lv_event_t *event)
 static void diagnostics_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
-    if (diagnostics_label == NULL || lv_screen_active() != diagnostics_screen) return;
+    if (diagnostics_label == NULL) return;
     twatch_power_snapshot_t power = {0};
     twatch_rtc_snapshot_t rtc = {0};
     if (twatch_board_read_power(&power) != ESP_OK || twatch_board_read_rtc(&rtc) != ESP_OK) return;
