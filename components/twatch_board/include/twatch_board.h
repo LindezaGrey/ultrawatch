@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -59,6 +60,8 @@ esp_err_t twatch_board_read_rtc(twatch_rtc_snapshot_t *snapshot);
 esp_err_t twatch_board_probe_bhi(bool *present);
 /* Read-only Bosch BHY2 product/chip ID registers; no firmware or config writes. */
 esp_err_t twatch_board_read_bhi_identity(twatch_bhi_identity_t *identity);
+esp_err_t twatch_board_bhi_read(uint8_t reg, uint8_t *data, size_t length);
+esp_err_t twatch_board_bhi_write(uint8_t reg, const uint8_t *data, size_t length);
 
 /* Read the vendor CST92xx identity and geometry fields after address probing. */
 esp_err_t twatch_board_read_touch_info(void);

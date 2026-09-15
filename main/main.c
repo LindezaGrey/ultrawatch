@@ -19,6 +19,7 @@
 #include "battery_observation.h"
 #include "lvgl_app.h"
 #include "twatch_brookesia_bridge.h"
+#include "bhi260ap_core.h"
 
 static const char *TAG = "phase1";
 enum { EXPECTED_FLASH_BYTES = 16 * 1024 * 1024, EXPECTED_PSRAM_BYTES = 8 * 1024 * 1024 };
@@ -57,6 +58,13 @@ void app_main(void)
     ESP_ERROR_CHECK(twatch_board_init());
     ESP_ERROR_CHECK(twatch_board_prepare_bhi());
     ESP_ERROR_CHECK(twatch_board_prepare_display_touch());
+    bool bhi_core_product_ok = false;
+    uint8_t bhi_core_product_id = 0;
+    ESP_ERROR_CHECK(bhi260ap_core_probe(&bhi_core_product_ok, &bhi_core_product_id));
+    if (!bhi_core_product_ok) {
+        ESP_LOGE(TAG, "BHI260AP Bosch core product ID mismatch: 0x%02x", bhi_core_product_id);
+        abort();
+    }
     uint8_t touch_address = 0;
     bool touch_present = false;
     ESP_ERROR_CHECK(twatch_board_probe_touch(&touch_address, &touch_present));

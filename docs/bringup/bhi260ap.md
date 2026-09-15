@@ -36,3 +36,9 @@ The isolated `bhi260ap_core` ESP-IDF component now compiles the upstream Bosch
 unrelated SensorLib drivers. It is a compile-only boundary at this stage; the
 transport callbacks, firmware loader, interrupt handoff, and runtime motion
 stream are not yet connected.
+
+The first ESP-IDF transport adapter is now build-tested. It connects the Bosch
+BHY2 core to board-owned I²C callbacks, performs the documented Bosch soft
+reset, and verifies product ID `0x89` during boot. Firmware upload, interrupt
+handoff, and motion configuration remain intentionally disabled pending device
+validation of this adapter.

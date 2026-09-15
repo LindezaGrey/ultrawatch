@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <inttypes.h>
+#include <string.h>
 #include "driver/i2c_master.h"
 #include "esp_check.h"
 #include "esp_log.h"
@@ -316,6 +317,33 @@ esp_err_t twatch_board_read_bhi_identity(twatch_bhi_identity_t *identity)
     ESP_LOGI(TAG, "BHI_ID product=0x%02x chip=0x%02x expected_product=0x89",
              identity->product_id, identity->chip_id);
     return ESP_OK;
+}
+
+esp_err_t twatch_board_bhi_read(uint8_t reg, uint8_t *data, size_t length)
+{
+    if (!data || length == 0 || length > 255) return ESP_ERR_INVALID_ARG;
+    if (!ready) return ESP_ERR_INVALID_STATE;
+    if (!bhi) {
+        const i2c_device_config_t config = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address = BHI_CANDIDATE_ADDRESS, .scl_speed_hz = I2C_SPEED_HZ};
+        ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bus, &config, &bhi), TAG, "Add BHI260AP candidate");
+    }
+    return i2c_master_transmit_receive(bhi, &reg, 1, data, length, I2C_TIMEOUT_MS);
+}
+
+esp_err_t twatch_board_bhi_write(uint8_t reg, const uint8_t *data, size_t length)
+{
+    if (!data || length == 0 || length > 254) return ESP_ERR_INVALID_ARG;
+    if (!ready) return ESP_ERR_INVALID_STATE;
+    if (!bhi) {
+        const i2c_device_config_t config = {.dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address = BHI_CANDIDATE_ADDRESS, .scl_speed_hz = I2C_SPEED_HZ};
+        ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bus, &config, &bhi), TAG, "Add BHI260AP candidate");
+    }
+    uint8_t buffer[255];
+    buffer[0] = reg;
+    memcpy(&buffer[1], data, length);
+    return i2c_master_transmit(bhi, buffer, length + 1, I2C_TIMEOUT_MS);
 }
 
 static bool bcd_byte_plausible(uint8_t value, uint8_t max_value)
