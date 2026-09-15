@@ -37,3 +37,6 @@ After the callback-table fix (`b0a7953`) and FIFO fallback poll (`ba70ef0`),
 the stream is device-tested. The watch reported interrupt status `0x0b`, then
 delivered repeated ID 4 callbacks with stationary samples such as
 `x=1378 y=-230 z=3870`; FIFO processing returned `0` throughout the capture.
+Using Bosch's `1/4096 g` scale, that sample is approximately
+`(+336, -56, +944) mg`, consistent with a stationary watch measuring gravity
+on its Z axis. The Diagnostics UI presents the converted milli-g values.
