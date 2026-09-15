@@ -125,3 +125,7 @@ The in-place Brookesia menu overlay and its display inversion action were
 flashed in commit `3a5a28d` and device-tested. The action updates the overlay
 status without loading a second LVGL screen; touch polling remains active and
 power controls remain read-only.
+
+The menu's read-only PMU status line (battery voltage, USB presence, and
+charging state) was flashed with commit `eb022f5` and device-tested. It performs
+no PMU writes or rail changes.
