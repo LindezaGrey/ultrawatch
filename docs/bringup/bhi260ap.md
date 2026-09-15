@@ -51,6 +51,11 @@ After a verified boot, the core reads Bosch parameter `0x011F`
 ID from the 256-bit presence map. This inventory is read-only; it does not
 enable or configure a sensor stream.
 
+Device validation after flashing commit `e3c80cf` reported firmware boot
+status `0x38` and 33 available virtual sensor IDs:
+`1, 3, 4, 5, 6, 7, 10, 12, 13, 14, 15, 16, 28, 29, 31, 32, 37, 38, 48,
+50, 52, 53, 55, 57, 59, 61, 63, 67, 69, 70, 75, 77, 94`.
+
 The first ESP-IDF transport adapter is now build-tested. It connects the Bosch
 BHY2 core to board-owned I²C callbacks, performs the documented Bosch soft
 reset, and verifies product ID `0x89` during boot. Firmware upload, interrupt
