@@ -3,8 +3,9 @@ Target: LilyGO T-Watch Ultra V1.0 / ESP32-S3 / SX1262
 Framework: ESP-IDF 6.0.2
 
 The board bridge now exposes a read-only SPIFFS FileSystemIface at /spiffs,
-using partition label `storage`. Mounting does not format on failure. Capacity
-is reported through esp_spiffs_info(). Partition: storage, data/spiffs,
+using partition label `storage`. The first mount formats only this labeled
+partition if it is blank or invalid; valid contents are preserved. Capacity is
+reported through esp_spiffs_info(). Partition: storage, data/spiffs,
 offset 0x810000, size 0x100000.
 
 Result: build-tested. Binary size: 0x256e50 bytes; app partition free: 0x5a91b0.

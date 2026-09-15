@@ -42,7 +42,9 @@ public:
             .base_path = FILESYSTEM_BASE,
             .partition_label = FILESYSTEM_LABEL,
             .max_files = 8,
-            .format_if_mount_failed = false,
+            // The new labeled partition is blank on first deployment; once
+            // valid, subsequent mounts preserve its contents.
+            .format_if_mount_failed = true,
         };
         const esp_err_t err = esp_vfs_spiffs_register(&config);
         if (err != ESP_OK) {
