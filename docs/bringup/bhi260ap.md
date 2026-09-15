@@ -11,11 +11,13 @@ a rising-edge interrupt. The local SensorLib is Arduino-oriented and bundles
 about 26 MB of unrelated drivers; it is not an ESP-IDF component and must not
 be added wholesale.
 
-Because the Ultra build defines `USING_XL9555_EXPANDS`, LilyGo selects
-`BOSCH_BHI260_GPIO`, whose pinned artifact is
-`baseline/.pio/libdeps/twatch_ultra/SensorLib/src/bosch/firmware/Bosch_BHI260_GPIO.fw`
-(119,716 bytes, SHA-256
-`e82c8075534d30391b00d384afc0abe89b0c993c95df2797b333738f4f268b9e`).
+The requested Bosch SensorAPI repository provides the generic artifact
+`firmware/bhi260ap/BHI260AP.fw`. It is vendored at
+`components/bhi260ap_core/BHI260AP.fw` (103,676 bytes, SHA-256
+`318def511fd8eb762bf1e61cf02cfd6ecac70f8627d3bacfa7d24a1641f9e915`) and
+embedded by the ESP-IDF component. The LilyGo-specific GPIO image remains in
+the historical SensorLib cache for comparison; it is no longer the selected
+artifact for the native port.
 
 The next implementation must isolate the Bosch BHI3/BHY2 transport and the
 specific firmware image used by LilyGo behind a board-owned ESP-IDF component.
