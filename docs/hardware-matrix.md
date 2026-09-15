@@ -488,3 +488,7 @@ No I2C configuration or scheduling change; device validation pending.
 The pending operation-boundary diagnostic instruments all synchronous PMU,
 XL9555, CST9220, and BHI260AP transfers with paired `I2C_BEGIN`/`I2C_END`
 records. This is evidence instrumentation only; device validation is pending.
+
+Storage filesystem: SPIFFS on internal flash, partition label `storage`,
+mount `/spiffs`, 0x810000/0x100000. Source: project partition table and
+ESP-IDF `esp_spiffs`; mount and capacity probe are build-tested only.

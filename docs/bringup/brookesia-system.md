@@ -32,6 +32,14 @@ LVGL. This is a service dependency issue, not a CO5300/QSPI rendering fault.
 Next step: add a board-owned NVS-backed key/value Storage HAL and verify that
 the Display service binds before enabling the full Brookesia shell.
 
+## SPIFFS filesystem HAL preparation
+
+The board bridge now exposes a SPIFFS `StorageFileSystem` interface at `/spiffs`
+using the labeled `storage` partition. Mount failure is reported without
+formatting, and capacity uses `esp_spiffs_info()`. The partition is reserved in
+the CSV at offset 0x810000 with size 0x100000. Build passed; flashing and the
+service binding probe remain pending. See 2026-09-15-spiffs-build.txt.
+
 ## Display recovery after panel-I/O experiment
 
 Operator reported a black display after commit 5950eba; previous serial health

@@ -7,9 +7,11 @@
 #include "brookesia/hal_interface/interface.hpp"
 #include "brookesia/hal_interface/interfaces/display/panel.hpp"
 #include "brookesia/hal_interface/interfaces/display/touch.hpp"
+#include "brookesia/hal_interface/interfaces/storage/file_system.hpp"
 #include "twatch_board.h"
 #include "key_value_nvs_impl.hpp"
 #include "esp_log.h"
+#include "esp_spiffs.h"
 #include "twatch_display.h"
 #include "twatch_brookesia_bridge.h"
 
@@ -19,14 +21,69 @@ using esp_brookesia::hal::Device;
 using esp_brookesia::hal::InterfaceSpec;
 using esp_brookesia::hal::display::PanelIface;
 using esp_brookesia::hal::display::TouchIface;
+using esp_brookesia::hal::storage::FileSystemIface;
 
 constexpr const char *DEVICE_NAME = "TWatchUltra";
 constexpr const char *PANEL_NAME = "TWatchUltra:CO5300";
 constexpr const char *TOUCH_NAME = "TWatchUltra:CST9220";
 constexpr const char *GROUP_ID = "t_watch_ultra_display";
+constexpr const char *FILESYSTEM_NAME = "TWatchUltra:SPIFFS";
+constexpr const char *FILESYSTEM_LABEL = "storage";
+constexpr const char *FILESYSTEM_BASE = "/spiffs";
 
 esp_brookesia::hal::InterfaceHandle<PanelIface> panel_handle;
 esp_brookesia::hal::InterfaceHandle<TouchIface> touch_handle;
+
+class Spiffs final : public FileSystemIface {
+public:
+    Spiffs()
+    {
+        const esp_vfs_spiffs_conf_t config = {
+            .base_path = FILESYSTEM_BASE,
+            .partition_label = FILESYSTEM_LABEL,
+            .max_files = 8,
+            .format_if_mount_failed = false,
+        };
+        const esp_err_t err = esp_vfs_spiffs_register(&config);
+        if (err != ESP_OK) {
+            ESP_LOGE("TWatchStorage", "SPIFFS mount failed: %s", esp_err_to_name(err));
+            return;
+        }
+        info_list_.push_back(Info{
+            .fs_type = FileSystemType::SPIFFS,
+            .medium_type = MediumType::Flash,
+            .mount_point = FILESYSTEM_BASE,
+            .root_path = FILESYSTEM_BASE,
+            .supports_directories = false,
+        });
+        ESP_LOGI("TWatchStorage", "SPIFFS mount=ok base=%s label=%s",
+                 FILESYSTEM_BASE, FILESYSTEM_LABEL);
+    }
+
+    ~Spiffs() override
+    {
+        if (!info_list_.empty()) {
+            esp_vfs_spiffs_unregister(FILESYSTEM_LABEL);
+        }
+    }
+
+    bool get_capacity(const char *mount_point, Capacity &capacity) override
+    {
+        if (mount_point == nullptr || std::string_view(mount_point) != FILESYSTEM_BASE ||
+            info_list_.empty()) {
+            return false;
+        }
+        size_t total = 0;
+        size_t used = 0;
+        if (esp_spiffs_info(FILESYSTEM_LABEL, &total, &used) != ESP_OK) {
+            return false;
+        }
+        capacity.total_bytes = total;
+        capacity.used_bytes = used;
+        capacity.free_bytes = total - used;
+        return true;
+    }
+};
 
 class Panel final : public PanelIface {
 public:
@@ -124,6 +181,7 @@ private:
             {PanelIface::NAME, PANEL_NAME},
             {TouchIface::NAME, TOUCH_NAME},
             {esp_brookesia::hal::storage::KeyValueIface::NAME, "TWatchUltra:NVS"},
+            {FileSystemIface::NAME, FILESYSTEM_NAME},
         };
     }
 
@@ -133,6 +191,7 @@ private:
         interfaces_.emplace(TOUCH_NAME, std::make_shared<Touch>());
         interfaces_.emplace("TWatchUltra:NVS",
                             std::make_shared<esp_brookesia::hal::StorageKeyValueNvsImpl>());
+        interfaces_.emplace(FILESYSTEM_NAME, std::make_shared<Spiffs>());
         return true;
     }
 
