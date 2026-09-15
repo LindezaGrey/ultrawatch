@@ -29,7 +29,8 @@ constexpr const char *TOUCH_NAME = "TWatchUltra:CST9220";
 constexpr const char *GROUP_ID = "t_watch_ultra_display";
 constexpr const char *FILESYSTEM_NAME = "TWatchUltra:SPIFFS";
 constexpr const char *FILESYSTEM_LABEL = "storage";
-constexpr const char *FILESYSTEM_BASE = "/spiffs";
+// Keep the upstream Brookesia runtime namespace while using ESP-IDF SPIFFS.
+constexpr const char *FILESYSTEM_BASE = "/littlefs";
 
 esp_brookesia::hal::InterfaceHandle<PanelIface> panel_handle;
 esp_brookesia::hal::InterfaceHandle<TouchIface> touch_handle;

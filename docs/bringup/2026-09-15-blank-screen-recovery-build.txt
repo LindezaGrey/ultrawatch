@@ -1,0 +1,21 @@
+Blank-screen recovery build
+===========================
+
+Cause observed on device: System Core failed with
+`Failed to create directory '/littlefs/apps': Storage FS path is outside
+mounted file systems: /littlefs`. The fallback then aborted at
+`lvgl_app_init()` with `ESP_ERR_INVALID_STATE` because the System Super
+DisplaySource had already initialized the adapter.
+
+Changes:
+* mount the storage partition at `/littlefs`;
+* stage `littlefs/` resources into the `storage` SPIFFS partition;
+* increase `storage` from 1 MiB to 2 MiB (resource tree is 1,832,662 bytes);
+* call `esp_lv_adapter_deinit()` during failed System Super cleanup.
+
+Validation: ESP-IDF reconfigure and full build passed. App image size is
+0x451990 bytes; 46% of the 0x800000-byte app partition remains free.
+SHA-256 app: 29b5836401f3a7c593b768a2397b2b9eb4dcacdf8be3b16fbc544f1bed0621ef
+SHA-256 storage: 2350f5e3b359dfbb9b51e1557064bb69856581806ec84812bb17aca462970b8e
+SHA-256 partition table: 641a883f77174983ad4f261135611e22bd0190eaa756d2148737980ce9c2157d
+No flash performed for this recovery build.

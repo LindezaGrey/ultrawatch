@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
+#include "esp_lv_adapter.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "brookesia/gui_lvgl.hpp"
@@ -24,6 +25,10 @@ void cleanup_runtime_services()
     // releasing the service graph so the native fallback can become the sole
     // LVGL owner after a failed handoff.
     esp_brookesia::gui::lvgl::DisplaySource::get_instance().stop();
+    const esp_err_t adapter_result = esp_lv_adapter_deinit();
+    if (adapter_result != ESP_OK && adapter_result != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "LVGL adapter cleanup returned %s", esp_err_to_name(adapter_result));
+    }
     auto &service_manager = esp_brookesia::service::ServiceManager::get_instance();
     service_manager.stop();
     service_manager.deinit();

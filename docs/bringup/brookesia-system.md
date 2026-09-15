@@ -34,12 +34,14 @@ the Display service binds before enabling the full Brookesia shell.
 
 ## SPIFFS filesystem HAL preparation
 
-The board bridge now exposes a SPIFFS `StorageFileSystem` interface at `/spiffs`
-using the labeled `storage` partition. Mount failure is reported without
-formatting, and capacity uses `esp_spiffs_info()`. The partition is reserved in
-the CSV at offset 0x810000 with size 0x100000. See 2026-09-15-spiffs-build.txt.
+The board bridge now exposes a SPIFFS `StorageFileSystem` interface at
+`/littlefs` using the labeled `storage` partition. Mount failure is reported
+without formatting, and capacity uses `esp_spiffs_info()`. The partition is
+reserved in the CSV at offset 0x810000 with size 0x100000. The build populates
+it from `littlefs/` so System Core can create `/littlefs/apps`. See
+2026-09-15-spiffs-build.txt.
 
-Device result: SPIFFS mounted at `/spiffs`; Storage acquired
+Device result: SPIFFS mounted at `/littlefs`; Storage acquired
 `TWatchUltra:SPIFFS`; all three Display service lifecycle probes bound and
 cleaned up with `heap_ok=1`. Native LVGL adapter startup followed successfully.
 One touch-read warning occurred during the temporary service probe before native
@@ -692,3 +694,13 @@ The flashed diagnostic image produced 824 paired transfer records during an
 warning, or panic; maximum elapsed transfer time was 15.618 ms. The intermittent
 contention fault did not reproduce, but the instrumentation now confirms that
 the active device operation can be identified in a future failing capture.
+
+## Blank-screen recovery build
+
+The first Device-service image failed System Core initialization because its
+`/littlefs/apps` path was outside the board's `/spiffs` mount. Native fallback
+then aborted with `ESP_ERR_INVALID_STATE` because the adapter remained active.
+The recovery build mounts the SPIFFS partition at `/littlefs`, stages the
+System Super resources, expands the partition to 2 MiB, and explicitly
+deinitializes the LVGL adapter before fallback. Build passed; deployment is
+pending.

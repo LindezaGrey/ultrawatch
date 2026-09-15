@@ -4,4 +4,4 @@ nvs, data, nvs, 0x9000, 0x5000,
 # Reserved gap 0xe000-0xffff overlaps vendor OTA metadata; unused by this app.
 # System Super resources and native assets require a larger application slot.
 factory, app, factory, 0x10000, 0x800000,
-storage, data, spiffs, 0x810000, 0x100000,
+storage, data, spiffs, 0x810000, 0x200000,
