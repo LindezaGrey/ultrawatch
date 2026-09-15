@@ -65,6 +65,8 @@ void app_main(void)
         ESP_LOGE(TAG, "BHI260AP Bosch core product ID mismatch: 0x%02x", bhi_core_product_id);
         abort();
     }
+    uint8_t bhi_boot_status = 0;
+    ESP_ERROR_CHECK(bhi260ap_core_load_firmware(&bhi_boot_status));
     uint8_t touch_address = 0;
     bool touch_present = false;
     ESP_ERROR_CHECK(twatch_board_probe_touch(&touch_address, &touch_present));

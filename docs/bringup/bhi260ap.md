@@ -41,6 +41,11 @@ unrelated SensorLib drivers. It is a compile-only boundary at this stage; the
 transport callbacks, firmware loader, interrupt handoff, and runtime motion
 stream are not yet connected.
 
+The loader now uses the embedded Bosch `BHI260AP.fw` image to upload firmware
+to sensor RAM, boot it, and verify the host firmware status bits. This is a
+build-tested runtime path; it must be device-tested before enabling interrupts
+or motion streams.
+
 The first ESP-IDF transport adapter is now build-tested. It connects the Bosch
 BHY2 core to board-owned I²C callbacks, performs the documented Bosch soft
 reset, and verifies product ID `0x89` during boot. Firmware upload, interrupt
