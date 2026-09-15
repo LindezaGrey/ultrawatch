@@ -275,3 +275,9 @@ list=ok, visible native UI/touch, and healthy telemetry. Persistent round-trip
 and reset retention are UNVERIFIED. A KV backend satisfies Storage initialization
 but does not supply the filesystem needed for System Super resources. Display
 binding and the panel adapter contract still need separate validation.
+
+Storage probe device result (firmware e1ba453): flash hashes verified;
+STORAGE_PROBE init=ok list=ok entries=0 kv_writes=0. LVGL ready and
+heap_integrity=ok observed after startup. See
+`docs/bringup/2026-09-15-storage-serial.log`. No KV write/retention or
+Display-service binding test yet; operator screen/touch confirmation pending.

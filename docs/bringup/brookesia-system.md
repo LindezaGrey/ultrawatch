@@ -67,3 +67,9 @@ binding and the panel adapter contract still need separate validation.
 
 Build-tested: final ESP-IDF 6.0.2 build passed; see 2026-09-15-storage-build.txt.
 No device deployment performed for the Storage preparation.
+
+Storage probe device result (firmware e1ba453): flash hashes verified;
+STORAGE_PROBE init=ok list=ok entries=0 kv_writes=0. LVGL ready and
+heap_integrity=ok observed after startup. See
+`docs/bringup/2026-09-15-storage-serial.log`. No KV write/retention or
+Display-service binding test yet; operator screen/touch confirmation pending.
