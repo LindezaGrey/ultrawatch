@@ -48,6 +48,23 @@ public:
                                     static_cast<uint16_t>(x2 - x1), static_cast<uint16_t>(y2 - y1),
                                     data) == ESP_OK;
     }
+
+    bool get_driver_specific(DriverSpecific &specific) override
+    {
+        /* The panel uses the validated custom QSPI transaction path. Brookesia's
+         * LVGL adapter still needs the bus classification and alignment metadata;
+         * its flush callback is replaced below with draw_bitmap(). */
+        specific = DriverSpecific{
+            .io_handle = nullptr,
+            .panel_handle = nullptr,
+            .bus_type = BusType::Generic,
+            .frame_buffer_count = 1,
+            .draw_x_align_bytes = 1,
+            .draw_y_align_bytes = 1,
+            .event_dispatcher = {},
+        };
+        return true;
+    }
 };
 
 class Touch final : public TouchIface {
