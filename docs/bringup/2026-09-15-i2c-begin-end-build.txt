@@ -16,3 +16,8 @@ I2C_BEGIN precedes every synchronous PMU, XL9555, touch, and BHI transfer.
 I2C_END records result and elapsed time. An unmatched begin identifies an
 operation stalled in the bus-lock or transfer path. No configuration, bus
 timing, timeout, priority, or PMU behavior changed.
+
+Device evidence: 2026-09-15-i2c-boundary-serial.log. A live 8-second capture
+contained 824 `I2C_BEGIN` and 824 matching `I2C_END` records. All transfers
+returned `ESP_OK`; no timeout warning occurred and the maximum elapsed transfer
+was 15,618 microseconds. The intermittent contention fault did not reproduce.

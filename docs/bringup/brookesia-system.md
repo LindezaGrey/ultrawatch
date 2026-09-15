@@ -636,3 +636,11 @@ touch, and BHI transfers are covered. Atomic sequence allocation supports
 concurrent FreeRTOS callers. This diagnostic instrumentation may perturb
 contention timing; no bus or power behavior changed. Build-tested, not flashed
 or device-tested.
+
+## I2C boundary capture result
+
+The flashed diagnostic image produced 824 paired transfer records during an
+8-second live capture. All returned `ESP_OK`, with no unmatched begin, timeout
+warning, or panic; maximum elapsed transfer time was 15.618 ms. The intermittent
+contention fault did not reproduce, but the instrumentation now confirms that
+the active device operation can be identified in a future failing capture.
