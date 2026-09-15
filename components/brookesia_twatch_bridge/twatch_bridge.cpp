@@ -8,6 +8,8 @@
 #include "brookesia/hal_interface/interfaces/display/panel.hpp"
 #include "brookesia/hal_interface/interfaces/display/touch.hpp"
 #include "twatch_board.h"
+#include "key_value_nvs_impl.hpp"
+#include "esp_log.h"
 #include "twatch_display.h"
 #include "twatch_brookesia_bridge.h"
 
@@ -121,6 +123,7 @@ private:
         return {
             {PanelIface::NAME, PANEL_NAME},
             {TouchIface::NAME, TOUCH_NAME},
+            {esp_brookesia::hal::storage::KeyValueIface::NAME, "TWatchUltra:NVS"},
         };
     }
 
@@ -128,6 +131,8 @@ private:
     {
         interfaces_.emplace(PANEL_NAME, std::make_shared<Panel>());
         interfaces_.emplace(TOUCH_NAME, std::make_shared<Touch>());
+        interfaces_.emplace("TWatchUltra:NVS",
+                            std::make_shared<esp_brookesia::hal::StorageKeyValueNvsImpl>());
         return true;
     }
 
@@ -147,6 +152,23 @@ extern "C" bool twatch_brookesia_bridge_start(void)
 {
     if (!panel_handle) panel_handle = esp_brookesia::hal::acquire_interface<PanelIface>(PANEL_NAME);
     if (!touch_handle) touch_handle = esp_brookesia::hal::acquire_interface<TouchIface>(TOUCH_NAME);
+    static bool storage_probed;
+    if (!storage_probed) {
+        storage_probed = true;
+        auto kv = esp_brookesia::hal::acquire_interface<
+            esp_brookesia::hal::storage::KeyValueIface>("TWatchUltra:NVS");
+        if (!kv || !kv->init()) {
+            ESP_LOGE("TWatchStorage", "STORAGE_PROBE init failed: %s",
+                     kv ? kv->get_last_error().c_str() : "interface unavailable");
+        } else {
+            std::vector<esp_brookesia::hal::storage::KeyValueIface::EntryInfo> entries;
+            const bool listed = kv->list("uw_probe", entries);
+            ESP_LOGI("TWatchStorage", "STORAGE_PROBE init=ok list=%s entries=%u kv_writes=0",
+                     listed ? "ok" : "failed", static_cast<unsigned>(entries.size()));
+            if (!listed) ESP_LOGE("TWatchStorage", "%s", kv->get_last_error().c_str());
+            kv->deinit();
+        }
+    }
     return static_cast<bool>(panel_handle) && static_cast<bool>(touch_handle);
 }
 

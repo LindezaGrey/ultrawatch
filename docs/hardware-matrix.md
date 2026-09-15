@@ -257,3 +257,21 @@ hardware CS on GPIO41, while the validated renderer controls that pin manually;
 this ownership conflict is the suspected regression (visual retest pending).
 The Storage dependency failure occurs before LVGL adapter registration, so the
 new panel-I/O integration was never validated by the Brookesia runtime.
+
+## NVS Storage HAL preparation
+
+`components/twatch_storage` isolates the pinned upstream NVS key/value backend
+(commit 2c09459a97a82c8d477c543eb2b43f4956b8a5be); provenance and local
+changes are recorded in its PROVENANCE.md. Initialization errors return without
+automatically erasing NVS. Existing nvs partition: offset 0x9000, size 0x5000.
+Uses ESP-IDF nvs_flash; no GPIO, external bus, PMU rail, or expander dependency.
+The board bridge publishes TWatchUltra:NVS. Its one-time startup probe initializes
+the backend, lists uw_probe, and deinitializes it. It sets/deletes no keys;
+NVS initialization itself may maintain flash metadata. Backend calls follow
+upstream's lifecycle and must be serialized by the owning Storage service.
+
+The native UI remains selected. Device validation pending: STORAGE_PROBE init=ok
+list=ok, visible native UI/touch, and healthy telemetry. Persistent round-trip
+and reset retention are UNVERIFIED. A KV backend satisfies Storage initialization
+but does not supply the filesystem needed for System Super resources. Display
+binding and the panel adapter contract still need separate validation.

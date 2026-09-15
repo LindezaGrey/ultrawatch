@@ -1,0 +1,5 @@
+ESP-IDF 6.0.2; source /home/peter/esp/esp-idf/export.sh && idf.py build
+twatch_ultra_phase1.bin binary size 0x20dd30 bytes. Smallest app partition is 0x800000 bytes. 0x5f22d0 bytes (74%) free.
+Bootloader binary size 0x5260 bytes. 0x2da0 bytes (36%) free.
+Project build complete. To flash, run:
+Build-tested only; no flash or persistence test performed.
