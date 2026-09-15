@@ -21,3 +21,8 @@ other sensors remain disabled.
 Source evidence: the T-Watch Ultra V1.0 schematic labels U7 HIRQ on GPIO8 and
 routes the signal through U8 RS0104. See `docs/hardware-matrix.md` and the
 schematic copy recorded there.
+
+The handoff was device-tested after flashing commit `ba52dd0`: boot completed,
+the GPIO8 input reported idle level `1`, and the watch remained responsive for
+the capture interval. No interrupt events were expected because no virtual
+sensor stream was enabled.
