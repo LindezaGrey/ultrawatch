@@ -1,0 +1,15 @@
+Touch idle-packet fix device result
+===================================
+
+Firmware: commit 575f61a
+Target: LilyGO T-Watch Ultra V1.0 / SX1262
+
+Flash verification passed for bootloader, partition table, application, and
+the 2 MiB `/littlefs` resource partition. Device-tested result: the Brookesia
+screen is visible and touchable. A raw serial capture showed CO5300 ready,
+`/littlefs` mounted, repeated service-graph starts, and no adapter-state
+abort, panic, or reboot. The CST9220 idle/status packet was observed without
+crashing the polling task.
+
+Remaining validation: exercise navigation and touch repeatedly, then run the
+one-hour UI/lifecycle test before adding further product features.

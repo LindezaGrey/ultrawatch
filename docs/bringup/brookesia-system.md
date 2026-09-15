@@ -78,6 +78,12 @@ empty touch sample. This prevents the upstream polling task from treating a
 normal no-finger packet as a formatted warning on every poll; transport errors
 still fail the read. The change is build-tested and awaits device validation.
 
+Device result (575f61a): the recovery image was flashed with the 2 MiB
+`/littlefs` resource partition. The CO5300 display is visible and touchable.
+Raw serial capture reached the System Super service graph without the prior
+adapter-state abort or reboot; the CST9220 idle packet did not crash the touch
+task. Longer UI and lifecycle testing remain pending.
+
 ## System Super enablement preparation
 
 With the filesystem gate passed, `BROOKESIA_SYSTEM_RUNTIME` is enabled. The
