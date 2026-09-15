@@ -440,3 +440,24 @@ navigation with logs; on natural telemetry failure expect TELEMETRY_READ and
 continuing HEALTH/ADAPTER_HEALTH without restart. Do not disconnect or short
 I2C hardware to induce faults. No-failure trials alone do not device-validate
 the failure branch.
+
+## Telemetry recovery device result (b3f05aa)
+
+Flash verified and first boot reached the adapter UI without startup abort.
+At uptime 23.651 s and 53.731 s periodic power reads returned ESP_ERR_TIMEOUT;
+TELEMETRY_READ logged power_failures=1 then 2, rails=ESP_OK, with incomplete
+snapshots skipped. Main HEALTH and adapter execution continued on the same boot
+(reset_reason=11), and later PMU reads succeeded. Through uptime 98.701 s,
+recent internal_free remains 178960 and heap_integrity=ok; smallest observed
+adapter stack margin is 3812 bytes, main 2536 bytes. No panic in this capture.
+The operator explicitly confirms Diagnostics -> Touch me -> Back works and the
+screen remains responsive. The logger was stopped (exit 143); firmware left
+running. Evidence: 2026-09-15-telemetry-recovery-{flash.log,serial.log}.
+
+Device-tested: recovery from natural periodic power-read timeouts, subsequent
+successful samples, and operator navigation responsiveness. Rail-read failure
+branch remains host-tested in this run (no natural rails error captured).
+Underlying I2C failures and the earlier startup identity-read failure remain
+unresolved; this validates nonfatal observation handling, not a repaired bus.
+Next investigate timeout origin/contending callers without speculative PMU
+writes, bus resets or timeout increases. Preserve the current responsive build.

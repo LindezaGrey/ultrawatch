@@ -447,3 +447,9 @@ incomplete telemetry and continues; physical timeout cause remains unverified.
 IDF already serializes synchronous bus transactions. Startup checks remain fatal.
 Host fault injection covers all read-success/failure combinations and recovery;
 new firmware device validation pending.
+
+Telemetry-recovery b3f05aa device-tested: two natural periodic PMU read
+timeouts were skipped without reboot, later reads succeeded, and operator
+confirmed responsive Diagnostics/touch/Back. Rail failure branch remains
+host-tested; underlying bus timeout and startup failure causes remain open.
+See 2026-09-15-telemetry-recovery-serial.log and bring-up notes.
