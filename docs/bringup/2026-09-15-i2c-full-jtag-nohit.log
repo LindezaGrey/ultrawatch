@@ -1,0 +1,23 @@
+0x4208fe76 in lv_timer_handler () at /home/peter/SynologyDrive/Projekte/Brookesia/managed_components/lvgl__lvgl/src/misc/lv_timer.c:101
+101	        timer_active = lv_ll_get_head(timer_head);
+Hardware assisted breakpoint 1 at 0x4216d37c: file /home/peter/esp/esp-idf/components/esp_driver_i2c/i2c_master.c, line 1010.
+[esp32s3.cpu0] Target halted, PC=0x4037C9E6, debug_reason=00000000
+Set GDB target to 'esp32s3.cpu0'
+[esp32s3.cpu1] Target halted, PC=0x4037C9E6, debug_reason=00000000
+[New Thread 1070316196]
+[Remote target exited]
+[New Thread 1070318172]
+[New Thread 1070314220]
+[New Thread 1070525448]
+[New Thread 1070508052]
+[New Thread 1070519012]
+[New Thread 1070303072]
+[New Thread 1070291516]
+[New Thread 1070290052]
+
+Thread 2 "IDLE0" received signal SIGINT, Interrupt.
+[Switching to Thread 1070316196]
+0x4037c9e6 in esp_cpu_wait_for_intr () at /home/peter/esp/esp-idf/components/esp_hw_support/cpu.c:64
+64	}
+Detaching from program: /home/peter/SynologyDrive/Projekte/Brookesia/.cache/firmware/i2c-contention/twatch_ultra_phase1.elf, Remote target
+[Inferior 1 (Remote target) detached]

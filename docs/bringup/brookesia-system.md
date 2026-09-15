@@ -577,3 +577,21 @@ cleanup and serial recovery were tested. Always verify execution after detach.
 
 Next inspect the full LVGL I2C stack, active transfer address/status and event
 wait before choosing a bus/driver change. No timeout, priority or PMU changes.
+
+## Full-stack JTAG follow-up: no timeout hit
+
+Rearmed the revised matching-ELF trap on unchanged d08530f. Operator completed
+repeated navigation; additional idle observation followed. No semaphore timeout
+breakpoint hit, so active address and deeper failure stack remain unavailable.
+Interrupted GDB manually, deleted breakpoints, issued monitor resume, detached,
+and quit. OpenOCD targets reported both cores running before server shutdown.
+Post-debug serial confirms continued same-boot execution, advancing adapter
+flushes, internal_free=178960 and heap_integrity=ok; main stack margin 2640 and
+adapter 3812 bytes. No firmware update or new reset during this session.
+
+Evidence: 2026-09-15-i2c-full-{jtag-nohit.log,openocd.log,post-serial.log}.
+The explicit delete/resume/detach cleanup sequence is now device-tested on the
+manual no-hit exit. The automatic breakpoint-hit command sequence still has
+not run since revision. This run does not strengthen attribution beyond the
+previous snapshot showing LVGL in the I2C event wait. Keep that limitation
+explicit; do not claim a particular touch transfer or driver bug is proven.

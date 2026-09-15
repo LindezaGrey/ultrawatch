@@ -105,3 +105,8 @@ The script now deletes breakpoints, issues monitor resume, then detaches. It
 also records 16 stack frames and bus/requester address/status. This revised
 script is prepared, not yet live-validated. Treat missing serial output after
 cleanup as a possible debugger halt before diagnosing a firmware crash.
+
+Follow-up device validation: revised trap did not hit during operator navigation
+and idle. Manual Ctrl-C -> delete breakpoints -> monitor resume -> detach
+worked; both cores reported running and serial health continued. Automatic
+hit-path cleanup remains pending a successful capture.

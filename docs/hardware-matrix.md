@@ -475,3 +475,8 @@ lvgl waited inside s_i2c_send_commands for an I2C transaction event. Other
 sampling tasks were idle at the snapshot. Exact active address and full LVGL
 caller remain to be captured. Debugger left cores halted after initial detach;
 manual breakpoint-state clearing/resume restored serial health. Firmware unchanged.
+
+Full-stack JTAG follow-up did not reproduce semaphore timeout. Explicit
+breakpoint deletion/resume/detach was verified by running core states and
+continued serial health. Active transfer address remains unverified; firmware
+d08530f unchanged.
