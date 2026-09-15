@@ -30,3 +30,9 @@ and chip ID register `0x2B` after the ACK probe. These reads remain
 configuration-free; the expected product ID is `0x89`. The build is ready for
 device validation. On commit `65eaa2c`, the operator reported `P89 C70` on the
 watch, confirming the expected product ID and chip ID `0x70`.
+
+The isolated `bhi260ap_core` ESP-IDF component now compiles the upstream Bosch
+`bhy2`, `bhy2_hif`, and `bhy2_parse` core sources without Arduino wrappers or
+unrelated SensorLib drivers. It is a compile-only boundary at this stage; the
+transport callbacks, firmware loader, interrupt handoff, and runtime motion
+stream are not yet connected.
