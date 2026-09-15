@@ -26,6 +26,8 @@ typedef struct {
     uint8_t expander_output[2], expander_polarity[2], expander_config[2];
     bool dc1_enabled, aldo2_enabled, dc1_setting_valid, aldo2_setting_valid;
     uint16_t dc1_configured_mv, aldo2_configured_mv;
+    bool aldo4_enabled, aldo4_setting_valid;
+    uint16_t aldo4_configured_mv;
     bool display_enable_output, display_enable_latch_high;
     bool touch_reset_output, touch_reset_latch_high;
 } twatch_rail_snapshot_t;

@@ -22,8 +22,9 @@ enum { PMU_STATUS1 = 0x00, PMU_CHIP_ID = 0x03, PMU_EXPECTED_ID = 0x4a,
        STATUS_CHARGING = 1, CHARGER_STATE_MASK = 7,
        ADC_BATTERY_ENABLE = 1U << 0, BATTERY_ADC_HIGH_MASK = 0x1f };
 enum { PMU_DCDC_CONTROL = 0x80, PMU_DC1_VOLTAGE = 0x82,
-       PMU_LDO_CONTROL = 0x90, PMU_ALDO2_VOLTAGE = 0x93,
-       DC1_ENABLE = 1U << 0, ALDO2_ENABLE = 1U << 1, VOLTAGE_CODE_MASK = 0x1f,
+       PMU_LDO_CONTROL = 0x90, PMU_ALDO2_VOLTAGE = 0x93, PMU_ALDO4_VOLTAGE = 0x95,
+       DC1_ENABLE = 1U << 0, ALDO2_ENABLE = 1U << 1, ALDO4_ENABLE = 1U << 3,
+       VOLTAGE_CODE_MASK = 0x1f,
        DC1_CODE_MAX = 19, ALDO2_CODE_MAX = 30, DC1_MIN_MV = 1500,
        ALDO2_MIN_MV = 500, VOLTAGE_STEP_MV = 100,
        XL_OUTPUT0 = 0x02, XL_POLARITY0 = 0x04, XL_CONFIG0 = 0x06,
@@ -110,18 +111,24 @@ esp_err_t twatch_board_read_rails(twatch_rail_snapshot_t *snapshot)
     ESP_RETURN_ON_ERROR(read_regs(PMU_DC1_VOLTAGE, &value.dc1_voltage, 1), TAG, "Read DC1 setting");
     ESP_RETURN_ON_ERROR(read_regs(PMU_LDO_CONTROL, value.ldo_control, 2), TAG, "Read LDO control");
     ESP_RETURN_ON_ERROR(read_regs(PMU_ALDO2_VOLTAGE, &value.aldo2_voltage, 1), TAG, "Read ALDO2 setting");
+    uint8_t aldo4_voltage;
+    ESP_RETURN_ON_ERROR(read_regs(PMU_ALDO4_VOLTAGE, &aldo4_voltage, 1), TAG, "Read ALDO4 setting");
     // Do not read input ports: this audit needs latches/direction, not IRQ acknowledgement.
     ESP_RETURN_ON_ERROR(read_device_regs(expander, XL_OUTPUT0, value.expander_output, 2), TAG, "Read XL output latches");
     ESP_RETURN_ON_ERROR(read_device_regs(expander, XL_POLARITY0, value.expander_polarity, 2), TAG, "Read XL polarity");
     ESP_RETURN_ON_ERROR(read_device_regs(expander, XL_CONFIG0, value.expander_config, 2), TAG, "Read XL direction");
     value.dc1_enabled = (value.dcdc_control & DC1_ENABLE) != 0;
     value.aldo2_enabled = (value.ldo_control[0] & ALDO2_ENABLE) != 0;
+    value.aldo4_enabled = (value.ldo_control[0] & ALDO4_ENABLE) != 0;
     const unsigned dc1_code = value.dc1_voltage & VOLTAGE_CODE_MASK;
     const unsigned aldo2_code = value.aldo2_voltage & VOLTAGE_CODE_MASK;
     value.dc1_setting_valid = dc1_code <= DC1_CODE_MAX;
     value.aldo2_setting_valid = aldo2_code <= ALDO2_CODE_MAX;
+    const unsigned aldo4_code = aldo4_voltage & VOLTAGE_CODE_MASK;
+    value.aldo4_setting_valid = aldo4_code <= 30;
     if (value.dc1_setting_valid) value.dc1_configured_mv = DC1_MIN_MV + dc1_code * VOLTAGE_STEP_MV;
     if (value.aldo2_setting_valid) value.aldo2_configured_mv = ALDO2_MIN_MV + aldo2_code * VOLTAGE_STEP_MV;
+    if (value.aldo4_setting_valid) value.aldo4_configured_mv = ALDO2_MIN_MV + aldo4_code * VOLTAGE_STEP_MV;
     value.display_enable_output = !(value.expander_config[0] & XL_DISPLAY_ENABLE_P07);
     value.display_enable_latch_high = (value.expander_output[0] & XL_DISPLAY_ENABLE_P07) != 0;
     value.touch_reset_output = !(value.expander_config[1] & XL_TOUCH_RESET_P10);

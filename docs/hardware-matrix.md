@@ -115,6 +115,11 @@ Bosch BHI260 firmware and attaches a rising-edge interrupt on GPIO8. These
 sources establish the board mapping; they do not yet justify enabling ALDO4 or
 uploading firmware in the native port.
 
+The native rail reader now also reads AXP2101 ALDO4 enable bit 3 at register
+`0x90` and its voltage code at `0x95`, using the pinned XPowersAXP2101
+definitions (`ALDO4` range 500–3500 mV, 100 mV steps). The change is strictly
+read-only and build-tested; device validation is pending the next flash.
+
 Ten controlled resets each reached the I2C scan in a 20-second capture, with
 the same three known errors and no new fault messages; the operator reports
 Hello World on observed restarts. Three battery-only shutdown/startup and touch checks on the shutdown diagnostic

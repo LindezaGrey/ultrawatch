@@ -149,11 +149,12 @@ static void diagnostics_timer_cb(lv_timer_t *timer)
     const twatch_rtc_snapshot_t *rtc = &snapshot.rtc;
     const twatch_rail_snapshot_t *rails = &snapshot.rails;
     char text[160];
-    lv_snprintf(text, sizeof(text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC\nRails: D%s T%s",
+    lv_snprintf(text, sizeof(text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC\nRails: D%s T%s\nALDO4: %s %umV",
                 power->battery_mv, power->usb_present ? "yes" : "no",
                 power->charging ? "yes" : "no", rtc->hours, rtc->minutes, rtc->seconds,
                 rails->display_enable_latch_high ? "on" : "off",
-                rails->touch_reset_latch_high ? "high" : "low");
+                rails->touch_reset_latch_high ? "high" : "low",
+                rails->aldo4_enabled ? "on" : "off", rails->aldo4_configured_mv);
     lv_label_set_text(diagnostics_label, text);
     lv_obj_invalidate(diagnostics_label);
     static uint32_t update_count;
@@ -301,7 +302,7 @@ esp_err_t lvgl_app_init(void)
     lv_obj_set_style_text_font(diag_title, &lv_font_montserrat_28, 0);
     lv_obj_align(diag_title, LV_ALIGN_TOP_MID, 0, 55);
     char diag_text[160];
-    lv_snprintf(diag_text, sizeof(diag_text), "Battery: --\nUSB: --  Charge: --\nRTC: --:--:-- UTC\nRails: --");
+    lv_snprintf(diag_text, sizeof(diag_text), "Battery: --\nUSB: --  Charge: --\nRTC: --:--:-- UTC\nRails: --\nALDO4: --");
     diagnostics_label = lv_label_create(diagnostics_screen);
     lv_label_set_text(diagnostics_label, diag_text);
     lv_obj_set_style_text_font(diagnostics_label, &lv_font_montserrat_22, 0);
