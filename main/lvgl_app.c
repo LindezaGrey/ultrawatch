@@ -17,6 +17,7 @@ static lv_obj_t *menu_text;
 static lv_obj_t *menu_screen;
 static lv_obj_t *home_screen;
 static lv_obj_t *diagnostics_screen;
+static lv_obj_t *diagnostics_label;
 static bool display_inverted = true;
 
 /* The LilyGO Ultra port expands partial invalidation areas to the panel's
@@ -82,6 +83,20 @@ static void diagnostics_open_cb(lv_event_t *event)
 {
     (void)event;
     if (diagnostics_screen != NULL) lv_screen_load(diagnostics_screen);
+}
+
+static void diagnostics_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    if (diagnostics_label == NULL || lv_screen_active() != diagnostics_screen) return;
+    twatch_power_snapshot_t power = {0};
+    twatch_rtc_snapshot_t rtc = {0};
+    if (twatch_board_read_power(&power) != ESP_OK || twatch_board_read_rtc(&rtc) != ESP_OK) return;
+    char text[160];
+    lv_snprintf(text, sizeof(text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC",
+                power.battery_mv, power.usb_present ? "yes" : "no",
+                power.charging ? "yes" : "no", rtc.hours, rtc.minutes, rtc.seconds);
+    lv_label_set_text(diagnostics_label, text);
 }
 
 static void menu_display_cb(lv_event_t *event)
@@ -221,11 +236,12 @@ esp_err_t lvgl_app_init(void)
     lv_snprintf(diag_text, sizeof(diag_text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC",
                 power.battery_mv, power.usb_present ? "yes" : "no",
                 power.charging ? "yes" : "no", rtc.hours, rtc.minutes, rtc.seconds);
-    lv_obj_t *diag_label = lv_label_create(diagnostics_screen);
-    lv_label_set_text(diag_label, diag_text);
-    lv_obj_set_style_text_font(diag_label, &lv_font_montserrat_22, 0);
-    lv_obj_set_style_text_align(diag_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(diag_label, LV_ALIGN_TOP_MID, 0, 155);
+    diagnostics_label = lv_label_create(diagnostics_screen);
+    lv_label_set_text(diagnostics_label, diag_text);
+    lv_obj_set_style_text_font(diagnostics_label, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_align(diagnostics_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(diagnostics_label, LV_ALIGN_TOP_MID, 0, 155);
+    lv_timer_create(diagnostics_timer_cb, 1000, NULL);
     lv_obj_t *diag_back = lv_button_create(diagnostics_screen);
     lv_obj_set_size(diag_back, 260, 78);
     lv_obj_align(diag_back, LV_ALIGN_TOP_MID, 0, 335);
