@@ -31,3 +31,18 @@ LVGL. This is a service dependency issue, not a CO5300/QSPI rendering fault.
 
 Next step: add a board-owned NVS-backed key/value Storage HAL and verify that
 the Display service binds before enabling the full Brookesia shell.
+
+## Display recovery after panel-I/O experiment
+
+Operator reported a black display after commit 5950eba; previous serial health
+was not evidence of visible display success. Recovery removes the second SPI
+device and disables the System Super startup attempt. The second device claimed
+hardware CS on GPIO41, while the validated renderer controls that pin manually;
+this ownership conflict is the suspected regression (visual retest pending).
+The Storage dependency failure occurs before LVGL adapter registration, so the
+new panel-I/O integration was never validated by the Brookesia runtime.
+
+Recovery validation: ESP-IDF 6.0.2 build passed, binary 0x203890 bytes;
+flash hashes verified. Serial capture records CO5300 ready, LVGL ready,
+READY heap_integrity=ok, and ongoing RTC/BHI260AP telemetry. See
+`2026-09-15-display-recovery-serial.log`. Operator visual confirmation pending.

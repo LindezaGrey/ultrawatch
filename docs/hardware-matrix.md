@@ -247,3 +247,13 @@ USB reconnection without reboot. P07/P10 output/direction and PMU setpoints are
 retained in five reconnection snapshots. Physical voltages, current, temperature
 and longer-duration acceptance remain unverified. See
 [battery evidence](bringup/battery-run-1-20260914T125844Z.json).
+
+## Display recovery after panel-I/O experiment
+
+Operator reported a black display after commit 5950eba; previous serial health
+was not evidence of visible display success. Recovery removes the second SPI
+device and disables the System Super startup attempt. The second device claimed
+hardware CS on GPIO41, while the validated renderer controls that pin manually;
+this ownership conflict is the suspected regression (visual retest pending).
+The Storage dependency failure occurs before LVGL adapter registration, so the
+new panel-I/O integration was never validated by the Brookesia runtime.
