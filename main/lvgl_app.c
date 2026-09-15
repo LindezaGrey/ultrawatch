@@ -16,6 +16,7 @@ static lv_obj_t *menu_panel;
 static lv_obj_t *menu_text;
 static lv_obj_t *menu_screen;
 static lv_obj_t *home_screen;
+static lv_obj_t *diagnostics_screen;
 static bool display_inverted = true;
 
 /* The LilyGO Ultra port expands partial invalidation areas to the panel's
@@ -75,6 +76,12 @@ static void menu_back_cb(lv_event_t *event)
 {
     (void)event;
     if (home_screen != NULL) lv_screen_load(home_screen);
+}
+
+static void diagnostics_open_cb(lv_event_t *event)
+{
+    (void)event;
+    if (diagnostics_screen != NULL) lv_screen_load(diagnostics_screen);
 }
 
 static void menu_display_cb(lv_event_t *event)
@@ -185,14 +192,48 @@ esp_err_t lvgl_app_init(void)
     lv_obj_set_style_text_font(display_label, &lv_font_montserrat_24, 0);
     lv_obj_center(display_label);
     lv_obj_add_event_cb(display_button, menu_display_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *diagnostics_button = lv_button_create(menu_screen);
+    lv_obj_set_size(diagnostics_button, 260, 78);
+    lv_obj_align(diagnostics_button, LV_ALIGN_TOP_MID, 0, 235);
+    lv_obj_t *diagnostics_label = lv_label_create(diagnostics_button);
+    lv_label_set_text(diagnostics_label, "Diagnostics");
+    lv_obj_set_style_text_font(diagnostics_label, &lv_font_montserrat_24, 0);
+    lv_obj_center(diagnostics_label);
+    lv_obj_add_event_cb(diagnostics_button, diagnostics_open_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *back_button = lv_button_create(menu_screen);
     lv_obj_set_size(back_button, 260, 78);
-    lv_obj_align(back_button, LV_ALIGN_TOP_MID, 0, 285);
+    lv_obj_align(back_button, LV_ALIGN_TOP_MID, 0, 335);
     lv_obj_t *back_label = lv_label_create(back_button);
     lv_label_set_text(back_label, "Back");
     lv_obj_set_style_text_font(back_label, &lv_font_montserrat_24, 0);
     lv_obj_center(back_label);
     lv_obj_add_event_cb(back_button, menu_back_cb, LV_EVENT_CLICKED, NULL);
+    diagnostics_screen = lv_obj_create(NULL);
+    lv_obj_t *diag_title = lv_label_create(diagnostics_screen);
+    lv_label_set_text(diag_title, "Diagnostics");
+    lv_obj_set_style_text_font(diag_title, &lv_font_montserrat_28, 0);
+    lv_obj_align(diag_title, LV_ALIGN_TOP_MID, 0, 55);
+    twatch_power_snapshot_t power = {0};
+    twatch_board_read_power(&power);
+    twatch_rtc_snapshot_t rtc = {0};
+    twatch_board_read_rtc(&rtc);
+    char diag_text[160];
+    lv_snprintf(diag_text, sizeof(diag_text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC",
+                power.battery_mv, power.usb_present ? "yes" : "no",
+                power.charging ? "yes" : "no", rtc.hours, rtc.minutes, rtc.seconds);
+    lv_obj_t *diag_label = lv_label_create(diagnostics_screen);
+    lv_label_set_text(diag_label, diag_text);
+    lv_obj_set_style_text_font(diag_label, &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_align(diag_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(diag_label, LV_ALIGN_TOP_MID, 0, 155);
+    lv_obj_t *diag_back = lv_button_create(diagnostics_screen);
+    lv_obj_set_size(diag_back, 260, 78);
+    lv_obj_align(diag_back, LV_ALIGN_TOP_MID, 0, 335);
+    lv_obj_t *diag_back_label = lv_label_create(diag_back);
+    lv_label_set_text(diag_back_label, "Back");
+    lv_obj_set_style_text_font(diag_back_label, &lv_font_montserrat_24, 0);
+    lv_obj_center(diag_back_label);
+    lv_obj_add_event_cb(diag_back, menu_back_cb, LV_EVENT_CLICKED, NULL);
     ESP_LOGI(TAG, "LVGL ready display=410x502 buffer_lines=16");
     return ESP_OK;
 }
