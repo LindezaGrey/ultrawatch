@@ -18,6 +18,17 @@ std::unique_ptr<esp_brookesia::system::super::System> system_instance;
 bool started;
 RTC_NOINIT_ATTR uint32_t last_stage;
 
+void cleanup_runtime_services()
+{
+    // DisplaySource owns the adapter started by System Super. Stop it before
+    // releasing the service graph so the native fallback can become the sole
+    // LVGL owner after a failed handoff.
+    esp_brookesia::gui::lvgl::DisplaySource::get_instance().stop();
+    auto &service_manager = esp_brookesia::service::ServiceManager::get_instance();
+    service_manager.stop();
+    service_manager.deinit();
+}
+
 } // namespace
 
 extern "C" bool twatch_brookesia_system_start(void)
@@ -35,6 +46,7 @@ extern "C" bool twatch_brookesia_system_start(void)
     last_stage = 2;
     if (!service_manager.start()) {
         ESP_LOGE(TAG, "Service manager start failed");
+        service_manager.deinit();
         return false;
     }
 
@@ -43,6 +55,7 @@ extern "C" bool twatch_brookesia_system_start(void)
     display_config.output_name.clear();
     if (!esp_brookesia::gui::lvgl::DisplaySource::get_instance().start(display_config)) {
         ESP_LOGE(TAG, "LVGL display source start failed");
+        cleanup_runtime_services();
         return false;
     }
 
@@ -60,6 +73,7 @@ extern "C" bool twatch_brookesia_system_start(void)
     if (!init_result) {
         ESP_LOGE(TAG, "System init failed: %s", init_result.error().c_str());
         system_instance.reset();
+        cleanup_runtime_services();
         return false;
     }
     last_stage = 5;
@@ -67,6 +81,7 @@ extern "C" bool twatch_brookesia_system_start(void)
     if (!start_result) {
         ESP_LOGE(TAG, "System start failed: %s", start_result.error().c_str());
         system_instance.reset();
+        cleanup_runtime_services();
         return false;
     }
 

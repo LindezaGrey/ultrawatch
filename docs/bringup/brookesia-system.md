@@ -46,6 +46,16 @@ One touch-read warning occurred during the temporary service probe before native
 touch ownership; final UI visual and interactive confirmation remains pending.
 Evidence: 2026-09-15-spiffs-serial.log.
 
+## System Super handoff result and fallback fix
+
+The first System Super deployment reached SystemCore initialization but failed
+because the pinned service graph could not bind its required `Device` service.
+The fallback then attempted to initialize the already-running LVGL adapter and
+hit `ESP_ERR_INVALID_STATE`. The failure path now stops DisplaySource and the
+service manager before starting native LVGL, preventing a duplicate adapter
+owner. The Device-service registration gap remains open; this fix is
+build-pending and not yet flashed.
+
 ## System Super enablement preparation
 
 With the filesystem gate passed, `BROOKESIA_SYSTEM_RUNTIME` is enabled. The
