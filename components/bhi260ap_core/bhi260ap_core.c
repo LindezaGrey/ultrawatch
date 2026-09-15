@@ -102,9 +102,16 @@ static void bhi_irq_task(void *arg)
         uint8_t status = 0;
         int8_t status_result = bhy2_get_interrupt_status(&status, &device);
         if (notifications == 0 && status_result == BHY2_OK && !BHY2_IS_INT_FIFO(status)) continue;
-        int8_t result = bhy2_get_and_process_fifo(fifo_buffer, sizeof(fifo_buffer), &device);
-        ESP_LOGI(TAG, "sensor poll notifications=%" PRIu32 " status=0x%02x fifo_result=%d",
-                 notifications, status, result);
+        int8_t result = BHY2_OK;
+        uint8_t drains = 0;
+        do {
+            result = bhy2_get_and_process_fifo(fifo_buffer, sizeof(fifo_buffer), &device);
+            ++drains;
+            if (result != BHY2_OK) break;
+            status_result = bhy2_get_interrupt_status(&status, &device);
+        } while (status_result == BHY2_OK && BHY2_IS_INT_FIFO(status) && drains < 4);
+        ESP_LOGI(TAG, "sensor fifo notifications=%" PRIu32 " drains=%u status=0x%02x result=%d",
+                 notifications, drains, status, result);
     }
 }
 
@@ -148,7 +155,7 @@ esp_err_t bhi260ap_core_start_irq_probe(void)
     if (result != BHY2_OK) return ESP_FAIL;
     result = bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_ACC, 1.0f, 0, &device);
     if (result != BHY2_OK) return ESP_FAIL;
-    result = bhy2_set_host_interrupt_ctrl(0, &device);
+    result = bhy2_set_host_interrupt_ctrl(BHY2_ICTL_EDGE, &device);
     if (result != BHY2_OK) return ESP_FAIL;
     result = bhy2_set_host_intf_ctrl(BHY2_HIF_CTRL_ASYNC_STATUS_CHANNEL, &device);
     if (result != BHY2_OK) return ESP_FAIL;
