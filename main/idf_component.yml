@@ -13,3 +13,6 @@ dependencies:
   espressif/brookesia_system_super:
     path: ../vendor/esp-brookesia/system/brookesia_system_super
     require: public
+  espressif/brookesia_service_device:
+    path: ../vendor/esp-brookesia/service/system/brookesia_service_device
+    require: public

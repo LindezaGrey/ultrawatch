@@ -56,6 +56,13 @@ service manager before starting native LVGL, preventing a duplicate adapter
 owner. The Device-service registration gap remains open; this fix is
 build-pending and not yet flashed.
 
+The pinned `brookesia_service_device` component was absent from the project
+manifest, so SystemCore could not discover the Device service even though the
+board HAL plugin was registered. This build adds that exact vendor path; no
+board interfaces or peripheral behavior change. The build passed with
+`brookesia_service_device` 0.8.2 resolved from the local vendor tree. Physical
+System Super startup and fallback validation remain pending.
+
 ## System Super enablement preparation
 
 With the filesystem gate passed, `BROOKESIA_SYSTEM_RUNTIME` is enabled. The

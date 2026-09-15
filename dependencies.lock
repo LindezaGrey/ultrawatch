@@ -76,6 +76,16 @@ dependencies:
       path: vendor/esp-brookesia/runtime/brookesia_runtime_manager
       type: local
     version: 0.8.2
+  espressif/brookesia_service_device:
+    dependencies:
+    - name: espressif/brookesia_service_helper
+      override_path: ../../framework/brookesia_service_helper
+      require: public
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/service/system/brookesia_service_device
+      type: local
+    version: 0.8.2
   espressif/brookesia_service_display:
     dependencies:
     - name: espressif/brookesia_service_storage
@@ -443,9 +453,10 @@ direct_dependencies:
 - espressif/brookesia_gui_lvgl
 - espressif/brookesia_hal_interface
 - espressif/brookesia_lib_utils
+- espressif/brookesia_service_device
 - espressif/brookesia_system_super
 - espressif/esp_lvgl_adapter
 - lvgl/lvgl
-manifest_hash: 623d468624c5d531ff328ea9eb2f4057060e7dd3fff0ad2443788c626cf3cd82
+manifest_hash: fae94dc7982d62669b90f3828ae6b7151a8230640c2f1ecf81cf59e8fc55fbfc
 target: esp32s3
 version: 3.0.0

@@ -1,0 +1,27 @@
+Brookesia Device service dependency build
+==========================================
+
+Date: 2026-09-15
+Target: esp32s3 / LilyGO T-Watch Ultra V1.0, SX1262
+ESP-IDF: 6.0.2
+
+Change
+------
+Added the pinned local `brookesia_service_device` 0.8.2 component to
+`main/idf_component.yml`. The dependency resolves from
+`vendor/esp-brookesia/service/system/brookesia_service_device` and is recorded
+in `dependencies.lock`.
+
+Validation
+----------
+`source /home/peter/esp/esp-idf/export.sh && ninja -C build -j4 all` passed.
+The application image is 0x450270 bytes (46% free in the 0x800000-byte app
+partition). `git diff --check` passed. No device flash was performed for this
+build, so System Super Device-service binding and fallback behavior remain
+device-pending.
+
+Artifacts
+---------
+* app SHA-256: 1c042d408c245385fe5c399e051f44d76286124a1b4b878c81b68076acefafad
+* bootloader SHA-256: eba668caabd16c5b8b293a314dd50e0b7d10fde07a2192923776bb060faa862f
+* partition table SHA-256: 46476d5ef114856c4939590207f67c56372d186ce4f2c87ca77c96e40e67138f
