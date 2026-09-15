@@ -15,6 +15,8 @@ static struct bhy2_dev device;
 static bool initialized;
 static TaskHandle_t irq_task_handle;
 static uint8_t fifo_buffer[2048];
+static volatile bool accel_valid;
+static volatile int16_t accel_x, accel_y, accel_z;
 extern const uint8_t _binary_BHI260AP_fw_start[];
 extern const uint8_t _binary_BHI260AP_fw_end[];
 
@@ -112,7 +114,15 @@ static void accel_callback(const struct bhy2_fifo_parse_data_info *info, void *p
     if (!info || info->data_size < 6) return;
     struct bhy2_data_xyz xyz;
     bhy2_parse_xyz(info->data_ptr, &xyz);
+    accel_x = xyz.x; accel_y = xyz.y; accel_z = xyz.z; accel_valid = true;
     ESP_LOGI(TAG, "accelerometer id=%u x=%d y=%d z=%d", info->sensor_id, xyz.x, xyz.y, xyz.z);
+}
+
+bool bhi260ap_core_get_accel(int16_t *x, int16_t *y, int16_t *z)
+{
+    if (!x || !y || !z || !accel_valid) return false;
+    *x = accel_x; *y = accel_y; *z = accel_z;
+    return true;
 }
 
 esp_err_t bhi260ap_core_start_irq_probe(void)

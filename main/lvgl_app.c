@@ -6,6 +6,7 @@
 #include "twatch_display.h"
 #include "twatch_board.h"
 #include "twatch_brookesia_bridge.h"
+#include "bhi260ap_core.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -34,6 +35,8 @@ typedef struct {
     bool bhi_valid;
     twatch_bhi_identity_t bhi_identity;
     bool bhi_identity_valid;
+    bool accel_valid;
+    int16_t accel_x, accel_y, accel_z;
 } diagnostics_snapshot_t;
 
 /* I2C belongs to this worker; LVGL callbacks only consume a short-lived
@@ -50,6 +53,8 @@ static void diagnostics_sample_task(void *arg)
         twatch_rail_snapshot_t rails = {0};
         bool bhi_present = false;
         twatch_bhi_identity_t bhi_identity = {0};
+        int16_t accel_x = 0, accel_y = 0, accel_z = 0;
+        const bool accel_valid = bhi260ap_core_get_accel(&accel_x, &accel_y, &accel_z);
         const bool power_valid = twatch_board_read_power(&power) == ESP_OK;
         const bool rtc_valid = twatch_board_read_rtc(&rtc) == ESP_OK;
         const bool rails_valid = twatch_board_read_rails(&rails) == ESP_OK;
@@ -62,11 +67,13 @@ static void diagnostics_sample_task(void *arg)
             if (rails_valid) diagnostics_snapshot.rails = rails;
             if (bhi_valid) diagnostics_snapshot.bhi_present = bhi_present;
             if (bhi_identity_valid) diagnostics_snapshot.bhi_identity = bhi_identity;
+            if (accel_valid) { diagnostics_snapshot.accel_x = accel_x; diagnostics_snapshot.accel_y = accel_y; diagnostics_snapshot.accel_z = accel_z; }
             if (power_valid) diagnostics_snapshot.power_valid = true;
             if (rtc_valid) diagnostics_snapshot.rtc_valid = true;
             if (rails_valid) diagnostics_snapshot.rails_valid = true;
             if (bhi_valid) diagnostics_snapshot.bhi_valid = true;
             if (bhi_identity_valid) diagnostics_snapshot.bhi_identity_valid = true;
+            if (accel_valid) diagnostics_snapshot.accel_valid = true;
             xSemaphoreGive(diagnostics_snapshot_mutex);
         }
         if (!power_valid || !rtc_valid || !rails_valid || !bhi_valid || !bhi_identity_valid) {
@@ -163,14 +170,15 @@ static void diagnostics_timer_cb(lv_timer_t *timer)
     const twatch_rtc_snapshot_t *rtc = &snapshot.rtc;
     const twatch_rail_snapshot_t *rails = &snapshot.rails;
     char text[160];
-    lv_snprintf(text, sizeof(text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC\nRails: D%s T%s\nALDO4: %s %umV\nBHI: %s P%02X C%02X",
+    lv_snprintf(text, sizeof(text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC\nRails: D%s T%s\nALDO4: %s %umV\nBHI: %s P%02X C%02X\nACC: %s %d %d %d",
                 power->battery_mv, power->usb_present ? "yes" : "no",
                 power->charging ? "yes" : "no", rtc->hours, rtc->minutes, rtc->seconds,
                 rails->display_enable_latch_high ? "on" : "off",
                 rails->touch_reset_latch_high ? "high" : "low",
                 rails->aldo4_enabled ? "on" : "off", rails->aldo4_configured_mv,
                 snapshot.bhi_present ? "ACK" : "absent",
-                snapshot.bhi_identity.product_id, snapshot.bhi_identity.chip_id);
+                snapshot.bhi_identity.product_id, snapshot.bhi_identity.chip_id,
+                snapshot.accel_valid ? "xyz" : "--", snapshot.accel_x, snapshot.accel_y, snapshot.accel_z);
     lv_label_set_text(diagnostics_label, text);
     lv_obj_invalidate(diagnostics_label);
     static uint32_t update_count;
