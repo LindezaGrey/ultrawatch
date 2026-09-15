@@ -67,6 +67,16 @@ void app_main(void)
     }
     uint8_t bhi_boot_status = 0;
     ESP_ERROR_CHECK(bhi260ap_core_load_firmware(&bhi_boot_status));
+    uint8_t virtual_sensors[32];
+    size_t virtual_sensor_count = 0;
+    ESP_ERROR_CHECK(bhi260ap_core_list_virtual_sensors(virtual_sensors, sizeof(virtual_sensors),
+                                                       &virtual_sensor_count));
+    ESP_LOGI(TAG, "BHI260AP virtual sensors available=%u", (unsigned)virtual_sensor_count);
+    for (size_t sensor_id = 0; sensor_id < sizeof(virtual_sensors) * 8U; ++sensor_id) {
+        if (virtual_sensors[sensor_id / 8U] & (uint8_t)(1U << (sensor_id % 8U))) {
+            ESP_LOGI(TAG, "BHI260AP virtual sensor id=%u", (unsigned)sensor_id);
+        }
+    }
     uint8_t touch_address = 0;
     bool touch_present = false;
     ESP_ERROR_CHECK(twatch_board_probe_touch(&touch_address, &touch_present));

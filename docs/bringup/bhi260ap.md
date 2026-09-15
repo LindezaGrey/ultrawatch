@@ -46,6 +46,11 @@ to sensor RAM, boot it, and verify the host firmware status bits. This is a
 build-tested runtime path; it must be device-tested before enabling interrupts
 or motion streams.
 
+After a verified boot, the core reads Bosch parameter `0x011F`
+(`BHY2_PARAM_SYS_VIRT_SENSOR_PRESENT`) and logs each available virtual sensor
+ID from the 256-bit presence map. This inventory is read-only; it does not
+enable or configure a sensor stream.
+
 The first ESP-IDF transport adapter is now build-tested. It connects the Bosch
 BHY2 core to board-owned I²C callbacks, performs the documented Bosch soft
 reset, and verifies product ID `0x89` during boot. Firmware upload, interrupt

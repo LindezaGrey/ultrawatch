@@ -1,4 +1,5 @@
 #include <inttypes.h>
+#include <string.h>
 #include "bhi260ap_core.h"
 #include "bhy2.h"
 #include "twatch_board.h"
@@ -54,5 +55,26 @@ esp_err_t bhi260ap_core_load_firmware(uint8_t *boot_status)
     if (result != BHY2_OK) return ESP_FAIL;
     if (!(*boot_status & BHY2_BST_HOST_FW_VERIFY_DONE) ||
         (*boot_status & BHY2_BST_HOST_FW_VERIFY_ERROR)) return ESP_FAIL;
+    return ESP_OK;
+}
+
+esp_err_t bhi260ap_core_list_virtual_sensors(uint8_t *present, size_t present_size, size_t *count)
+{
+    if (!initialized || !present || !count || present_size < sizeof(device.present_buff)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    int8_t result = bhy2_get_virt_sensor_list(&device);
+    if (result != BHY2_OK) {
+        ESP_LOGE(TAG, "virtual sensor list failed result=%d", result);
+        return ESP_FAIL;
+    }
+    memcpy(present, device.present_buff, sizeof(device.present_buff));
+    *count = 0;
+    for (size_t sensor_id = 0; sensor_id < sizeof(device.present_buff) * 8U; ++sensor_id) {
+        if (present[sensor_id / 8U] & (uint8_t)(1U << (sensor_id % 8U))) {
+            ++*count;
+        }
+    }
+    ESP_LOGI(TAG, "virtual sensor list retrieved count=%u", (unsigned)*count);
     return ESP_OK;
 }
