@@ -69,6 +69,14 @@ static void menu_toggle_cb(lv_event_t *event)
     if (menu_panel == NULL) return;
     if (lv_obj_has_flag(menu_panel, LV_OBJ_FLAG_HIDDEN)) {
         lv_obj_clear_flag(menu_panel, LV_OBJ_FLAG_HIDDEN);
+        twatch_power_snapshot_t power;
+        if (twatch_board_read_power(&power) == ESP_OK) {
+            char status[96];
+            lv_snprintf(status, sizeof(status), "Battery: %umV\nUSB: %s  Charge: %s",
+                        power.battery_mv, power.usb_present ? "yes" : "no",
+                        power.charging ? "yes" : "no");
+            lv_label_set_text(menu_text, status);
+        }
     } else {
         lv_obj_add_flag(menu_panel, LV_OBJ_FLAG_HIDDEN);
     }
