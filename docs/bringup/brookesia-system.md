@@ -271,3 +271,20 @@ observations. Operator display/touch confirmation remains pending; serial
 flushes alone do not establish visual correctness. Longer-run stability and
 power consumption are not established. Next: verify clean UTC/navigation/
 Diagnostics/Sensors on the physical screen before System Super integration.
+
+## Adapter panic reported after initial capture
+
+Operator reports a crash after Diagnostics -> Touch me twice -> Back on 429e37c.
+Follow-up serial reports reset_reason=4 (ESP_RST_PANIC), whereas deployment
+capture reports reset_reason=11. This confirms an intervening panic-related
+restart. The panic/backtrace itself preceded capture and is unavailable; do not
+attribute the cause to stack, display timing, or navigation without evidence.
+The first captured repeat shows continuously increasing uptime and successful
+flushes, stable internal heap=179220, worker stack margin at least 3812 bytes,
+and no new panic. Back currently intentionally loads Home, not Menu.
+Evidence: 2026-09-15-adapter-panic-followup.log and
+2026-09-15-adapter-first-repro.log. Further serial reproduction capture armed;
+no reset, debugger operation, source fix, or reflash performed during this
+investigation. The adapter stability gate is NOT passed; the earlier short-run
+success does not supersede this reported and reset-cause-confirmed failure.
+Next: capture a matching-ELF panic backtrace on recurrence, using JTAG if needed.

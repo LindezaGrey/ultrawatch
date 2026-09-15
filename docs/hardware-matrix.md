@@ -415,3 +415,8 @@ Adapter image 429e37c flashed and starts successfully; flushes advance,
 short-run heap remains stable at 179120 bytes and worker stack margin >=3828
 bytes in the capture. Visual/touch confirmation pending. See
 `docs/bringup/2026-09-15-adapter-owned-ui-serial.log` and bring-up notes.
+
+Adapter 429e37c stability NOT validated: subsequent operator-reported
+Diagnostics/touch/Back failure is accompanied by ESP_RST_PANIC on the next boot.
+Root cause unverified; first captured repeat did not reproduce it. See the
+adapter panic follow-up section in bring-up notes.
