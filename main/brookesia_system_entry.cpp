@@ -5,6 +5,8 @@
 #include "esp_log.h"
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "brookesia/gui_lvgl.hpp"
 #include "brookesia/service_manager/service/manager.hpp"
 #include "brookesia/system_super.hpp"
@@ -84,21 +86,32 @@ extern "C" bool twatch_brookesia_services_probe(void)
     // Run before native LVGL starts reading touch; release Display and its
     // Storage dependency and stop scheduler workers before handing ownership back.
     auto &manager = esp_brookesia::service::ServiceManager::get_instance();
-    const size_t heap_before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-    bool bound = false;
-    if (manager.init() && manager.start()) {
-        auto display = manager.bind("Display");
-        bound = display.is_valid();
-        ESP_LOGI(TAG, "SERVICE_PROBE display_bind=%s", bound ? "ok" : "failed");
-        display.release();
-    } else {
-        ESP_LOGE(TAG, "SERVICE_PROBE manager startup failed");
+    bool all_bound = true;
+    for (unsigned cycle = 1; cycle <= 3; ++cycle) {
+        const size_t heap_before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+        const unsigned tasks_before = uxTaskGetNumberOfTasks();
+        bool bound = false;
+        if (manager.init() && manager.start()) {
+            auto display = manager.bind("Display");
+            bound = display.is_valid();
+            display.release();
+        }
+        manager.stop();
+        manager.deinit();
+        const size_t immediate = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+        const unsigned tasks_immediate = uxTaskGetNumberOfTasks();
+        // Diagnostic sampling interval only: allow idle-task reclamation to run.
+        // This is not a lifecycle synchronization mechanism or a proposed fix.
+        vTaskDelay(pdMS_TO_TICKS(100));
+        const bool healthy = heap_caps_check_integrity_all(true);
+        ESP_LOGI(TAG, "SERVICE_CYCLE cycle=%u bind=%s before=%u immediate=%u settled=%u "
+                      "tasks=%u/%u/%u heap_ok=%u",
+                 cycle, bound ? "ok" : "failed", static_cast<unsigned>(heap_before),
+                 static_cast<unsigned>(immediate),
+                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+                 tasks_before, tasks_immediate, static_cast<unsigned>(uxTaskGetNumberOfTasks()), healthy);
+        all_bound = all_bound && bound && healthy;
+        if (!all_bound) break;
     }
-    manager.stop();
-    manager.deinit();
-    ESP_LOGI(TAG, "SERVICE_PROBE cleanup=done internal_before=%u internal_after=%u heap_ok=%u",
-             static_cast<unsigned>(heap_before),
-             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
-             heap_caps_check_integrity_all(true));
-    return bound;
+    return all_bound;
 }

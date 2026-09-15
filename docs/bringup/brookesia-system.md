@@ -98,3 +98,18 @@ Wi-Fi service initialization fails because its HAL is absent; it did not block
 Display binding. Filesystem and full LVGL adapter/System Super remain untested.
 Evidence: docs/bringup/2026-09-15-service-binding-serial.log.
 Operator visual/touch confirmation pending for this image.
+
+## Repeated service cleanup diagnostic
+
+Operator confirmed screen and touch after 647218e. Next build performs at most
+three service bind/release/stop/deinit cycles before native LVGL. SERVICE_CYCLE
+logs internal heap before, immediately after cleanup, and after a 100 ms
+sampling interval, plus task counts and heap integrity. The interval observes
+possible idle-task reclamation; it is not a synchronization fix. Stops on a
+failed bind/integrity result. Compare settled values across cycles to distinguish
+first-use retention from recurring growth; background tasks introduce noise.
+The 29,740-byte observation remains unexplained until measured. No hardware
+control or flash is part of this preparation.
+
+Repeated-cycle diagnostic build passed on ESP-IDF 6.0.2; see
+2026-09-15-service-cycle-build.txt. Device measurements pending.
