@@ -40,3 +40,10 @@ delivered repeated ID 4 callbacks with stationary samples such as
 Using Bosch's `1/4096 g` scale, that sample is approximately
 `(+336, -56, +944) mg`, consistent with a stationary watch measuring gravity
 on its Z axis. The Diagnostics UI presents the converted milli-g values.
+
+The milli-g Diagnostics display was device-tested after flashing commit
+`9d2630e`; the operator confirmed that the `ACC: xyz` line populated. The
+current implementation retains a bounded one-second FIFO-status fallback when
+GPIO8 does not deliver an edge. GPIO8 delivery is therefore still an open
+optimization/debugging item, not a prerequisite for the validated sensor data
+path.
