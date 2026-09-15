@@ -1,0 +1,7 @@
+Telemetry read failure recovery: build-tested and host-tested; not flashed
+Pinned ESP-IDF 6.0.2 idf.py build: exit 0
+python3 tools/test_telemetry_failure.py: PASS all four combinations and recovery
+Device evidence establishes old panic path, not validation of this new image
+Startup PMU read error and underlying I2C timeout cause remain unresolved
+build/twatch_ultra_phase1.elf: bytes=170612724 sha256=c409aca274e1b83a837772eff61e298aa73121773828afab6bf7542335d3fabe
+build/twatch_ultra_phase1.bin: bytes=2421456 sha256=6d698ddabb5495343615953d6bdf25b9f701679525c0e28fe95a82ea0324fe96

@@ -434,3 +434,16 @@ panic remains unresolved. See back-timing results and bring-up analysis.
 Back refresh profiling extended with public LVGL render/flush/wait event
 measurements. Board transport, alignment, buffer size and scheduling unchanged.
 Awaiting device phase samples; elapsed scopes do not isolate CPU/preemption.
+
+On phase-timing image 9f25a27, the first PMU identity read (0x34/reg0x03)
+failed with ESP_ERR_INVALID_RESPONSE after flash/RTS reset, causing the checked
+startup abort. Automatic next boot succeeded. Electrical/protocol cause remains
+unverified; no PMU configuration or power-sequence change made. See phase timing
+deployment notes and decoded matching-ELF backtrace.
+
+Runtime crash captured on 9f25a27: periodic XL9555 0x20/reg0x05 timeout
+was promoted to panic by main telemetry ESP_ERROR_CHECK. Prepared fix suppresses
+incomplete telemetry and continues; physical timeout cause remains unverified.
+IDF already serializes synchronous bus transactions. Startup checks remain fatal.
+Host fault injection covers all read-success/failure combinations and recovery;
+new firmware device validation pending.

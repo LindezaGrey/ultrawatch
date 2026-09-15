@@ -137,6 +137,8 @@ void app_main(void)
              CONFIG_ESP_TASK_WDT_TIMEOUT_S);
     battery_observation_t battery_run = {0};
     uint64_t next_telemetry_ms = 0;
+    uint32_t power_read_failures = 0;
+    uint32_t rail_read_failures = 0;
     for (uint32_t sample = 0;; ++sample) {
         require_integrity();
         ESP_ERROR_CHECK(esp_task_wdt_reset());
@@ -147,43 +149,58 @@ void app_main(void)
         }
         next_telemetry_ms = now_ms + 5000;
         twatch_power_snapshot_t power;
-        ESP_ERROR_CHECK(twatch_board_read_power(&power));
+        const esp_err_t power_result = twatch_board_read_power(&power);
         twatch_rail_snapshot_t rails;
-        ESP_ERROR_CHECK(twatch_board_read_rails(&rails));
-        ESP_LOGI("phase2", "RAILS dcdc=%02x dc1_raw=%02x ldo=%02x/%02x aldo2_raw=%02x "
-                 "dc1_on=%u dc1_valid=%u dc1_config_mv=%u aldo2_on=%u aldo2_valid=%u aldo2_config_mv=%u",
-                 rails.dcdc_control, rails.dc1_voltage, rails.ldo_control[0], rails.ldo_control[1],
-                 rails.aldo2_voltage, rails.dc1_enabled, rails.dc1_setting_valid, rails.dc1_configured_mv,
-                 rails.aldo2_enabled, rails.aldo2_setting_valid, rails.aldo2_configured_mv);
-        ESP_LOGI("phase2", "XL_CANDIDATE addr=20 out=%02x/%02x polarity=%02x/%02x cfg=%02x/%02x "
-                 "P07_output=%u P07_latch=%u P10_output=%u P10_latch=%u",
-                 rails.expander_output[0], rails.expander_output[1],
-                 rails.expander_polarity[0], rails.expander_polarity[1],
-                 rails.expander_config[0], rails.expander_config[1],
-                 rails.display_enable_output, rails.display_enable_latch_high,
-                 rails.touch_reset_output, rails.touch_reset_latch_high);
-        battery_observe(&battery_run, (uint64_t)esp_timer_get_time() / 1000,
-                        power.usb_present, power.battery_present, power.charging,
-                        power.battery_voltage_available, power.battery_mv);
-        ESP_LOGI("phase2", "BATTERY_RUN samples=%" PRIu32 " span_ms=%" PRIu64
-                 " first_ms=%" PRIu64 " last_ms=%" PRIu64 " voltage_samples=%" PRIu32
-                 " min_mv=%u max_mv=%u charging_samples=%" PRIu32 " active=%u",
-                 battery_run.samples, battery_run.last_ms - battery_run.first_ms,
-                 battery_run.first_ms, battery_run.last_ms, battery_run.voltage_samples,
-                 battery_run.min_mv, battery_run.max_mv, battery_run.charging_samples, battery_run.active);
-        ESP_LOGI("phase2", "PMU status=%02x/%02x adc=%02x usb=%u battery_present=%u "
-                 "charging=%u charger_state=%u irq=%02x/%02x/%02x off_en=%02x",
-                 power.status1, power.status2, power.adc_control, power.usb_present,
-                 power.battery_present, power.charging, power.charger_state,
-                 power.irq_status[0], power.irq_status[1], power.irq_status[2], power.poweroff_enable);
+        const esp_err_t rails_result = twatch_board_read_rails(&rails);
+        // Telemetry failure is not evidence of an unsafe rail configuration.
+        // Never decode an incomplete snapshot or reboot on an observation error.
+        // Retry naturally at the next five-second sample; no bus or PMU writes.
+        if (power_result != ESP_OK) ++power_read_failures;
+        if (rails_result != ESP_OK) ++rail_read_failures;
+        if (power_result != ESP_OK || rails_result != ESP_OK) {
+            ESP_LOGW(TAG, "TELEMETRY_READ power=%s rails=%s power_failures=%" PRIu32
+                     " rail_failures=%" PRIu32 " incomplete_snapshots=skipped",
+                     esp_err_to_name(power_result), esp_err_to_name(rails_result),
+                     power_read_failures, rail_read_failures);
+        }
+        if (rails_result == ESP_OK) {
+            ESP_LOGI("phase2", "RAILS dcdc=%02x dc1_raw=%02x ldo=%02x/%02x aldo2_raw=%02x "
+                     "dc1_on=%u dc1_valid=%u dc1_config_mv=%u aldo2_on=%u aldo2_valid=%u aldo2_config_mv=%u",
+                     rails.dcdc_control, rails.dc1_voltage, rails.ldo_control[0], rails.ldo_control[1],
+                     rails.aldo2_voltage, rails.dc1_enabled, rails.dc1_setting_valid, rails.dc1_configured_mv,
+                     rails.aldo2_enabled, rails.aldo2_setting_valid, rails.aldo2_configured_mv);
+            ESP_LOGI("phase2", "XL_CANDIDATE addr=20 out=%02x/%02x polarity=%02x/%02x cfg=%02x/%02x "
+                     "P07_output=%u P07_latch=%u P10_output=%u P10_latch=%u",
+                     rails.expander_output[0], rails.expander_output[1],
+                     rails.expander_polarity[0], rails.expander_polarity[1],
+                     rails.expander_config[0], rails.expander_config[1],
+                     rails.display_enable_output, rails.display_enable_latch_high,
+                     rails.touch_reset_output, rails.touch_reset_latch_high);
+        }
+        if (power_result == ESP_OK) {
+            battery_observe(&battery_run, (uint64_t)esp_timer_get_time() / 1000,
+                            power.usb_present, power.battery_present, power.charging,
+                            power.battery_voltage_available, power.battery_mv);
+            ESP_LOGI("phase2", "BATTERY_RUN samples=%" PRIu32 " span_ms=%" PRIu64
+                     " first_ms=%" PRIu64 " last_ms=%" PRIu64 " voltage_samples=%" PRIu32
+                     " min_mv=%u max_mv=%u charging_samples=%" PRIu32 " active=%u",
+                     battery_run.samples, battery_run.last_ms - battery_run.first_ms,
+                     battery_run.first_ms, battery_run.last_ms, battery_run.voltage_samples,
+                     battery_run.min_mv, battery_run.max_mv, battery_run.charging_samples, battery_run.active);
+            ESP_LOGI("phase2", "PMU status=%02x/%02x adc=%02x usb=%u battery_present=%u "
+                     "charging=%u charger_state=%u irq=%02x/%02x/%02x off_en=%02x",
+                     power.status1, power.status2, power.adc_control, power.usb_present,
+                     power.battery_present, power.charging, power.charger_state,
+                     power.irq_status[0], power.irq_status[1], power.irq_status[2], power.poweroff_enable);
 #if BROOKESIA_SYSTEM_RUNTIME
-        ESP_LOGI(TAG, "BROOKESIA_STAGE current=%" PRIu32 " running=%u",
-                 twatch_brookesia_system_last_stage(), brookesia_system_running);
+            ESP_LOGI(TAG, "BROOKESIA_STAGE current=%" PRIu32 " running=%u",
+                     twatch_brookesia_system_last_stage(), brookesia_system_running);
 #endif
-        if (power.battery_voltage_available) {
-            ESP_LOGI("phase2", "battery_mv=%u", power.battery_mv);
-        } else {
-            ESP_LOGI("phase2", "battery_mv=unavailable (battery absent or ADC disabled)");
+            if (power.battery_voltage_available) {
+                ESP_LOGI("phase2", "battery_mv=%u", power.battery_mv);
+            } else {
+                ESP_LOGI("phase2", "battery_mv=unavailable (battery absent or ADC disabled)");
+            }
         }
         // USB may enumerate after startup logs have passed. Repeat only facts
         // established on this boot; this line is reached after all fatal checks.

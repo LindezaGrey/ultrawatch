@@ -1,0 +1,77 @@
+[
+  {
+    "kind": "BACK_TIMING",
+    "press_to_click_us": 477477,
+    "load_us": 180,
+    "wait_refresh_us": 74,
+    "refresh_us": 138764,
+    "draw_us": 27586,
+    "max_draw_us": 947,
+    "total_us": 139018,
+    "flushes": 32,
+    "pixels": 205820,
+    "failures": 0
+  },
+  {
+    "kind": "BACK_PHASES",
+    "pre_render_us": 661,
+    "render_wall_us": 138035,
+    "render_other_us": 98313,
+    "flush_wall_us": 39033,
+    "adapter_pre_us": 9940,
+    "adapter_post_us": 1507,
+    "flush_wait_us": 689,
+    "wait_calls": 32,
+    "post_render_us": 68
+  },
+  {
+    "kind": "BACK_TIMING",
+    "press_to_click_us": 98993,
+    "load_us": 278,
+    "wait_refresh_us": 75,
+    "refresh_us": 129306,
+    "draw_us": 27788,
+    "max_draw_us": 950,
+    "total_us": 129659,
+    "flushes": 32,
+    "pixels": 205820,
+    "failures": 0
+  },
+  {
+    "kind": "BACK_PHASES",
+    "pre_render_us": 80,
+    "render_wall_us": 129163,
+    "render_other_us": 89483,
+    "flush_wall_us": 38970,
+    "adapter_pre_us": 9760,
+    "adapter_post_us": 1422,
+    "flush_wait_us": 710,
+    "wait_calls": 32,
+    "post_render_us": 63
+  },
+  {
+    "kind": "BACK_TIMING",
+    "press_to_click_us": 197869,
+    "load_us": 212,
+    "wait_refresh_us": 144,
+    "refresh_us": 131512,
+    "draw_us": 27814,
+    "max_draw_us": 953,
+    "total_us": 131868,
+    "flushes": 32,
+    "pixels": 205820,
+    "failures": 0
+  },
+  {
+    "kind": "BACK_PHASES",
+    "pre_render_us": 1139,
+    "render_wall_us": 130307,
+    "render_other_us": 90370,
+    "flush_wall_us": 39249,
+    "adapter_pre_us": 9797,
+    "adapter_post_us": 1638,
+    "flush_wait_us": 688,
+    "wait_calls": 32,
+    "post_render_us": 66
+  }
+]

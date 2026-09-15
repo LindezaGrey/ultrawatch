@@ -1,0 +1,7 @@
+0x40380021: panic_abort at /home/peter/esp/esp-idf/components/esp_system/panic.c:464
+0x4037ffe9: esp_system_abort at /home/peter/esp/esp-idf/components/esp_system/port/esp_system_chip.c:87
+0x4037dedd: abort at /home/peter/esp/esp-idf/components/esp_libc/src/abort.c:38
+0x4037ffdf: _esp_error_check_failed at /home/peter/esp/esp-idf/components/esp_system/esp_err.c:49
+0x42071910: app_main at /home/peter/SynologyDrive/Projekte/Brookesia/main/main.c:60 (discriminator 2)
+0x4200824b: main_task at /home/peter/esp/esp-idf/components/freertos/app_startup.c:206
+0x421704c6: vPortTaskWrapper at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:147

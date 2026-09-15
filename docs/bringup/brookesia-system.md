@@ -382,3 +382,61 @@ remain baseline evidence, not validation of this new diagnostic image.
 
 Back phase build passed; see 2026-09-15-back-phases-build.txt. Exact ELF and
 binary preserved locally in .cache/firmware/back-phases. No flash performed.
+
+## Phase timing deployment and startup PMU failure (9f25a27)
+
+Flash hashes verified. First boot after RTS reset aborted at app_main line 60,
+ESP_ERROR_CHECK(twatch_board_init()). Preceding error: I2C address 0x34 register
+0x03 returned ESP_ERR_INVALID_RESPONSE during PMU identity read. This occurs
+before LVGL initialization. Matching ELF cd323c472... decoded the backtrace to
+this startup check; see 2026-09-15-back-phases-panic-decoded.txt. The automatic
+restart succeeded and emitted LVGL ready owner=adapter followed by health logs.
+No manual reset, recovery image, speculative PMU write or retry patch was used.
+The reason for the I2C failure remains unverified. Do not conflate this captured
+startup abort with the earlier operator-reported navigation panic, whose actual
+backtrace was not captured. Boot reliability remains an open issue.
+
+## Captured runtime panic and telemetry error handling
+
+At uptime 113.756 s on 9f25a27, a periodic XL9555 read at 0x20/reg0x05 failed
+with ESP_ERR_TIMEOUT. app_main line 152 ESP_ERROR_CHECK(twatch_board_read_rails)
+aborted the watch. The exact-ELF backtrace confirms this path (see
+2026-09-15-telemetry-panic-decoded.txt). This reproduces a crash during the
+operator's navigation trials; it is not an LVGL exception. Whether the earlier
+uncaptured panic had this same cause cannot be established.
+
+The patch handles periodic PMU/rail read errors independently: count/log failures,
+skip the incomplete snapshot, keep watchdog/heap reporting and UI running, and
+sample again on the normal five-second schedule. Failed power reads do not enter
+battery observations; failed rails do not print rail values. No immediate retry,
+new bus lock, bus reset or regulator write. Essential startup checks are retained;
+the separate startup identity-read failure remains unresolved.
+
+Pinned IDF i2c_master.c s_i2c_synchronous_transaction already takes bus_lock_mux.
+ESP_ERR_TIMEOUT can arise waiting for that lock or from the transaction itself.
+Bus contention is therefore possible, not proven; the electrical/protocol reason
+for either captured read failure still needs investigation. Adding an outer
+mutex or increasing timeout without measurements is not part of this fix.
+
+Host fault injection compiles the actual main-loop telemetry block with mocked
+board readers: both succeed, power fails, rails fail, both fail, and subsequent
+recovery. It checks independent snapshot suppression, battery sample validity,
+failure counters, one call per reader, and no abort. This validates application
+error handling, not physical I2C behavior. Run tools/test_telemetry_failure.py.
+
+Three phase-timing trials before the panic measured click-to-refresh totals
+129.659–139.018 ms. Render excluding flush/wait: 89.483–98.313 ms; whole flush
+38.970–39.249 ms, including HAL 27.586–27.814 ms, adapter-pre 9.760–9.940 ms and
+adapter-post 1.422–1.638 ms. Explicit flush waits total 0.688–0.710 ms. All three
+send 205820 pixels in 32 flushes with zero transfer failures. Rendering-related
+elapsed time dominates; task preemption and internal drawing waits remain inside
+that category. See 2026-09-15-back-phases-{serial.log,results.json}.
+Prioritize validating nonfatal telemetry behavior before optimizing rendering.
+
+Telemetry recovery build and host test passed; exact identity in
+2026-09-15-telemetry-recovery-build.txt, artifacts cached under
+.cache/firmware/telemetry-recovery. Not flashed. After authorization, repeat
+navigation with logs; on natural telemetry failure expect TELEMETRY_READ and
+continuing HEALTH/ADAPTER_HEALTH without restart. Do not disconnect or short
+I2C hardware to induce faults. No-failure trials alone do not device-validate
+the failure branch.
