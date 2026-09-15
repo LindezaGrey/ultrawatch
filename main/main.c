@@ -26,7 +26,7 @@ static const char *TAG = "phase1";
 enum { EXPECTED_FLASH_BYTES = 16 * 1024 * 1024, EXPECTED_PSRAM_BYTES = 8 * 1024 * 1024 };
 #define DISPLAY_GEOMETRY_TEST 0
 #define DISPLAY_INVERTED 1
-#define BROOKESIA_SYSTEM_RUNTIME 0
+#define BROOKESIA_SYSTEM_RUNTIME 1
 
 static void require_integrity(void)
 {

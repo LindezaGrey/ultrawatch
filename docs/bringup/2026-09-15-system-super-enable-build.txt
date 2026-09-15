@@ -1,0 +1,9 @@
+Brookesia System Super enablement build
+Target: LilyGO T-Watch Ultra V1.0 / ESP32-S3 / SX1262
+Framework: ESP-IDF 6.0.2
+
+BROOKESIA_SYSTEM_RUNTIME is enabled in main/main.c. The native LVGL shell
+remains the checked fallback if System Super initialization or start fails.
+SPIFFS and NVS storage interfaces are registered before the System Super
+attempt. Build passed; binary size is 0x256e50 bytes. Flash and physical
+System Super validation are pending explicit authorization.

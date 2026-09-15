@@ -46,6 +46,15 @@ One touch-read warning occurred during the temporary service probe before native
 touch ownership; final UI visual and interactive confirmation remains pending.
 Evidence: 2026-09-15-spiffs-serial.log.
 
+## System Super enablement preparation
+
+With the filesystem gate passed, `BROOKESIA_SYSTEM_RUNTIME` is enabled. The
+native LVGL shell remains a checked fallback if System Super startup fails.
+This build keeps the existing panel/touch ownership and starts System Super
+only after the Storage and Display service probes complete. Build passed;
+physical System Super startup and UI validation are pending. See
+2026-09-15-system-super-enable-build.txt.
+
 ## Display recovery after panel-I/O experiment
 
 Operator reported a black display after commit 5950eba; previous serial health
