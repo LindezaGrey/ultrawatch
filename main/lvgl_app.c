@@ -97,6 +97,12 @@ static void diagnostics_timer_cb(lv_timer_t *timer)
                 power.battery_mv, power.usb_present ? "yes" : "no",
                 power.charging ? "yes" : "no", rtc.hours, rtc.minutes, rtc.seconds);
     lv_label_set_text(diagnostics_label, text);
+    lv_obj_invalidate(diagnostics_label);
+    static uint32_t update_count;
+    if ((update_count++ % 10U) == 0U) {
+        ESP_LOGI(TAG, "Diagnostics update RTC=%02x:%02x:%02x battery=%umV",
+                 rtc.hours, rtc.minutes, rtc.seconds, power.battery_mv);
+    }
 }
 
 static void menu_display_cb(lv_event_t *event)
