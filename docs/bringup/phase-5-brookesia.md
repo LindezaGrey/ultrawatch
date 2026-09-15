@@ -142,5 +142,7 @@ transactions once per second, then publishes the most recent valid values under
 a mutex. LVGL timers only copy and render that snapshot; they do not perform I²C
 work or block on peripheral transactions. This keeps the LVGL tick path bounded
 and makes the diagnostics refresh independent of the UI page currently loaded.
-The change is build-tested; device validation is pending the next authorized
-flash.
+The implementation was flashed in commit `f4ccbbf`; the operator confirmed that
+battery, USB, charge, and UTC values populate on the Diagnostics page. This is
+now **device-tested**. The one-hour lifecycle gate remains waived by operator
+decision.
