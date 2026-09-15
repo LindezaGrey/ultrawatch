@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "esp_log.h"
+#include "esp_attr.h"
 #include "brookesia/gui_lvgl.hpp"
 #include "brookesia/service_manager/service/manager.hpp"
 #include "brookesia/system_super.hpp"
@@ -12,6 +13,7 @@ namespace {
 constexpr const char *TAG = "brookesia_system";
 std::unique_ptr<esp_brookesia::system::super::System> system_instance;
 bool started;
+RTC_NOINIT_ATTR uint32_t last_stage;
 
 } // namespace
 
@@ -21,16 +23,19 @@ extern "C" bool twatch_brookesia_system_start(void)
         return true;
     }
 
+    last_stage = 1;
     auto &service_manager = esp_brookesia::service::ServiceManager::get_instance();
     if (!service_manager.init()) {
         ESP_LOGE(TAG, "Service manager init failed");
         return false;
     }
+    last_stage = 2;
     if (!service_manager.start()) {
         ESP_LOGE(TAG, "Service manager start failed");
         return false;
     }
 
+    last_stage = 3;
     esp_brookesia::gui::lvgl::DisplaySourceConfig display_config{};
     display_config.output_name.clear();
     if (!esp_brookesia::gui::lvgl::DisplaySource::get_instance().start(display_config)) {
@@ -47,12 +52,14 @@ extern "C" bool twatch_brookesia_system_start(void)
         .density = 1.0F,
         .font_scale = 1.0F,
     };
+    last_stage = 4;
     const auto init_result = system_instance->init(std::move(config));
     if (!init_result) {
         ESP_LOGE(TAG, "System init failed: %s", init_result.error().c_str());
         system_instance.reset();
         return false;
     }
+    last_stage = 5;
     const auto start_result = system_instance->start();
     if (!start_result) {
         ESP_LOGE(TAG, "System start failed: %s", start_result.error().c_str());
@@ -61,6 +68,12 @@ extern "C" bool twatch_brookesia_system_start(void)
     }
 
     started = true;
+    last_stage = 0;
     ESP_LOGI(TAG, "System Super started on T-Watch Ultra 410x502");
     return true;
+}
+
+extern "C" uint32_t twatch_brookesia_system_last_stage(void)
+{
+    return last_stage;
 }

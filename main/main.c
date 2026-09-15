@@ -116,6 +116,8 @@ void app_main(void)
     ESP_ERROR_CHECK(twatch_brookesia_bridge_start() ? ESP_OK : ESP_FAIL);
     bool brookesia_system_running = false;
 #if BROOKESIA_SYSTEM_RUNTIME
+    ESP_LOGI(TAG, "System Super previous stage=%" PRIu32 " (0=none,1=manager-init,2=manager-start,3=display-source,4=system-init,5=system-start)",
+             twatch_brookesia_system_last_stage());
     brookesia_system_running = twatch_brookesia_system_start();
     if (!brookesia_system_running) {
         ESP_LOGE(TAG, "System Super handoff failed; falling back to native LVGL shell");
