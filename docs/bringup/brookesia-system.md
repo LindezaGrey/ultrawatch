@@ -288,3 +288,11 @@ no reset, debugger operation, source fix, or reflash performed during this
 investigation. The adapter stability gate is NOT passed; the earlier short-run
 success does not supersede this reported and reset-cause-confirmed failure.
 Next: capture a matching-ELF panic backtrace on recurrence, using JTAG if needed.
+
+Operator subsequently reports the crash cannot be reproduced. Extended capture
+continues through uptime 258.696 s with internal_free=179220, heap_integrity=ok,
+3133 successful flushes and minimum observed worker stack margin 3812 bytes.
+No further panic observed. Logger stopped cleanly by terminating its timeout
+process (exit 143); watch left running without reset or flash. Evidence:
+2026-09-15-adapter-extended-repro.log. Original panic remains unresolved. Retain
+matching 429e37c ELF identity for a future panic backtrace; do not mark this fixed.

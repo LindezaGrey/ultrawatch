@@ -1,0 +1,750 @@
+I (155166) bhi260ap_core: accelerometer id=4 x=2852 y=-309 z=293I (168076) bhi260ap_core: accelerometer id=4 x=2852 y=-300 z=2932
+I (168076) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (168136) twatch_board: TOUCH_PACKET points=1 raw=ab 0d 1e 31 00 01 ab
+I (168456) lvgl_app: ADAPTER_HEALTH flushes=1581 stack_free_bytes=3812
+I (168646) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (168646) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (168646) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (168646) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (168646) phase2: battery_mv=4170
+I (168646) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (168646) phase1: HEALTH sample=14116 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (168716) bhi260ap_core: accelerometer id=4 x=2851 y=-305 z=2931
+I (168716) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (168786) twatch_board: RTC_READ ctrl1=00 time=18/49/09 date=15 wd=03/09/26 bcd_plausible=1
+I (168796) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (168796) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (169366) bhi260ap_core: accelerometer id=4 x=2852 y=-305 z=2931
+I (169366) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (169486) lvgl_app: Diagnostics update RTC=18:49:09 battery=4171mV
+I (169806) twatch_board: RTC_READ ctrl1=00 time=18/49/10 date=15 wd=03/09/26 bcd_plausible=1
+I (169826) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (169826) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (170016) bhi260ap_core: accelerometer id=4 x=2851 y=-305 z=2931
+I (170016) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (170656) bhi260ap_core: accelerometer id=4 x=2851 y=-304 z=2930
+I (170656) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (170826) twatch_board: RTC_READ ctrl1=00 time=18/49/11 date=15 wd=03/09/26 bcd_plausible=1
+I (170836) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (170846) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (171296) bhi260ap_core: accelerometer id=4 x=2851 y=-305 z=2932
+I (171306) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (171746) twatch_board: TOUCH_PACKET points=1 raw=ab 0f 10 8e 00 01 ab
+I (171846) twatch_board: RTC_READ ctrl1=00 time=18/49/12 date=15 wd=03/09/26 bcd_plausible=1
+I (171856) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (171856) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (171946) bhi260ap_core: accelerometer id=4 x=2851 y=-305 z=2932
+I (171946) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (172596) bhi260ap_core: accelerometer id=4 x=2851 y=-305 z=2931
+I (172596) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (172876) twatch_board: RTC_READ ctrl1=00 time=18/49/13 date=15 wd=03/09/26 bcd_plausible=1
+I (172886) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (172886) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (173236) bhi260ap_core: accelerometer id=4 x=2850 y=-301 z=2932
+I (173236) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (173456) lvgl_app: ADAPTER_HEALTH flushes=1816 stack_free_bytes=3812
+I (173636) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (173636) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (173636) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (173636) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (173636) phase2: battery_mv=4170
+I (173636) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (173636) phase1: HEALTH sample=14481 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (173886) bhi260ap_core: accelerometer id=4 x=2852 y=-304 z=2932
+I (173886) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (173896) twatch_board: RTC_READ ctrl1=00 time=18/49/14 date=15 wd=03/09/26 bcd_plausible=1
+I (173896) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (173906) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (174526) bhi260ap_core: accelerometer id=4 x=2852 y=-301 z=2931
+I (174526) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (174906) twatch_board: RTC_READ ctrl1=00 time=18/49/15 date=15 wd=03/09/26 bcd_plausible=1
+I (174926) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (174926) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (175176) bhi260ap_core: accelerometer id=4 x=2851 y=-305 z=2931
+I (175176) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (175316) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 1f 00 01 ab
+I (175816) bhi260ap_core: accelerometer id=4 x=2853 y=-301 z=2931
+I (175816) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (175926) twatch_board: RTC_READ ctrl1=00 time=18/49/16 date=15 wd=03/09/26 bcd_plausible=1
+I (175936) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (175936) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (176466) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2929
+I (176466) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (176946) twatch_board: RTC_READ ctrl1=00 time=18/49/17 date=15 wd=03/09/26 bcd_plausible=1
+I (176956) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (176956) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (177106) bhi260ap_core: accelerometer id=4 x=2853 y=-300 z=2932
+I (177106) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (177756) bhi260ap_core: accelerometer id=4 x=2853 y=-302 z=2931
+I (177756) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (177956) twatch_board: RTC_READ ctrl1=00 time=18/49/18 date=15 wd=03/09/26 bcd_plausible=1
+I (177966) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (177976) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (178396) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2930
+I (178396) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (178456) lvgl_app: ADAPTER_HEALTH flushes=1929 stack_free_bytes=3812
+I (178636) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (178636) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (178636) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (178636) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (178636) phase2: battery_mv=4170
+I (178636) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (178636) phase1: HEALTH sample=14931 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (178886) twatch_board: TOUCH_PACKET points=1 raw=ab 0f 1d 8f 00 01 ab
+I (178976) twatch_board: RTC_READ ctrl1=00 time=18/49/19 date=15 wd=03/09/26 bcd_plausible=1
+I (178996) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (178996) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (179046) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2931
+I (179046) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (179506) lvgl_app: Diagnostics update RTC=18:49:19 battery=4170mV
+I (179686) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2931
+I (179686) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (179996) twatch_board: RTC_READ ctrl1=00 time=18/49/20 date=15 wd=03/09/26 bcd_plausible=1
+I (180016) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (180016) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (180336) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2931
+I (180336) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (180976) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2931
+I (180976) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (181016) twatch_board: RTC_READ ctrl1=00 time=18/49/21 date=15 wd=03/09/26 bcd_plausible=1
+I (181026) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (181026) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (181626) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2930
+I (181626) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (182036) twatch_board: RTC_READ ctrl1=00 time=18/49/23 date=15 wd=03/09/26 bcd_plausible=1
+I (182036) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (182046) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (182186) twatch_board: TOUCH_PACKET points=1 raw=ab 0f 1d 8f 00 01 ab
+I (182266) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (182266) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (182916) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2930
+I (182916) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (183056) twatch_board: RTC_READ ctrl1=00 time=18/49/24 date=15 wd=03/09/26 bcd_plausible=1
+I (183066) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (183066) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (183456) lvgl_app: ADAPTER_HEALTH flushes=1929 stack_free_bytes=3812
+I (183556) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2931
+I (183556) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (183646) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (183656) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (183656) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (183656) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (183656) phase2: battery_mv=4170
+I (183656) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (183656) phase1: HEALTH sample=15427 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (184076) twatch_board: RTC_READ ctrl1=00 time=18/49/25 date=15 wd=03/09/26 bcd_plausible=1
+I (184086) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (184086) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (184206) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (184206) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (184846) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (184846) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (185096) twatch_board: RTC_READ ctrl1=00 time=18/49/26 date=15 wd=03/09/26 bcd_plausible=1
+I (185106) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (185106) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (185486) twatch_board: TOUCH_PACKET points=1 raw=ab 0f 1d 8f 00 01 ab
+I (185496) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2930
+I (185496) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (186106) twatch_board: RTC_READ ctrl1=00 time=18/49/27 date=15 wd=03/09/26 bcd_plausible=1
+I (186126) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (186126) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (186136) bhi260ap_core: accelerometer id=4 x=2853 y=-301 z=2931
+I (186136) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (186786) bhi260ap_core: accelerometer id=4 x=2852 y=-296 z=2932
+I (186786) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (187126) twatch_board: RTC_READ ctrl1=00 time=18/49/28 date=15 wd=03/09/26 bcd_plausible=1
+I (187146) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (187146) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (187426) bhi260ap_core: accelerometer id=4 x=2852 y=-301 z=2931
+I (187426) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (188076) bhi260ap_core: accelerometer id=4 x=2852 y=-299 z=2932
+I (188086) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (188156) twatch_board: RTC_READ ctrl1=00 time=18/49/29 date=15 wd=03/09/26 bcd_plausible=1
+I (188156) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (188166) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (188456) lvgl_app: ADAPTER_HEALTH flushes=1994 stack_free_bytes=3812
+I (188656) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (188656) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (188656) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (188656) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (188666) phase2: battery_mv=4171
+I (188666) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (188666) phase1: HEALTH sample=15880 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (188716) bhi260ap_core: accelerometer id=4 x=2852 y=-299 z=2931
+I (188716) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (189046) twatch_board: TOUCH_PACKET points=1 raw=ab 0d 1e ac 00 01 ab
+I (189166) twatch_board: RTC_READ ctrl1=00 time=18/49/30 date=15 wd=03/09/26 bcd_plausible=1
+I (189186) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (189186) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (189366) bhi260ap_core: accelerometer id=4 x=2852 y=-296 z=2932
+I (189366) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (189536) lvgl_app: Diagnostics update RTC=18:49:30 battery=4170mV
+I (190016) bhi260ap_core: accelerometer id=4 x=2853 y=-295 z=2930
+I (190016) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (190206) twatch_board: RTC_READ ctrl1=00 time=18/49/31 date=15 wd=03/09/26 bcd_plausible=1
+I (190216) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (190216) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (190656) bhi260ap_core: accelerometer id=4 x=2851 y=-298 z=2932
+I (190656) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (191216) twatch_board: RTC_READ ctrl1=00 time=18/49/32 date=15 wd=03/09/26 bcd_plausible=1
+I (191236) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (191236) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (191306) bhi260ap_core: accelerometer id=4 x=2851 y=-295 z=2932
+I (191306) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (191956) bhi260ap_core: accelerometer id=4 x=2852 y=-293 z=2932
+I (191956) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (192256) twatch_board: RTC_READ ctrl1=00 time=18/49/33 date=15 wd=03/09/26 bcd_plausible=1
+I (192266) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (192266) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (192596) bhi260ap_core: accelerometer id=4 x=2852 y=-294 z=2931
+I (192596) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (192896) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 16 18 00 01 ab
+I (193236) bhi260ap_core: accelerometer id=4 x=2853 y=-297 z=2931
+I (193236) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (193276) twatch_board: RTC_READ ctrl1=00 time=18/49/34 date=15 wd=03/09/26 bcd_plausible=1
+I (193296) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (193296) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (193516) lvgl_app: ADAPTER_HEALTH flushes=2356 stack_free_bytes=3812
+I (193666) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (193666) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (193666) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (193666) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (193666) phase2: battery_mv=4171
+I (193666) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (193666) phase1: HEALTH sample=16230 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (193876) bhi260ap_core: accelerometer id=4 x=2852 y=-299 z=2931
+I (193886) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (194296) twatch_board: RTC_READ ctrl1=00 time=18/49/35 date=15 wd=03/09/26 bcd_plausible=1
+I (194316) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (194316) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (194526) bhi260ap_core: accelerometer id=4 x=2852 y=-298 z=2932
+I (194526) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (195176) bhi260ap_core: accelerometer id=4 x=2852 y=-291 z=2933
+I (195176) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (195316) twatch_board: RTC_READ ctrl1=00 time=18/49/36 date=15 wd=03/09/26 bcd_plausible=1
+I (195326) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (195326) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (195816) bhi260ap_core: accelerometer id=4 x=2851 y=-294 z=2933
+I (195826) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (196336) twatch_board: RTC_READ ctrl1=00 time=18/49/37 date=15 wd=03/09/26 bcd_plausible=1
+I (196346) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (196346) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (196466) bhi260ap_core: accelerometer id=4 x=2851 y=-293 z=2933
+I (196466) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (196726) twatch_board: TOUCH_PACKET points=1 raw=ab 0f 1a f7 00 01 ab
+I (197106) bhi260ap_core: accelerometer id=4 x=2851 y=-295 z=2932
+I (197106) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (197366) twatch_board: RTC_READ ctrl1=00 time=18/49/38 date=15 wd=03/09/26 bcd_plausible=1
+I (197376) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (197386) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (197756) bhi260ap_core: accelerometer id=4 x=2852 y=-293 z=2932
+I (197756) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (198386) twatch_board: RTC_READ ctrl1=00 time=18/49/39 date=15 wd=03/09/26 bcd_plausible=1
+I (198396) bhi260ap_core: accelerometer id=4 x=2852 y=-285 z=2933
+I (198396) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (198406) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (198406) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (198546) lvgl_app: ADAPTER_HEALTH flushes=2529 stack_free_bytes=3812
+I (198666) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (198666) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (198666) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (198676) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (198676) phase2: battery_mv=4171
+I (198676) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (198676) phase1: HEALTH sample=16651 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (199046) bhi260ap_core: accelerometer id=4 x=2853 y=-287 z=2932
+I (199046) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (199416) twatch_board: RTC_READ ctrl1=00 time=18/49/40 date=15 wd=03/09/26 bcd_plausible=1
+I (199426) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (199426) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (199686) lvgl_app: Diagnostics update RTC=18:49:40 battery=4170mV
+I (199686) bhi260ap_core: accelerometer id=4 x=2852 y=-293 z=2931
+I (199686) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (200336) bhi260ap_core: accelerometer id=4 x=2851 y=-294 z=2932
+I (200336) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (200346) twatch_board: TOUCH_PACKET points=1 raw=ab 10 10 93 00 01 ab
+I (200426) twatch_board: RTC_READ ctrl1=00 time=18/49/41 date=15 wd=03/09/26 bcd_plausible=1
+I (200436) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (200436) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (200976) bhi260ap_core: accelerometer id=4 x=2852 y=-291 z=2932
+I (200976) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (201446) twatch_board: RTC_READ ctrl1=00 time=18/49/42 date=15 wd=03/09/26 bcd_plausible=1
+I (201466) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (201466) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (201626) bhi260ap_core: accelerometer id=4 x=2852 y=-290 z=2932
+I (201626) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (202266) bhi260ap_core: accelerometer id=4 x=2852 y=-297 z=2932
+I (202266) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (202476) twatch_board: RTC_READ ctrl1=00 time=18/49/43 date=15 wd=03/09/26 bcd_plausible=1
+I (202486) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (202486) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (202916) bhi260ap_core: accelerometer id=4 x=2852 y=-296 z=2931
+I (202916) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (203496) twatch_board: RTC_READ ctrl1=00 time=18/49/44 date=15 wd=03/09/26 bcd_plausible=1
+I (203506) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (203506) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (203546) lvgl_app: ADAPTER_HEALTH flushes=2858 stack_free_bytes=3812
+I (203556) bhi260ap_core: accelerometer id=4 x=2851 y=-301 z=2931
+I (203566) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (203676) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (203676) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (203676) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (203676) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (203676) phase2: battery_mv=4171
+I (203676) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (203676) phase1: HEALTH sample=16982 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (204016) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (204206) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2931
+I (204206) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (204506) twatch_board: RTC_READ ctrl1=00 time=18/49/45 date=15 wd=03/09/26 bcd_plausible=1
+I (204526) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (204526) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (204846) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2931
+I (204846) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (205496) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2931
+I (205496) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (205526) twatch_board: RTC_READ ctrl1=00 time=18/49/46 date=15 wd=03/09/26 bcd_plausible=1
+I (205536) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (205536) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (206136) bhi260ap_core: accelerometer id=4 x=2853 y=-302 z=2930
+I (206136) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (206536) twatch_board: RTC_READ ctrl1=00 time=18/49/47 date=15 wd=03/09/26 bcd_plausible=1
+I (206556) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (206556) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (206786) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2930
+I (206786) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (207346) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (207426) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2930
+I (207426) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (207556) twatch_board: RTC_READ ctrl1=00 time=18/49/48 date=15 wd=03/09/26 bcd_plausible=1
+I (207566) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (207566) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (208076) bhi260ap_core: accelerometer id=4 x=2853 y=-302 z=2930
+I (208076) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (208546) lvgl_app: ADAPTER_HEALTH flushes=2883 stack_free_bytes=3812
+I (208566) twatch_board: RTC_READ ctrl1=00 time=18/49/49 date=15 wd=03/09/26 bcd_plausible=1
+I (208576) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (208586) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (208676) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (208676) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (208676) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (208696) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (208696) phase2: battery_mv=4171
+I (208696) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (208696) phase1: HEALTH sample=17464 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (208716) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2929
+I (208716) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (209366) bhi260ap_core: accelerometer id=4 x=2853 y=-302 z=2930
+I (209366) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (209586) twatch_board: RTC_READ ctrl1=00 time=18/49/50 date=15 wd=03/09/26 bcd_plausible=1
+I (209596) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (209596) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (209686) lvgl_app: Diagnostics update RTC=18:49:50 battery=4171mV
+I (210006) bhi260ap_core: accelerometer id=4 x=2851 y=-302 z=2930
+I (210006) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (210596) twatch_board: RTC_READ ctrl1=00 time=18/49/51 date=15 wd=03/09/26 bcd_plausible=1
+I (210616) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (210616) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (210656) bhi260ap_core: accelerometer id=4 x=2853 y=-302 z=2930
+I (210656) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (210676) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (211296) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (211296) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (211616) twatch_board: RTC_READ ctrl1=00 time=18/49/52 date=15 wd=03/09/26 bcd_plausible=1
+I (211626) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (211626) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (211946) bhi260ap_core: accelerometer id=4 x=2852 y=-301 z=2930
+I (211946) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (212586) bhi260ap_core: accelerometer id=4 x=2853 y=-302 z=2930
+I (212596) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (212626) twatch_board: RTC_READ ctrl1=00 time=18/49/53 date=15 wd=03/09/26 bcd_plausible=1
+I (212636) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (212636) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (213236) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2929
+I (213236) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (213546) lvgl_app: ADAPTER_HEALTH flushes=2908 stack_free_bytes=3812
+I (213636) twatch_board: RTC_READ ctrl1=00 time=18/49/54 date=15 wd=03/09/26 bcd_plausible=1
+I (213646) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (213656) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (213676) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (213676) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (213676) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (213696) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (213696) phase2: battery_mv=4170
+I (213696) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (213696) phase1: HEALTH sample=17947 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (213876) bhi260ap_core: accelerometer id=4 x=2851 y=-303 z=2929
+I (213886) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (214016) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (214526) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (214526) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (214656) twatch_board: RTC_READ ctrl1=00 time=18/49/55 date=15 wd=03/09/26 bcd_plausible=1
+I (214666) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (214666) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (215166) bhi260ap_core: accelerometer id=4 x=2855 y=-304 z=2930
+I (215176) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (215666) twatch_board: RTC_READ ctrl1=00 time=18/49/56 date=15 wd=03/09/26 bcd_plausible=1
+I (215686) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (215686) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (215816) bhi260ap_core: accelerometer id=4 x=2855 y=-303 z=2930
+I (215826) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (216456) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (216466) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (216696) twatch_board: RTC_READ ctrl1=00 time=18/49/57 date=15 wd=03/09/26 bcd_plausible=1
+I (216706) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (216706) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (217106) bhi260ap_core: accelerometer id=4 x=2854 y=-303 z=2930
+I (217106) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (217346) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (217716) twatch_board: RTC_READ ctrl1=00 time=18/49/58 date=15 wd=03/09/26 bcd_plausible=1
+I (217726) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (217726) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (217756) bhi260ap_core: accelerometer id=4 x=2853 y=-304 z=2929
+I (217756) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (218396) bhi260ap_core: accelerometer id=4 x=2855 y=-303 z=2930
+I (218396) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (218546) lvgl_app: ADAPTER_HEALTH flushes=2933 stack_free_bytes=3812
+I (218676) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (218676) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (218676) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (218696) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (218696) phase2: battery_mv=4170
+I (218696) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (218696) phase1: HEALTH sample=18429 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (218726) twatch_board: RTC_READ ctrl1=00 time=18/49/59 date=15 wd=03/09/26 bcd_plausible=1
+I (218736) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (218736) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (219046) bhi260ap_core: accelerometer id=4 x=2854 y=-303 z=2931
+I (219046) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (219686) bhi260ap_core: accelerometer id=4 x=2854 y=-304 z=2931
+I (219686) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (219686) lvgl_app: Diagnostics update RTC=18:49:59 battery=4171mV
+I (219736) twatch_board: RTC_READ ctrl1=00 time=18/50/00 date=15 wd=03/09/26 bcd_plausible=1
+I (219746) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (219756) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (220336) bhi260ap_core: accelerometer id=4 x=2853 y=-304 z=2930
+I (220336) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (220676) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (220756) twatch_board: RTC_READ ctrl1=00 time=18/50/01 date=15 wd=03/09/26 bcd_plausible=1
+I (220766) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (220766) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (220976) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (220976) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (221626) bhi260ap_core: accelerometer id=4 x=2852 y=-304 z=2930
+I (221626) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (221766) twatch_board: RTC_READ ctrl1=00 time=18/50/02 date=15 wd=03/09/26 bcd_plausible=1
+I (221786) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (221786) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (222266) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (222266) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (222786) twatch_board: RTC_READ ctrl1=00 time=18/50/03 date=15 wd=03/09/26 bcd_plausible=1
+I (222806) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (222806) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (222916) bhi260ap_core: accelerometer id=4 x=2851 y=-303 z=2929
+I (222916) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (223546) lvgl_app: ADAPTER_HEALTH flushes=2958 stack_free_bytes=3812
+I (223556) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (223556) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (223696) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (223696) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (223696) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (223696) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (223696) phase2: battery_mv=4171
+I (223696) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (223696) phase1: HEALTH sample=18913 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (223826) twatch_board: RTC_READ ctrl1=00 time=18/50/04 date=15 wd=03/09/26 bcd_plausible=1
+I (223836) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (223836) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (224016) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (224206) bhi260ap_core: accelerometer id=4 x=2851 y=-303 z=2930
+I (224206) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (224836) twatch_board: RTC_READ ctrl1=00 time=18/50/05 date=15 wd=03/09/26 bcd_plausible=1
+I (224846) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (224856) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (224856) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (224866) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (225496) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2931
+I (225496) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (225866) twatch_board: RTC_READ ctrl1=00 time=18/50/06 date=15 wd=03/09/26 bcd_plausible=1
+I (225876) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (225876) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (226136) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (226136) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (226786) bhi260ap_core: accelerometer id=4 x=2852 y=-304 z=2930
+I (226786) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (226876) twatch_board: RTC_READ ctrl1=00 time=18/50/07 date=15 wd=03/09/26 bcd_plausible=1
+I (226896) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (226896) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (227346) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (227426) bhi260ap_core: accelerometer id=4 x=2852 y=-304 z=2930
+I (227426) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (227896) twatch_board: RTC_READ ctrl1=00 time=18/50/08 date=15 wd=03/09/26 bcd_plausible=1
+I (227906) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (227906) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (228076) bhi260ap_core: accelerometer id=4 x=2853 y=-302 z=2931
+I (228076) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (228546) lvgl_app: ADAPTER_HEALTH flushes=2983 stack_free_bytes=3812
+I (228676) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (228676) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (228676) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (228696) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (228696) phase2: battery_mv=4170
+I (228696) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (228696) phase1: HEALTH sample=19395 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (228716) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (228726) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (228906) twatch_board: RTC_READ ctrl1=00 time=18/50/09 date=15 wd=03/09/26 bcd_plausible=1
+I (228926) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (228926) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (229366) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (229366) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (229686) lvgl_app: Diagnostics update RTC=18:50:09 battery=4170mV
+I (229936) twatch_board: RTC_READ ctrl1=00 time=18/50/10 date=15 wd=03/09/26 bcd_plausible=1
+I (229956) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (229956) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (230006) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2929
+I (230016) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (230656) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2929
+I (230656) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (230676) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (230956) twatch_board: RTC_READ ctrl1=00 time=18/50/11 date=15 wd=03/09/26 bcd_plausible=1
+I (230966) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (230966) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (231296) bhi260ap_core: accelerometer id=4 x=2853 y=-302 z=2930
+I (231306) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (231946) bhi260ap_core: accelerometer id=4 x=2852 y=-304 z=2929
+I (231946) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (231966) twatch_board: RTC_READ ctrl1=00 time=18/50/12 date=15 wd=03/09/26 bcd_plausible=1
+I (231976) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (231976) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (232586) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2931
+I (232596) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (232976) twatch_board: RTC_READ ctrl1=00 time=18/50/13 date=15 wd=03/09/26 bcd_plausible=1
+I (232986) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (232996) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (233236) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2931
+I (233236) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (233546) lvgl_app: ADAPTER_HEALTH flushes=3008 stack_free_bytes=3812
+I (233676) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (233676) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (233676) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (233676) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (233676) phase2: battery_mv=4170
+I (233676) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (233696) phase1: HEALTH sample=19878 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (233876) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2929
+I (233886) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (233996) twatch_board: RTC_READ ctrl1=00 time=18/50/15 date=15 wd=03/09/26 bcd_plausible=1
+I (234006) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (234006) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (234016) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (234526) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (234526) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (235006) twatch_board: RTC_READ ctrl1=00 time=18/50/16 date=15 wd=03/09/26 bcd_plausible=1
+I (235026) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (235026) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (235176) bhi260ap_core: accelerometer id=4 x=2852 y=-304 z=2929
+I (235176) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (235816) bhi260ap_core: accelerometer id=4 x=2851 y=-303 z=2930
+I (235826) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (236026) twatch_board: RTC_READ ctrl1=00 time=18/50/17 date=15 wd=03/09/26 bcd_plausible=1
+I (236036) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (236036) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (236466) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2930
+I (236466) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (237036) twatch_board: RTC_READ ctrl1=00 time=18/50/18 date=15 wd=03/09/26 bcd_plausible=1
+I (237056) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (237056) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (237106) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (237106) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (237346) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (237756) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (237756) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (238056) twatch_board: RTC_READ ctrl1=00 time=18/50/19 date=15 wd=03/09/26 bcd_plausible=1
+I (238066) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (238066) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (238396) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2931
+I (238396) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (238546) lvgl_app: ADAPTER_HEALTH flushes=3033 stack_free_bytes=3812
+I (238676) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (238676) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (238676) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (238676) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (238676) phase2: battery_mv=4170
+I (238676) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (238696) phase1: HEALTH sample=20358 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (239046) bhi260ap_core: accelerometer id=4 x=2851 y=-303 z=2930
+I (239046) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (239066) twatch_board: RTC_READ ctrl1=00 time=18/50/20 date=15 wd=03/09/26 bcd_plausible=1
+I (239086) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (239086) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (239686) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (239686) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (239686) lvgl_app: Diagnostics update RTC=18:50:20 battery=4171mV
+I (240096) twatch_board: RTC_READ ctrl1=00 time=18/50/21 date=15 wd=03/09/26 bcd_plausible=1
+I (240096) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (240106) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (240336) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (240336) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (240676) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (240976) bhi260ap_core: accelerometer id=4 x=2851 y=-303 z=2929
+I (240976) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (241106) twatch_board: RTC_READ ctrl1=00 time=18/50/22 date=15 wd=03/09/26 bcd_plausible=1
+I (241126) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (241126) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (241626) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (241626) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (242126) twatch_board: RTC_READ ctrl1=00 time=18/50/23 date=15 wd=03/09/26 bcd_plausible=1
+I (242136) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (242136) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (242266) bhi260ap_core: accelerometer id=4 x=2851 y=-303 z=2930
+I (242266) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (242916) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (242916) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (243136) twatch_board: RTC_READ ctrl1=00 time=18/50/24 date=15 wd=03/09/26 bcd_plausible=1
+I (243156) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (243156) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (243546) lvgl_app: ADAPTER_HEALTH flushes=3058 stack_free_bytes=3812
+I (243556) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (243556) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (243676) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (243676) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (243676) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (243696) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (243696) phase2: battery_mv=4171
+I (243696) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (243696) phase1: HEALTH sample=20840 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (244016) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (244156) twatch_board: RTC_READ ctrl1=00 time=18/50/25 date=15 wd=03/09/26 bcd_plausible=1
+I (244166) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (244166) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (244206) bhi260ap_core: accelerometer id=4 x=2851 y=-303 z=2929
+I (244206) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (244846) bhi260ap_core: accelerometer id=4 x=2851 y=-302 z=2930
+I (244846) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (245166) twatch_board: RTC_READ ctrl1=00 time=18/50/26 date=15 wd=03/09/26 bcd_plausible=1
+I (245186) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (245186) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (245496) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2929
+I (245496) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (246136) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2929
+I (246136) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (246186) twatch_board: RTC_READ ctrl1=00 time=18/50/27 date=15 wd=03/09/26 bcd_plausible=1
+I (246196) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (246196) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (246786) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2929
+I (246786) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (247206) twatch_board: RTC_READ ctrl1=00 time=18/50/28 date=15 wd=03/09/26 bcd_plausible=1
+I (247226) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (247226) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (247346) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (247426) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (247426) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (248076) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2929
+I (248076) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (248226) twatch_board: RTC_READ ctrl1=00 time=18/50/29 date=15 wd=03/09/26 bcd_plausible=1
+I (248236) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (248236) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (248546) lvgl_app: ADAPTER_HEALTH flushes=3083 stack_free_bytes=3812
+I (248676) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (248676) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (248676) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (248696) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (248696) phase2: battery_mv=4171
+I (248696) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (248696) phase1: HEALTH sample=21321 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (248716) bhi260ap_core: accelerometer id=4 x=2852 y=-304 z=2930
+I (248716) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (249236) twatch_board: RTC_READ ctrl1=00 time=18/50/30 date=15 wd=03/09/26 bcd_plausible=1
+I (249256) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (249256) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (249366) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2929
+I (249366) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (249686) lvgl_app: Diagnostics update RTC=18:50:30 battery=4170mV
+I (250006) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2929
+I (250006) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (250256) twatch_board: RTC_READ ctrl1=00 time=18/50/31 date=15 wd=03/09/26 bcd_plausible=1
+I (250266) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (250266) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (250656) bhi260ap_core: accelerometer id=4 x=2853 y=-304 z=2929
+I (250656) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (250676) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (251266) twatch_board: RTC_READ ctrl1=00 time=18/50/32 date=15 wd=03/09/26 bcd_plausible=1
+I (251286) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (251286) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (251296) bhi260ap_core: accelerometer id=4 x=2853 y=-304 z=2929
+I (251306) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (251946) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2929
+I (251946) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (252286) twatch_board: RTC_READ ctrl1=00 time=18/50/33 date=15 wd=03/09/26 bcd_plausible=1
+I (252296) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (252296) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (252586) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (252596) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (253236) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (253236) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (253296) twatch_board: RTC_READ ctrl1=00 time=18/50/34 date=15 wd=03/09/26 bcd_plausible=1
+I (253306) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (253306) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (253546) lvgl_app: ADAPTER_HEALTH flushes=3108 stack_free_bytes=3812
+I (253676) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (253676) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (253676) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (253676) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (253676) phase2: battery_mv=4170
+I (253676) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (253696) phase1: HEALTH sample=21804 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (253876) bhi260ap_core: accelerometer id=4 x=2852 y=-304 z=2930
+I (253886) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (254016) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (254306) twatch_board: RTC_READ ctrl1=00 time=18/50/35 date=15 wd=03/09/26 bcd_plausible=1
+I (254316) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (254326) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (254526) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (254526) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (255166) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (255176) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (255326) twatch_board: RTC_READ ctrl1=00 time=18/50/36 date=15 wd=03/09/26 bcd_plausible=1
+I (255336) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (255336) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (255816) bhi260ap_core: accelerometer id=4 x=2853 y=-304 z=2930
+I (255826) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (256336) twatch_board: RTC_READ ctrl1=00 time=18/50/37 date=15 wd=03/09/26 bcd_plausible=1
+I (256356) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (256356) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (256456) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2931
+I (256466) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (257106) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (257106) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (257346) twatch_board: TOUCH_PACKET points=1 raw=ab 0e 1d 8b 00 01 ab
+I (257356) twatch_board: RTC_READ ctrl1=00 time=18/50/38 date=15 wd=03/09/26 bcd_plausible=1
+I (257366) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (257366) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (257746) bhi260ap_core: accelerometer id=4 x=2852 y=-304 z=2929
+I (257756) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (258366) twatch_board: RTC_READ ctrl1=00 time=18/50/39 date=15 wd=03/09/26 bcd_plausible=1
+I (258386) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (258386) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (258396) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2930
+I (258396) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (258546) lvgl_app: ADAPTER_HEALTH flushes=3133 stack_free_bytes=3812
+I (258676) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (258676) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (258676) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (258696) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (258696) phase2: battery_mv=4171
+I (258696) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=4 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (258696) phase1: HEALTH sample=22285 internal_free=179220 internal_min=117108 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (259046) bhi260ap_core: accelerometer id=4 x=2853 y=-303 z=2930
+I (259046) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (259386) twatch_board: RTC_READ ctrl1=00 time=18/50/40 date=15 wd=03/09/26 bcd_plausible=1
+I (259396) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (259396) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (259686) bhi260ap_core: accelerometer id=4 x=2852 y=-303 z=2929
+I (259686) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (259696) lvgl_app: Diagnostics update RTC=18:50:40 battery=4170mV
+I (260336) bhi260ap_core: accelerometer id=4 x=2852 y=-302 z=2930
+I (260336) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (260396) twatch_board: RTC_READ ctrl1=00 time=18/50/41 date=15 wd=03/09/26 bcd_plausible=1
+I (260406) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (260406) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
