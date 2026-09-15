@@ -425,3 +425,8 @@ Diagnostics Back timing preparation adds task-owned measurements only; panel
 transport, pins, redraw alignment and buffer geometry are unchanged. Device
 latency and the earlier panic cause remain unverified. See the Diagnostics Back
 latency instrumentation section in bring-up notes.
+
+Back latency device measurement on 4f776e5: four full-screen transitions
+complete 133–142 ms after click dispatch, including 27–28 ms HAL drawing,
+32 flushes and zero transfer failures each. No panic in these trials; earlier
+panic remains unresolved. See back-timing results and bring-up analysis.

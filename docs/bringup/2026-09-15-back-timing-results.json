@@ -1,0 +1,50 @@
+[
+  {
+    "press_to_click_us": 99141,
+    "load_us": 275,
+    "wait_refresh_us": 76,
+    "refresh_us": 139754,
+    "draw_us": 27664,
+    "max_draw_us": 932,
+    "total_us": 140105,
+    "flushes": 32,
+    "pixels": 205820,
+    "failures": 0
+  },
+  {
+    "press_to_click_us": 132158,
+    "load_us": 178,
+    "wait_refresh_us": 145,
+    "refresh_us": 141315,
+    "draw_us": 27771,
+    "max_draw_us": 947,
+    "total_us": 141638,
+    "flushes": 32,
+    "pixels": 205820,
+    "failures": 0
+  },
+  {
+    "press_to_click_us": 132111,
+    "load_us": 179,
+    "wait_refresh_us": 154,
+    "refresh_us": 132657,
+    "draw_us": 27825,
+    "max_draw_us": 945,
+    "total_us": 132990,
+    "flushes": 32,
+    "pixels": 205820,
+    "failures": 0
+  },
+  {
+    "press_to_click_us": 1063359,
+    "load_us": 378,
+    "wait_refresh_us": 161,
+    "refresh_us": 133198,
+    "draw_us": 27311,
+    "max_draw_us": 912,
+    "total_us": 133737,
+    "flushes": 32,
+    "pixels": 205820,
+    "failures": 0
+  }
+]

@@ -326,3 +326,29 @@ Back timing diagnostic build passed. Exact hashes in
 2026-09-15-back-timing-build.txt; ELF/binary also preserved locally under
 .cache/firmware/back-timing for matching backtraces. Not flashed; physical
 timing samples pending.
+
+## Back timing device result (4f776e5)
+
+Flashed at 921600 baud with verified hashes. Operator completed the requested
+Diagnostics -> two taps -> Back trials, including a held Back press. Four
+summaries were captured. Click-to-refresh-ready totals: 140.105, 141.638,
+132.990, 133.737 ms. Load takes 0.178–0.378 ms; post-load refresh wait
+0.076–0.161 ms. HAL drawing sums to 27.311–27.825 ms. Each transition sends
+205820 pixels (410x502), in 32 flushes, with failures=0. The longest individual
+HAL draw is 0.947 ms. The held trial records press_to_click=1063.359 ms, then
+133.737 ms to completed synchronous refresh.
+
+Inference: callback loading/scheduling and raw HAL drawing are not the majority
+of the measured latency. Roughly 105–114 ms remains within the refresh cycle
+outside HAL drawing, including rendering, buffer preparation and possible task
+preemption; this is not a CPU-only rendering measurement. Panel scanout and
+pre-dispatch touch latency remain unmeasured. No optimization is justified from
+these results alone without distinguishing those remaining costs.
+
+No panic observed during these trials. Recent health samples remain at
+internal_free=179040 and heap_integrity=ok; worker stack margin >=3812 bytes.
+This does not resolve the earlier intermittent panic. User confirms test
+completion but does not explicitly rate perceived latency in the reply.
+Evidence: 2026-09-15-back-timing-{flash.log,serial.log,results.json}. Serial
+logger stopped after the test (exit 143); watch left running. Next: profile the
+non-HAL part of full-screen refresh before changing buffers or display timings.
