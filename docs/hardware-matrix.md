@@ -420,3 +420,8 @@ Adapter 429e37c stability NOT validated: subsequent operator-reported
 Diagnostics/touch/Back failure is accompanied by ESP_RST_PANIC on the next boot.
 Root cause unverified; first captured repeat did not reproduce it. See the
 adapter panic follow-up section in bring-up notes.
+
+Diagnostics Back timing preparation adds task-owned measurements only; panel
+transport, pins, redraw alignment and buffer geometry are unchanged. Device
+latency and the earlier panic cause remain unverified. See the Diagnostics Back
+latency instrumentation section in bring-up notes.

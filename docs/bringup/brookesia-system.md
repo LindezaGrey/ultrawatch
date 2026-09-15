@@ -296,3 +296,33 @@ No further panic observed. Logger stopped cleanly by terminating its timeout
 process (exit 143); watch left running without reset or flash. Evidence:
 2026-09-15-adapter-extended-repro.log. Original panic remains unresolved. Retain
 matching 429e37c ELF identity for a future panic backtrace; do not mark this fixed.
+
+## Diagnostics Back latency instrumentation
+
+Operator clarified the latest observation: Back from Diagnostics feels slow.
+The earlier panic remains a separate unresolved event. This diagnostic records
+only Diagnostics -> Home navigation, preserving the renderer, 16-row buffer,
+rounder, navigation destinations and adapter scheduling.
+
+One BACK_TIMING summary after the first nonempty Home refresh reports elapsed
+microseconds: press_to_click (includes finger hold; -1 if unavailable), load_us
+(lv_screen_load), wait_refresh_us (load return to REFR_START), refresh_us
+(REFR_START to REFR_READY), draw_us (sum inside synchronous HAL calls),
+max_draw_us, total_us (click callback entry to refresh ready), flush count,
+pixel count and failed draw count. draw_us is a subset of refresh_us; timings
+include task preemption. They do not measure AMOLED scanout or touch latency
+before LVGL input dispatch. REFR_READY also occurs for empty refresh cycles;
+the logger waits for at least one flush. All counters belong to the LVGL task;
+no allocations or per-flush logging are added. Failure count must be zero before
+interpreting the result as a completed successful transfer.
+
+Device procedure after authorized flash: open Diagnostics, tap Touch me twice,
+then tap Back normally; repeat a few times, including one deliberately held Back
+press. Save BACK_TIMING and ADAPTER_HEALTH alongside any panic/backtrace. Compare
+load/wait/refresh and HAL transfer contribution before choosing an optimization.
+No latency improvement or cause is claimed from compilation alone.
+
+Back timing diagnostic build passed. Exact hashes in
+2026-09-15-back-timing-build.txt; ELF/binary also preserved locally under
+.cache/firmware/back-timing for matching backtraces. Not flashed; physical
+timing samples pending.

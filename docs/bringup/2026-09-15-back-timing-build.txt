@@ -1,0 +1,6 @@
+Back latency diagnostic: build-tested only, not flashed
+ESP-IDF 6.0.2 idf.py build: exit 0; git diff --check passed
+Expected marker: BACK_TIMING after Diagnostics -> Back
+No latency measurement or improvement claimed before physical test.
+build/twatch_ultra_phase1.elf: bytes=170606532 sha256=d9cae291ffda876989a6cd35fa9d5aee17a212e1b08344ffd0f748a8316897f8
+build/twatch_ultra_phase1.bin: bytes=2420432 sha256=ebf85b354547b607d10cbf99263d75952f0c057d6019aa73a5690e83eecd66f5

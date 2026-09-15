@@ -4,6 +4,7 @@
 
 #include "esp_log.h"
 #include "esp_check.h"
+#include "esp_timer.h"
 #include "esp_lv_adapter.h"
 #include "lvgl.h"
 #include "twatch_display.h"
@@ -28,6 +29,52 @@ static lv_obj_t *diagnostics_label;
 static lv_obj_t *sensor_screen;
 static lv_obj_t *sensor_label;
 static bool display_inverted = true;
+
+/* Diagnostic state is owned exclusively by the LVGL worker. Times are elapsed
+ * wall time (including preemption), not CPU-cycle or visible-panel timings. */
+typedef struct {
+    bool active;
+    int64_t pressed_us;
+    int64_t clicked_us;
+    int64_t load_us;
+    int64_t refresh_us;
+    int64_t draw_us;
+    int64_t max_draw_us;
+    uint32_t flushes;
+    uint32_t pixels;
+    uint32_t failures;
+} back_timing_t;
+static back_timing_t back_timing;
+static int64_t last_back_pressed_us;
+
+static void back_pressed_cb(lv_event_t *event)
+{
+    (void)event;
+    last_back_pressed_us = esp_timer_get_time();
+}
+
+static void back_refresh_cb(lv_event_t *event)
+{
+    if (!back_timing.active || lv_screen_active() != home_screen) return;
+    const int64_t now_us = esp_timer_get_time();
+    if (lv_event_get_code(event) == LV_EVENT_REFR_START) {
+        if (!back_timing.refresh_us) back_timing.refresh_us = now_us;
+    } else if (lv_event_get_code(event) == LV_EVENT_REFR_READY && back_timing.flushes) {
+        /* Synchronous HAL transfers have completed before REFR_READY. This
+         * does not measure the AMOLED scanout or time before input dispatch. */
+        back_timing.active = false;
+        ESP_LOGI(TAG, "BACK_TIMING press_to_click_us=%" PRId64 " load_us=%" PRId64
+                 " wait_refresh_us=%" PRId64 " refresh_us=%" PRId64
+                 " draw_us=%" PRId64 " max_draw_us=%" PRId64
+                 " total_us=%" PRId64 " flushes=%" PRIu32 " pixels=%" PRIu32
+                 " failures=%" PRIu32,
+                 back_timing.pressed_us ? back_timing.clicked_us - back_timing.pressed_us : -1,
+                 back_timing.load_us, back_timing.refresh_us - back_timing.clicked_us - back_timing.load_us,
+                 now_us - back_timing.refresh_us, back_timing.draw_us, back_timing.max_draw_us,
+                 now_us - back_timing.clicked_us, back_timing.flushes, back_timing.pixels,
+                 back_timing.failures);
+    }
+}
 
 typedef struct {
     twatch_power_snapshot_t power;
@@ -118,7 +165,17 @@ static esp_err_t adapter_draw_cb(lv_display_t *display_handle, esp_lcd_panel_han
 {
     (void)panel;
     (void)ctx;
-    if (!twatch_brookesia_bridge_draw(x1, y1, x2, y2, pixels)) {
+    const int64_t draw_start_us = back_timing.active ? esp_timer_get_time() : 0;
+    const bool drawn = twatch_brookesia_bridge_draw(x1, y1, x2, y2, pixels);
+    if (back_timing.active) {
+        const int64_t elapsed_us = esp_timer_get_time() - draw_start_us;
+        back_timing.draw_us += elapsed_us;
+        if (elapsed_us > back_timing.max_draw_us) back_timing.max_draw_us = elapsed_us;
+        ++back_timing.flushes;
+        back_timing.pixels += (uint32_t)(x2 - x1) * (uint32_t)(y2 - y1);
+        if (!drawn) ++back_timing.failures;
+    }
+    if (!drawn) {
         ESP_LOGE(TAG, "Brookesia panel flush failed");
         return ESP_FAIL;
     }
@@ -158,7 +215,18 @@ static void menu_toggle_cb(lv_event_t *event)
 static void menu_back_cb(lv_event_t *event)
 {
     (void)event;
-    if (home_screen != NULL) lv_screen_load(home_screen);
+    if (home_screen == NULL) return;
+    const bool measure = lv_screen_active() == diagnostics_screen;
+    if (measure) {
+        back_timing = (back_timing_t){
+            .active = true,
+            .pressed_us = last_back_pressed_us,
+            .clicked_us = esp_timer_get_time(),
+        };
+        last_back_pressed_us = 0;
+    }
+    lv_screen_load(home_screen);
+    if (measure) back_timing.load_us = esp_timer_get_time() - back_timing.clicked_us;
 }
 
 static void diagnostics_open_cb(lv_event_t *event)
@@ -292,6 +360,8 @@ esp_err_t lvgl_app_init(void)
     ESP_RETURN_ON_ERROR(esp_lv_adapter_set_draw_bitmap_callbacks(display, &draw_callbacks, NULL),
                         TAG, "Set synchronous HAL draw callback");
     lv_display_add_event_cb(display, rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
+    lv_display_add_event_cb(display, back_refresh_cb, LV_EVENT_REFR_START, NULL);
+    lv_display_add_event_cb(display, back_refresh_cb, LV_EVENT_REFR_READY, NULL);
     touch_input = lv_indev_create();
     if (touch_input == NULL) return ESP_ERR_NO_MEM;
     lv_indev_set_type(touch_input, LV_INDEV_TYPE_POINTER);
@@ -389,6 +459,7 @@ esp_err_t lvgl_app_init(void)
     lv_label_set_text(diag_back_label, "Back");
     lv_obj_set_style_text_font(diag_back_label, &lv_font_montserrat_24, 0);
     lv_obj_center(diag_back_label);
+    lv_obj_add_event_cb(diag_back, back_pressed_cb, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(diag_back, menu_back_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *touch_count = lv_label_create(diagnostics_screen);
     lv_label_set_text(touch_count, "Touches: 0");
