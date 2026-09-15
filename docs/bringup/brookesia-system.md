@@ -87,3 +87,14 @@ this probe. System Super remains disabled.
 
 Build-tested: ESP-IDF 6.0.2 build passed; evidence in
 2026-09-15-service-probe-build.txt. Awaiting device deployment.
+
+Service binding device result (647218e): flash verified; STORAGE_PROBE init=ok
+list=ok; SERVICE_PROBE display_bind=ok. Display and Storage stopped and
+manager cleanup completed before LVGL ready. Internal heap before=222376,
+after=192636 (29,740 bytes less free); heap_ok=1. Subsequent native HEALTH
+samples remain at 188008 bytes free during the short capture. Retained memory
+is unresolved; this single cycle cannot establish a leak or lifecycle stability.
+Wi-Fi service initialization fails because its HAL is absent; it did not block
+Display binding. Filesystem and full LVGL adapter/System Super remain untested.
+Evidence: docs/bringup/2026-09-15-service-binding-serial.log.
+Operator visual/touch confirmation pending for this image.
