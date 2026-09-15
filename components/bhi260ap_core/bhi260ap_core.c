@@ -5,6 +5,7 @@
 #include "freertos/task.h"
 #include "bhi260ap_core.h"
 #include "bhy2.h"
+#include "bhy2_parse.h"
 #include "twatch_board.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
@@ -13,6 +14,7 @@ static const char *TAG = "bhi260ap_core";
 static struct bhy2_dev device;
 static bool initialized;
 static TaskHandle_t irq_task_handle;
+static uint8_t fifo_buffer[2048];
 extern const uint8_t _binary_BHI260AP_fw_start[];
 extern const uint8_t _binary_BHI260AP_fw_end[];
 
@@ -96,10 +98,18 @@ static void bhi_irq_task(void *arg)
     for (;;) {
         uint32_t notifications = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
         if (notifications == 0) continue;
-        uint8_t status = 0;
-        int8_t result = bhy2_get_interrupt_status(&status, &device);
-        ESP_LOGI(TAG, "irq event count=%" PRIu32 " status=0x%02x result=%d", notifications, status, result);
+        int8_t result = bhy2_get_and_process_fifo(fifo_buffer, sizeof(fifo_buffer), &device);
+        ESP_LOGI(TAG, "irq event count=%" PRIu32 " fifo_result=%d", notifications, result);
     }
+}
+
+static void accel_callback(const struct bhy2_fifo_parse_data_info *info, void *private_data)
+{
+    (void)private_data;
+    if (!info || info->data_size < 6) return;
+    struct bhy2_data_xyz xyz;
+    bhy2_parse_xyz(info->data_ptr, &xyz);
+    ESP_LOGI(TAG, "accelerometer id=%u x=%d y=%d z=%d", info->sensor_id, xyz.x, xyz.y, xyz.z);
 }
 
 esp_err_t bhi260ap_core_start_irq_probe(void)
@@ -119,6 +129,13 @@ esp_err_t bhi260ap_core_start_irq_probe(void)
     BaseType_t created = xTaskCreate(bhi_irq_task, "bhi_irq", 3072, NULL, 5, &irq_task_handle);
     if (created != pdPASS) return ESP_ERR_NO_MEM;
     ESP_ERROR_CHECK(gpio_isr_handler_add(GPIO_NUM_8, bhi_irq_isr, irq_task_handle));
+    int8_t result = bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_ACC, accel_callback, NULL, &device);
+    if (result != BHY2_OK) return ESP_FAIL;
+    result = bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_ACC, 1.0f, 0, &device);
+    if (result != BHY2_OK) return ESP_FAIL;
+    result = bhy2_set_host_interrupt_ctrl(BHY2_ICTL_EDGE, &device);
+    if (result != BHY2_OK) return ESP_FAIL;
+    ESP_LOGI(TAG, "accelerometer stream id=%u rate=1Hz configured", BHY2_SENSOR_ID_ACC);
     ESP_LOGI(TAG, "irq probe GPIO8 configured idle=%d", gpio_get_level(GPIO_NUM_8));
     return ESP_OK;
 }
