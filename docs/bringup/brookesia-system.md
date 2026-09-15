@@ -73,3 +73,17 @@ STORAGE_PROBE init=ok list=ok entries=0 kv_writes=0. LVGL ready and
 heap_integrity=ok observed after startup. See
 `docs/bringup/2026-09-15-storage-serial.log`. No KV write/retention or
 Display-service binding test yet; operator screen/touch confirmation pending.
+
+## Storage-dependent Display service probe
+
+Next build starts the service manager, binds Display (which requires Storage),
+releases the binding, and stops/deinitializes the manager before native LVGL
+starts. This exercises service lifecycle without creating an LVGL adapter or
+claiming hardware CS. SERVICE_PROBE logs binding success, cleanup completion,
+internal heap before/after, and heap integrity. Native touch starts only after
+service workers stop. Device results remain pending; inspect service logs and
+confirm native display/touch after cleanup. No persistence claim follows from
+this probe. System Super remains disabled.
+
+Build-tested: ESP-IDF 6.0.2 build passed; evidence in
+2026-09-15-service-probe-build.txt. Awaiting device deployment.

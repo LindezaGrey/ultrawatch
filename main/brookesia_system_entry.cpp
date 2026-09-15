@@ -4,6 +4,7 @@
 
 #include "esp_log.h"
 #include "esp_attr.h"
+#include "esp_heap_caps.h"
 #include "brookesia/gui_lvgl.hpp"
 #include "brookesia/service_manager/service/manager.hpp"
 #include "brookesia/system_super.hpp"
@@ -76,4 +77,28 @@ extern "C" bool twatch_brookesia_system_start(void)
 extern "C" uint32_t twatch_brookesia_system_last_stage(void)
 {
     return last_stage;
+}
+
+extern "C" bool twatch_brookesia_services_probe(void)
+{
+    // Run before native LVGL starts reading touch; release Display and its
+    // Storage dependency and stop scheduler workers before handing ownership back.
+    auto &manager = esp_brookesia::service::ServiceManager::get_instance();
+    const size_t heap_before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    bool bound = false;
+    if (manager.init() && manager.start()) {
+        auto display = manager.bind("Display");
+        bound = display.is_valid();
+        ESP_LOGI(TAG, "SERVICE_PROBE display_bind=%s", bound ? "ok" : "failed");
+        display.release();
+    } else {
+        ESP_LOGE(TAG, "SERVICE_PROBE manager startup failed");
+    }
+    manager.stop();
+    manager.deinit();
+    ESP_LOGI(TAG, "SERVICE_PROBE cleanup=done internal_before=%u internal_after=%u heap_ok=%u",
+             static_cast<unsigned>(heap_before),
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+             heap_caps_check_integrity_all(true));
+    return bound;
 }

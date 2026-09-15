@@ -1,0 +1,5 @@
+ESP-IDF 6.0.2 build; native UI with service bind/release probe.
+Bootloader binary size 0x5260 bytes. 0x2da0 bytes (36%) free.
+twatch_ultra_phase1.bin binary size 0x2452a0 bytes. Smallest app partition is 0x800000 bytes. 0x5bad60 bytes (72%) free.
+Project build complete. To flash, run:
+Device test pending; no flash performed.

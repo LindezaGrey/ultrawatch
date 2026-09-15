@@ -114,6 +114,9 @@ void app_main(void)
     }
 #endif
     ESP_ERROR_CHECK(twatch_brookesia_bridge_start() ? ESP_OK : ESP_FAIL);
+    if (!twatch_brookesia_services_probe()) {
+        ESP_LOGW(TAG, "Service probe failed; native UI remains selected");
+    }
     bool brookesia_system_running = false;
 #if BROOKESIA_SYSTEM_RUNTIME
     ESP_LOGI(TAG, "System Super previous stage=%" PRIu32 " (0=none,1=manager-init,2=manager-start,3=display-source,4=system-init,5=system-start)",

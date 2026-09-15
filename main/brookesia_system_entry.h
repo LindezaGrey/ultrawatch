@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -11,6 +12,8 @@ extern "C" {
  * until the system stack passes its own device test. */
 bool twatch_brookesia_system_start(void);
 uint32_t twatch_brookesia_system_last_stage(void);
+/* Startup-only service bind/release test; completes before native LVGL starts. */
+bool twatch_brookesia_services_probe(void);
 
 #ifdef __cplusplus
 }
