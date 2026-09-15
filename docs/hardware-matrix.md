@@ -464,3 +464,8 @@ I2C diagnostic d08530f flashed; user confirmed clean navigation/no crash.
 Capture through 98.661 s had no slow/read-error event, stable recent heap and
 healthy stack margins. Contention did not reproduce; holder/cause still open.
 See 2026-09-15-i2c-contention-serial.log and device notes.
+
+Extended d08530f capture: main priority 1 PMU reg0 read succeeded after
+76.932 ms once; no timeout/panic during three minutes. Duration includes wait,
+transfer and preemption. Prepared exact-ELF JTAG semaphore-failure trap, not
+yet executed; delaying task remains unknown. See extended I2C bring-up notes.

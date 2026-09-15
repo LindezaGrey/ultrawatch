@@ -1,0 +1,2 @@
+tools/i2c_lock_timeout.gdb:16: Error in sourced command file:
+ELF mismatch: do not use this breakpoint with another build

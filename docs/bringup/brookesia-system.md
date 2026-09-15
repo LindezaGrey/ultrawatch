@@ -525,3 +525,24 @@ no-failure capture does not establish a bus fix. Nonfatal telemetry handling
 remains enabled and was separately exercised on the previous image. Retain this
 build for a longer natural capture or JTAG investigation on recurrence; no
 speculative hardware or priority changes justified by this run.
+
+## Extended natural capture and prepared JTAG trap
+
+Three-minute read-only serial capture on d08530f ended normally by timeout
+(exit 124). Operator used the UI and reported completion; idle period followed.
+One slow read was observed: uptime 268.771 s, task=main priority=1, PMU 0x34
+register 0x00, elapsed_us=76932, result=ESP_OK, lock_timeout=0. There were no
+telemetry timeouts or panics. Final health at uptime 353.721 s: internal_free
+178960, heap_integrity=ok, main stack margin 2488 bytes. Successful slow-read
+elapsed time combines semaphore wait, transfer and preemption; do not claim
+76.932 ms was spent entirely waiting for the semaphore. Evidence:
+2026-09-15-i2c-extended-serial.log. Firmware unchanged.
+
+Prepared tools/i2c_lock_timeout.gdb and documented its one-shot use in
+jtag-debugging.md. Exact d08530f ELF disassembly confirms failed semaphore-take
+branch +168 at 0x4216d37c (movi a5,0x107). Script checks ELF hash before connecting,
+captures task stacks on its first hardware breakpoint hit, then detaches/resumes.
+A host negative test with the wrong preserved ELF rejects before connection;
+see 2026-09-15-i2c-gdb-guard-test.log. This is not device-tested and cannot verify
+the flashed image automatically. Next useful step is a controlled JTAG capture,
+not another timing/priority patch. Actual delaying task remains unverified.

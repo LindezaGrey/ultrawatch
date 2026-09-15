@@ -57,3 +57,34 @@ task-local `bhy2_get_and_process_fifo()` return value and BHI register reads.
 Use the serial port only for continuous logs after the debug session is
 detached. Do not run OpenOCD and a serial flasher against the same USB JTAG
 interface at the same time.
+
+## One-shot I2C semaphore-timeout capture (d08530f only)
+
+`tools/i2c_lock_timeout.gdb` verifies the preserved ELF SHA256 before connecting.
+It arms one hardware breakpoint on the optimized failed-semaphore-take branch,
+prints current/all-task stacks on the first hit, then disables breakpoints and
+detaches to resume the target. Output: `/tmp/ultra-i2c-lock-gdb.log`. It makes no
+target function calls. Starting it is a hardware-control action; follow the
+normal debugger authorization and single-owner procedure. Stop serial capture
+first. Attach may trigger the documented initial memory-protection reset.
+
+With OpenOCD already running and the watch still on d08530f:
+
+```bash
+/home/peter/.espressif/tools/xtensa-esp-elf-gdb/17.1_20260402/xtensa-esp-elf-gdb/bin/xtensa-esp32s3-elf-gdb \
+  -q .cache/firmware/i2c-contention/twatch_ultra_phase1.elf \
+  -x tools/i2c_lock_timeout.gdb
+```
+
+Offline disassembly confirms failed take branches to function+168, address
+0x4216d37c, instruction `movi a5,0x107`; it then returns ESP_ERR_TIMEOUT.
+The nearby source line 1010 is unsuitable: its debug location points into the
+success path. Do not reuse offsets after rebuilding. The script verifies the
+host ELF, not the flashed image; verify deployment identity independently.
+If no timeout occurs, interrupt GDB, remove breakpoints and detach explicitly,
+then stop OpenOCD. If the script errors after attaching, likewise detach before
+closing the server. Halting changes timing; task stacks may reveal contenders
+but the binary semaphore does not record a mutex owner, so do not assume a
+single snapshot proves who held it throughout the wait.
+
+Prepared and disassembly-reviewed only; this script has not yet run on-device.
