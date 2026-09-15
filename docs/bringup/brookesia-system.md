@@ -201,3 +201,53 @@ a device test. No panel IO, power, display timing, or touch wiring changed here.
 
 Trace-retirement build passed on pinned ESP-IDF 6.0.2. Artifact identity:
 2026-09-15-trace-retirement-build.txt. No flash or new device validation.
+
+## Adapter-owned watch UI preparation
+
+The next image runs the existing Home/Menu/Diagnostics/Sensors UI under the
+pinned esp_lvgl_adapter 0.6.4. System Super and upstream DisplaySource remain
+disabled: this validates adapter ownership before changing the shell and its
+service lifecycle. The three-cycle service probe still completes first.
+
+The board exports process-lifetime borrowed esp_lcd panel/IO interfaces over
+its existing SPI3 device. Panel draw and inversion delegate to the established
+board operations; IO commands and synchronous 0x2c color transfers share the
+same transport. Unsupported async callback registration, deletion, rotation and
+power operations are rejected. No extra SPI device is created, no GPIO routing
+changes, and the pixel transaction loop retains 0x32/0x002c00 with continuous
+software CS41 and 16,384-pixel chunking. Callers must serialize these interfaces;
+they do not add a second locking or ownership layer.
+
+Application ownership:
+- Adapter initializes LVGL and owns its tick timer and sole rendering worker.
+  Main no longer calls lv_tick_inc or lv_timer_handler.
+- Registration, custom draw callback, rounder, pointer input and all UI objects
+  are installed before esp_lv_adapter_start. Only the worker touches UI objects
+  afterward; the diagnostics worker supplies mutex-protected snapshots.
+- Adapter uses its pinned defaults: 8192-byte internal stack, priority 6,
+  unpinned task, 1 ms tick, 1–15 ms worker delay; automatic sleep disabled.
+  These are initial upstream settings, not a device-validated optimal schedule.
+- RGB565, rotation 0, 16-row internal draw buffer, single buffering, no TE mode.
+  The adapter packs stride and swaps RGB565 exactly once. The existing watch
+  invalidation rounder is unchanged and registered before the first refresh.
+- Custom draw routes through Brookesia Panel HAL. On synchronous success it
+  calls lv_display_flush_ready on the LVGL task. On failure it returns an error;
+  the pinned adapter releases that flush. No ISR notification API is called.
+- ADAPTER_HEALTH reports successful flush count and worker stack free bytes
+  every five seconds from that worker. Main retains watchdog/heap evidence.
+
+No upstream/dependency patches. To later use DisplaySource, add a supported
+pre-start board-configuration hook and synchronous completion handling there;
+its current event-dispatch contract is not satisfied merely by these handles.
+
+Device test after authorized flash: confirm owner=adapter startup, advancing
+ADAPTER_HEALTH with usable stack margin and healthy main heap; verify UTC ticks,
+Menu/Back, Diagnostics counter and changing sensor readings. Look specifically
+for the former narrow-redraw shift and corrupted full-page navigation. Capture
+logs and operator visual/touch result. Build success alone does not validate
+scheduling, display or touch. No new power state or current-consumption claim.
+
+Adapter-owned UI build passed on pinned ESP-IDF 6.0.2. See
+2026-09-15-adapter-owned-ui-build.txt for exact artifact identity and source
+comparison checks. Dependency lock only adds the existing adapter as a direct
+dependency; no versions changed. Not flashed; all device checks above remain pending.

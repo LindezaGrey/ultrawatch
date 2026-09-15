@@ -1,7 +1,10 @@
 #include "lvgl_app.h"
 
+#include <inttypes.h>
+
 #include "esp_log.h"
-#include "esp_timer.h"
+#include "esp_check.h"
+#include "esp_lv_adapter.h"
 #include "lvgl.h"
 #include "twatch_display.h"
 #include "twatch_board.h"
@@ -13,8 +16,8 @@
 
 static const char *TAG = "lvgl_app";
 static lv_display_t *display;
-static lv_color_t draw_buffer[410 * 16];
 static lv_indev_t *touch_input;
+static uint32_t completed_flushes;
 static lv_obj_t *utc_label;
 static lv_obj_t *menu_panel;
 static lv_obj_t *menu_text;
@@ -106,18 +109,22 @@ static void rounder_cb(lv_event_t *event)
     if (!(area->y2 & 1)) area->y2++;
 }
 
-static void flush_cb(lv_display_t *display_handle, const lv_area_t *area, uint8_t *px_map)
+/* Adapter OTHER flush already packs and byte-swaps RGB565. Transfer is
+ * synchronous, so signal completion in this same LVGL task, never via FromISR.
+ * On error the adapter releases the flush itself; do not acknowledge twice. */
+static esp_err_t adapter_draw_cb(lv_display_t *display_handle, esp_lcd_panel_handle_t panel,
+                                  int x1, int y1, int x2, int y2,
+                                  const void *pixels, void *ctx)
 {
-    const uint32_t width = (uint32_t)(area->x2 - area->x1 + 1);
-    const uint32_t height = (uint32_t)(area->y2 - area->y1 + 1);
-    /* CO5300 QSPI expects each RGB565 pixel in big-endian byte order.
-     * Match LilyGO's Ultra LVGL helper before sending the draw buffer. */
-    lv_draw_sw_rgb565_swap(px_map, width * height);
-    if (!twatch_brookesia_bridge_draw((uint32_t)area->x1, (uint32_t)area->y1,
-                                      (uint32_t)(area->x2 + 1), (uint32_t)(area->y2 + 1), px_map)) {
+    (void)panel;
+    (void)ctx;
+    if (!twatch_brookesia_bridge_draw(x1, y1, x2, y2, pixels)) {
         ESP_LOGE(TAG, "Brookesia panel flush failed");
+        return ESP_FAIL;
     }
+    ++completed_flushes;
     lv_display_flush_ready(display_handle);
+    return ESP_OK;
 }
 
 static void touch_read_cb(lv_indev_t *input, lv_indev_data_t *data)
@@ -246,6 +253,14 @@ static void rtc_timer_cb(lv_timer_t *timer)
     lv_label_set_text(utc_label, text);
 }
 
+/* Runs on the adapter worker: no cross-task reads of LVGL state. */
+static void adapter_health_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    ESP_LOGI(TAG, "ADAPTER_HEALTH flushes=%" PRIu32 " stack_free_bytes=%u",
+             completed_flushes, (unsigned)uxTaskGetStackHighWaterMark(NULL));
+}
+
 esp_err_t lvgl_app_init(void)
 {
     diagnostics_snapshot_mutex = xSemaphoreCreateMutex();
@@ -255,14 +270,28 @@ esp_err_t lvgl_app_init(void)
         diagnostics_snapshot_mutex = NULL;
         return ESP_ERR_NO_MEM;
     }
-    lv_init();
-    display = lv_display_create(410, 502);
-    if (display == NULL) return ESP_ERR_NO_MEM;
-    lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565);
-    lv_display_set_buffers(display, draw_buffer, NULL, sizeof(draw_buffer),
-                           LV_DISPLAY_RENDER_MODE_PARTIAL);
+    const esp_lv_adapter_config_t adapter_config = ESP_LV_ADAPTER_DEFAULT_CONFIG();
+    ESP_RETURN_ON_ERROR(esp_lv_adapter_init(&adapter_config), TAG, "Initialize LVGL adapter");
+    esp_lv_adapter_display_config_t display_config =
+        ESP_LV_ADAPTER_DISPLAY_SPI_WITHOUT_PSRAM_DEFAULT_CONFIG(
+            twatch_display_get_panel(), twatch_display_get_panel_io(),
+            410, 502, ESP_LV_ADAPTER_ROTATE_0);
+    display_config.profile.buffer_height = 16;
+    display_config.profile.require_double_buffer = false;
+    /* The synchronous board transport has no ISR callback slot. Install our
+     * completion callback before starting the sole LVGL worker below. */
+    ESP_RETURN_ON_ERROR(esp_lv_adapter_set_default_display_idf_callback_registration_enabled(false),
+                        TAG, "Select synchronous completion");
+    display = esp_lv_adapter_register_display(&display_config);
+    ESP_RETURN_ON_ERROR(esp_lv_adapter_set_default_display_idf_callback_registration_enabled(true),
+                        TAG, "Restore adapter registration default");
+    if (display == NULL) return ESP_FAIL;
+    const esp_lv_adapter_draw_bitmap_callbacks_t draw_callbacks = {
+        .custom_draw_bitmap = adapter_draw_cb,
+    };
+    ESP_RETURN_ON_ERROR(esp_lv_adapter_set_draw_bitmap_callbacks(display, &draw_callbacks, NULL),
+                        TAG, "Set synchronous HAL draw callback");
     lv_display_add_event_cb(display, rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
-    lv_display_set_flush_cb(display, flush_cb);
     touch_input = lv_indev_create();
     if (touch_input == NULL) return ESP_ERR_NO_MEM;
     lv_indev_set_type(touch_input, LV_INDEV_TYPE_POINTER);
@@ -391,19 +420,8 @@ esp_err_t lvgl_app_init(void)
     lv_obj_set_style_text_font(sensor_back_label, &lv_font_montserrat_24, 0);
     lv_obj_center(sensor_back_label);
     lv_obj_add_event_cb(sensor_back, menu_back_cb, LV_EVENT_CLICKED, NULL);
-    ESP_LOGI(TAG, "LVGL ready display=410x502 buffer_lines=16");
+    if (lv_timer_create(adapter_health_cb, 5000, NULL) == NULL) return ESP_ERR_NO_MEM;
+    ESP_RETURN_ON_ERROR(esp_lv_adapter_start(), TAG, "Start LVGL adapter worker");
+    ESP_LOGI(TAG, "LVGL ready owner=adapter display=410x502 buffer_lines=16 sync_flush=1");
     return ESP_OK;
-}
-
-void lvgl_app_tick(void)
-{
-    static int64_t last_us;
-    const int64_t now_us = esp_timer_get_time();
-    if (last_us == 0) last_us = now_us;
-    const int64_t elapsed_us = now_us - last_us;
-    if (elapsed_us > 0) {
-        lv_tick_inc((uint32_t)(elapsed_us / 1000));
-        last_us += (elapsed_us / 1000) * 1000;
-    }
-    lv_timer_handler();
 }

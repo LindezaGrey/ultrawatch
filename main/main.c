@@ -140,9 +140,6 @@ void app_main(void)
     for (uint32_t sample = 0;; ++sample) {
         require_integrity();
         ESP_ERROR_CHECK(esp_task_wdt_reset());
-        if (!brookesia_system_running) {
-            lvgl_app_tick();
-        }
         const uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
         if (now_ms < next_telemetry_ms) {
             vTaskDelay(pdMS_TO_TICKS(10));

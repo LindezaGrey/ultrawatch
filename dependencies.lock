@@ -444,7 +444,8 @@ direct_dependencies:
 - espressif/brookesia_hal_interface
 - espressif/brookesia_lib_utils
 - espressif/brookesia_system_super
+- espressif/esp_lvgl_adapter
 - lvgl/lvgl
-manifest_hash: 96606f5258949824fcf2edcbffa8fcd3b6b5de3a73b9e8be064e083a8b4e07cf
+manifest_hash: 623d468624c5d531ff328ea9eb2f4057060e7dd3fff0ad2443788c626cf3cd82
 target: esp32s3
 version: 3.0.0

@@ -399,3 +399,14 @@ a device test. No panel IO, power, display timing, or touch wiring changed here.
 
 Trace-retirement build passed on pinned ESP-IDF 6.0.2. Artifact identity:
 2026-09-15-trace-retirement-build.txt. No flash or new device validation.
+
+## Adapter ownership preparation
+
+CO5300/CST9220 hardware configuration unchanged. The board now supplies borrowed
+synchronous ESP LCD wrappers over the existing software-CS41 SPI3 device;
+async callbacks and unvalidated control operations are unsupported. The watch UI
+moves to the pinned LVGL adapter worker, preserving the board rounder and HAL
+input/drawing. System Super/DisplaySource remain disabled pending their separate
+handoff. See `docs/bringup/brookesia-system.md`, "Adapter-owned watch UI
+preparation", for ownership, completion contract and required device checks.
+This image has no device result yet.

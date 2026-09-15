@@ -4,6 +4,8 @@
 #include "driver/spi_master.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_lcd_panel_interface.h"
+#include "esp_lcd_panel_io_interface.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "twatch_display.h"
@@ -31,7 +33,7 @@ static const display_cmd_t init_sequence[] = {
 };
 
 static spi_device_handle_t device;
-static esp_lcd_panel_io_handle_t panel_io;
+
 static bool initialized;
 static uint16_t line_buffer[DISPLAY_WIDTH * 16];
 
@@ -105,11 +107,6 @@ esp_err_t twatch_display_init(void)
     return ESP_OK;
 }
 
-esp_lcd_panel_io_handle_t twatch_display_get_panel_io(void)
-{
-    return panel_io;
-}
-
 esp_err_t twatch_display_set_inverted(bool inverted)
 {
     if (!initialized) return ESP_ERR_INVALID_STATE;
@@ -165,18 +162,11 @@ static esp_err_t fill_region(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
     return ESP_OK;
 }
 
-esp_err_t twatch_display_flush(uint16_t x, uint16_t y, uint16_t width,
-                               uint16_t height, const void *pixels)
+/* Synchronous transfer: the buffer is released when this call returns. */
+static esp_err_t send_pixels(const void *pixels, size_t pixel_count)
 {
-    if (!initialized || pixels == NULL || width == 0 || height == 0 ||
-        x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT || width > DISPLAY_WIDTH - x ||
-        height > DISPLAY_HEIGHT - y) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    ESP_RETURN_ON_ERROR(set_window(x, y, x + width - 1, y + height - 1), TAG,
-                        "Set CO5300 flush window");
     gpio_set_level(DISPLAY_CS, 0);
-    size_t remaining = (size_t)width * height;
+    size_t remaining = pixel_count;
     const uint8_t *data = (const uint8_t *)pixels;
     bool first = true;
     while (remaining != 0) {
@@ -207,6 +197,19 @@ esp_err_t twatch_display_flush(uint16_t x, uint16_t y, uint16_t width,
     }
     gpio_set_level(DISPLAY_CS, 1);
     return ESP_OK;
+}
+
+esp_err_t twatch_display_flush(uint16_t x, uint16_t y, uint16_t width,
+                               uint16_t height, const void *pixels)
+{
+    if (!initialized || pixels == NULL || width == 0 || height == 0 ||
+        x >= DISPLAY_WIDTH || y >= DISPLAY_HEIGHT || width > DISPLAY_WIDTH - x ||
+        height > DISPLAY_HEIGHT - y) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_RETURN_ON_ERROR(set_window(x, y, x + width - 1, y + height - 1), TAG,
+                        "Set CO5300 flush window");
+    return send_pixels(pixels, (size_t)width * height);
 }
 
 esp_err_t twatch_display_test_pattern(void)
@@ -364,4 +367,91 @@ esp_err_t twatch_display_sleep_wake_demo(void)
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
     return ESP_OK;
+}
+
+/* Borrowed, process-lifetime ESP LCD interfaces over the single existing SPI
+ * device. These do not allocate another device or change GPIO routing. The
+ * caller owns serialization, as with twatch_display_flush(). Only synchronous
+ * drawing is supported; async/ISR callback registration is deliberately rejected.
+ */
+static esp_err_t panel_init(esp_lcd_panel_t *panel)
+{
+    (void)panel;
+    return initialized ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
+
+static esp_err_t panel_del(esp_lcd_panel_t *panel)
+{
+    (void)panel;
+    return ESP_ERR_NOT_SUPPORTED; /* Borrowed singleton; board owns its lifetime. */
+}
+
+static esp_err_t panel_draw(esp_lcd_panel_t *panel, int x1, int y1, int x2, int y2,
+                            const void *data)
+{
+    (void)panel;
+    if (x1 < 0 || y1 < 0 || x2 <= x1 || y2 <= y1 ||
+        x2 > DISPLAY_WIDTH || y2 > DISPLAY_HEIGHT) return ESP_ERR_INVALID_ARG;
+    return twatch_display_flush(x1, y1, x2 - x1, y2 - y1, data);
+}
+
+static esp_err_t panel_invert(esp_lcd_panel_t *panel, bool inverted)
+{
+    (void)panel;
+    return twatch_display_set_inverted(inverted);
+}
+
+static esp_err_t io_tx_param(esp_lcd_panel_io_t *io, int command,
+                              const void *data, size_t size)
+{
+    (void)io;
+    if (!initialized) return ESP_ERR_INVALID_STATE;
+    if (command < 0 || command > 255 || size > 64 * 1024 || (size && !data))
+        return ESP_ERR_INVALID_ARG;
+    return send_command(command, data, size);
+}
+
+static esp_err_t io_tx_color(esp_lcd_panel_io_t *io, int command,
+                              const void *data, size_t size)
+{
+    (void)io;
+    if (!initialized) return ESP_ERR_INVALID_STATE;
+    if (command != 0x2c) return ESP_ERR_NOT_SUPPORTED;
+    if (!data || !size || (size & 1) || size > DISPLAY_WIDTH * DISPLAY_HEIGHT * 2)
+        return ESP_ERR_INVALID_ARG;
+    return send_pixels(data, size / 2);
+}
+
+static esp_err_t io_del(esp_lcd_panel_io_t *io)
+{
+    (void)io;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+static esp_err_t io_register_callbacks(esp_lcd_panel_io_t *io,
+                                        const esp_lcd_panel_io_callbacks_t *callbacks, void *ctx)
+{
+    (void)io;
+    (void)callbacks;
+    (void)ctx;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+static esp_lcd_panel_t lcd_panel = {
+    .init = panel_init, .del = panel_del, .draw_bitmap = panel_draw,
+    .invert_color = panel_invert,
+};
+static esp_lcd_panel_io_t lcd_io = {
+    .tx_param = io_tx_param, .tx_color = io_tx_color, .del = io_del,
+    .register_event_callbacks = io_register_callbacks,
+};
+
+esp_lcd_panel_handle_t twatch_display_get_panel(void)
+{
+    return initialized ? &lcd_panel : NULL;
+}
+
+esp_lcd_panel_io_handle_t twatch_display_get_panel_io(void)
+{
+    return initialized ? &lcd_io : NULL;
 }

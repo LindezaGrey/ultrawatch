@@ -1,0 +1,10 @@
+Validation: build-tested; not flashed or device-tested
+Environment: pinned ESP-IDF 6.0.2, idf.py build, exit 0
+LVGL 9.4.0; esp_lvgl_adapter 0.6.4; no dependency revision changes
+Source comparison: extracted pixel loop unchanged except count parameter; rounder identical to 44813b7
+Whitespace: git diff --check passed
+Expected device marker: LVGL ready owner=adapter display=410x502 buffer_lines=16 sync_flush=1
+Expected periodic evidence: ADAPTER_HEALTH flushes=... stack_free_bytes=...
+Physical checks pending: UTC, navigation, redraw integrity, touch, sensors, heap/worker stack margin
+build/twatch_ultra_phase1.elf: bytes=170603924 sha256=ae31ec9488612ba3efce52a3301276576a04ac2f7eecc08b3052f78ada65e8a1
+build/twatch_ultra_phase1.bin: bytes=2419600 sha256=7aa7f497d8e08d38f35be25fd6a817ad1cc0f5c84335e661045dbf9171033751

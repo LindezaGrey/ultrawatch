@@ -53,12 +53,12 @@ public:
 
     bool get_driver_specific(DriverSpecific &specific) override
     {
-        /* The panel uses the validated custom QSPI transaction path. Brookesia's
-         * LVGL adapter still needs the bus classification and alignment metadata;
-         * its flush callback is replaced below with draw_bitmap(). */
+        /* Borrowed ESP LCD wrappers share the validated synchronous QSPI path.
+         * The application adapter supplies task-context completion and the
+         * watch rounder. DisplaySource event bridging is not enabled yet. */
         specific = DriverSpecific{
             .io_handle = twatch_display_get_panel_io(),
-            .panel_handle = nullptr,
+            .panel_handle = twatch_display_get_panel(),
             .bus_type = BusType::Generic,
             .frame_buffer_count = 1,
             .draw_x_align_bytes = 1,

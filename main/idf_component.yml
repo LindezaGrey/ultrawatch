@@ -1,4 +1,5 @@
 dependencies:
+  espressif/esp_lvgl_adapter: "0.6.4"
   lvgl/lvgl: "9.4.0"
   espressif/brookesia_hal_interface:
     path: ../vendor/esp-brookesia/hal/brookesia_hal_interface
