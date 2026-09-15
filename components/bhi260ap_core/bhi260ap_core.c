@@ -99,12 +99,9 @@ static void bhi_irq_task(void *arg)
     (void)arg;
     for (;;) {
         uint32_t notifications = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
-        uint8_t status = 0;
-        int8_t status_result = bhy2_get_interrupt_status(&status, &device);
-        if (notifications == 0 && status_result == BHY2_OK && !BHY2_IS_INT_FIFO(status)) continue;
+        if (notifications == 0) continue;
         int8_t result = bhy2_get_and_process_fifo(fifo_buffer, sizeof(fifo_buffer), &device);
-        ESP_LOGI(TAG, "sensor poll notifications=%" PRIu32 " status=0x%02x fifo_result=%d",
-                 notifications, status, result);
+        ESP_LOGI(TAG, "irq fifo notifications=%" PRIu32 " result=%d", notifications, result);
     }
 }
 
