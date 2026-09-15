@@ -170,7 +170,10 @@ static void diagnostics_timer_cb(lv_timer_t *timer)
     const twatch_rtc_snapshot_t *rtc = &snapshot.rtc;
     const twatch_rail_snapshot_t *rails = &snapshot.rails;
     char text[160];
-    lv_snprintf(text, sizeof(text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC\nRails: D%s T%s\nALDO4: %s %umV\nBHI: %s P%02X C%02X\nACC: %s %d %d %d",
+    const int accel_x_mg = (snapshot.accel_x * 1000) / 4096;
+    const int accel_y_mg = (snapshot.accel_y * 1000) / 4096;
+    const int accel_z_mg = (snapshot.accel_z * 1000) / 4096;
+    lv_snprintf(text, sizeof(text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC\nRails: D%s T%s\nALDO4: %s %umV\nBHI: %s P%02X C%02X\nACC: %s %d %d %d mg",
                 power->battery_mv, power->usb_present ? "yes" : "no",
                 power->charging ? "yes" : "no", rtc->hours, rtc->minutes, rtc->seconds,
                 rails->display_enable_latch_high ? "on" : "off",
@@ -178,7 +181,7 @@ static void diagnostics_timer_cb(lv_timer_t *timer)
                 rails->aldo4_enabled ? "on" : "off", rails->aldo4_configured_mv,
                 snapshot.bhi_present ? "ACK" : "absent",
                 snapshot.bhi_identity.product_id, snapshot.bhi_identity.chip_id,
-                snapshot.accel_valid ? "xyz" : "--", snapshot.accel_x, snapshot.accel_y, snapshot.accel_z);
+                snapshot.accel_valid ? "xyz" : "--", accel_x_mg, accel_y_mg, accel_z_mg);
     lv_label_set_text(diagnostics_label, text);
     lv_obj_invalidate(diagnostics_label);
     static uint32_t update_count;

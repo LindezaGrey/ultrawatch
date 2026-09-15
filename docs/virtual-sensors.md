@@ -54,3 +54,7 @@ running, or connected to a physical sensing element on this board.
 
 The inventory was captured from the device after flashing commit `e3c80cf`;
 the raw evidence is recorded in [`bhi260ap.md`](bringup/bhi260ap.md).
+
+For accelerometer IDs 1, 3–7, and 91, Bosch's reference scaling is
+`1/4096 g` per raw count. The Diagnostics page converts the corrected ID 4
+sample to milli-g using this factor.
