@@ -1,4 +1,47 @@
 dependencies:
+  espressif/brookesia_gui_interface:
+    dependencies:
+    - name: espressif/brookesia_lib_utils
+      override_path: ../../utils/brookesia_lib_utils
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_service_helper
+      override_path: ../../service/framework/brookesia_service_helper
+      require: private
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/gui/brookesia_gui_interface
+      type: local
+    version: 0.8.2
+  espressif/brookesia_gui_lvgl:
+    dependencies:
+    - name: espressif/brookesia_gui_interface
+      override_path: ../brookesia_gui_interface
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_lib_utils
+      override_path: ../../utils/brookesia_lib_utils
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_hal_interface
+      override_path: ../../hal/brookesia_hal_interface
+      require: private
+      version: 0.8.*
+    - name: espressif/brookesia_service_display
+      override_path: ../../service/media/brookesia_service_display
+      require: private
+      version: 0.8.*
+    - name: espressif/brookesia_service_helper
+      override_path: ../../service/framework/brookesia_service_helper
+      require: private
+      version: 0.8.*
+    - name: espressif/esp_lvgl_adapter
+      require: private
+      version: 0.6.*
+    source:
+      path: vendor/esp-brookesia/gui/brookesia_gui_lvgl
+      type: local
+    version: 0.8.4
   espressif/brookesia_hal_interface:
     dependencies:
     - name: espressif/brookesia_lib_utils
@@ -23,6 +66,163 @@ dependencies:
       path: vendor/esp-brookesia/utils/brookesia_lib_utils
       type: local
     version: 0.8.2
+  espressif/brookesia_runtime_manager:
+    dependencies:
+    - name: espressif/brookesia_lib_utils
+      override_path: ../../utils/brookesia_lib_utils
+      require: public
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/runtime/brookesia_runtime_manager
+      type: local
+    version: 0.8.2
+  espressif/brookesia_service_display:
+    dependencies:
+    - name: espressif/brookesia_service_storage
+      override_path: ../../system/brookesia_service_storage
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_service_helper
+      override_path: ../../framework/brookesia_service_helper
+      require: public
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/service/media/brookesia_service_display
+      type: local
+    version: 0.8.2
+  espressif/brookesia_service_helper:
+    dependencies:
+    - name: espressif/brookesia_service_manager
+      override_path: ../brookesia_service_manager
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_hal_interface
+      override_path: ../../../hal/brookesia_hal_interface
+      require: public
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/service/framework/brookesia_service_helper
+      type: local
+    version: 0.8.4
+  espressif/brookesia_service_manager:
+    dependencies:
+    - name: espressif/brookesia_lib_utils
+      override_path: ../../../utils/brookesia_lib_utils
+      require: public
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/service/framework/brookesia_service_manager
+      type: local
+    version: 0.8.2
+  espressif/brookesia_service_sntp:
+    dependencies:
+    - name: espressif/brookesia_service_storage
+      override_path: ../../system/brookesia_service_storage
+      require: public
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/service/network/brookesia_service_sntp
+      type: local
+    version: 0.8.2
+  espressif/brookesia_service_storage:
+    dependencies:
+    - name: espressif/brookesia_service_helper
+      override_path: ../../framework/brookesia_service_helper
+      require: public
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/service/system/brookesia_service_storage
+      type: local
+    version: 0.8.3
+  espressif/brookesia_service_usb:
+    dependencies:
+    - name: espressif/brookesia_service_helper
+      override_path: ../../framework/brookesia_service_helper
+      require: public
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/service/system/brookesia_service_usb
+      type: local
+    version: 0.8.0
+  espressif/brookesia_service_wifi:
+    dependencies:
+    - name: espressif/brookesia_service_storage
+      override_path: ../../system/brookesia_service_storage
+      require: public
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/service/network/brookesia_service_wifi
+      type: local
+    version: 0.8.2
+  espressif/brookesia_system_core:
+    dependencies:
+    - name: espressif/zlib
+      require: private
+      version: ^1.3.0
+    - name: espressif/brookesia_service_helper
+      override_path: ../../service/framework/brookesia_service_helper
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_service_storage
+      override_path: ../../service/system/brookesia_service_storage
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_service_usb
+      override_path: ../../service/system/brookesia_service_usb
+      require: private
+      version: 0.8.*
+    - name: espressif/brookesia_runtime_manager
+      override_path: ../../runtime/brookesia_runtime_manager
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_gui_interface
+      override_path: ../../gui/brookesia_gui_interface
+      require: public
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/system/brookesia_system_core
+      type: local
+    version: 0.8.4
+  espressif/brookesia_system_super:
+    dependencies:
+    - name: espressif/brookesia_system_core
+      override_path: ../brookesia_system_core
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_service_storage
+      override_path: ../../service/system/brookesia_service_storage
+      require: private
+      version: 0.8.*
+    - name: espressif/brookesia_service_display
+      override_path: ../../service/media/brookesia_service_display
+      require: private
+      version: 0.8.*
+    - name: espressif/brookesia_service_wifi
+      override_path: ../../service/network/brookesia_service_wifi
+      require: private
+      version: 0.8.*
+    - name: espressif/brookesia_service_sntp
+      override_path: ../../service/network/brookesia_service_sntp
+      require: private
+      version: 0.8.*
+    source:
+      path: vendor/esp-brookesia/system/brookesia_system_super
+      type: local
+    version: 0.8.3
+  espressif/button:
+    component_hash: a1f34e8ed2e61ffef1a230fd9477005c2db335c7e1f6a239f43e5f119dcbe1b0
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: '*'
+    - name: idf
+      require: private
+      version: '>=4.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 4.2.1
   espressif/cmake_utilities:
     component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
     dependencies:
@@ -43,6 +243,191 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 0.6.0
+  espressif/esp_lcd_touch:
+    component_hash: 3f85a7d95af876f1a6ecca8eb90a81614890d0f03a038390804e5a77e2caf862
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4.2'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.2.1
+  espressif/esp_lv_decoder:
+    component_hash: 331d23c304cea5d1aed0ad3cea7774874dbaeebb2217e8db6bf3cc8485ac9f9f
+    dependencies:
+    - name: espressif/esp_new_jpeg
+      registry_url: https://components.espressif.com
+      require: private
+      version: 1.*
+    - name: espressif/libpng
+      registry_url: https://components.espressif.com
+      require: private
+      version: 1.*
+    - name: idf
+      require: private
+      version: '>=5.3'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=8,<10'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    targets:
+    - esp32
+    - esp32s2
+    - esp32s3
+    - esp32s31
+    - esp32p4
+    - esp32c2
+    - esp32c3
+    - esp32c5
+    - esp32c6
+    - esp32c61
+    - esp32h4
+    version: 0.4.3
+  espressif/esp_lv_fs:
+    component_hash: 66896007884b817df34c964f9a114fff538ee2674e99fee7159162498b93f94b
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: espressif/esp_mmap_assets
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=1.2'
+    - name: idf
+      require: private
+      version: '>=4.4'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=8,<10'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.0.1
+  espressif/esp_lvgl_adapter:
+    component_hash: bcb316bedda9e934d32567082a969a8e8f8f406dd32d23c359a299249dc18e81
+    dependencies:
+    - name: espressif/button
+      registry_url: https://components.espressif.com
+      require: public
+      version: 4.*
+    - name: espressif/esp_lcd_touch
+      registry_url: https://components.espressif.com
+      require: public
+      version: 1.*
+    - name: espressif/esp_lv_decoder
+      registry_url: https://components.espressif.com
+      require: public
+      version: 0.*
+    - name: espressif/esp_lv_fs
+      registry_url: https://components.espressif.com
+      require: public
+      version: 1.*
+    - name: espressif/freetype
+      registry_url: https://components.espressif.com
+      require: public
+      version: 2.*
+    - name: espressif/knob
+      registry_url: https://components.espressif.com
+      require: public
+      version: 1.*
+    - name: idf
+      require: private
+      version: '>=5.5'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=8,<10'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.6.4
+  espressif/esp_mmap_assets:
+    component_hash: 42310c362596de2a37248c2937b1754bc29cd0356b9839e2a77cf791e6bcdde1
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 2.0.1
+  espressif/esp_new_jpeg:
+    component_hash: e1e7e6991193c41ed6c9fc386702aa7821433319e7aa9c3147cd3236310cd69c
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    targets:
+    - esp32
+    - esp32s2
+    - esp32s3
+    - esp32s31
+    - esp32p4
+    - esp32c2
+    - esp32c3
+    - esp32c5
+    - esp32c6
+    - esp32c61
+    - esp32h4
+    version: 1.0.2
+  espressif/freetype:
+    component_hash: aa9f7657a69b2b1c1f49044017fc424081d4e0fe6e97834cb43883548d44e3ca
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.1'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 2.14.3~1
+  espressif/knob:
+    component_hash: b56694054cd34a683ac2a6f3661963ba00b1dab741a4f3bb59ed6666cbc9f3fb
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: idf
+      require: private
+      version: '>=4.4.1'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.1.0
+  espressif/libpng:
+    component_hash: b8c715f76b79a127d9b1b632e09acc23e7b29d2194af890a837adc2be5a2804b
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.1'
+    - name: espressif/zlib
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^1.2.13
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.6.58~1
+  espressif/zlib:
+    component_hash: 9083cada65f1c9d298ef92266232d071c6f2f335164e2799554b3eae73aedc55
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.3.2~1
   idf:
     source:
       type: idf
@@ -55,9 +440,11 @@ dependencies:
       type: service
     version: 9.4.0
 direct_dependencies:
+- espressif/brookesia_gui_lvgl
 - espressif/brookesia_hal_interface
 - espressif/brookesia_lib_utils
+- espressif/brookesia_system_super
 - lvgl/lvgl
-manifest_hash: a5bec31a2a09d9b964c1af9a41fce115853859818a9ced721bb76d81f52847af
+manifest_hash: 96606f5258949824fcf2edcbffa8fcd3b6b5de3a73b9e8be064e083a8b4e07cf
 target: esp32s3
 version: 3.0.0

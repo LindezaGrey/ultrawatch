@@ -6,3 +6,9 @@ dependencies:
   espressif/brookesia_lib_utils:
     path: ../vendor/esp-brookesia/utils/brookesia_lib_utils
     require: public
+  espressif/brookesia_gui_lvgl:
+    path: ../vendor/esp-brookesia/gui/brookesia_gui_lvgl
+    require: public
+  espressif/brookesia_system_super:
+    path: ../vendor/esp-brookesia/system/brookesia_system_super
+    require: public
