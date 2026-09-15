@@ -1,0 +1,2 @@
+ESP-IDF 6.0.2 build passed; recovery flash hashes verified.
+ELF SHA256 c777560662d20f20109cc3ba307eb25c1d4608c71dcab0e54082cb7bc75522b1

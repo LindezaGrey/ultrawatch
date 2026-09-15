@@ -132,7 +132,15 @@ extern "C" bool twatch_brookesia_services_probe(void)
         all_bound = all_bound && bound && healthy;
         if (!all_bound) break;
     }
-    if (trace_ready) ESP_ERROR_CHECK(heap_trace_init_standalone(nullptr, 0));
+    // IDF 6.0.2 implementation rejects the documented NULL/0 detach call.
+    // Rebind to a process-lifetime buffer and clear stale record links before
+    // freeing the larger diagnostic buffer. No allocations occur in this reset.
+    if (trace_ready) {
+        static heap_trace_record_t parked_record;
+        ESP_ERROR_CHECK(heap_trace_init_standalone(&parked_record, 1));
+        ESP_ERROR_CHECK(heap_trace_start(HEAP_TRACE_LEAKS));
+        ESP_ERROR_CHECK(heap_trace_stop());
+    }
     heap_caps_free(records);
     return all_bound;
 }

@@ -1,0 +1,1084 @@
+I (450) esp_image: segment 3: paddr=0023c654 vaddr=3fc972ac size=070c8h ( 28872) load
+I (456) esp_image: segment 4: paddr=00243724 vaddr=40374000 size=12c50h ( 76880) load
+I (474) esp_image: segment 5: paddr=0025637c vaddr=50000000 size=00024h (    36) load
+I (483) boot: Loaded app from partition at offset 0x10000
+I (483) boot: Disabling RNG early entropy source...
+I (485) esp_psram: Found 8MB PSRAM device
+I (485) esp_psram: Speed: 80MHz
+I (485) cpu_start: Multicore app
+I (1403) esp_psram: SPI SRAM memory test OK
+I (1412) cpu_start: Pro cpu start user code
+I (1412) cpu_start: cpu freq: 160000000 Hz
+I (1412) app_init: Application information:
+I (1412) app_init: Project name:     twatch_ultra_phase1
+I (1412) app_init: App version:      0.5.6-row-aligned-flush
+I (1413) app_init: Compile time:     Sep 15 2026 20:02:49
+I (1413) app_init: ELF file SHA256:  c77756066...
+I (1413) app_init: ESP-IDF:          v6.0.2
+I (1413) efuse_init: Min chip rev:     v0.0
+I (1413) efuse_init: Max chip rev:     v0.99 
+I (1413) efuse_init: Chip rev:         v0.2
+I (1414) heap_init: Initializing. RAM available for dynamic allocation:
+I (1414) heap_init: At 3FCB8F00 len 00030810 (194 KiB): RAM
+I (1414) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (1414) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (1414) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+I (1415) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+I (1416) spi_flash: detected chip: winbond
+I (1416) spi_flash: flash io: dio
+I (1424) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (1425) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (1426) main_task: Started on CPU0
+I (1426) main_task: Calling app_main()
+I (1426) phase1: BOOT board=T-Watch-Ultra-V1.0 radio_variant=SX1262 app=0.5.6-row-aligned-flush idf=v6.0.2
+I (1426) phase1: reset_reason=11 chip_model=9 revision=2 cores=2
+I (1426) phase1: flash_bytes=16777216 psram_bytes=8388608
+I (1436) twatch_board: PMU identity=0x4a I2C0 SDA=3 SCL=2 hz=100000 read_only=1
+I (1436) twatch_board: ALDO4 prepare before_ctrl=1f before_volt=0d expected_ctrl=1f expected_volt=0d after_ctrl=1f after_volt=0d
+I (1446) twatch_board: XL reg=02 before=ff expected=ff after=ff wrote=0
+I (1446) twatch_board: XL reg=03 before=ff expected=ff after=ff wrote=0
+I (1446) twatch_board: XL reg=06 before=7f expected=7f after=7f wrote=0
+I (1446) twatch_board: XL reg=07 before=fe expected=fe after=fe wrote=0
+I (1456) twatch_board: ESSENTIAL_IO ready P07=output-high P10=output-high PMU_unchanged=1
+I (1466) bhi260ap_core: core_probe result=0 product=0x89 expected=0x89 valid=1
+I (11956) bhi260ap_core: firmware_load bytes=103676 result=0 boot_status=0x38
+I (11956) bhi260ap_core: virtual sensor list retrieved count=33
+I (11956) phase1: BHI260AP virtual sensors available=33
+I (11956) phase1: BHI260AP virtual sensor id=1
+I (11956) phase1: BHI260AP virtual sensor id=3
+I (11956) phase1: BHI260AP virtual sensor id=4
+I (11956) phase1: BHI260AP virtual sensor id=5
+I (11956) phase1: BHI260AP virtual sensor id=6
+I (11956) phase1: BHI260AP virtual sensor id=7
+I (11956) phase1: BHI260AP virtual sensor id=10
+I (11956) phase1: BHI260AP virtual sensor id=12
+I (11966) phase1: BHI260AP virtual sensor id=13
+I (11966) phase1: BHI260AP virtual sensor id=14
+I (11966) phase1: BHI260AP virtual sensor id=15
+I (11966) phase1: BHI260AP virtual sensor id=16
+I (11966) phase1: BHI260AP virtual sensor id=28
+I (11966) phase1: BHI260AP virtual sensor id=29
+I (11966) phase1: BHI260AP virtual sensor id=31
+I (11966) phase1: BHI260AP virtual sensor id=32
+I (11966) phase1: BHI260AP virtual sensor id=37
+I (11966) phase1: BHI260AP virtual sensor id=38
+I (11966) phase1: BHI260AP virtual sensor id=48
+I (11966) phase1: BHI260AP virtual sensor id=50
+I (11966) phase1: BHI260AP virtual sensor id=52
+I (11966) phase1: BHI260AP virtual sensor id=53
+I (11966) phase1: BHI260AP virtual sensor id=55
+I (11966) phase1: BHI260AP virtual sensor id=57
+I (11966) phase1: BHI260AP virtual sensor id=59
+I (11966) phase1: BHI260AP virtual sensor id=61
+I (11966) phase1: BHI260AP virtual sensor id=63
+I (11966) phase1: BHI260AP virtual sensor id=67
+I (11966) phase1: BHI260AP virtual sensor id=69
+I (11966) phase1: BHI260AP virtual sensor id=70
+I (11966) phase1: BHI260AP virtual sensor id=75
+I (11966) phase1: BHI260AP virtual sensor id=77
+I (11966) phase1: BHI260AP virtual sensor id=94
+I (12156) bhi260ap_core: stream readback intr=0x40 intf=0x80 status=0x0b result=0
+I (12156) bhi260ap_core: accelerometer stream id=4 rate=1Hz configured
+I (12156) bhi260ap_core: irq probe GPIO8 configured idle=0
+I (12156) twatch_board: TOUCH_PROBE candidate=0x1a present=1 identity=unverified
+I (12166) twatch_board: TOUCH_INFO addr=0x1a checkcode=0xcaca4e20 chip=0x9220 resolution=410x502 firmware=0x01000003
+I (12166) twatch_board: RTC_PROBE candidate=0x51 present=1 identity=unverified
+I (12166) twatch_board: RTC_READ ctrl1=00 time=18/18/03 date=15 wd=03/09/26 bcd_plausible=1
+I (12976) bhi260ap_core: accelerometer id=4 x=3138 y=-22 z=2770
+I (12976) bhi260ap_core: sensor fifo notifications=0 drains=2 status=0x00 result=0
+I (12976) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (13206) bhi260ap_core: accelerometer id=4 x=3160 y=-22 z=2791
+I (13206) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (13846) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2715
+I (13846) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (14166) twatch_board: RTC_READ ctrl1=00 time=18/18/05 date=15 wd=03/09/26 bcd_plausible=1
+I (14166) phase1: RTC_TICK_CHECK first=18/18/03 followup=18/18/05
+I (14496) bhi260ap_core: accelerometer id=4 x=3077 y=-21 z=2716
+I (14496) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (15136) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2716
+I (15136) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (15346) twatch_display: CO5300 ready 410x502 QSPI cs=41 rst=37 clk=40 d0=38 d1=39 d2=42 d3=45
+I (15346) HalIface: [device.cpp:0415] (init) : Version: 0.8.2
+I (15346) HalIface: [device.cpp:0443] (init) : - [TWatchUltra] Registered interface 'TWatchUltra:CO5300'
+I (15346) HalIface: [device.cpp:0443] (init) : - [TWatchUltra] Registered interface 'TWatchUltra:CST9220'
+I (15356) HalIface: [device.cpp:0443] (init) : - [TWatchUltra] Registered interface 'TWatchUltra:NVS'
+I (15356) HalIface: [device.cpp:0448] (init) : - [TWatchUltra] Initialized
+I (15356) HalIface: [device.cpp:0496] (acquire) : - [TWatchUltra] Reference count increased to 1
+I (15356) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 1
+I (15356) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 2
+I (15366) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CST9220' with reference count 2
+I (15366) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 3
+I (15366) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:NVS' with reference count 3
+I (15426) TWatchStorage: STORAGE_PROBE init=ok list=ok entries=0 kv_writes=0
+I (15426) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 2
+I (15466) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Manager
+I (15466) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Manager
+I (15466) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Manager
+I (15476) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Utils
+I (15476) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Utils
+I (15486) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Utils
+I (15486) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: DataFlow
+I (15496) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: DataFlow
+I (15506) SvcMgr: [manager.cpp:0360] (add_service) : Service added: DataFlow
+I (15506) SvcMgr: [manager.cpp:0810] (topological_sort) : Service initialization order: 
+I (15506) SvcMgr: [manager.cpp:0812] (topological_sort) :   1. Usb
+I (15516) SvcMgr: [manager.cpp:0812] (topological_sort) :   2. Storage
+I (15516) SvcMgr: [manager.cpp:0812] (topological_sort) :   3. Wifi
+I (15516) SvcMgr: [manager.cpp:0812] (topological_sort) :   4. SNTP
+I (15516) SvcMgr: [manager.cpp:0812] (topological_sort) :   5. Display
+I (15516) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Usb
+I (15526) SvcUsb: [service_usb.cpp:1175] (on_init) : Version: 0.8.0
+I (15536) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Usb
+I (15536) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Usb
+I (15536) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Storage
+I (15536) SvcStorage: [service_storage.cpp:0789] (on_init) : Version: 0.8.3
+I (15546) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 3
+I (15546) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:NVS' with reference count 3
+I (15546) SvcStorage: [service_storage.cpp:0795] (on_init) : Using storage KV interface: TWatchUltra:NVS
+W (15606) SvcStorage: [service_storage.cpp:0815] (on_init) : Storage file-system HAL interface is not available
+I (15626) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Storage
+I (15636) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Storage
+I (15636) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Wifi
+I (15646) SvcWiFi: [service_wifi.cpp:0224] (on_init) : Version: 0.8.2
+E (15656) SvcWiFi: [service_wifi.cpp:0233] (on_init) : Wi-Fi basic HAL interface is not available
+E (15656) SvcMgr: [base.cpp:0997] (init_internal) : Failed to initialize service
+I (15656) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Wifi
+E (15656) SvcMgr: [manager.cpp:0344] (add_service) : Failed to initialize service
+E (15666) SvcMgr: [manager.cpp:0840] (add_all_registered_services) : Failed to add service: Wifi
+I (15666) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: SNTP
+I (15676) SvcSNTP: [service_sntp.cpp:0071] (on_init) : Version: 0.8.2
+I (15686) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: SNTP
+I (15696) SvcMgr: [manager.cpp:0360] (add_service) : Service added: SNTP
+I (15706) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Display
+I (15706) SvcDisplay: [display_lifecycle.cpp:0023] (on_init) : Version: 0.8.2
+I (15716) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 4
+I (15726) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 4
+I (15736) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 5
+I (15746) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CST9220' with reference count 5
+I (15766) SvcDisplay: [display_lifecycle.cpp:0061] (on_init) : Registered display output Output0: 410x502, pixel_format=RGB565, panel=TWatchUltra:CO5300, group_id=t_watch_ultra_display
+I (15786) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (15786) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (15786) SvcDisplay: [display_lifecycle.cpp:0092] (on_init) : Registered display touch Touch0: 410x502, max_points=1, operation_mode=Polling, touch=TWatchUltra:CST9220, group_id=t_watch_ultra_display
+I (15796) SvcDisplay: [display_render_tasks.cpp:0171] (bind_default_touches_locked) : Bound display output Output0 to touch Touch0 by group_id(t_watch_ultra_display)
+W (15806) SvcDisplay: [display_lifecycle.cpp:0110] (on_init) : No HAL display backlight interface is available
+I (15816) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 6
+I (15826) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 6
+I (15836) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 5
+I (15906) SvcDisplay: [display_lifecycle.cpp:0120] (on_init) : Registered Display DataFlow provider
+I (16196) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Display
+I (16206) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Display
+I (16206) SvcMgr: [manager.cpp:0844] (add_all_registered_services) : All services added
+I (16436) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2716
+I (16436) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (16886) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Manager
+I (17036) SvcMgr: [manager.cpp:0542] (bind) : Service started: Manager
+I (17116) bhi260ap_core: accelerometer id=4 x=3077 y=-21 z=2715
+I (17126) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (17196) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Utils
+I (17276) SvcMgr: [manager.cpp:0542] (bind) : Service started: Utils
+I (17636) SvcMgr: [base.cpp:1131] (start_internal) : Started service: DataFlow
+I (17776) bhi260ap_core: accelerometer id=4 x=3077 y=-21 z=2716
+I (17796) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (18176) SvcMgr: [manager.cpp:0542] (bind) : Service started: DtaFlow
+I (18246) SvcMgr: [manager.cpp:0259] (start) : Service manager started
+I (18406) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Storage
+I (18406) bhi260ap_core: accelerometer id=4 x=3077 y=-21 z=2717
+I (18406) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (18816) SvcMgr: [manager.cpp:0542] (bind) : Service started: Storage
+I (19086) bhi260ap_core: accelerometer id=4 x=3077 y=-22 z=2716
+I (19116) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+W (19406) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+W (19506) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+W (19686) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+I (19726) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (19746) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (19786) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Display
+W (19826) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+W (19996) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+I (20016) SvcMgr: [manager.cpp:0542] (bind) : Service started: Display
+W (20126) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+W (20276) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+I (20376) bhi260ap_core: accelerometer id=4 x=3077 y=-22 z=2716
+I (20396) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+W (20466) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+W (20596) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+W (20736) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+W (20876) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+I (21036) bhi260ap_core: accelerometer id=4 x=3077 y=-21 z=2715
+I (21056) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (21226) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Display
+I (21616) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Display
+I (21616) bhi260ap_core: accelerometer id=4 x=3077 y=-22 z=2716
+I (21616) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (21776) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Storage
+I (21856) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Storage
+I (22196) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: DataFlow
+I (22276) bhi260ap_core: accelerometer id=4 x=3077 y=-22 z=2716
+I (22276) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (22526) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: DataFlow
+I (22826) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Utils
+I (22836) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Utils
+I (22936) bhi260ap_core: accelerometer id=4 x=3077 y=-22 z=2715
+I (22936) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (23176) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Manager
+I (23326) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Manager
+I (23526) bhi260ap_core: accelerometer id=4 x=3079 y=-21 z=2716
+I (23536) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (24216) bhi260ap_core: accelerometer id=4 x=3078 y=-20 z=2715
+I (24236) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (24826) bhi260ap_core: accelerometer id=4 x=3078 y=-23 z=2715
+I (24826) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (24866) SvcMgr: [manager.cpp:0321] (stop_internal) : Service manager stopped
+I (24876) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Display
+I (25006) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 4
+I (25026) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 3
+I (25316) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Display
+I (25336) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Display
+I (25346) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: SNTP
+I (25376) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: SNTP
+I (25396) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: SNTP
+I (25396) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Storage
+I (25416) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 2
+I (25436) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Storage
+I (25446) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Storage
+I (25456) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Usb
+I (25456) SvcUsb: [service_usb.cpp:1188] (on_deinit) : Deinitialized
+I (25466) bhi260ap_core: accelerometer id=4 x=3077 y=-21 z=2716
+I (25466) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (25466) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Usb
+I (25476) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Usb
+I (25476) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: DataFlow
+I (25486) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: DataFlow
+I (25486) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: DataFlow
+I (25496) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Utils
+I (25496) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Utils
+I (25506) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Utils
+I (25506) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Manager
+I (25516) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Manager
+I (25516) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Manager
+I (25516) SvcMgr: [manager.cpp:0887] (remove_all_registered_services) : All services removed
+I (25626) brookesia_system: SERVICE_TRACE count=408 capacity=2048 peak=1566 overflow=0 isr_excluded=1
+====== Heap Trace: 408 records (2048 capacity) ======
+    12 bytes (@ 0x3fcec800, Internal) allocated CPU 0 ccount 0x9371c104 caller 0x403761b3:0x403761ec:0x4037dcc8:0x42009db1:0x42121583:0x420097f2
+     4 bytes (@ 0x3fcec81c, Internal) allocated CPU 0 ccount 0x9371dc70 caller 0x403761b3:0x403761ec:0x4037dcc8:0x42121605:0x421207d5:0x4212099d
+     4 bytes (@ 0x3fcec830, Internal) allocated CPU 0 ccount 0x9371ee50 caller 0x403761b3:0x403761ec:0x4037dcf0:0x42009eb0:0x42121654:0x421207d5
+    12 bytes (@ 0x3fcecc88, Internal) allocated CPU 0 ccount 0x937204c0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x42009f0c:0x42121654:0x421207d5
+     8 bytes (@ 0x3fcecca4, Internal) allocated CPU 0 ccount 0x9372225c caller 0x403761b3:0x403761ec:0x4037dcc8:0x42009826:0x42009890:0x4200992f
+    84 bytes (@ 0x3fceccbc, Internal) allocated CPU 0 ccount 0x93723314 caller 0x403761b3:0x42008952:0x42169e04:0x4216a0cb:0x42009846:0x42009890
+    12 bytes (@ 0x3fcecd20, Internal) allocated CPU 0 ccount 0x93726590 caller 0x403761b3:0x403761ec:0x4037dcc8:0x42009db1:0x421203eb:0x42120815
+    12 bytes (@ 0x3fcecd3c, Internal) allocated CPU 0 ccount 0x937281dc caller 0x403761b3:0x403761ec:0x4037dcf0:0x42009a5e:0x42009aa8:0x42009b0c
+    84 bytes (@ 0x3fcecd58, Internal) allocated CPU 0 ccount 0x93728f6c caller 0x403761b3:0x42008952:0x42169e04:0x4216a0cb:0x403776d5:0x40377855
+    30 bytes (@ 0x3fcece2c, Internal) allocated CPU 0 ccount 0x93794cb4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fcece5c, Internal) allocated CPU 0 ccount 0x937982e4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    41 bytes (@ 0x3fcece80, Internal) allocated CPU 0 ccount 0x93799bac caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcecebc, Internal) allocated CPU 0 ccount 0x9379cb74 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    17 bytes (@ 0x3fcecf2c, Internal) allocated CPU 0 ccount 0x9379f51c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    33 bytes (@ 0x3fcecf50, Internal) allocated CPU 0 ccount 0x937a071c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcecf84, Internal) allocated CPU 0 ccount 0x937a241c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    17 bytes (@ 0x3fcecff4, Internal) allocated CPU 0 ccount 0x937a3694 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fced018, Internal) allocated CPU 0 ccount 0x937a4710 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    33 bytes (@ 0x3fced03c, Internal) allocated CPU 0 ccount 0x937a5704 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   192 bytes (@ 0x3fced070, Internal) allocated CPU 0 ccount 0x937a7d54 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    25 bytes (@ 0x3fced144, Internal) allocated CPU 0 ccount 0x937a8fb8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fced170, Internal) allocated CPU 0 ccount 0x937aa038 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    30 bytes (@ 0x3fced194, Internal) allocated CPU 0 ccount 0x937ab0bc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   192 bytes (@ 0x3fced1c4, Internal) allocated CPU 0 ccount 0x937ad2c8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    22 bytes (@ 0x3fced298, Internal) allocated CPU 0 ccount 0x937ae6e8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fced2c0, Internal) allocated CPU 0 ccount 0x937af770 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    30 bytes (@ 0x3fced3b8, Internal) allocated CPU 0 ccount 0x93919258 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    21 bytes (@ 0x3fced3e8, Internal) allocated CPU 0 ccount 0x9391c49c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fced410, Internal) allocated CPU 0 ccount 0x9391ded0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    29 bytes (@ 0x3fced434, Internal) allocated CPU 0 ccount 0x9391f89c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fced464, Internal) allocated CPU 0 ccount 0x93920ca4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    32 bytes (@ 0x3fced488, Internal) allocated CPU 0 ccount 0x93921d34 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcede90, Internal) allocated CPU 0 ccount 0x93925ae0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    30 bytes (@ 0x3fcedf00, Internal) allocated CPU 0 ccount 0x93927880 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    24 bytes (@ 0x3fcedf30, Internal) allocated CPU 0 ccount 0x93929968 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fcedf58, Internal) allocated CPU 0 ccount 0x9392ad1c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    23 bytes (@ 0x3fcedf7c, Internal) allocated CPU 0 ccount 0x9392be2c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    24 bytes (@ 0x3fcedfa4, Internal) allocated CPU 0 ccount 0x9392d2bc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fcedfcc, Internal) allocated CPU 0 ccount 0x9392e550 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    23 bytes (@ 0x3fcedff0, Internal) allocated CPU 0 ccount 0x9392f808 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    36 bytes (@ 0x3fcee018, Internal) allocated CPU 0 ccount 0x93930d9c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fcee04c, Internal) allocated CPU 0 ccount 0x939321e8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcee070, Internal) allocated CPU 0 ccount 0x939332cc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fcee0a0, Internal) allocated CPU 0 ccount 0x93934600 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fcee0c4, Internal) allocated CPU 0 ccount 0x939354a8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    34 bytes (@ 0x3fcee0e8, Internal) allocated CPU 0 ccount 0x939365f0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    18 bytes (@ 0x3fcee11c, Internal) allocated CPU 0 ccount 0x93937928 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fcee140, Internal) allocated CPU 0 ccount 0x939389ac caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    29 bytes (@ 0x3fceee04, Internal) allocated CPU 0 ccount 0x939a5ebc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    18 bytes (@ 0x3fcee930, Internal) allocated CPU 0 ccount 0x939a895c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    52 bytes (@ 0x3fcee980, Internal) allocated CPU 0 ccount 0x939ab6a4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x4204a754
+    28 bytes (@ 0x3fcee9c4, Internal) allocated CPU 0 ccount 0x939acbb8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    31 bytes (@ 0x3fcee164, Internal) allocated CPU 0 ccount 0x939af75c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    27 bytes (@ 0x3fcee954, Internal) allocated CPU 0 ccount 0x939b1210 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    52 bytes (@ 0x3fcee1c0, Internal) allocated CPU 0 ccount 0x939b2ffc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x4204a754
+    28 bytes (@ 0x3fcee204, Internal) allocated CPU 0 ccount 0x939b3e30 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    31 bytes (@ 0x3fcee230, Internal) allocated CPU 0 ccount 0x939b6458 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    27 bytes (@ 0x3fcee194, Internal) allocated CPU 0 ccount 0x939b7c4c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    52 bytes (@ 0x3fcee28c, Internal) allocated CPU 0 ccount 0x939b9a3c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x4204a754
+    28 bytes (@ 0x3fcee2d0, Internal) allocated CPU 0 ccount 0x939ba86c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    37 bytes (@ 0x3fcc138c, Internal) allocated CPU 0 ccount 0x93b5f4d8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fcc13c4, Internal) allocated CPU 0 ccount 0x93b63764 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    47 bytes (@ 0x3fcc13e8, Internal) allocated CPU 0 ccount 0x93b6551c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   192 bytes (@ 0x3fcc1490, Internal) allocated CPU 0 ccount 0x93b6d214 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    47 bytes (@ 0x3fcc1564, Internal) allocated CPU 0 ccount 0x93b6ece4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    22 bytes (@ 0x3fcc15a4, Internal) allocated CPU 0 ccount 0x93b7036c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    17 bytes (@ 0x3fcc15cc, Internal) allocated CPU 0 ccount 0x93b729b8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    56 bytes (@ 0x3fcc15f0, Internal) allocated CPU 0 ccount 0x93b73ef4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcc168c, Internal) allocated CPU 0 ccount 0x93b7773c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    66 bytes (@ 0x3fcc16fc, Internal) allocated CPU 0 ccount 0x93b78850 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    17 bytes (@ 0x3fcc1750, Internal) allocated CPU 0 ccount 0x93b79e88 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    56 bytes (@ 0x3fcc1774, Internal) allocated CPU 0 ccount 0x93b7b54c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcc17bc, Internal) allocated CPU 0 ccount 0x93b7da8c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    17 bytes (@ 0x3fcc182c, Internal) allocated CPU 0 ccount 0x93b7ef40 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    52 bytes (@ 0x3fcc1850, Internal) allocated CPU 0 ccount 0x93b803bc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcc1894, Internal) allocated CPU 0 ccount 0x93b81f84 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    17 bytes (@ 0x3fcc1904, Internal) allocated CPU 0 ccount 0x93b837ac caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    50 bytes (@ 0x3fcc1928, Internal) allocated CPU 0 ccount 0x93b84c8c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fcc196c, Internal) allocated CPU 0 ccount 0x93b8632c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    36 bytes (@ 0x3fcc1990, Internal) allocated CPU 0 ccount 0x93b8787c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   192 bytes (@ 0x3fcc19c4, Internal) allocated CPU 0 ccount 0x93b8ab34 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    36 bytes (@ 0x3fcc1a98, Internal) allocated CPU 0 ccount 0x93b8c5c4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   192 bytes (@ 0x3fcc1acc, Internal) allocated CPU 0 ccount 0x93b8e72c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    66 bytes (@ 0x3fcc1ba0, Internal) allocated CPU 0 ccount 0x93b90290 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   288 bytes (@ 0x3fcc1c50, Internal) allocated CPU 0 ccount 0x93b956dc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    76 bytes (@ 0x3fcc1d84, Internal) allocated CPU 0 ccount 0x93b96ad0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    48 bytes (@ 0x3fcc1de0, Internal) allocated CPU 0 ccount 0x93b982dc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   288 bytes (@ 0x3fcc1e20, Internal) allocated CPU 0 ccount 0x93b9be94 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    20 bytes (@ 0x3fcc1f54, Internal) allocated CPU 0 ccount 0x93b9d6f0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    37 bytes (@ 0x3fcc1f78, Internal) allocated CPU 0 ccount 0x93b9ea6c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   192 bytes (@ 0x3fcc1fb0, Internal) allocated CPU 0 ccount 0x93ba0b84 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    17 bytes (@ 0x3fcc2084, Internal) allocated CPU 0 ccount 0x93ba2890 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    38 bytes (@ 0x3fcc3088, Internal) allocated CPU 0 ccount 0x93c36524 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   104 bytes (@ 0x3fcc310c, Internal) allocated CPU 0 ccount 0x93c3c578 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x4204a754
+    22 bytes (@ 0x3fcc20a8, Internal) allocated CPU 0 ccount 0x93c3e090 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    20 bytes (@ 0x3fcc20d0, Internal) allocated CPU 0 ccount 0x93c3f1a4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    45 bytes (@ 0x3fcc20f4, Internal) allocated CPU 0 ccount 0x93c425dc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   104 bytes (@ 0x3fcc217c, Internal) allocated CPU 0 ccount 0x93c46ca8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x4204a754
+    20 bytes (@ 0x3fcc21f4, Internal) allocated CPU 0 ccount 0x93c47ee0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    20 bytes (@ 0x3fcc2218, Internal) allocated CPU 0 ccount 0x93c49008 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    37 bytes (@ 0x3fcc223c, Internal) allocated CPU 0 ccount 0x93c4a990 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    52 bytes (@ 0x3fcc229c, Internal) allocated CPU 0 ccount 0x93c4db50 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x4204a754
+    23 bytes (@ 0x3fcc22e0, Internal) allocated CPU 0 ccount 0x93c4ec5c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    22 bytes (@ 0x3fcc2308, Internal) allocated CPU 0 ccount 0x93c4ff88 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    43 bytes (@ 0x3fcc2330, Internal) allocated CPU 0 ccount 0x93c5124c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   156 bytes (@ 0x3fcc2394, Internal) allocated CPU 0 ccount 0x93c55140 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x4204a754
+    23 bytes (@ 0x3fcc2440, Internal) allocated CPU 0 ccount 0x93c56254 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    20 bytes (@ 0x3fcc2468, Internal) allocated CPU 0 ccount 0x93c5790c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   244 bytes (@ 0x3fcc3c08, Internal) allocated CPU 0 ccount 0x93daa458 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420bdfd4:0x420be021
+    62 bytes (@ 0x3fcc414c, Internal) allocated CPU 0 ccount 0x93dabbb0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    24 bytes (@ 0x3fcc419c, Internal) allocated CPU 0 ccount 0x93dad34c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42017a4b:0x42040fb9
+    12 bytes (@ 0x3fcc30e8, Internal) allocated CPU 0 ccount 0x93db6e3c caller 0x403761b3:0x403761ec:0x4037dcf0:0x42009a5e:0x4206bbdd:0x4206bcf8
+    84 bytes (@ 0x3fcc41c4, Internal) allocated CPU 0 ccount 0x93db836c caller 0x403761b3:0x42008952:0x42169e04:0x4216a0cb:0x403776d5:0x40377855
+    12 bytes (@ 0x3fcc4228, Internal) allocated CPU 0 ccount 0x93dbb988 caller 0x403761b3:0x403761ec:0x4037dcf0:0x42009a5e:0x4206bbdd:0x4206bd05
+    84 bytes (@ 0x3fcc4244, Internal) allocated CPU 0 ccount 0x93dbcb54 caller 0x403761b3:0x42008952:0x42169e04:0x4216a0cb:0x403776d5:0x40377855
+    12 bytes (@ 0x3fcc42a8, Internal) allocated CPU 0 ccount 0x93dbfe40 caller 0x403761b3:0x403761ec:0x4037dcf0:0x42009a5e:0x4206bbdd:0x4206bd0e
+    84 bytes (@ 0x3fcc42c4, Internal) allocated CPU 0 ccount 0x93dc0f64 caller 0x403761b3:0x42008952:0x42169e04:0x4216a0cb:0x403776d5:0x40377855
+    12 bytes (@ 0x3fcc4328, Internal) allocated CPU 0 ccount 0x93dc6458 caller 0x403761b3:0x403761ec:0x4037dcf0:0x42009a5e:0x4206bbdd:0x4206bcf8
+    84 bytes (@ 0x3fcc4344, Internal) allocated CPU 0 ccount 0x93dc74fc caller 0x403761b3:0x42008952:0x42169e04:0x4216a0cb:0x403776d5:0x40377855
+    12 bytes (@ 0x3fcc43a8, Internal) allocated CPU 0 ccount 0x93dca860 caller 0x403761b3:0x403761ec:0x4037dcf0:0x42009a5e:0x4206bbdd:0x4206bd05
+    84 bytes (@ 0x3fcc43c4, Internal) allocated CPU 0 ccount 0x93dcb880 caller 0x403761b3:0x42008952:0x42169e04:0x4216a0cb:0x403776d5:0x40377855
+    12 bytes (@ 0x3fcc4428, Internal) allocated CPU 0 ccount 0x93dcec90 caller 0x403761b3:0x403761ec:0x4037dcf0:0x42009a5e:0x4206bbdd:0x4206bd0e
+    84 bytes (@ 0x3fcc4444, Internal) allocated CPU 0 ccount 0x93dcfd34 caller 0x403761b3:0x42008952:0x42169e04:0x4216a0cb:0x403776d5:0x40377855
+    16 bytes (@ 0x3fcc3a7c, Internal) allocated CPU 0 ccount 0x93deccb4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42022784:0x42022e39
+    16 bytes (@ 0x3fcc44a8, Internal) allocated CPU 0 ccount 0x93df66ec caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42051e4c:0x420543b9
+    16 bytes (@ 0x3fcc4508, Internal) allocated CPU 0 ccount 0x93dfbbb0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dc0c:0x42012fc1
+    16 bytes (@ 0x3fcc4568, Internal) allocated CPU 0 ccount 0x93e015d4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420499dc:0x4204c66d
+    16 bytes (@ 0x3fcc45c8, Internal) allocated CPU 0 ccount 0x93e0699c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42058eb0:0x420629b1
+    41 bytes (@ 0x3fcc4698, Internal) allocated CPU 0 ccount 0x940ba988 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fcc46d4, Internal) allocated CPU 0 ccount 0x940bbd54 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    18 bytes (@ 0x3fcc46f8, Internal) allocated CPU 0 ccount 0x940bd070 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    44 bytes (@ 0x3fcc471c, Internal) allocated CPU 0 ccount 0x940be24c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fcc4758, Internal) allocated CPU 0 ccount 0x940bf5f8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    39 bytes (@ 0x3fcc477c, Internal) allocated CPU 0 ccount 0x940c0d44 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcc47e0, Internal) allocated CPU 0 ccount 0x940c3d80 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x4204c790
+    27 bytes (@ 0x3fcc4850, Internal) allocated CPU 0 ccount 0x940c5938 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    17 bytes (@ 0x3fcc4c48, Internal) allocated CPU 0 ccount 0x9410c73c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    44 bytes (@ 0x3fcc4d3c, Internal) allocated CPU 0 ccount 0x9410d964 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    52 bytes (@ 0x3fcc48a4, Internal) allocated CPU 0 ccount 0x94110954 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x4204a754
+    21 bytes (@ 0x3fcc48e8, Internal) allocated CPU 0 ccount 0x94112458 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    17 bytes (@ 0x3fcc4910, Internal) allocated CPU 0 ccount 0x941139bc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    38 bytes (@ 0x3fcc4934, Internal) allocated CPU 0 ccount 0x94114fa8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    52 bytes (@ 0x3fcc4f10, Internal) allocated CPU 0 ccount 0x941175ec caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x4204a754
+    25 bytes (@ 0x3fcc4998, Internal) allocated CPU 0 ccount 0x9411860c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    17 bytes (@ 0x3fcc4f54, Internal) allocated CPU 0 ccount 0x94119b84 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    44 bytes (@ 0x3fcc4f78, Internal) allocated CPU 0 ccount 0x9411af24 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    52 bytes (@ 0x3fcc4fdc, Internal) allocated CPU 0 ccount 0x9411d81c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x4204a754
+    23 bytes (@ 0x3fcc5020, Internal) allocated CPU 0 ccount 0x9411e9b0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    43 bytes (@ 0x3fcc5048, Internal) allocated CPU 0 ccount 0x941201a8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   156 bytes (@ 0x3fcc5104, Internal) allocated CPU 0 ccount 0x94125378 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x4204a754
+    28 bytes (@ 0x3fcc51b0, Internal) allocated CPU 0 ccount 0x9412648c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    29 bytes (@ 0x3fcc51dc, Internal) allocated CPU 0 ccount 0x9412756c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    19 bytes (@ 0x3fcc520c, Internal) allocated CPU 0 ccount 0x94128a68 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f7f3
+    47 bytes (@ 0x3fcc6240, Internal) allocated CPU 0 ccount 0x94dad5a8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   108 bytes (@ 0x3fcc6280, Internal) allocated CPU 0 ccount 0x94daf1e8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcc62fc, Internal) allocated CPU 0 ccount 0x94db1dc8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    71 bytes (@ 0x3fcc636c, Internal) allocated CPU 0 ccount 0x94db3b94 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    44 bytes (@ 0x3fcc63c4, Internal) allocated CPU 0 ccount 0x94db8198 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   192 bytes (@ 0x3fcc6400, Internal) allocated CPU 0 ccount 0x94db9638 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    81 bytes (@ 0x3fcc64d4, Internal) allocated CPU 0 ccount 0x94dbac4c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   128 bytes (@ 0x3fcc6538, Internal) allocated CPU 0 ccount 0x94dbca2c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    54 bytes (@ 0x3fcc65cc, Internal) allocated CPU 0 ccount 0x94dbe298 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    48 bytes (@ 0x3fcc6614, Internal) allocated CPU 0 ccount 0x94dbf5a0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   192 bytes (@ 0x3fcc6654, Internal) allocated CPU 0 ccount 0x94dc062c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    71 bytes (@ 0x3fcc6728, Internal) allocated CPU 0 ccount 0x94dc1d9c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   111 bytes (@ 0x3fcc6780, Internal) allocated CPU 0 ccount 0x94dc3774 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    48 bytes (@ 0x3fcc6800, Internal) allocated CPU 0 ccount 0x94dd2ce8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   192 bytes (@ 0x3fcc6840, Internal) allocated CPU 0 ccount 0x94dd3e48 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    72 bytes (@ 0x3fcc6914, Internal) allocated CPU 0 ccount 0x94dd5868 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   120 bytes (@ 0x3fcc696c, Internal) allocated CPU 0 ccount 0x94dd7534 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    34 bytes (@ 0x3fcc69f8, Internal) allocated CPU 0 ccount 0x94dd96a4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   205 bytes (@ 0x3fcc6a2c, Internal) allocated CPU 0 ccount 0x94ddb448 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcc6b10, Internal) allocated CPU 0 ccount 0x94ddc7e4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    46 bytes (@ 0x3fcc6b40, Internal) allocated CPU 0 ccount 0x94ddd9c0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    73 bytes (@ 0x3fcc6b80, Internal) allocated CPU 0 ccount 0x94ddf288 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcc6bdc, Internal) allocated CPU 0 ccount 0x94de0418 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    40 bytes (@ 0x3fcc6c4c, Internal) allocated CPU 0 ccount 0x94de1998 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    34 bytes (@ 0x3fcc6c84, Internal) allocated CPU 0 ccount 0x94de2ee0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    65 bytes (@ 0x3fcc6cb8, Internal) allocated CPU 0 ccount 0x94de43f4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcc6d0c, Internal) allocated CPU 0 ccount 0x94de54d4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    51 bytes (@ 0x3fcc6d7c, Internal) allocated CPU 0 ccount 0x94de6a3c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    52 bytes (@ 0x3fcc6dc0, Internal) allocated CPU 0 ccount 0x94de801c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    94 bytes (@ 0x3fcc6e04, Internal) allocated CPU 0 ccount 0x94de968c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcc6e74, Internal) allocated CPU 0 ccount 0x94dea788 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    61 bytes (@ 0x3fcc6ee4, Internal) allocated CPU 0 ccount 0x94debda4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    37 bytes (@ 0x3fcc6f34, Internal) allocated CPU 0 ccount 0x94ded2d8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    96 bytes (@ 0x3fcc6f6c, Internal) allocated CPU 0 ccount 0x94dee660 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    61 bytes (@ 0x3fcc6fdc, Internal) allocated CPU 0 ccount 0x94def7b0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    33 bytes (@ 0x3fcc702c, Internal) allocated CPU 0 ccount 0x94df0cc8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    96 bytes (@ 0x3fcc7060, Internal) allocated CPU 0 ccount 0x94df1f90 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    56 bytes (@ 0x3fcc70d0, Internal) allocated CPU 0 ccount 0x94df3468 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    51 bytes (@ 0x3fcc7118, Internal) allocated CPU 0 ccount 0x94df4b88 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    22 bytes (@ 0x3fcc715c, Internal) allocated CPU 0 ccount 0x94df5e64 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   192 bytes (@ 0x3fcc7184, Internal) allocated CPU 0 ccount 0x94df6ebc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    56 bytes (@ 0x3fcc7258, Internal) allocated CPU 0 ccount 0x94df81d8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    32 bytes (@ 0x3fcc72a0, Internal) allocated CPU 0 ccount 0x94df98c4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    34 bytes (@ 0x3fcc72d0, Internal) allocated CPU 0 ccount 0x94dfae14 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   192 bytes (@ 0x3fcc7304, Internal) allocated CPU 0 ccount 0x94dfbf40 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    56 bytes (@ 0x3fcc73d8, Internal) allocated CPU 0 ccount 0x94dfd238 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    23 bytes (@ 0x3fcc7420, Internal) allocated CPU 0 ccount 0x94dfe894 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    38 bytes (@ 0x3fcc7448, Internal) allocated CPU 0 ccount 0x94dffd20 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   192 bytes (@ 0x3fcc7480, Internal) allocated CPU 0 ccount 0x94e00e90 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    56 bytes (@ 0x3fcc7554, Internal) allocated CPU 0 ccount 0x94e021b0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    19 bytes (@ 0x3fcc759c, Internal) allocated CPU 0 ccount 0x94e035d0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    45 bytes (@ 0x3fcc75c0, Internal) allocated CPU 0 ccount 0x94e04c40 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    96 bytes (@ 0x3fcc7600, Internal) allocated CPU 0 ccount 0x94e05e9c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    51 bytes (@ 0x3fcc7670, Internal) allocated CPU 0 ccount 0x94e071b0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    35 bytes (@ 0x3fcc76b4, Internal) allocated CPU 0 ccount 0x94e088e0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   192 bytes (@ 0x3fcc76e8, Internal) allocated CPU 0 ccount 0x94e09acc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    58 bytes (@ 0x3fcc77bc, Internal) allocated CPU 0 ccount 0x94e0b0e0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    63 bytes (@ 0x3fcc7808, Internal) allocated CPU 0 ccount 0x94e0cab0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    35 bytes (@ 0x3fcc7858, Internal) allocated CPU 0 ccount 0x94e0dfcc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   288 bytes (@ 0x3fcc788c, Internal) allocated CPU 0 ccount 0x94e0f16c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    58 bytes (@ 0x3fcc79c0, Internal) allocated CPU 0 ccount 0x94e102d8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    63 bytes (@ 0x3fcc7a0c, Internal) allocated CPU 0 ccount 0x94e11844 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    38 bytes (@ 0x3fcc7a5c, Internal) allocated CPU 0 ccount 0x94e12d68 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    68 bytes (@ 0x3fcc7a94, Internal) allocated CPU 0 ccount 0x94e14648 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   153 bytes (@ 0x3fcc7ae8, Internal) allocated CPU 0 ccount 0x94e15ffc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   192 bytes (@ 0x3fcc7b94, Internal) allocated CPU 0 ccount 0x94e172e8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    60 bytes (@ 0x3fcc7c68, Internal) allocated CPU 0 ccount 0x94e18a50 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    39 bytes (@ 0x3fcc7cb4, Internal) allocated CPU 0 ccount 0x94e19ff8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    74 bytes (@ 0x3fcc7cec, Internal) allocated CPU 0 ccount 0x94e1ba38 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    82 bytes (@ 0x3fcc7d48, Internal) allocated CPU 0 ccount 0x94e1d124 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   192 bytes (@ 0x3fcc7dac, Internal) allocated CPU 0 ccount 0x94e1e214 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    65 bytes (@ 0x3fcc7e80, Internal) allocated CPU 0 ccount 0x94e1f528 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    44 bytes (@ 0x3fcc7ed4, Internal) allocated CPU 0 ccount 0x94e20f50 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcc7f10, Internal) allocated CPU 0 ccount 0x95809600 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    96 bytes (@ 0x3fcc7f40, Internal) allocated CPU 0 ccount 0x9580cf88 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    79 bytes (@ 0x3fcc7fb0, Internal) allocated CPU 0 ccount 0x9580f528 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcc8010, Internal) allocated CPU 0 ccount 0x95812d98 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    17 bytes (@ 0x3fcca580, Internal) allocated CPU 0 ccount 0x958140c0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcc8080, Internal) allocated CPU 0 ccount 0x9581546c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    31 bytes (@ 0x3fcc80b0, Internal) allocated CPU 0 ccount 0x95816704 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    31 bytes (@ 0x3fcc80e0, Internal) allocated CPU 0 ccount 0x95817ae0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    44 bytes (@ 0x3fcc8110, Internal) allocated CPU 0 ccount 0x95818ef4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    17 bytes (@ 0x3fcc814c, Internal) allocated CPU 0 ccount 0x9581ab54 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    32 bytes (@ 0x3fcc8170, Internal) allocated CPU 0 ccount 0x9581bf4c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    27 bytes (@ 0x3fcc81a0, Internal) allocated CPU 0 ccount 0x9581d198 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcc81cc, Internal) allocated CPU 0 ccount 0x9581e488 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    41 bytes (@ 0x3fcc81fc, Internal) allocated CPU 0 ccount 0x9581fb28 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    46 bytes (@ 0x3fcc8238, Internal) allocated CPU 0 ccount 0x95820fb8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    55 bytes (@ 0x3fcc85d4, Internal) allocated CPU 0 ccount 0x958aca58 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    52 bytes (@ 0x3fcc861c, Internal) allocated CPU 0 ccount 0x958ae8cc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x420b9dac
+    36 bytes (@ 0x3fcc8660, Internal) allocated CPU 0 ccount 0x958b0738 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    42 bytes (@ 0x3fccb2e4, Internal) allocated CPU 0 ccount 0x958b2374 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    52 bytes (@ 0x3fccb320, Internal) allocated CPU 0 ccount 0x958b34b4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x420b9dac
+    25 bytes (@ 0x3fccb364, Internal) allocated CPU 0 ccount 0x958b4584 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fccc0d4, Internal) allocated CPU 0 ccount 0x97ae6b6c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   339 bytes (@ 0x3fccc6a4, Internal) allocated CPU 0 ccount 0x97ae914c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    32 bytes (@ 0x3fccbee4, Internal) allocated CPU 0 ccount 0x97aebdbc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    92 bytes (@ 0x3fccc518, Internal) allocated CPU 0 ccount 0x97aed584 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+   124 bytes (@ 0x3fccc808, Internal) allocated CPU 0 ccount 0x97aeec24 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    30 bytes (@ 0x3fccbf90, Internal) allocated CPU 0 ccount 0x97af0044 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fccc894, Internal) allocated CPU 0 ccount 0x97af18b4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    73 bytes (@ 0x3fccc904, Internal) allocated CPU 0 ccount 0x97af3134 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fccc960, Internal) allocated CPU 0 ccount 0x97af6088 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    35 bytes (@ 0x3fccc990, Internal) allocated CPU 0 ccount 0x97af73f4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    96 bytes (@ 0x3fccc9c4, Internal) allocated CPU 0 ccount 0x97af8860 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    21 bytes (@ 0x3fccca34, Internal) allocated CPU 0 ccount 0x97af9d1c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    55 bytes (@ 0x3fccca5c, Internal) allocated CPU 0 ccount 0x97afb268 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   192 bytes (@ 0x3fcccaa4, Internal) allocated CPU 0 ccount 0x97afc4ac caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    24 bytes (@ 0x3fcccb78, Internal) allocated CPU 0 ccount 0x97afd6cc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    57 bytes (@ 0x3fcccba0, Internal) allocated CPU 0 ccount 0x97afedc8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    43 bytes (@ 0x3fcccbec, Internal) allocated CPU 0 ccount 0x97b015d8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   192 bytes (@ 0x3fcccc28, Internal) allocated CPU 0 ccount 0x97b0268c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    24 bytes (@ 0x3fccccfc, Internal) allocated CPU 0 ccount 0x97b0397c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    57 bytes (@ 0x3fcccd24, Internal) allocated CPU 0 ccount 0x97b04d44 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    88 bytes (@ 0x3fcccd70, Internal) allocated CPU 0 ccount 0x97b06728 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   192 bytes (@ 0x3fcccdd8, Internal) allocated CPU 0 ccount 0x97b078c8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    78 bytes (@ 0x3fccceac, Internal) allocated CPU 0 ccount 0x97b08e70 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    50 bytes (@ 0x3fcccf0c, Internal) allocated CPU 0 ccount 0x97b0a72c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    98 bytes (@ 0x3fcccf50, Internal) allocated CPU 0 ccount 0x97b0c060 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    65 bytes (@ 0x3fcccfc4, Internal) allocated CPU 0 ccount 0x97b0d490 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fccd018, Internal) allocated CPU 0 ccount 0x97b0e594 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    78 bytes (@ 0x3fccd088, Internal) allocated CPU 0 ccount 0x97b0f72c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fccd0e8, Internal) allocated CPU 0 ccount 0x97b10d0c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    81 bytes (@ 0x3fccd118, Internal) allocated CPU 0 ccount 0x97b120a0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   192 bytes (@ 0x3fccd17c, Internal) allocated CPU 0 ccount 0x97b13300 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    78 bytes (@ 0x3fccd250, Internal) allocated CPU 0 ccount 0x97b14518 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    24 bytes (@ 0x3fccd2b0, Internal) allocated CPU 0 ccount 0x97b15d6c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    98 bytes (@ 0x3fccd2d8, Internal) allocated CPU 0 ccount 0x97b176f0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    65 bytes (@ 0x3fccd34c, Internal) allocated CPU 0 ccount 0x97b18d10 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fccd3a0, Internal) allocated CPU 0 ccount 0x97b19da8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    78 bytes (@ 0x3fccd410, Internal) allocated CPU 0 ccount 0x97b1b04c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    80 bytes (@ 0x3fccd470, Internal) allocated CPU 0 ccount 0x97b1c8c8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    25 bytes (@ 0x3fccd4d0, Internal) allocated CPU 0 ccount 0x97b1dbc4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fccd4fc, Internal) allocated CPU 0 ccount 0x97b1eddc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   347 bytes (@ 0x3fccd52c, Internal) allocated CPU 0 ccount 0x97b20d5c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   192 bytes (@ 0x3fccd6a0, Internal) allocated CPU 0 ccount 0x97b22000 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    45 bytes (@ 0x3fccd774, Internal) allocated CPU 0 ccount 0x97b234fc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    73 bytes (@ 0x3fccd7b4, Internal) allocated CPU 0 ccount 0x97b25800 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+     8 bytes (@ 0x3fccbfc0, Internal) allocated CPU 0 ccount 0x97b306b8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42108d4a
+    17 bytes (@ 0x3fccd810, Internal) allocated CPU 0 ccount 0x97b34c48 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42108d4a
+    23 bytes (@ 0x3fccd834, Internal) allocated CPU 0 ccount 0x97b3982c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42108d4a
+    20 bytes (@ 0x3fccd85c, Internal) allocated CPU 0 ccount 0x97b3b28c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42108d4a
+    10 bytes (@ 0x3fccbf50, Internal) allocated CPU 0 ccount 0x97b3c930 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42108d4a
+    19 bytes (@ 0x3fccd880, Internal) allocated CPU 0 ccount 0x97b3dd54 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42108d4a
+    18 bytes (@ 0x3fccd8a4, Internal) allocated CPU 0 ccount 0x97b40378 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42108d4a
+    16 bytes (@ 0x3fccc044, Internal) allocated CPU 0 ccount 0x97b4196c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42108d4a
+    16 bytes (@ 0x3fccd8c8, Internal) allocated CPU 0 ccount 0x97b4309c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42108d4a
+    14 bytes (@ 0x3fccdb0c, Internal) allocated CPU 0 ccount 0x97b45cac caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42108d4a
+    18 bytes (@ 0x3fccdb2c, Internal) allocated CPU 0 ccount 0x97b472c8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42108d4a
+    21 bytes (@ 0x3fccdb50, Internal) allocated CPU 0 ccount 0x97b48d0c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42108d4a
+   240 bytes (@ 0x3fccdb78, Internal) allocated CPU 0 ccount 0x97b501dc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42107e46
+   176 bytes (@ 0x3fccdc7c, Internal) allocated CPU 0 ccount 0x97b548ec caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x421076dc:0x42107e46
+    31 bytes (@ 0x3fccd8e8, Internal) allocated CPU 0 ccount 0x97b8d778 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    41 bytes (@ 0x3fccd918, Internal) allocated CPU 0 ccount 0x97b8ed20 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   290 bytes (@ 0x3fccd954, Internal) allocated CPU 0 ccount 0x97b91310 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fccda88, Internal) allocated CPU 0 ccount 0x97b929fc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    45 bytes (@ 0x3fccdd40, Internal) allocated CPU 0 ccount 0x97b942c8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fccdd80, Internal) allocated CPU 0 ccount 0x97b95bc4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    60 bytes (@ 0x3fccddb0, Internal) allocated CPU 0 ccount 0x97b96fa4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   192 bytes (@ 0x3fccddfc, Internal) allocated CPU 0 ccount 0x97b984ac caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    45 bytes (@ 0x3fccded0, Internal) allocated CPU 0 ccount 0x97b9967c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    51 bytes (@ 0x3fccdf10, Internal) allocated CPU 0 ccount 0x97b9ae4c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fccdf54, Internal) allocated CPU 0 ccount 0x97b9c278 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    60 bytes (@ 0x3fccdf84, Internal) allocated CPU 0 ccount 0x97b9d4e8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    51 bytes (@ 0x3fccdfd0, Internal) allocated CPU 0 ccount 0x97b9e704 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcce014, Internal) allocated CPU 0 ccount 0x97b9f798 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    45 bytes (@ 0x3fcce084, Internal) allocated CPU 0 ccount 0x97ba0a84 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcce0c4, Internal) allocated CPU 0 ccount 0x97ba1e88 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    53 bytes (@ 0x3fcce0f4, Internal) allocated CPU 0 ccount 0x97ba3108 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   192 bytes (@ 0x3fcce13c, Internal) allocated CPU 0 ccount 0x97ba42b0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    45 bytes (@ 0x3fcce210, Internal) allocated CPU 0 ccount 0x97ba5518 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    53 bytes (@ 0x3fcce250, Internal) allocated CPU 0 ccount 0x97ba6ce4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcce298, Internal) allocated CPU 0 ccount 0x97ba8088 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    61 bytes (@ 0x3fcce2c8, Internal) allocated CPU 0 ccount 0x97ba93c8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    49 bytes (@ 0x3fcce318, Internal) allocated CPU 0 ccount 0x97baa8dc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    96 bytes (@ 0x3fcce35c, Internal) allocated CPU 0 ccount 0x97bab9b0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    45 bytes (@ 0x3fcce3cc, Internal) allocated CPU 0 ccount 0x97bacb84 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    76 bytes (@ 0x3fcce40c, Internal) allocated CPU 0 ccount 0x97bae380 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    96 bytes (@ 0x3fcce468, Internal) allocated CPU 0 ccount 0x97baf558 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    67 bytes (@ 0x3fcce4d8, Internal) allocated CPU 0 ccount 0x97bb0b80 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    78 bytes (@ 0x3fcce52c, Internal) allocated CPU 0 ccount 0x97bb2628 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    96 bytes (@ 0x3fcce58c, Internal) allocated CPU 0 ccount 0x97bb37a0 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x42021cc3:0x420b88e6
+    67 bytes (@ 0x3fcce5fc, Internal) allocated CPU 0 ccount 0x97bb497c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcd0f80, Internal) allocated CPU 0 ccount 0x99b05200 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    54 bytes (@ 0x3fcd0fb0, Internal) allocated CPU 0 ccount 0x99b06940 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   156 bytes (@ 0x3fcd0ff8, Internal) allocated CPU 0 ccount 0x99b08490 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x420b9dac
+    56 bytes (@ 0x3fcce650, Internal) allocated CPU 0 ccount 0x99b0a980 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    18 bytes (@ 0x3fcd1300, Internal) allocated CPU 0 ccount 0x99b0bdec caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcd10a4, Internal) allocated CPU 0 ccount 0x99b0cefc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    41 bytes (@ 0x3fcce698, Internal) allocated CPU 0 ccount 0x99b0e160 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   104 bytes (@ 0x3fcce6d4, Internal) allocated CPU 0 ccount 0x99b0f250 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x420b9dac
+    50 bytes (@ 0x3fcce74c, Internal) allocated CPU 0 ccount 0x99b10948 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcce790, Internal) allocated CPU 0 ccount 0x99b11b38 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    41 bytes (@ 0x3fcce7c0, Internal) allocated CPU 0 ccount 0x99b12e2c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    52 bytes (@ 0x3fcce7fc, Internal) allocated CPU 0 ccount 0x99b13e70 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x420b9dac
+    24 bytes (@ 0x3fcd1930, Internal) allocated CPU 0 ccount 0x99b15238 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcce840, Internal) allocated CPU 0 ccount 0x99b16390 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    43 bytes (@ 0x3fcce870, Internal) allocated CPU 0 ccount 0x99b17690 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    52 bytes (@ 0x3fcce8ac, Internal) allocated CPU 0 ccount 0x99b186d8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x420b9dac
+    21 bytes (@ 0x3fcce8f0, Internal) allocated CPU 0 ccount 0x99b199ac caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    46 bytes (@ 0x3fcce918, Internal) allocated CPU 0 ccount 0x99b1af34 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    52 bytes (@ 0x3fcce958, Internal) allocated CPU 0 ccount 0x99b1c080 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x420b9dac
+    23 bytes (@ 0x3fcce99c, Internal) allocated CPU 0 ccount 0x99b1d278 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcce9c4, Internal) allocated CPU 0 ccount 0x99b1e520 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    48 bytes (@ 0x3fcce9f4, Internal) allocated CPU 0 ccount 0x99b1f730 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   156 bytes (@ 0x3fccea34, Internal) allocated CPU 0 ccount 0x99b207c8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x420b9dac
+    27 bytes (@ 0x3fcceae0, Internal) allocated CPU 0 ccount 0x99b21a5c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    57 bytes (@ 0x3fcceb0c, Internal) allocated CPU 0 ccount 0x99b23324 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    31 bytes (@ 0x3fcceb58, Internal) allocated CPU 0 ccount 0x99b245bc caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+    50 bytes (@ 0x3fcceb88, Internal) allocated CPU 0 ccount 0x99b25948 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200f1c9
+   156 bytes (@ 0x3fccebcc, Internal) allocated CPU 0 ccount 0x99b269c4 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x420291a6:0x420b9dac
+    27 bytes (@ 0x3fccec78, Internal) allocated CPU 0 ccount 0x99b27b5c caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    69 bytes (@ 0x3fcceca4, Internal) allocated CPU 0 ccount 0x99b29124 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4200dfaa:0x4200e337
+    12 bytes (@ 0x3fcc4544, Internal) allocated CPU 0 ccount 0x9aa1f3b8 caller 0x403761b3:0x403761ec:0x4037dcc8:0x42009db1:0x42009185:0x42009315
+    12 bytes (@ 0x3fcd2810, Internal) allocated CPU 0 ccount 0x9aa26530 caller 0x403761b3:0x403761ec:0x4037dcc8:0x42009db1:0x4212cf18:0x420097f2
+    12 bytes (@ 0x3fcd282c, Internal) allocated CPU 0 ccount 0x9aa29f78 caller 0x403761b3:0x403761ec:0x4037dcc8:0x4212e030:0x4212e044:0x4212cf75
+    12 bytes (@ 0x3fcd2848, Internal) allocated CPU 0 ccount 0x9aa2b668 caller 0x403761b3:0x403761ec:0x4037dcc8:0x42009f0c:0x4212cf8c:0x420f3296
+    24 bytes (@ 0x3fcc4af4, Internal) allocated CPU 0 ccount 0x9aa2d5ac caller 0x403761b3:0x403761ec:0x4037dcc8:0x420092c4:0x420f32ea:0x420f356c
+    12 bytes (@ 0x3fcc4b1c, Internal) allocated CPU 0 ccount 0x9aa2e698 caller 0x403761b3:0x403761ec:0x4037dcc8:0x42009f0c:0x420092e5:0x420f32ea
+    84 bytes (@ 0x3fcd3540, Internal) allocated CPU 0 ccount 0x9aa679bc caller 0x403761b3:0x42008952:0x42169e04:0x4216a0cb:0x403776d5:0x40377721
+    84 bytes (@ 0x3fcd365c, Internal) allocated CPU 0 ccount 0x9aa891d0 caller 0x403761b3:0x42008952:0x42169e04:0x4216a0cb:0x403776d5:0x40377721
+    84 bytes (@ 0x3fcd36c0, Internal) allocated CPU 0 ccount 0x9aa8ad70 caller 0x403761b3:0x42008952:0x42169e04:0x4216a0cb:0x403776d5:0x40377721
+    84 bytes (@ 0x3fcd9900, Internal) allocated CPU 0 ccount 0xb4c4d828 caller 0x403761b3:0x42008952:0x42169e04:0x4216a0cb:0x403776d5:0x40377721
+====== Heap Trace Summary ======
+Mode: Heap Trace Leaks
+23193 bytes 'leaked' in trace (376 allocations)
+records: 408 (2048 capacity, 1566 high water mark)
+total allocations: 5839
+total frees: 5451
+================================
+I (25826) SvcMgr: [manager.cpp:0093] (init_internal) : Version: 0.8.2
+I (25836) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Manager
+I (25836) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Manager
+I (25846) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Manager
+I (25846) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Utils
+I (25846) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Utils
+I (25856) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Utils
+I (25856) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: DataFlow
+I (25866) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: DataFlow
+I (25866) SvcMgr: [manager.cpp:0360] (add_service) : Service added: DataFlow
+I (25866) SvcMgr: [manager.cpp:0810] (topological_sort) : Service initialization order: 
+I (25866) SvcMgr: [manager.cpp:0812] (topological_sort) :   1. Usb
+I (25876) SvcMgr: [manager.cpp:0812] (topological_sort) :   2. Storage
+I (25876) SvcMgr: [manager.cpp:0812] (topological_sort) :   3. Wifi
+I (25876) SvcMgr: [manager.cpp:0812] (topological_sort) :   4. SNTP
+I (25876) SvcMgr: [manager.cpp:0812] (topological_sort) :   5. Display
+I (25876) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Usb
+I (25876) SvcUsb: [service_usb.cpp:1175] (on_init) : Version: 0.8.0
+I (25886) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Usb
+I (25886) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Usb
+I (25886) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Storage
+I (25896) SvcStorage: [service_storage.cpp:0789] (on_init) : Version: 0.8.3
+I (25896) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 3
+I (25896) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:NVS' with reference count 3
+I (25896) SvcStorage: [service_storage.cpp:0795] (on_init) : Using storage KV interface: TWatchUltra:NVS
+W (25956) SvcStorage: [service_storage.cpp:0815] (on_init) : Storage file-system HAL interface is not available
+I (25966) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Storage
+I (25966) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Storage
+I (25966) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Wifi
+I (25976) SvcWiFi: [service_wifi.cpp:0224] (on_init) : Version: 0.8.2
+E (25976) SvcWiFi: [service_wifi.cpp:0233] (on_init) : Wi-Fi basic HAL interface is not available
+E (25976) SvcMgr: [base.cpp:0997] (init_internal) : Failed to initialize service
+I (25976) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Wifi
+E (25976) SvcMgr: [manager.cpp:0344] (add_service) : Failed to initialize service
+E (25976) SvcMgr: [manager.cpp:0840] (add_all_registered_services) : Failed to add service: Wifi
+I (25986) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: SNTP
+I (25986) SvcSNTP: [service_sntp.cpp:0071] (on_init) : Version: 0.8.2
+I (25986) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: SNTP
+I (25996) SvcMgr: [manager.cpp:0360] (add_service) : Service added: SNTP
+I (25996) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Display
+I (25996) SvcDisplay: [display_lifecycle.cpp:0023] (on_init) : Version: 0.8.2
+I (25996) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 4
+I (25996) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 4
+I (26006) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 5
+I (26006) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CST9220' with reference count 5
+I (26006) SvcDisplay: [display_lifecycle.cpp:0061] (on_init) : Registered display output Output0: 410x502, pixel_format=RGB565, panel=TWatchUltra:CO5300, group_id=t_watch_ultra_display
+I (26016) SvcDisplay: [display_lifecycle.cpp:0092] (on_init) : Registered display touch Touch0: 410x502, max_points=1, operation_mode=Polling, touch=TWatchUltra:CST9220, group_id=t_watch_ultra_display
+I (26016) SvcDisplay: [display_render_tasks.cpp:0171] (bind_default_touches_locked) : Bound display output Output0 to touch Touch0 by group_id(t_watch_ultra_display)
+W (26016) SvcDisplay: [display_lifecycle.cpp:0110] (on_init) : No HAL display backlight interface is available
+I (26026) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 6
+I (26026) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 6
+I (26026) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 5
+I (26036) SvcDisplay: [display_lifecycle.cpp:0120] (on_init) : Registered Display DataFlow provider
+I (26046) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Display
+I (26046) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Display
+I (26056) SvcMgr: [manager.cpp:0844] (add_all_registered_services) : All services added
+I (26066) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Manager
+I (26076) SvcMgr: [manager.cpp:0542] (bind) : Service started: Manager
+I (26076) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Utils
+I (26086) SvcMgr: [manager.cpp:0542] (bind) : Service started: Utils
+I (26086) SvcMgr: [base.cpp:1131] (start_internal) : Started service: DataFlow
+I (26086) SvcMgr: [manager.cpp:0542] (bind) : Service started: DataFlow
+I (26086) SvcMgr: [manager.cpp:0259] (start) : Service manager started
+I (26096) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Storage
+I (26096) SvcMgr: [manager.cpp:0542] (bind) : Service started: Storage
+I (26106) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (26106) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (26116) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Display
+I (26116) SvcMgr: [manager.cpp:0542] (bind) : Service started: Display
+I (26126) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Display
+I (26126) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Display
+W (26126) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+I (26136) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Storage
+I (26136) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Storage
+I (26136) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: DataFlow
+I (26136) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: DataFlow
+I (26146) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Utils
+I (26146) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Utils
+I (26146) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Manager
+I (26156) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Manager
+I (26656) SvcMgr: [manager.cpp:0321] (stop_internal) : Service manager stopped
+I (26656) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Display
+I (26666) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 4
+I (26666) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 3
+I (26676) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Display
+I (26676) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Display
+I (26676) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: SNTP
+I (26676) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: SNTP
+I (26686) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: SNTP
+I (26686) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Storage
+I (26686) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 2
+I (26696) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Storage
+I (26696) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Storage
+I (26696) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Usb
+I (26696) SvcUsb: [service_usb.cpp:1188] (on_deinit) : Deinitialized
+I (26696) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Usb
+I (26706) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Usb
+I (26706) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: DataFlow
+I (26706) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: DataFlow
+I (26706) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: DataFlow
+I (26716) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Utils
+I (26716) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Utils
+I (26716) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Utils
+I (26726) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Manager
+I (26726) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Manager
+I (26726) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Manager
+I (26726) SvcMgr: [manager.cpp:0887] (remove_all_registered_services) : All services removed
+I (26756) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (26756) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (26836) brookesia_system: SERVICE_CYCLE cycle=2 bind=ok before=190872 immediate=190872 settled=190872 tasks=7/7/7 heap_ok=1
+I (26836) SvcMgr: [manager.cpp:0093] (init_internal) : Version: 0.8.2
+I (26836) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Manager
+I (26846) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Manager
+I (26846) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Manager
+I (26846) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Utils
+I (26856) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Utils
+I (26856) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Utils
+I (26856) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: DataFlow
+I (26866) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: DataFlow
+I (26866) SvcMgr: [manager.cpp:0360] (add_service) : Service added: DataFlow
+I (26876) SvcMgr: [manager.cpp:0810] (topological_sort) : Service initialization order: 
+I (26876) SvcMgr: [manager.cpp:0812] (topological_sort) :   1. Usb
+I (26876) SvcMgr: [manager.cpp:0812] (topological_sort) :   2. Storage
+I (26876) SvcMgr: [manager.cpp:0812] (topological_sort) :   3. Wifi
+I (26876) SvcMgr: [manager.cpp:0812] (topological_sort) :   4. SNTP
+I (26876) SvcMgr: [manager.cpp:0812] (topological_sort) :   5. Display
+I (26886) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Usb
+I (26886) SvcUsb: [service_usb.cpp:1175] (on_init) : Version: 0.8.0
+I (26886) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Usb
+I (26896) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Usb
+I (26896) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Storage
+I (26896) SvcStorage: [service_storage.cpp:0789] (on_init) : Version: 0.8.3
+I (26896) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 3
+I (26906) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:NVS' with reference count 3
+I (26906) SvcStorage: [service_storage.cpp:0795] (on_init) : Using storage KV interface: TWatchUltra:NVS
+W (26966) SvcStorage: [service_storage.cpp:0815] (on_init) : Storage file-system HAL interface is not available
+I (26966) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Storage
+I (26976) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Storage
+I (26976) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Wifi
+I (26976) SvcWiFi: [service_wifi.cpp:0224] (on_init) : Version: 0.8.2
+E (26976) SvcWiFi: [service_wifi.cpp:0233] (on_init) : Wi-Fi basic HAL interface is not available
+E (26976) SvcMgr: [base.cpp:0997] (init_internal) : Failed to initialize service
+I (26976) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Wifi
+E (26986) SvcMgr: [manager.cpp:0344] (add_service) : Failed to initialize service
+E (26986) SvcMgr: [manager.cpp:0840] (add_all_registered_services) : Failed to add service: Wifi
+I (26986) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: SNTP
+I (26986) SvcSNTP: [service_sntp.cpp:0071] (on_init) : Version: 0.8.2
+I (26996) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: SNTP
+I (26996) SvcMgr: [manager.cpp:0360] (add_service) : Service added: SNTP
+I (26996) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Display
+I (26996) SvcDisplay: [display_lifecycle.cpp:0023] (on_init) : Version: 0.8.2
+I (27006) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 4
+I (27006) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 4
+I (27006) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 5
+I (27006) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CST9220' with reference count 5
+I (27016) SvcDisplay: [display_lifecycle.cpp:0061] (on_init) : Registered display output Output0: 410x502, pixel_format=RGB565, panel=TWatchUltra:CO5300, group_id=t_watch_ultra_display
+I (27016) SvcDisplay: [display_lifecycle.cpp:0092] (on_init) : Registered display touch Touch0: 410x502, max_points=1, operation_mode=Polling, touch=TWatchUltra:CST9220, group_id=t_watch_ultra_display
+I (27016) SvcDisplay: [display_render_tasks.cpp:0171] (bind_default_touches_locked) : Bound display output Output0 to touch Touch0 by group_id(t_watch_ultra_display)
+W (27026) SvcDisplay: [display_lifecycle.cpp:0110] (on_init) : No HAL display backlight interface is available
+I (27026) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 6
+I (27026) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 6
+I (27026) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 5
+I (27036) SvcDisplay: [display_lifecycle.cpp:0120] (on_init) : Registered Display DataFlow provider
+I (27056) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Display
+I (27056) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Display
+I (27056) SvcMgr: [manager.cpp:0844] (add_all_registered_services) : All services added
+I (27076) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Manager
+I (27076) SvcMgr: [manager.cpp:0542] (bind) : Service started: Manager
+I (27076) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Utils
+I (27086) SvcMgr: [manager.cpp:0542] (bind) : Service started: Utils
+I (27086) SvcMgr: [base.cpp:1131] (start_internal) : Started service: DataFlow
+I (27096) SvcMgr: [manager.cpp:0542] (bind) : Service started: DataFlow
+I (27096) SvcMgr: [manager.cpp:0259] (start) : Service manager started
+I (27096) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Storage
+I (27096) SvcMgr: [manager.cpp:0542] (bind) : Service started: Storage
+I (27116) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Display
+I (27116) SvcMgr: [manager.cpp:0542] (bind) : Service started: Display
+I (27116) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Display
+I (27126) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Display
+I (27126) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Storage
+I (27126) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Storage
+I (27136) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: DataFlow
+I (27136) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: DataFlow
+I (27136) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Utils
+I (27136) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Utils
+I (27146) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Manager
+I (27146) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Manager
+I (27396) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2716
+I (27396) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (27656) SvcMgr: [manager.cpp:0321] (stop_internal) : Service manager stopped
+I (27656) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Display
+I (27666) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 4
+I (27666) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 3
+I (27666) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Display
+I (27676) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Display
+I (27676) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: SNTP
+I (27676) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: SNTP
+I (27676) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: SNTP
+I (27686) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Storage
+I (27686) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 2
+I (27686) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Storage
+I (27696) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Storage
+I (27696) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Usb
+I (27696) SvcUsb: [service_usb.cpp:1188] (on_deinit) : Deinitialized
+I (27696) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Usb
+I (27706) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Usb
+I (27706) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: DataFlow
+I (27706) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: DataFlow
+I (27706) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: DataFlow
+I (27716) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Utils
+I (27716) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Utils
+I (27716) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Utils
+I (27716) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Manager
+I (27726) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Manager
+I (27726) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Manager
+I (27726) SvcMgr: [manager.cpp:0887] (remove_all_registered_services) : All services removed
+I (27826) brookesia_system: SERVICE_CYCLE cycle=3 bind=ok before=190872 immediate=190872 settled=190872 tasks=7/7/7 heap_ok=1
+I (27836) twatch_board: RTC_READ ctrl1=00 time=18/18/19 date=15 wd=03/09/26 bcd_plausible=1
+I (27846) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (27846) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (27906) lvgl_app: LVGL ready display=410x502 buffer_lines=16
+I (27906) phase1: READY heap_integrity=ok main_wdt=subscribed timeout_s=10
+I (28016) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (28016) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (28016) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (28016) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (28016) phase2: battery_mv=4170
+I (28016) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=11 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (28016) phase1: HEALTH sample=0 internal_free=186244 internal_min=99040 psram_free=8376024 stack_free_bytes=2480 heap_integrity=ok
+I (28046) bhi260ap_core: accelerometer id=4 x=3078 y=-23 z=2716
+I (28046) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (28686) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (28686) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (28846) twatch_board: RTC_READ ctrl1=00 time=18/18/20 date=15 wd=03/09/26 bcd_plausible=1
+I (28856) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (28856) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (28916) lvgl_app: Diagnostics update RTC=18:18:20 battery=4171mV
+I (29336) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2715
+I (29336) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (29856) twatch_board: RTC_READ ctrl1=00 time=18/18/21 date=15 wd=03/09/26 bcd_plausible=1
+I (29866) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (29866) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (29976) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2716
+I (29976) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (30626) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2715
+I (30626) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (30866) twatch_board: RTC_READ ctrl1=00 time=18/18/22 date=15 wd=03/09/26 bcd_plausible=1
+I (30876) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (30876) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (31266) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2715
+I (31266) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+W (31586) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (31876) twatch_board: RTC_READ ctrl1=00 time=18/18/23 date=15 wd=03/09/26 bcd_plausible=1
+I (31886) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (31886) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (31916) bhi260ap_core: accelerometer id=4 x=3077 y=-22 z=2716
+I (31916) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (32556) bhi260ap_core: accelerometer id=4 x=3077 y=-21 z=2717
+I (32556) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (32886) twatch_board: RTC_READ ctrl1=00 time=18/18/24 date=15 wd=03/09/26 bcd_plausible=1
+I (32896) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (32896) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (33016) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (33016) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (33016) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (33016) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (33016) phase2: battery_mv=4170
+I (33016) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=11 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (33016) phase1: HEALTH sample=490 internal_free=186244 internal_min=99040 psram_free=8376024 stack_free_bytes=2480 heap_integrity=ok
+I (33206) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2716
+I (33206) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (33846) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2717
+I (33856) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (33896) twatch_board: RTC_READ ctrl1=00 time=18/18/25 date=15 wd=03/09/26 bcd_plausible=1
+I (33906) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (33906) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (34496) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (34496) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (34906) twatch_board: RTC_READ ctrl1=00 time=18/18/26 date=15 wd=03/09/26 bcd_plausible=1
+I (34916) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (34916) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (35136) bhi260ap_core: accelerometer id=4 x=3077 y=-22 z=2716
+I (35146) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+W (35596) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (35786) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (35786) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (35916) twatch_board: RTC_READ ctrl1=00 time=18/18/27 date=15 wd=03/09/26 bcd_plausible=1
+I (35926) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (35926) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (36426) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2716
+I (36436) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (36936) twatch_board: RTC_READ ctrl1=00 time=18/18/28 date=15 wd=03/09/26 bcd_plausible=1
+I (36936) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (36936) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (37076) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2715
+I (37076) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (37726) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2716
+I (37726) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (37946) twatch_board: RTC_READ ctrl1=00 time=18/18/29 date=15 wd=03/09/26 bcd_plausible=1
+I (37956) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (37956) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (38016) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (38016) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (38016) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (38016) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (38016) phase2: battery_mv=4170
+I (38016) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=11 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (38016) phase1: HEALTH sample=976 internal_free=186244 internal_min=99040 psram_free=8376024 stack_free_bytes=2480 heap_integrity=ok
+I (38366) bhi260ap_core: accelerometer id=4 x=3077 y=-21 z=2716
+I (38366) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (38956) lvgl_app: Diagnostics update RTC=18:18:29 battery=4170mV
+I (38976) twatch_board: RTC_READ ctrl1=00 time=18/18/30 date=15 wd=03/09/26 bcd_plausible=1
+I (38976) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (38986) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (39016) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2716
+I (39016) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+W (39636) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (39656) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (39656) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (39986) twatch_board: RTC_READ ctrl1=00 time=18/18/31 date=15 wd=03/09/26 bcd_plausible=1
+I (39996) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (39996) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (40306) bhi260ap_core: accelerometer id=4 x=3077 y=-22 z=2716
+I (40306) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (40946) bhi260ap_core: accelerometer id=4 x=3077 y=-21 z=2716
+I (40946) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (40996) twatch_board: RTC_READ ctrl1=00 time=18/18/32 date=15 wd=03/09/26 bcd_plausible=1
+I (41006) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (41006) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (41596) bhi260ap_core: accelerometer id=4 x=3077 y=-21 z=2716
+I (41596) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (42006) twatch_board: RTC_READ ctrl1=00 time=18/18/33 date=15 wd=03/09/26 bcd_plausible=1
+I (42016) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (42016) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (42236) bhi260ap_core: accelerometer id=4 x=3077 y=-22 z=2716
+I (42236) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (42886) bhi260ap_core: accelerometer id=4 x=3077 y=-21 z=2717
+I (42886) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (43016) twatch_board: RTC_READ ctrl1=00 time=18/18/34 date=15 wd=03/09/26 bcd_plausible=1
+I (43026) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (43026) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (43026) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (43036) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (43036) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (43036) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (43036) phase2: battery_mv=4170
+I (43036) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=11 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (43036) phase1: HEALTH sample=1461 internal_free=186244 internal_min=99040 psram_free=8376024 stack_free_bytes=2480 heap_integrity=ok
+I (43526) bhi260ap_core: accelerometer id=4 x=3077 y=-22 z=2715
+I (43526) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+W (43646) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (44026) twatch_board: RTC_READ ctrl1=00 time=18/18/35 date=15 wd=03/09/26 bcd_plausible=1
+I (44036) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (44036) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (44176) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (44176) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (44816) bhi260ap_core: accelerometer id=4 x=3079 y=-21 z=2716
+I (44816) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (45036) twatch_board: RTC_READ ctrl1=00 time=18/18/36 date=15 wd=03/09/26 bcd_plausible=1
+I (45046) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (45046) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (45466) bhi260ap_core: accelerometer id=4 x=3079 y=-22 z=2717
+I (45466) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (46046) twatch_board: RTC_READ ctrl1=00 time=18/18/37 date=15 wd=03/09/26 bcd_plausible=1
+I (46056) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (46056) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (46106) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2716
+I (46116) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (46756) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (46756) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (47056) twatch_board: RTC_READ ctrl1=00 time=18/18/38 date=15 wd=03/09/26 bcd_plausible=1
+I (47066) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (47066) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (47396) bhi260ap_core: accelerometer id=4 x=3077 y=-22 z=2716
+I (47406) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+W (47656) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (48016) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (48016) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (48016) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (48016) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (48016) phase2: battery_mv=4171
+I (48016) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=11 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (48016) phase1: HEALTH sample=1950 internal_free=186244 internal_min=99040 psram_free=8376024 stack_free_bytes=2480 heap_integrity=ok
+I (48046) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2715
+I (48046) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (48066) twatch_board: RTC_READ ctrl1=00 time=18/18/39 date=15 wd=03/09/26 bcd_plausible=1
+I (48076) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (48076) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (48686) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (48696) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (48956) lvgl_app: Diagnostics update RTC=18:18:39 battery=4171mV
+I (49076) twatch_board: RTC_READ ctrl1=00 time=18/18/40 date=15 wd=03/09/26 bcd_plausible=1
+I (49086) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (49086) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (49336) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2715
+I (49336) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (49986) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2716
+I (49986) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (50086) twatch_board: RTC_READ ctrl1=00 time=18/18/41 date=15 wd=03/09/26 bcd_plausible=1
+I (50096) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (50096) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (50626) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (50626) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (51096) twatch_board: RTC_READ ctrl1=00 time=18/18/42 date=15 wd=03/09/26 bcd_plausible=1
+I (51106) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (51106) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (51276) bhi260ap_core: accelerometer id=4 x=3077 y=-22 z=2716
+I (51276) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+W (51666) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (51916) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (51916) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (52106) twatch_board: RTC_READ ctrl1=00 time=18/18/43 date=15 wd=03/09/26 bcd_plausible=1
+I (52116) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (52116) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (52566) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (52566) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (53016) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (53016) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (53016) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (53016) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (53016) phase2: battery_mv=4170
+I (53016) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=11 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (53016) phase1: HEALTH sample=2439 internal_free=186244 internal_min=99040 psram_free=8376024 stack_free_bytes=2480 heap_integrity=ok
+I (53116) twatch_board: RTC_READ ctrl1=00 time=18/18/44 date=15 wd=03/09/26 bcd_plausible=1
+I (53126) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (53126) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (53206) bhi260ap_core: accelerometer id=4 x=3078 y=-22 z=2715
+I (53206) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (53856) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (53856) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (54126) twatch_board: RTC_READ ctrl1=00 time=18/18/45 date=15 wd=03/09/26 bcd_plausible=1
+I (54136) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (54136) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (54496) bhi260ap_core: accelerometer id=4 x=3077 y=-21 z=2716
+I (54496) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (55146) twatch_board: RTC_READ ctrl1=00 time=18/18/46 date=15 wd=03/09/26 bcd_plausible=1
+I (55146) bhi260ap_core: accelerometer id=4 x=3078 y=-21 z=2716
+I (55146) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (55156) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (55156) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89

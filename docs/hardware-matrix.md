@@ -342,3 +342,28 @@ native UI. Decode PCs using the exact matching ELF and addr2line; retain build
 identity alongside the serial trace. Tracing alters timing and heap accounting;
 compare attribution rather than demanding identical deltas to dcb12b0.
 No automatic flash; allocation owners remain unverified until device capture.
+
+## Allocation trace device evidence and cleanup correction
+
+Original d7349f5 trace: 408 surviving records, peak 1567/2048, overflow=0.
+Decoded first boot contains 376 internal records requesting 23,193 bytes:
+string allocation stacks 11,797 bytes; FunctionParameterSchema vectors 7,488;
+EventItemSchema vectors 1,716; remaining runtime/other allocations 2,192.
+Requested payload sizes exclude allocator overhead and cannot be equated directly
+to the 29,740-byte free-heap delta. Display helper get_function_schemas and
+get_event_schemas use static materialized arrays (service_helper/media/display.hpp
+lines 209-225). This supports first-use schema retention; six stack frames do
+not identify the exact owner of every string. No claim that every byte is explained.
+Original trace and matching-ELF symbolization are stored in
+2026-09-15-allocation-trace-{serial.log,decoded.txt}.
+
+The diagnostic itself aborted at heap_trace_init_standalone(NULL,0): IDF 6.0.2
+header documents detachment but heap_trace_standalone.c rejects NULL or zero.
+Recovery rebinds to a static one-record buffer, starts/stops an empty trace to
+reset record links, then frees the PSRAM buffer. Built and flashed successfully;
+recovery capture records overflow=0, cycles 2/3 unchanged at 190872 bytes free,
+LVGL ready, and stable native heap=186244 with heap_integrity=ok. See
+2026-09-15-trace-cleanup-recovery-serial.log. Screen/touch confirmation pending.
+Tracing is temporary diagnostic overhead and should be disabled before normal
+UI integration. Allocation ownership remains partly unresolved, not an observed
+29 KiB-per-cycle leak. ISR allocations excluded and capture is short.
