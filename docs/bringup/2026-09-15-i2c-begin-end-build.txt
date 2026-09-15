@@ -1,0 +1,17 @@
+I2C operation-boundary diagnostic build
+Date: 2026-09-15
+Target: LilyGO T-Watch Ultra V1.0, ESP32-S3, SX1262 variant
+Framework: ESP-IDF 6.0.2 (pinned project environment)
+
+Result: build-tested; flash and physical-device validation are pending explicit
+operator authorization.
+
+Command:
+  source /home/peter/esp/esp-idf/export.sh >/dev/null 2>&1 && idf.py build
+
+Artifact: build/twatch_ultra_phase1.bin (0x24f760 bytes)
+
+I2C_BEGIN precedes every synchronous PMU, XL9555, touch, and BHI transfer.
+I2C_END records result and elapsed time. An unmatched begin identifies an
+operation stalled in the bus-lock or transfer path. No configuration, bus
+timing, timeout, priority, or PMU behavior changed.

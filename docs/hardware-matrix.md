@@ -484,3 +484,7 @@ d08530f unchanged.
 Full transfer attribution preparation now covers touch and BHI transactions in
 addition to PMU/expander register reads, with task/priority/address/timing logs.
 No I2C configuration or scheduling change; device validation pending.
+
+The pending operation-boundary diagnostic instruments all synchronous PMU,
+XL9555, CST9220, and BHI260AP transfers with paired `I2C_BEGIN`/`I2C_END`
+records. This is evidence instrumentation only; device validation is pending.

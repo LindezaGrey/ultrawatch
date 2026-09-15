@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <inttypes.h>
+#include <stdatomic.h>
 #include <string.h>
 #include "driver/i2c_master.h"
 #include "esp_check.h"
@@ -41,6 +42,7 @@ static i2c_master_dev_handle_t touch;
 static i2c_master_dev_handle_t rtc;
 static i2c_master_dev_handle_t bhi;
 static bool ready;
+static atomic_uint_fast32_t transfer_sequence;
 
 static unsigned device_address(i2c_master_dev_handle_t device)
 {
@@ -56,6 +58,12 @@ static esp_err_t timed_transmit_receive(i2c_master_dev_handle_t device,
                                         const uint8_t *write_data, size_t write_size,
                                         uint8_t *read_data, size_t read_size)
 {
+    const uint32_t sequence = (uint32_t)atomic_fetch_add_explicit(&transfer_sequence, 1,
+                                                                    memory_order_relaxed) + 1;
+    ESP_LOGI(TAG, "I2C_BEGIN seq=%" PRIu32 " kind=read task=%s priority=%u addr=0x%02x "
+             "write_bytes=%u read_bytes=%u", sequence, pcTaskGetName(NULL),
+             (unsigned)uxTaskPriorityGet(NULL), device_address(device),
+             (unsigned)write_size, (unsigned)read_size);
     const int64_t started_us = esp_timer_get_time();
     const esp_err_t result = i2c_master_transmit_receive(device, write_data, write_size,
                                                          read_data, read_size, I2C_TIMEOUT_MS);
@@ -68,12 +76,19 @@ static esp_err_t timed_transmit_receive(i2c_master_dev_handle_t device,
                  (unsigned)write_size, (unsigned)read_size, elapsed_us,
                  esp_err_to_name(result), result == ESP_ERR_TIMEOUT);
     }
+    ESP_LOGI(TAG, "I2C_END seq=%" PRIu32 " result=%s elapsed_us=%" PRId64,
+             sequence, esp_err_to_name(result), elapsed_us);
     return result;
 }
 
 static esp_err_t timed_transmit(i2c_master_dev_handle_t device,
                                 const uint8_t *data, size_t size)
 {
+    const uint32_t sequence = (uint32_t)atomic_fetch_add_explicit(&transfer_sequence, 1,
+                                                                    memory_order_relaxed) + 1;
+    ESP_LOGI(TAG, "I2C_BEGIN seq=%" PRIu32 " kind=write task=%s priority=%u addr=0x%02x "
+             "write_bytes=%u read_bytes=0", sequence, pcTaskGetName(NULL),
+             (unsigned)uxTaskPriorityGet(NULL), device_address(device), (unsigned)size);
     const int64_t started_us = esp_timer_get_time();
     const esp_err_t result = i2c_master_transmit(device, data, size, I2C_TIMEOUT_MS);
     const int64_t elapsed_us = esp_timer_get_time() - started_us;
@@ -85,6 +100,8 @@ static esp_err_t timed_transmit(i2c_master_dev_handle_t device,
                  (unsigned)size, elapsed_us, esp_err_to_name(result),
                  result == ESP_ERR_TIMEOUT);
     }
+    ESP_LOGI(TAG, "I2C_END seq=%" PRIu32 " result=%s elapsed_us=%" PRId64,
+             sequence, esp_err_to_name(result), elapsed_us);
     return result;
 }
 

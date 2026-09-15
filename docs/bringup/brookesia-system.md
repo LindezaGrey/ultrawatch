@@ -625,3 +625,14 @@ JTAG snapshot. Exact active transfer address/status remains unverified. The
 instrumentation itself may alter scheduling; do not treat absence of another
 event as proof of absence. No bus, priority, timeout or PMU change was made.
 Evidence: 2026-09-15-i2c-all-xfer-{flash.log,serial.log}.
+
+## I2C operation boundary diagnostic (pending device capture)
+
+The next image emits `I2C_BEGIN` before and `I2C_END` after every synchronous
+board transfer. Records include sequence, task, priority, address, byte counts,
+result, and elapsed time. A begin line occurs before the IDF bus-lock wait, so
+an unmatched begin identifies the operation active during a stall. PMU, XL9555,
+touch, and BHI transfers are covered. Atomic sequence allocation supports
+concurrent FreeRTOS callers. This diagnostic instrumentation may perturb
+contention timing; no bus or power behavior changed. Build-tested, not flashed
+or device-tested.
