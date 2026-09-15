@@ -132,7 +132,9 @@ esp_err_t bhi260ap_core_start_irq_probe(void)
     BaseType_t created = xTaskCreate(bhi_irq_task, "bhi_irq", 3072, NULL, 5, &irq_task_handle);
     if (created != pdPASS) return ESP_ERR_NO_MEM;
     ESP_ERROR_CHECK(gpio_isr_handler_add(GPIO_NUM_8, bhi_irq_isr, irq_task_handle));
-    int8_t result = bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_ACC, accel_callback, NULL, &device);
+    int8_t result = bhy2_update_virtual_sensor_list(&device);
+    if (result != BHY2_OK) return ESP_FAIL;
+    result = bhy2_register_fifo_parse_callback(BHY2_SENSOR_ID_ACC, accel_callback, NULL, &device);
     if (result != BHY2_OK) return ESP_FAIL;
     result = bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_ACC, 1.0f, 0, &device);
     if (result != BHY2_OK) return ESP_FAIL;
