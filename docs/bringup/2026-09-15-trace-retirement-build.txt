@@ -1,0 +1,6 @@
+Validation: build-tested only; no flash
+Environment: pinned ESP-IDF 6.0.2, idf.py build
+Result: exit 0; CONFIG_HEAP_TRACING_OFF=y
+Changes based on a1bfbba; service-cycle diagnostic retained
+build/twatch_ultra_phase1.elf: bytes=170040460 sha256=31fb95bf95b9a3975fbc011b6075c57ba2d41335bec1b40f48046b60f91454eb
+build/twatch_ultra_phase1.bin: bytes=2380416 sha256=ff52644be3fcbb1879d32103920f83fc108b6dd1ec72c7fdcc0f001449fbb959

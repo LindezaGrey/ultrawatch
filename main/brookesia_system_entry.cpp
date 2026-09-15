@@ -5,7 +5,6 @@
 #include "esp_log.h"
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
-#include "esp_heap_trace.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "brookesia/gui_lvgl.hpp"
@@ -87,18 +86,10 @@ extern "C" bool twatch_brookesia_services_probe(void)
     // Run before native LVGL starts reading touch; release Display and its
     // Storage dependency and stop scheduler workers before handing ownership back.
     auto &manager = esp_brookesia::service::ServiceManager::get_instance();
-    // Temporary diagnostic buffer in PSRAM to preserve internal heap headroom.
-    // ESP-IDF excludes ISR allocations when trace records live in external RAM.
-    constexpr size_t record_count = 2048;
-    auto *records = static_cast<heap_trace_record_t *>(heap_caps_calloc(
-        record_count, sizeof(heap_trace_record_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    bool trace_ready = records && heap_trace_init_standalone(records, record_count) == ESP_OK;
-    if (!trace_ready) ESP_LOGW(TAG, "SERVICE_TRACE unavailable");
     bool all_bound = true;
     for (unsigned cycle = 1; cycle <= 3; ++cycle) {
         const size_t heap_before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
         const unsigned tasks_before = uxTaskGetNumberOfTasks();
-        const bool tracing = trace_ready && cycle == 1 && heap_trace_start(HEAP_TRACE_LEAKS) == ESP_OK;
         bool bound = false;
         if (manager.init() && manager.start()) {
             auto display = manager.bind("Display");
@@ -112,16 +103,6 @@ extern "C" bool twatch_brookesia_services_probe(void)
         // Diagnostic sampling interval only: allow idle-task reclamation to run.
         // This is not a lifecycle synchronization mechanism or a proposed fix.
         vTaskDelay(pdMS_TO_TICKS(100));
-        if (tracing) {
-            ESP_ERROR_CHECK(heap_trace_stop());
-            heap_trace_summary_t summary{};
-            ESP_ERROR_CHECK(heap_trace_summary(&summary));
-            ESP_LOGI(TAG, "SERVICE_TRACE count=%u capacity=%u peak=%u overflow=%u isr_excluded=1",
-                     static_cast<unsigned>(summary.count), static_cast<unsigned>(summary.capacity),
-                     static_cast<unsigned>(summary.high_water_mark),
-                     static_cast<unsigned>(summary.has_overflowed));
-            heap_trace_dump_caps(MALLOC_CAP_INTERNAL);
-        }
         const bool healthy = heap_caps_check_integrity_all(true);
         ESP_LOGI(TAG, "SERVICE_CYCLE cycle=%u bind=%s before=%u immediate=%u settled=%u "
                       "tasks=%u/%u/%u heap_ok=%u",
@@ -132,15 +113,5 @@ extern "C" bool twatch_brookesia_services_probe(void)
         all_bound = all_bound && bound && healthy;
         if (!all_bound) break;
     }
-    // IDF 6.0.2 implementation rejects the documented NULL/0 detach call.
-    // Rebind to a process-lifetime buffer and clear stale record links before
-    // freeing the larger diagnostic buffer. No allocations occur in this reset.
-    if (trace_ready) {
-        static heap_trace_record_t parked_record;
-        ESP_ERROR_CHECK(heap_trace_init_standalone(&parked_record, 1));
-        ESP_ERROR_CHECK(heap_trace_start(HEAP_TRACE_LEAKS));
-        ESP_ERROR_CHECK(heap_trace_stop());
-    }
-    heap_caps_free(records);
     return all_bound;
 }

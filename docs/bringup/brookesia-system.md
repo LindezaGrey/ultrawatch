@@ -169,3 +169,35 @@ LVGL ready, and stable native heap=186244 with heap_integrity=ok. See
 Tracing is temporary diagnostic overhead and should be disabled before normal
 UI integration. Allocation ownership remains partly unresolved, not an observed
 29 KiB-per-cycle leak. ISR allocations excluded and capture is short.
+
+## Trace retirement and adapter prerequisites
+
+Operator confirmed display and touch on the trace-cleanup recovery image.
+Temporary heap tracing is now removed from the application and disabled in
+sdkconfig.defaults. Three service binding/cleanup cycles and heap integrity
+sampling remain; System runtime remains disabled. This preparation is not a
+new device test.
+
+Pinned adapter inspection identifies these requirements before enabling runtime:
+- The LVGL9 OTHER bridge rejects null panel_io even with custom drawing and
+  IDF callback registration disabled (lvgl_bridge_v9.c, bridge creation).
+  Do not restore the second hardware-CS device that stole GPIO41 routing.
+  Select a supported IO integration that preserves the single renderer owner.
+- Successful custom drawing does not call flush_ready automatically
+  (display_bridge_v9_flush_default). DisplaySource forwards ColorTransDone
+  through its Panel event dispatcher. The current synchronous HAL must supply
+  an appropriate completion path; verify task/ISR context before wiring it.
+- Preserve main/lvgl_app.c rounder_cb, including left-edge expansion and even
+  coordinate bounds. Generic alignment metadata alone does not express this.
+- The adapter swaps RGB565 in the OTHER default flush path. Do not also call
+  the native flush callback's byte swap.
+- Establish one LVGL tick/task/input owner and install the watch rounder before
+  the first refresh; do not run native initialization alongside adapter ownership.
+
+Sources: pinned vendor GUI display_source.cpp submit_frame, panel_event_callback,
+start_lvgl_adapter; managed adapter LVGL9 bridge; native lvgl_app.c.
+Next functional patch must address these together, then build before requesting
+a device test. No panel IO, power, display timing, or touch wiring changed here.
+
+Trace-retirement build passed on pinned ESP-IDF 6.0.2. Artifact identity:
+2026-09-15-trace-retirement-build.txt. No flash or new device validation.
