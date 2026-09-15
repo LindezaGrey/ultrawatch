@@ -42,9 +42,9 @@ transport callbacks, firmware loader, interrupt handoff, and runtime motion
 stream are not yet connected.
 
 The loader now uses the embedded Bosch `BHI260AP.fw` image to upload firmware
-to sensor RAM, boot it, and verify the host firmware status bits. This is a
-build-tested runtime path; it must be device-tested before enabling interrupts
-or motion streams.
+to sensor RAM, boot it, and verify the host firmware status bits. This path is
+device-tested: the watch reported boot status `0x38` and continued into the
+normal display, touch, RTC, and diagnostics application.
 
 After a verified boot, the core reads Bosch parameter `0x011F`
 (`BHY2_PARAM_SYS_VIRT_SENSOR_PRESENT`) and logs each available virtual sensor
@@ -56,8 +56,9 @@ status `0x38` and 33 available virtual sensor IDs:
 `1, 3, 4, 5, 6, 7, 10, 12, 13, 14, 15, 16, 28, 29, 31, 32, 37, 38, 48,
 50, 52, 53, 55, 57, 59, 61, 63, 67, 69, 70, 75, 77, 94`.
 
-The first ESP-IDF transport adapter is now build-tested. It connects the Bosch
-BHY2 core to board-owned I²C callbacks, performs the documented Bosch soft
-reset, and verifies product ID `0x89` during boot. Firmware upload, interrupt
-handoff, and motion configuration remain intentionally disabled pending device
-validation of this adapter.
+The first ESP-IDF transport adapter is now device-tested. It connects the
+Bosch BHY2 core to board-owned I²C callbacks, performs the documented Bosch
+soft reset, verifies product ID `0x89`, uploads the firmware, and reads the
+virtual-sensor presence map during boot. GPIO8 interrupt handoff and runtime
+motion streams remain intentionally disabled; those are the next isolated
+changes.
