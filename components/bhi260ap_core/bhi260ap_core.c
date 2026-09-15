@@ -139,12 +139,12 @@ esp_err_t bhi260ap_core_start_irq_probe(void)
     if (result != BHY2_OK) return ESP_FAIL;
     uint8_t interrupt_ctrl = 0;
     uint8_t interface_ctrl = 0;
-    uint32_t fifo_ctrl = 0;
+    uint8_t interrupt_status = 0;
     int8_t readback_result = bhy2_get_host_interrupt_ctrl(&interrupt_ctrl, &device);
     if (readback_result == BHY2_OK) readback_result = bhy2_get_host_intf_ctrl(&interface_ctrl, &device);
-    if (readback_result == BHY2_OK) readback_result = bhy2_get_fifo_ctrl(&fifo_ctrl, &device);
-    ESP_LOGI(TAG, "stream readback intr=0x%02x intf=0x%02x fifo=0x%08" PRIx32 " result=%d",
-             interrupt_ctrl, interface_ctrl, fifo_ctrl, readback_result);
+    if (readback_result == BHY2_OK) readback_result = bhy2_get_interrupt_status(&interrupt_status, &device);
+    ESP_LOGI(TAG, "stream readback intr=0x%02x intf=0x%02x status=0x%02x result=%d",
+             interrupt_ctrl, interface_ctrl, interrupt_status, readback_result);
     ESP_LOGI(TAG, "accelerometer stream id=%u rate=1Hz configured", BHY2_SENSOR_ID_ACC);
     ESP_LOGI(TAG, "irq probe GPIO8 configured idle=%d", gpio_get_level(GPIO_NUM_8));
     return ESP_OK;
