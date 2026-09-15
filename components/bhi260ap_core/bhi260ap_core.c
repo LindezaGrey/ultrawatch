@@ -121,7 +121,7 @@ esp_err_t bhi260ap_core_start_irq_probe(void)
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_POSEDGE,
+        .intr_type = GPIO_INTR_HIGH_LEVEL,
     };
     ESP_ERROR_CHECK(gpio_config(&config));
     esp_err_t service = gpio_install_isr_service(0);
@@ -133,7 +133,9 @@ esp_err_t bhi260ap_core_start_irq_probe(void)
     if (result != BHY2_OK) return ESP_FAIL;
     result = bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_ACC, 1.0f, 0, &device);
     if (result != BHY2_OK) return ESP_FAIL;
-    result = bhy2_set_host_interrupt_ctrl(BHY2_ICTL_EDGE, &device);
+    result = bhy2_set_host_interrupt_ctrl(0, &device);
+    if (result != BHY2_OK) return ESP_FAIL;
+    result = bhy2_set_host_intf_ctrl(BHY2_HIF_CTRL_ASYNC_STATUS_CHANNEL, &device);
     if (result != BHY2_OK) return ESP_FAIL;
     ESP_LOGI(TAG, "accelerometer stream id=%u rate=1Hz configured", BHY2_SENSOR_ID_ACC);
     ESP_LOGI(TAG, "irq probe GPIO8 configured idle=%d", gpio_get_level(GPIO_NUM_8));
