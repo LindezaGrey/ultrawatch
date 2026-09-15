@@ -48,6 +48,8 @@ esp_err_t twatch_board_probe_touch(uint8_t *address, bool *present);
 esp_err_t twatch_board_probe_rtc(bool *present);
 /* Read-only PCF85063 control/time registers; does not set or clear the clock. */
 esp_err_t twatch_board_read_rtc(twatch_rtc_snapshot_t *snapshot);
+/* Read-only ACK probe for the schematic BHI260AP candidate at 0x28. */
+esp_err_t twatch_board_probe_bhi(bool *present);
 
 /* Read the vendor CST92xx identity and geometry fields after address probing. */
 esp_err_t twatch_board_read_touch_info(void);

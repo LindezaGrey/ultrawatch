@@ -30,6 +30,8 @@ typedef struct {
     bool power_valid;
     bool rtc_valid;
     bool rails_valid;
+    bool bhi_present;
+    bool bhi_valid;
 } diagnostics_snapshot_t;
 
 /* I2C belongs to this worker; LVGL callbacks only consume a short-lived
@@ -44,21 +46,25 @@ static void diagnostics_sample_task(void *arg)
         twatch_power_snapshot_t power = {0};
         twatch_rtc_snapshot_t rtc = {0};
         twatch_rail_snapshot_t rails = {0};
+        bool bhi_present = false;
         const bool power_valid = twatch_board_read_power(&power) == ESP_OK;
         const bool rtc_valid = twatch_board_read_rtc(&rtc) == ESP_OK;
         const bool rails_valid = twatch_board_read_rails(&rails) == ESP_OK;
+        const bool bhi_valid = twatch_board_probe_bhi(&bhi_present) == ESP_OK;
         if (xSemaphoreTake(diagnostics_snapshot_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             if (power_valid) diagnostics_snapshot.power = power;
             if (rtc_valid) diagnostics_snapshot.rtc = rtc;
             if (rails_valid) diagnostics_snapshot.rails = rails;
+            if (bhi_valid) diagnostics_snapshot.bhi_present = bhi_present;
             if (power_valid) diagnostics_snapshot.power_valid = true;
             if (rtc_valid) diagnostics_snapshot.rtc_valid = true;
             if (rails_valid) diagnostics_snapshot.rails_valid = true;
+            if (bhi_valid) diagnostics_snapshot.bhi_valid = true;
             xSemaphoreGive(diagnostics_snapshot_mutex);
         }
-        if (!power_valid || !rtc_valid || !rails_valid) {
-            ESP_LOGW(TAG, "Diagnostics sample incomplete power=%u rtc=%u rails=%u",
-                     power_valid, rtc_valid, rails_valid);
+        if (!power_valid || !rtc_valid || !rails_valid || !bhi_valid) {
+            ESP_LOGW(TAG, "Diagnostics sample incomplete power=%u rtc=%u rails=%u bhi=%u",
+                     power_valid, rtc_valid, rails_valid, bhi_valid);
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
@@ -144,17 +150,18 @@ static void diagnostics_timer_cb(lv_timer_t *timer)
     if (diagnostics_label == NULL) return;
     diagnostics_snapshot_t snapshot;
     if (!diagnostics_snapshot_copy(&snapshot) ||
-        !snapshot.power_valid || !snapshot.rtc_valid || !snapshot.rails_valid) return;
+        !snapshot.power_valid || !snapshot.rtc_valid || !snapshot.rails_valid || !snapshot.bhi_valid) return;
     const twatch_power_snapshot_t *power = &snapshot.power;
     const twatch_rtc_snapshot_t *rtc = &snapshot.rtc;
     const twatch_rail_snapshot_t *rails = &snapshot.rails;
     char text[160];
-    lv_snprintf(text, sizeof(text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC\nRails: D%s T%s\nALDO4: %s %umV",
+    lv_snprintf(text, sizeof(text), "Battery: %umV\nUSB: %s  Charge: %s\nRTC: %02x:%02x:%02x UTC\nRails: D%s T%s\nALDO4: %s %umV\nBHI260AP: %s",
                 power->battery_mv, power->usb_present ? "yes" : "no",
                 power->charging ? "yes" : "no", rtc->hours, rtc->minutes, rtc->seconds,
                 rails->display_enable_latch_high ? "on" : "off",
                 rails->touch_reset_latch_high ? "high" : "low",
-                rails->aldo4_enabled ? "on" : "off", rails->aldo4_configured_mv);
+                rails->aldo4_enabled ? "on" : "off", rails->aldo4_configured_mv,
+                snapshot.bhi_present ? "ACK" : "absent");
     lv_label_set_text(diagnostics_label, text);
     lv_obj_invalidate(diagnostics_label);
     static uint32_t update_count;
@@ -302,7 +309,7 @@ esp_err_t lvgl_app_init(void)
     lv_obj_set_style_text_font(diag_title, &lv_font_montserrat_28, 0);
     lv_obj_align(diag_title, LV_ALIGN_TOP_MID, 0, 55);
     char diag_text[160];
-    lv_snprintf(diag_text, sizeof(diag_text), "Battery: --\nUSB: --  Charge: --\nRTC: --:--:-- UTC\nRails: --\nALDO4: --");
+    lv_snprintf(diag_text, sizeof(diag_text), "Battery: --\nUSB: --  Charge: --\nRTC: --:--:-- UTC\nRails: --\nALDO4: --\nBHI260AP: --");
     diagnostics_label = lv_label_create(diagnostics_screen);
     lv_label_set_text(diagnostics_label, diag_text);
     lv_obj_set_style_text_font(diagnostics_label, &lv_font_montserrat_22, 0);

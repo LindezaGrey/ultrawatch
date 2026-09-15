@@ -11,7 +11,7 @@ static const char *TAG = "twatch_board";
 // V1.0 schematic and pinned variant; see docs/bringup/phase-2.md.
 enum { BOARD_SDA = 3, BOARD_SCL = 2, PMU_ADDRESS = 0x34, EXPANDER_ADDRESS = 0x20,
        TOUCH_PRIMARY_ADDRESS = 0x1a, TOUCH_FALLBACK_ADDRESS = 0x5a,
-       RTC_CANDIDATE_ADDRESS = 0x51,
+       RTC_CANDIDATE_ADDRESS = 0x51, BHI_CANDIDATE_ADDRESS = 0x28,
        I2C_SPEED_HZ = 100000, I2C_TIMEOUT_MS = 100 };
 // Pinned XPowersAXP2101/AXP2101Constants, bundle c8e6de3b.
 enum { PMU_STATUS1 = 0x00, PMU_CHIP_ID = 0x03, PMU_EXPECTED_ID = 0x4a,
@@ -250,6 +250,18 @@ esp_err_t twatch_board_probe_rtc(bool *present)
     *present = (err == ESP_OK);
     ESP_LOGI(TAG, "RTC_PROBE candidate=0x%02x present=%u identity=unverified",
              RTC_CANDIDATE_ADDRESS, *present);
+    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND && err != ESP_ERR_TIMEOUT) return err;
+    return ESP_OK;
+}
+
+esp_err_t twatch_board_probe_bhi(bool *present)
+{
+    if (!present) return ESP_ERR_INVALID_ARG;
+    if (!ready) return ESP_ERR_INVALID_STATE;
+    const esp_err_t err = i2c_master_probe(bus, BHI_CANDIDATE_ADDRESS, I2C_TIMEOUT_MS);
+    *present = (err == ESP_OK);
+    ESP_LOGI(TAG, "BHI_PROBE candidate=0x%02x present=%u identity=unverified",
+             BHI_CANDIDATE_ADDRESS, *present);
     if (err != ESP_OK && err != ESP_ERR_NOT_FOUND && err != ESP_ERR_TIMEOUT) return err;
     return ESP_OK;
 }
