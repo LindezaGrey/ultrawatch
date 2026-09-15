@@ -30,6 +30,7 @@ enum { PMU_DCDC_CONTROL = 0x80, PMU_DC1_VOLTAGE = 0x82,
        XL_OUTPUT0 = 0x02, XL_POLARITY0 = 0x04, XL_CONFIG0 = 0x06,
        XL_DISPLAY_ENABLE_P07 = 1U << 7, XL_TOUCH_RESET_P10 = 1U << 0 };
 enum { REQUIRED_DISPLAY_MV = 3300, REQUIRED_MCU_MV = 3300 };
+enum { REQUIRED_SENSOR_MV = 1800, ALDO4_CODE = (REQUIRED_SENSOR_MV - ALDO2_MIN_MV) / VOLTAGE_STEP_MV };
 
 static i2c_master_bus_handle_t bus;
 static i2c_master_dev_handle_t pmu;
@@ -176,6 +177,37 @@ static esp_err_t update_expander_bit(uint8_t reg, uint8_t mask, bool set)
              reg, before, expected, after, before != expected);
     if (after != expected) {
         ESP_LOGE(TAG, "XL readback mismatch; stopping without rollback");
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+esp_err_t twatch_board_prepare_bhi(void)
+{
+    if (!ready) return ESP_ERR_INVALID_STATE;
+    uint8_t control, voltage;
+    ESP_RETURN_ON_ERROR(read_regs(PMU_LDO_CONTROL, &control, 1), TAG, "Read ALDO control");
+    ESP_RETURN_ON_ERROR(read_regs(PMU_ALDO4_VOLTAGE, &voltage, 1), TAG, "Read ALDO4 voltage");
+    const uint8_t expected_control = control | ALDO4_ENABLE;
+    const uint8_t expected_voltage = (uint8_t)((voltage & (uint8_t)~VOLTAGE_CODE_MASK) | ALDO4_CODE);
+    if (voltage != expected_voltage) {
+        const uint8_t command[2] = {PMU_ALDO4_VOLTAGE, expected_voltage};
+        ESP_RETURN_ON_ERROR(i2c_master_transmit(pmu, command, sizeof(command), I2C_TIMEOUT_MS),
+                            TAG, "ALDO4 voltage write failed; state may be partial");
+    }
+    if (control != expected_control) {
+        const uint8_t command[2] = {PMU_LDO_CONTROL, expected_control};
+        ESP_RETURN_ON_ERROR(i2c_master_transmit(pmu, command, sizeof(command), I2C_TIMEOUT_MS),
+                            TAG, "ALDO4 enable write failed; state may be partial");
+    }
+    uint8_t after_control, after_voltage;
+    ESP_RETURN_ON_ERROR(read_regs(PMU_LDO_CONTROL, &after_control, 1), TAG, "Read ALDO control after write");
+    ESP_RETURN_ON_ERROR(read_regs(PMU_ALDO4_VOLTAGE, &after_voltage, 1), TAG, "Read ALDO4 voltage after write");
+    ESP_LOGI(TAG, "ALDO4 prepare before_ctrl=%02x before_volt=%02x expected_ctrl=%02x expected_volt=%02x "
+             "after_ctrl=%02x after_volt=%02x", control, voltage, expected_control, expected_voltage,
+             after_control, after_voltage);
+    if (after_control != expected_control || after_voltage != expected_voltage) {
+        ESP_LOGE(TAG, "ALDO4 readback mismatch; refusing BHI probe");
         return ESP_FAIL;
     }
     return ESP_OK;

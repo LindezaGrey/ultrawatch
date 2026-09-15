@@ -119,6 +119,10 @@ The native rail reader now also reads AXP2101 ALDO4 enable bit 3 at register
 `0x90` and its voltage code at `0x95`, using the pinned XPowersAXP2101
 definitions (`ALDO4` range 500–3500 mV, 100 mV steps). The change is strictly
 read-only and build-tested; device validation is pending the next flash.
+The new BHI preparation path follows LilyGo's documented sequence by setting
+ALDO4 to 1800 mV and enabling it, with masked writes and readback verification;
+this is the first native PMU write for the sensor rail and remains pending
+device validation.
 
 The native diagnostics worker now performs a read-only ACK probe at BHI260AP
 address `0x28` once per second and reports `ACK` or `absent`. It does not read

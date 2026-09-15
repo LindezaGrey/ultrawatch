@@ -41,6 +41,8 @@ esp_err_t twatch_board_read_power(twatch_power_snapshot_t *snapshot);
 esp_err_t twatch_board_read_rails(twatch_rail_snapshot_t *snapshot);
 // Verify required PMU settings, then drive only P07/P10 high. No PMU writes.
 esp_err_t twatch_board_prepare_display_touch(void);
+/* Set the documented BHI260AP rail to 1.8 V and enable it, with readback. */
+esp_err_t twatch_board_prepare_bhi(void);
 
 /* Probe documented CST9217 candidate addresses without writing registers. */
 esp_err_t twatch_board_probe_touch(uint8_t *address, bool *present);

@@ -55,6 +55,7 @@ void app_main(void)
     }
     require_integrity();
     ESP_ERROR_CHECK(twatch_board_init());
+    ESP_ERROR_CHECK(twatch_board_prepare_bhi());
     ESP_ERROR_CHECK(twatch_board_prepare_display_touch());
     uint8_t touch_address = 0;
     bool touch_present = false;

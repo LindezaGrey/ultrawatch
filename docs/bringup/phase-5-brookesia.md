@@ -150,5 +150,9 @@ decision.
 The same cache now includes the read-only XL9555/rail snapshot, showing
 display-enable and touch-reset latch state on Diagnostics. The operator
 confirmed the line after flashing commit `0a395cf`; this is **device-tested**.
-The next peripheral in the plan is BHI260AP, but its ALDO4 rail sequencing and
-identity remain unverified and no speculative enable or probe is permitted.
+The next peripheral in the plan is BHI260AP; its identity remains unverified,
+so only the documented rail preparation and read-only probe are planned.
+Exact LilyGo evidence now supports the sensor rail sequence. The native port
+prepares ALDO4 at 1800 mV with a masked, readback-verified write before probing
+the sensor. This is build-tested and pending device validation; current draw
+and sensor firmware behavior remain unmeasured.
