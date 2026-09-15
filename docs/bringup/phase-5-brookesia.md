@@ -120,3 +120,8 @@ BCD registers as UTC. Device validation after flashing commit `27bfc12`
 confirmed that the displayed value advances each second. The earlier
 `UTC --:--:--` display was caused by an inverted `esp_err_t` success check in
 the LVGL callback; successful reads were being treated as failures.
+
+The in-place Brookesia menu overlay and its display inversion action were
+flashed in commit `3a5a28d` and device-tested. The action updates the overlay
+status without loading a second LVGL screen; touch polling remains active and
+power controls remain read-only.
