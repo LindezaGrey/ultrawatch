@@ -22,6 +22,11 @@ typedef struct {
 } twatch_rtc_snapshot_t;
 
 typedef struct {
+    uint8_t product_id;
+    uint8_t chip_id;
+} twatch_bhi_identity_t;
+
+typedef struct {
     uint8_t dcdc_control, dc1_voltage, ldo_control[2], aldo2_voltage;
     uint8_t expander_output[2], expander_polarity[2], expander_config[2];
     bool dc1_enabled, aldo2_enabled, dc1_setting_valid, aldo2_setting_valid;
@@ -52,6 +57,8 @@ esp_err_t twatch_board_probe_rtc(bool *present);
 esp_err_t twatch_board_read_rtc(twatch_rtc_snapshot_t *snapshot);
 /* Read-only ACK probe for the schematic BHI260AP candidate at 0x28. */
 esp_err_t twatch_board_probe_bhi(bool *present);
+/* Read-only Bosch BHY2 product/chip ID registers; no firmware or config writes. */
+esp_err_t twatch_board_read_bhi_identity(twatch_bhi_identity_t *identity);
 
 /* Read the vendor CST92xx identity and geometry fields after address probing. */
 esp_err_t twatch_board_read_touch_info(void);

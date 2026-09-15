@@ -37,6 +37,7 @@ static i2c_master_dev_handle_t pmu;
 static i2c_master_dev_handle_t expander;
 static i2c_master_dev_handle_t touch;
 static i2c_master_dev_handle_t rtc;
+static i2c_master_dev_handle_t bhi;
 static bool ready;
 
 static esp_err_t read_device_regs(i2c_master_dev_handle_t device, uint8_t reg, uint8_t *data, size_t count)
@@ -295,6 +296,25 @@ esp_err_t twatch_board_probe_bhi(bool *present)
     ESP_LOGI(TAG, "BHI_PROBE candidate=0x%02x present=%u identity=unverified",
              BHI_CANDIDATE_ADDRESS, *present);
     if (err != ESP_OK && err != ESP_ERR_NOT_FOUND && err != ESP_ERR_TIMEOUT) return err;
+    return ESP_OK;
+}
+
+esp_err_t twatch_board_read_bhi_identity(twatch_bhi_identity_t *identity)
+{
+    if (!identity) return ESP_ERR_INVALID_ARG;
+    if (!ready) return ESP_ERR_INVALID_STATE;
+    if (!bhi) {
+        const i2c_device_config_t config = {
+            .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+            .device_address = BHI_CANDIDATE_ADDRESS,
+            .scl_speed_hz = I2C_SPEED_HZ,
+        };
+        ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bus, &config, &bhi), TAG, "Add BHI260AP candidate");
+    }
+    ESP_RETURN_ON_ERROR(read_device_regs(bhi, 0x1c, &identity->product_id, 1), TAG, "Read BHI product ID");
+    ESP_RETURN_ON_ERROR(read_device_regs(bhi, 0x2b, &identity->chip_id, 1), TAG, "Read BHI chip ID");
+    ESP_LOGI(TAG, "BHI_ID product=0x%02x chip=0x%02x expected_product=0x89",
+             identity->product_id, identity->chip_id);
     return ESP_OK;
 }
 

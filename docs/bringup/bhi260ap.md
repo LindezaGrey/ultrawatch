@@ -18,3 +18,8 @@ ISR handoff, firmware-version/readback checks, and a disable path that leaves
 ALDO4 unchanged unless explicitly requested. Until that component exists, the
 native port performs only the validated rail preparation and read-only ACK
 probe.
+
+The native diagnostics now also reads Bosch BHY2 product ID register `0x1C`
+and chip ID register `0x2B` after the ACK probe. These reads remain
+configuration-free; the expected product ID is `0x89`. The build is ready for
+device validation.
