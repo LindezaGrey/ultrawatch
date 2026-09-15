@@ -130,6 +130,9 @@ sensor registers, upload Bosch firmware, enable interrupts, or change PMU state.
 The probe is build-tested and awaits device validation.
 Device validation on commit `6d93ea6` reports `BHI_PROBE candidate=0x28
 present=1`; chip identity and firmware acceptance remain unverified.
+The native identity read was device-tested on commit `65eaa2c`: product ID
+`0x89`, chip ID `0x70`. Bosch firmware acceptance and runtime sensor data remain
+unverified.
 
 Ten controlled resets each reached the I2C scan in a 20-second capture, with
 the same three known errors and no new fault messages; the operator reports

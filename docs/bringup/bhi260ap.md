@@ -22,4 +22,5 @@ probe.
 The native diagnostics now also reads Bosch BHY2 product ID register `0x1C`
 and chip ID register `0x2B` after the ACK probe. These reads remain
 configuration-free; the expected product ID is `0x89`. The build is ready for
-device validation.
+device validation. On commit `65eaa2c`, the operator reported `P89 C70` on the
+watch, confirming the expected product ID and chip ID `0x70`.

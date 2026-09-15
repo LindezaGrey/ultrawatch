@@ -159,3 +159,6 @@ behavior remain unmeasured.
 Device validation of commit `6d93ea6` confirmed `ALDO4: on 1800mV` and
 `BHI260AP: ACK` in Diagnostics. This validates rail enable and bus presence;
 no BHI registers were configured and no Bosch firmware was uploaded.
+The follow-up identity read returned product `0x89` and chip `0x70` on-device,
+matching the Bosch product expectation. Firmware upload and motion data remain
+deferred until the isolated ESP-IDF transport component is ported.
