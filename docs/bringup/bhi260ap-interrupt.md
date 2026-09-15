@@ -26,3 +26,9 @@ The handoff was device-tested after flashing commit `ba52dd0`: boot completed,
 the GPIO8 input reported idle level `1`, and the watch remained responsive for
 the capture interval. No interrupt events were expected because no virtual
 sensor stream was enabled.
+
+The first accelerometer stream trial (commit `425f37e`) also booted and kept
+the application responsive, but produced no FIFO callback samples during the
+capture. In that image GPIO8 reported idle level `0`. This leaves interrupt
+polarity/mode and FIFO status unresolved; the stream gate is therefore not
+passed and no motion data is yet claimed as device-tested.
