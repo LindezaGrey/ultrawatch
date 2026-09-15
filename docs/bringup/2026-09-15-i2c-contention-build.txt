@@ -1,0 +1,7 @@
+I2C contention diagnostic: build-tested only, not flashed
+Pinned ESP-IDF 6.0.2 idf.py build: exit 0; git diff --check passed
+Source audit: synchronous read ESP_ERR_TIMEOUT is bus semaphore acquisition failure
+Expected I2C_READ fields: task priority addr reg elapsed_us result lock_timeout
+Current lock owner and cause of contention remain unmeasured
+build/twatch_ultra_phase1.elf: bytes=170613992 sha256=e3a391537b870134574b574bf329ad293d80265fad1da35362962e531f386e83
+build/twatch_ultra_phase1.bin: bytes=2421792 sha256=58b249d46202e2f47e6e964fa7c564c52188128b85b2daf26c4ad83e0bcaf7c7

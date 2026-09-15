@@ -453,3 +453,9 @@ timeouts were skipped without reboot, later reads succeeded, and operator
 confirmed responsive Diagnostics/touch/Back. Rail failure branch remains
 host-tested; underlying bus timeout and startup failure causes remain open.
 See 2026-09-15-telemetry-recovery-serial.log and bring-up notes.
+
+Pinned IDF return-path audit resolves runtime 0x107 register-read errors as
+I2C0 bus semaphore acquisition timeouts, before that caller starts its transfer.
+Delaying owner/activity remains unverified. Startup 0x108 PMU failure is separate.
+Prepared I2C_READ task/priority/duration diagnostics and corrected non-PMU address
+labels; no bus timing, rail, priority or scheduling changes. See bring-up audit.

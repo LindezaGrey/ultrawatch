@@ -461,3 +461,49 @@ Underlying I2C failures and the earlier startup identity-read failure remain
 unresolved; this validates nonfatal observation handling, not a repaired bus.
 Next investigate timeout origin/contending callers without speculative PMU
 writes, bus resets or timeout increases. Preserve the current responsive build.
+
+## I2C timeout origin: pinned synchronous driver audit
+
+The previous statement that ESP_ERR_TIMEOUT might also be a transaction error
+was provisional. A complete return-path audit narrows it for this firmware:
+read_device_regs -> i2c_master_transmit_receive -> s_i2c_synchronous_transaction
+uses the synchronous branch (bus trans_queue_depth defaults to zero). In pinned
+IDF 6.0.2 i2c_master.c, line 1010 returns ESP_ERR_TIMEOUT only after failure to
+take bus_lock_mux within the configured timeout. s_i2c_transaction_start returns
+ESP_ERR_INVALID_RESPONSE when command/status completion fails; its reset/clear
+helper returns ESP_OK or ESP_ERR_INVALID_STATE, not ESP_ERR_TIMEOUT. PM is not
+enabled. Thus the captured 0x107 runtime read errors are semaphore acquisition
+timeouts on this exact path. This conclusion combines device error logs with
+source inspection; it is not a new physical fault reproduction.
+
+The semaphore is created with xSemaphoreCreateBinaryWithCaps, not a mutex with
+priority inheritance. Current callers include main telemetry (priority 1),
+diag_sample (priority 2), bhi_irq (priority 5) and lvgl (adapter default priority
+6). They share one 100 kHz I2C0 bus. Which owner/activity delays main long enough,
+and whether priority-related starvation occurs, still require measurement.
+The separate startup 0x108 identity error is not classified as lock contention.
+No new bus lock, task-priority change, timeout increase, reset or register write.
+
+Prepared board diagnostic logs I2C_READ on read_device_regs failure or a
+successful register read taking at least 50 ms (half the 100 ms timeout).
+Fields: task name, priority, actual device address, register, elapsed microseconds,
+result, and lock_timeout flag derived from this audited error path. Timings include
+both lock wait and transfer; successful slow reads cannot be split further by
+this wrapper. It covers telemetry/identity single-register reads, not direct
+BHI FIFO bulk traffic or touch transfers, and does not identify the current
+semaphore owner. Error address reporting also no longer labels every non-PMU
+read as 0x20; RTC and BHI identities now report their own addresses.
+Two timestamp reads are added per single-register transfer; only slow/error
+cases log. Logging can perturb subsequent contention and is temporary evidence
+instrumentation. Device verification pending; current responsive image retained.
+
+Optional next JTAG check, using the matching ELF: inspect the failed semaphore
+take branch and all task stacks, resume immediately and detach cleanly. Do not
+use source line 1010 blindly: optimized GDB line information maps it to a success
+instruction in the current ELF. Resolve the actual conditional failure branch
+from disassembly for each build before setting a breakpoint.
+
+I2C contention diagnostic build passed. See 2026-09-15-i2c-contention-build.txt;
+matching ELF/binary cached under .cache/firmware/i2c-contention. No device control
+or flash in this investigation. After authorization, capture I2C_READ during
+repeated navigation and idle operation; retain the nonfatal telemetry behavior.

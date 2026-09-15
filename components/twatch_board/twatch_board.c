@@ -4,6 +4,7 @@
 #include "driver/i2c_master.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "twatch_board.h"
@@ -41,16 +42,38 @@ static i2c_master_dev_handle_t rtc;
 static i2c_master_dev_handle_t bhi;
 static bool ready;
 
+static unsigned device_address(i2c_master_dev_handle_t device)
+{
+    if (device == pmu) return PMU_ADDRESS;
+    if (device == expander) return EXPANDER_ADDRESS;
+    if (device == touch) return TOUCH_PRIMARY_ADDRESS;
+    if (device == rtc) return RTC_CANDIDATE_ADDRESS;
+    if (device == bhi) return BHI_CANDIDATE_ADDRESS;
+    return 0; // Unknown handle; never invent an address for diagnostic output.
+}
+
 static esp_err_t read_device_regs(i2c_master_dev_handle_t device, uint8_t reg, uint8_t *data, size_t count)
 {
     // Match vendor single-register reads; do not assume burst auto-increment.
     // Transmit byte selects the register; there is no PMU value write.
     for (size_t index = 0; index < count; ++index) {
         uint8_t address = reg + index;
+        const int64_t started_us = esp_timer_get_time();
         esp_err_t err = i2c_master_transmit_receive(device, &address, 1, &data[index], 1, I2C_TIMEOUT_MS);
+        const int64_t elapsed_us = esp_timer_get_time() - started_us;
+        if (err != ESP_OK || elapsed_us >= 50000) {
+            // Pinned IDF 6.0.2 synchronous path returns ESP_ERR_TIMEOUT when
+            // bus_lock_mux cannot be acquired. Transfer status failures return
+            // ESP_ERR_INVALID_RESPONSE. Re-audit this classification on upgrade.
+            ESP_LOGW(TAG, "I2C_READ task=%s priority=%u addr=0x%02x reg=0x%02x "
+                     "elapsed_us=%" PRId64 " result=%s lock_timeout=%u",
+                     pcTaskGetName(NULL), (unsigned)uxTaskPriorityGet(NULL),
+                     device_address(device), address, elapsed_us, esp_err_to_name(err),
+                     err == ESP_ERR_TIMEOUT);
+        }
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "I2C address=0x%02x reg=0x%02x failed: %s",
-                     device == pmu ? PMU_ADDRESS : EXPANDER_ADDRESS, address, esp_err_to_name(err));
+                     device_address(device), address, esp_err_to_name(err));
             return err;
         }
     }
