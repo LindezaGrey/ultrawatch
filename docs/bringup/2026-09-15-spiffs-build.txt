@@ -8,5 +8,9 @@ partition if it is blank or invalid; valid contents are preserved. Capacity is
 reported through esp_spiffs_info(). Partition: storage, data/spiffs,
 offset 0x810000, size 0x100000.
 
-Result: build-tested. Binary size: 0x256e50 bytes; app partition free: 0x5a91b0.
-No flash or device validation performed.
+Result: build-tested and device-tested after authorized flash. Binary size:
+0x256e50 bytes; app partition free: 0x5a91b0.
+
+Device evidence: 2026-09-15-spiffs-serial.log. SPIFFS mounted successfully;
+Storage acquired the filesystem; three Display service bind/stop/deinit cycles
+passed with heap integrity. Native LVGL subsequently started with the adapter.

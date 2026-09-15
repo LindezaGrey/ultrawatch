@@ -37,8 +37,14 @@ the Display service binds before enabling the full Brookesia shell.
 The board bridge now exposes a SPIFFS `StorageFileSystem` interface at `/spiffs`
 using the labeled `storage` partition. Mount failure is reported without
 formatting, and capacity uses `esp_spiffs_info()`. The partition is reserved in
-the CSV at offset 0x810000 with size 0x100000. Build passed; flashing and the
-service binding probe remain pending. See 2026-09-15-spiffs-build.txt.
+the CSV at offset 0x810000 with size 0x100000. See 2026-09-15-spiffs-build.txt.
+
+Device result: SPIFFS mounted at `/spiffs`; Storage acquired
+`TWatchUltra:SPIFFS`; all three Display service lifecycle probes bound and
+cleaned up with `heap_ok=1`. Native LVGL adapter startup followed successfully.
+One touch-read warning occurred during the temporary service probe before native
+touch ownership; final UI visual and interactive confirmation remains pending.
+Evidence: 2026-09-15-spiffs-serial.log.
 
 ## Display recovery after panel-I/O experiment
 

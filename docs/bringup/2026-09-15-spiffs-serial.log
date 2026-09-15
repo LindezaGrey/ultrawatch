@@ -1,0 +1,1583 @@
+I (473) esp_image: segment 4: paddr=00259f98 vaddr=4037a3d0 sizeI (17269) twatch_board: I2C_BEGIN seq=3501 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (17269) twatch_board: I2C_END seq=3501 result=ESP_OK elapsed_us=681
+I (17269) twatch_board: I2C_BEGIN seq=3502 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (17269) twatch_board: I2C_END seq=3502 result=ESP_OK elapsed_us=679
+I (17269) twatch_board: I2C_BEGIN seq=3503 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (17269) twatch_board: I2C_END seq=3503 result=ESP_OK elapsed_us=771
+I (17269) twatch_board: I2C_BEGIN seq=3504 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=26
+I (17269) twatch_board: I2C_END seq=3504 result=ESP_OK elapsed_us=2934
+I (17269) bhi260ap_core: accelerometer id=4 x=2884 y=-309 z=2909
+I (17269) twatch_board: I2C_BEGIN seq=3505 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (17279) twatch_board: I2C_END seq=3505 result=ESP_OK elapsed_us=691
+I (17279) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (17619) twatch_board: I2C_BEGIN seq=3506 kind=read task=main priority=1 addr=0x51 write_bytes=1 read_bytes=1
+I (17619) twatch_board: I2C_END seq=3506 result=ESP_OK elapsed_us=695
+I (17619) twatch_board: I2C_BEGIN seq=3507 kind=read task=main priority=1 addr=0x51 write_bytes=1 read_bytes=1
+I (17619) twatch_board: I2C_END seq=3507 result=ESP_OK elapsed_us=665
+I (17619) twatch_board: I2C_BEGIN seq=3508 kind=read task=main priority=1 addr=0x51 write_bytes=1 read_bytes=1
+I (17619) twatch_board: I2C_END seq=3508 result=ESP_OK elapsed_us=661
+I (17619) twatch_board: I2C_BEGIN seq=3509 kind=read task=main priority=1 addr=0x51 write_bytes=1 read_bytes=1
+I (17619) twatch_board: I2C_END seq=3509 result=ESP_OK elapsed_us=659
+I (17619) twatch_board: I2C_BEGIN seq=3510 kind=read task=main priority=1 addr=0x51 write_bytes=1 read_bytes=1
+I (17619) twatch_board: I2C_END seq=3510 result=ESP_OK elapsed_us=665
+I (17619) twatch_board: I2C_BEGIN seq=3511 kind=read task=main priority=1 addr=0x51 write_bytes=1 read_bytes=1
+I (17619) twatch_board: I2C_END seq=3511 result=ESP_OK elapsed_us=664
+I (17619) twatch_board: I2C_BEGIN seq=3512 kind=read task=main priority=1 addr=0x51 write_bytes=1 read_bytes=1
+I (17629) twatch_board: I2C_END seq=3512 result=ESP_OK elapsed_us=661
+I (17629) twatch_board: I2C_BEGIN seq=3513 kind=read task=main priority=1 addr=0x51 write_bytes=1 read_bytes=1
+I (17629) twatch_board: I2C_END seq=3513 result=ESP_OK elapsed_us=662
+I (17629) twatch_board: RTC_READ ctrl1=00 time=20/43/13 date=15 wd=03/09/26 bcd_plausible=1
+I (17629) phase1: RTC_TICK_CHECK first=20/43/11 followup=20/43/13
+I (17909) twatch_board: I2C_BEGIN seq=3514 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (17909) twatch_board: I2C_END seq=3514 result=ESP_OK elapsed_us=721
+I (17909) twatch_board: I2C_BEGIN seq=3515 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (17909) twatch_board: I2C_END seq=3515 result=ESP_OK elapsed_us=668
+I (17909) twatch_board: I2C_BEGIN seq=3516 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (17919) twatch_board: I2C_END seq=3516 result=ESP_OK elapsed_us=771
+I (17919) twatch_board: I2C_BEGIN seq=3517 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (17919) twatch_board: I2C_END seq=3517 result=ESP_OK elapsed_us=2567
+I (17919) bhi260ap_core: accelerometer id=4 x=2883 y=-309 z=2908
+I (17919) twatch_board: I2C_BEGIN seq=3518 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (17919) twatch_board: I2C_END seq=3518 result=ESP_OK elapsed_us=703
+I (17919) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (18559) twatch_board: I2C_BEGIN seq=3519 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (18559) twatch_board: I2C_END seq=3519 result=ESP_OK elapsed_us=773
+I (18559) twatch_board: I2C_BEGIN seq=3520 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (18559) twatch_board: I2C_END seq=3520 result=ESP_OK elapsed_us=667
+I (18559) twatch_board: I2C_BEGIN seq=3521 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (18559) twatch_board: I2C_END seq=3521 result=ESP_OK elapsed_us=777
+I (18559) twatch_board: I2C_BEGIN seq=3522 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (18559) twatch_board: I2C_END seq=3522 result=ESP_OK elapsed_us=2567
+I (18559) bhi260ap_core: accelerometer id=4 x=2884 y=-308 z=2909
+I (18559) twatch_board: I2C_BEGIN seq=3523 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (18569) twatch_board: I2C_END seq=3523 result=ESP_OK elapsed_us=685
+I (18569) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (18809) twatch_display: CO5300 ready 410x502 QSPI cs=41 rst=37 clk=40 d0=38 d1=39 d2=42 d3=45
+I (18809) HalIface: [device.cpp:0415] (init) : Version: 0.8.2
+I (18869) TWatchStorage: SPIFFS mount=ok base=/spiffs label=storage
+I (18879) HalIface: [device.cpp:0443] (init) : - [TWatchUltra] Registered interface 'TWatchUltra:CO5300'
+I (18879) HalIface: [device.cpp:0443] (init) : - [TWatchUltra] Registered interface 'TWatchUltra:CST9220'
+I (18879) HalIface: [device.cpp:0443] (init) : - [TWatchUltra] Registered interface 'TWatchUltra:NVS'
+I (18879) HalIface: [device.cpp:0443] (init) : - [TWatchUltra] Registered interface 'TWatchUltra:SPIFFS'
+I (18879) HalIface: [device.cpp:0448] (init) : - [TWatchUltra] Initialized
+I (18879) HalIface: [device.cpp:0496] (acquire) : - [TWatchUltra] Reference count increased to 1
+I (18889) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 1
+I (18889) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 2
+I (18889) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CST9220' with reference count 2
+I (18889) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 3
+I (18899) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:NVS' with reference count 3
+I (18949) TWatchStorage: STORAGE_PROBE init=ok list=ok entries=0 kv_writes=0
+I (18949) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 2
+I (18949) SvcMgr: [manager.cpp:0093] (init_internal) : Version: 0.8.2
+I (18959) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Manager
+I (18959) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Manager
+I (18959) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Manager
+I (18969) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Utils
+I (18969) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Utils
+I (18979) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Utils
+I (18979) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: DataFlow
+I (18989) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: DataFlow
+I (18989) SvcMgr: [manager.cpp:0360] (add_service) : Service added: DataFlow
+I (18989) SvcMgr: [manager.cpp:0810] (topological_sort) : Service initialization order: 
+I (18989) SvcMgr: [manager.cpp:0812] (topological_sort) :   1. Usb
+I (18999) SvcMgr: [manager.cpp:0812] (topological_sort) :   2. Storage
+I (18999) SvcMgr: [manager.cpp:0812] (topological_sort) :   3. Wifi
+I (18999) SvcMgr: [manager.cpp:0812] (topological_sort) :   4. SNTP
+I (18999) SvcMgr: [manager.cpp:0812] (topological_sort) :   5. Display
+I (18999) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Usb
+I (19009) SvcUsb: [service_usb.cpp:1175] (on_init) : Version: 0.8.0
+I (19009) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Usb
+I (19009) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Usb
+I (19019) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Storage
+I (19019) SvcStorage: [service_storage.cpp:0789] (on_init) : Version: 0.8.3
+I (19019) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 3
+I (19019) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:NVS' with reference count 3
+I (19019) SvcStorage: [service_storage.cpp:0795] (on_init) : Using storage KV interface: TWatchUltra:NVS
+I (19079) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 4
+I (19079) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:SPIFFS' with reference count 4
+I (19079) SvcStorage: [service_storage.cpp:0806] (on_init) : Using storage file-system interface: TWatchUltra:SPIFFS
+I (19089) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Storage
+I (19089) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Storage
+I (19099) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Wifi
+I (19099) SvcWiFi: [service_wifi.cpp:0224] (on_init) : Version: 0.8.2
+E (19099) SvcWiFi: [service_wifi.cpp:0233] (on_init) : Wi-Fi basic HAL interface is not available
+E (19099) SvcMgr: [base.cpp:0997] (init_internal) : Failed to initialize service
+I (19099) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Wifi
+E (19099) SvcMgr: [manager.cpp:0344] (add_service) : Failed to initialize service
+E (19109) SvcMgr: [manager.cpp:0840] (add_all_registered_services) : Failed to add service: Wifi
+I (19109) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: SNTP
+I (19109) SvcSNTP: [service_sntp.cpp:0071] (on_init) : Version: 0.8.2
+I (19109) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: SNTP
+I (19119) SvcMgr: [manager.cpp:0360] (add_service) : Service added: SNTP
+I (19119) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Display
+I (19119) SvcDisplay: [display_lifecycle.cpp:0023] (on_init) : Version: 0.8.2
+I (19119) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 5
+I (19129) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 5
+I (19129) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 6
+I (19129) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CST9220' with reference count 6
+I (19139) SvcDisplay: [display_lifecycle.cpp:0061] (on_init) : Registered display output Output0: 410x502, pixel_format=RGB565, panel=TWatchUltra:CO5300, group_id=t_watch_ultra_display
+I (19139) SvcDisplay: [display_lifecycle.cpp:0092] (on_init) : Registered display touch Touch0: 410x502, max_points=1, operation_mode=Polling, touch=TWatchUltra:CST9220, group_id=t_watch_ultra_display
+I (19139) SvcDisplay: [display_render_tasks.cpp:0171] (bind_default_touches_locked) : Bound display output Output0 to touch Touch0 by group_id(t_watch_ultra_display)
+W (19139) SvcDisplay: [display_lifecycle.cpp:0110] (on_init) : No HAL display backlight interface is available
+I (19149) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 7
+I (19149) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 7
+I (19149) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 6
+I (19159) SvcDisplay: [display_lifecycle.cpp:0120] (on_init) : Registered Display DataFlow provider
+I (19169) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Display
+I (19169) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Display
+I (19179) SvcMgr: [manager.cpp:0844] (add_all_registered_services) : All services added
+I (19189) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Manager
+I (19199) SvcMgr: [manager.cpp:0542] (bind) : Service started: Manager
+I (19199) twatch_board: I2C_BEGIN seq=3524 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (19199) twatch_board: I2C_END seq=3524 result=ESP_OK elapsed_us=1065
+I (19199) twatch_board: I2C_BEGIN seq=3525 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (19199) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Utils
+I (19199) twatch_board: I2C_END seq=3525 result=ESP_OK elapsed_us=737
+I (19209) twatch_board: I2C_BEGIN seq=3526 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (19209) SvcMgr: [manager.cpp:0542] (bind) : Service started: Utils
+I (19209) twatch_board: I2C_END seq=3526 result=ESP_OK elapsed_us=2543
+I (19209) twatch_board: I2C_BEGIN seq=3527 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (19209) SvcMgr: [base.cpp:1131] (start_internal) : Started service: DataFlow
+I (19209) twatch_board: I2C_END seq=3527 result=ESP_OK elapsed_us=2987
+I (19209) SvcMgr: [manager.cpp:0542] (bind) : Service started: DataFlow
+I (19209) bhi260ap_core: accelerometer id=4 x=2884 y=-308 z=2909
+I (19219) SvcMgr: [manager.cpp:0259] (start) : Service manager started
+I (19219) twatch_board: I2C_BEGIN seq=3528 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (19219) twatch_board: I2C_END seq=3528 result=ESP_OK elapsed_us=993
+I (19219) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (19219) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Storage
+I (19229) SvcMgr: [manager.cpp:0542] (bind) : Service started: Storage
+I (19229) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Display
+I (19239) twatch_board: I2C_BEGIN seq=3529 kind=read task=SvcMgrMain0 priority=5 addr=0x1a write_bytes=2 read_bytes=15
+I (19239) SvcMgr: [manager.cpp:0542] (bind) : Service started: Display
+I (19239) twatch_board: I2C_END seq=3529 result=ESP_OK elapsed_us=2199
+I (19239) twatch_board: I2C_BEGIN seq=3530 kind=write task=SvcMgrMain0 priority=5 addr=0x1a write_bytes=3 read_bytes=0
+I (19239) twatch_board: I2C_END seq=3530 result=ESP_OK elapsed_us=734
+W (19239) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+W (19239) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+I (19249) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Display
+I (19249) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Display
+I (19249) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Storage
+I (19259) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Storage
+I (19259) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: DataFlow
+I (19259) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: DataFlow
+I (19269) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Utils
+I (19269) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Utils
+I (19269) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Manager
+I (19269) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Manager
+I (19789) SvcMgr: [manager.cpp:0321] (stop_internal) : Service manager stopped
+I (19789) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Display
+I (19799) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 5
+I (19799) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 4
+I (19809) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Display
+I (19809) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Display
+I (19809) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: SNTP
+I (19809) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: SNTP
+I (19809) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: SNTP
+I (19819) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Storage
+I (19819) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 3
+I (19819) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 2
+I (19819) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Storage
+I (19829) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Storage
+I (19829) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Usb
+I (19829) SvcUsb: [service_usb.cpp:1188] (on_deinit) : Deinitialized
+I (19829) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Usb
+I (19829) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Usb
+I (19839) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: DataFlow
+I (19839) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: DataFlow
+I (19839) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: DataFlow
+I (19839) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Utils
+I (19849) twatch_board: I2C_BEGIN seq=3531 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (19849) twatch_board: I2C_END seq=3531 result=ESP_OK elapsed_us=804
+I (19849) twatch_board: I2C_BEGIN seq=3532 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (19849) twatch_board: I2C_END seq=3532 result=ESP_OK elapsed_us=701
+I (19849) twatch_board: I2C_BEGIN seq=3533 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (19849) twatch_board: I2C_END seq=3533 result=ESP_OK elapsed_us=813
+I (19849) twatch_board: I2C_BEGIN seq=3534 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (19849) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Utils
+I (19849) twatch_board: I2C_END seq=3534 result=ESP_OK elapsed_us=2634
+I (19849) bhi260ap_core: accelerometer id=4 x=2884 y=-308 z=2908
+I (19849) twatch_board: I2C_BEGIN seq=3535 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (19859) twatch_board: I2C_END seq=3535 result=ESP_OK elapsed_us=777
+I (19859) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (19859) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Utils
+I (19859) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Manager
+I (19859) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Manager
+I (19859) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Manager
+I (19869) SvcMgr: [manager.cpp:0887] (remove_all_registered_services) : All services removed
+I (19969) brookesia_system: SERVICE_CYCLE cycle=1 bind=ok before=234504 immediate=204600 settled=204600 tasks=7/7/7 heap_ok=1
+I (19969) SvcMgr: [manager.cpp:0093] (init_internal) : Version: 0.8.2
+I (19969) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Manager
+I (19979) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Manager
+I (19979) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Manager
+I (19979) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Utils
+I (19989) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Utils
+I (19989) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Utils
+I (19989) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: DataFlow
+I (19999) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: DataFlow
+I (19999) SvcMgr: [manager.cpp:0360] (add_service) : Service added: DataFlow
+I (19999) SvcMgr: [manager.cpp:0810] (topological_sort) : Service initialization order: 
+I (19999) SvcMgr: [manager.cpp:0812] (topological_sort) :   1. Usb
+I (19999) SvcMgr: [manager.cpp:0812] (topological_sort) :   2. Storage
+I (20009) SvcMgr: [manager.cpp:0812] (topological_sort) :   3. Wifi
+I (20009) SvcMgr: [manager.cpp:0812] (topological_sort) :   4. SNTP
+I (20009) SvcMgr: [manager.cpp:0812] (topological_sort) :   5. Display
+I (20009) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Usb
+I (20009) SvcUsb: [service_usb.cpp:1175] (on_init) : Version: 0.8.0
+I (20019) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Usb
+I (20019) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Usb
+I (20019) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Storage
+I (20019) SvcStorage: [service_storage.cpp:0789] (on_init) : Version: 0.8.3
+I (20029) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 3
+I (20029) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:NVS' with reference count 3
+I (20029) SvcStorage: [service_storage.cpp:0795] (on_init) : Using storage KV interface: TWatchUltra:NVS
+I (20089) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 4
+I (20089) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:SPIFFS' with reference count 4
+I (20089) SvcStorage: [service_storage.cpp:0806] (on_init) : Using storage file-system interface: TWatchUltra:SPIFFS
+I (20099) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Storage
+I (20099) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Storage
+I (20099) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Wifi
+I (20099) SvcWiFi: [service_wifi.cpp:0224] (on_init) : Version: 0.8.2
+E (20109) SvcWiFi: [service_wifi.cpp:0233] (on_init) : Wi-Fi basic HAL interface is not available
+E (20109) SvcMgr: [base.cpp:0997] (init_internal) : Failed to initialize service
+I (20109) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Wifi
+E (20109) SvcMgr: [manager.cpp:0344] (add_service) : Failed to initialize service
+E (20109) SvcMgr: [manager.cpp:0840] (add_all_registered_services) : Failed to add service: Wifi
+I (20109) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: SNTP
+I (20109) SvcSNTP: [service_sntp.cpp:0071] (on_init) : Version: 0.8.2
+I (20119) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: SNTP
+I (20119) SvcMgr: [manager.cpp:0360] (add_service) : Service added: SNTP
+I (20119) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Display
+I (20129) SvcDisplay: [display_lifecycle.cpp:0023] (on_init) : Version: 0.8.2
+I (20129) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 5
+I (20129) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 5
+I (20129) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 6
+I (20139) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CST9220' with reference count 6
+I (20139) SvcDisplay: [display_lifecycle.cpp:0061] (on_init) : Registered display output Output0: 410x502, pixel_format=RGB565, panel=TWatchUltra:CO5300, group_id=t_watch_ultra_display
+I (20139) SvcDisplay: [display_lifecycle.cpp:0092] (on_init) : Registered display touch Touch0: 410x502, max_points=1, operation_mode=Polling, touch=TWatchUltra:CST9220, group_id=t_watch_ultra_display
+I (20149) SvcDisplay: [display_render_tasks.cpp:0171] (bind_default_touches_locked) : Bound display output Output0 to touch Touch0 by group_id(t_watch_ultra_display)
+W (20149) SvcDisplay: [display_lifecycle.cpp:0110] (on_init) : No HAL display backlight interface is available
+I (20149) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 7
+I (20149) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 7
+I (20149) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 6
+I (20159) SvcDisplay: [display_lifecycle.cpp:0120] (on_init) : Registered Display DataFlow provider
+I (20169) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Display
+I (20169) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Display
+I (20179) SvcMgr: [manager.cpp:0844] (add_all_registered_services) : All services added
+I (20189) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Manager
+I (20199) SvcMgr: [manager.cpp:0542] (bind) : Service started: Manager
+I (20199) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Utils
+I (20199) SvcMgr: [manager.cpp:0542] (bind) : Service started: Utils
+I (20209) SvcMgr: [base.cpp:1131] (start_internal) : Started service: DataFlow
+I (20209) SvcMgr: [manager.cpp:0542] (bind) : Service started: DataFlow
+I (20209) SvcMgr: [manager.cpp:0259] (start) : Service manager started
+I (20219) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Storage
+I (20219) SvcMgr: [manager.cpp:0542] (bind) : Service started: Storage
+I (20229) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Display
+I (20229) SvcMgr: [manager.cpp:0542] (bind) : Service started: Display
+I (20239) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Display
+I (20239) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Display
+I (20239) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Storage
+I (20249) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Storage
+I (20249) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: DataFlow
+I (20249) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: DataFlow
+I (20249) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Utils
+I (20259) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Utils
+I (20259) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Manager
+I (20259) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Manager
+I (20489) twatch_board: I2C_BEGIN seq=3536 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (20489) twatch_board: I2C_END seq=3536 result=ESP_OK elapsed_us=1109
+I (20489) twatch_board: I2C_BEGIN seq=3537 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (20489) twatch_board: I2C_END seq=3537 result=ESP_OK elapsed_us=863
+I (20499) twatch_board: I2C_BEGIN seq=3538 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (20499) twatch_board: I2C_END seq=3538 result=ESP_OK elapsed_us=973
+I (20499) twatch_board: I2C_BEGIN seq=3539 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (20499) twatch_board: I2C_END seq=3539 result=ESP_OK elapsed_us=2792
+I (20499) bhi260ap_core: accelerometer id=4 x=2884 y=-309 z=2908
+I (20499) twatch_board: I2C_BEGIN seq=3540 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (20499) twatch_board: I2C_END seq=3540 result=ESP_OK elapsed_us=910
+I (20499) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (20769) SvcMgr: [manager.cpp:0321] (stop_internal) : Service manager stopped
+I (20769) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Display
+I (20779) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 5
+I (20779) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 4
+I (20779) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Display
+I (20779) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Display
+I (20789) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: SNTP
+I (20789) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: SNTP
+I (20789) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: SNTP
+I (20789) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Storage
+I (20799) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 3
+I (20799) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 2
+I (20799) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Storage
+I (20799) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Storage
+I (20809) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Usb
+I (20809) SvcUsb: [service_usb.cpp:1188] (on_deinit) : Deinitialized
+I (20809) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Usb
+I (20809) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Usb
+I (20809) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: DataFlow
+I (20819) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: DataFlow
+I (20819) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: DataFlow
+I (20819) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Utils
+I (20819) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Utils
+I (20829) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Utils
+I (20829) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Manager
+I (20829) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Manager
+I (20829) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Manager
+I (20829) SvcMgr: [manager.cpp:0887] (remove_all_registered_services) : All services removed
+I (20939) brookesia_system: SERVICE_CYCLE cycle=2 bind=ok before=204600 immediate=204600 settled=204600 tasks=7/7/7 heap_ok=1
+I (20939) SvcMgr: [manager.cpp:0093] (init_internal) : Version: 0.8.2
+I (20939) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Manager
+I (20949) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Manager
+I (20949) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Manager
+I (20949) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Utils
+I (20959) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Utils
+I (20959) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Utils
+I (20959) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: DataFlow
+I (20969) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: DataFlow
+I (20969) SvcMgr: [manager.cpp:0360] (add_service) : Service added: DataFlow
+I (20969) SvcMgr: [manager.cpp:0810] (topological_sort) : Service initialization order: 
+I (20969) SvcMgr: [manager.cpp:0812] (topological_sort) :   1. Usb
+I (20969) SvcMgr: [manager.cpp:0812] (topological_sort) :   2. Storage
+I (20979) SvcMgr: [manager.cpp:0812] (topological_sort) :   3. Wifi
+I (20979) SvcMgr: [manager.cpp:0812] (topological_sort) :   4. SNTP
+I (20979) SvcMgr: [manager.cpp:0812] (topological_sort) :   5. Display
+I (20979) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Usb
+I (20979) SvcUsb: [service_usb.cpp:1175] (on_init) : Version: 0.8.0
+I (20989) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Usb
+I (20989) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Usb
+I (20989) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Storage
+I (20989) SvcStorage: [service_storage.cpp:0789] (on_init) : Version: 0.8.3
+I (20999) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 3
+I (20999) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:NVS' with reference count 3
+I (20999) SvcStorage: [service_storage.cpp:0795] (on_init) : Using storage KV interface: TWatchUltra:NVS
+I (21059) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 4
+I (21059) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:SPIFFS' with reference count 4
+I (21059) SvcStorage: [service_storage.cpp:0806] (on_init) : Using storage file-system interface: TWatchUltra:SPIFFS
+I (21069) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Storage
+I (21069) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Storage
+I (21069) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Wifi
+I (21069) SvcWiFi: [service_wifi.cpp:0224] (on_init) : Version: 0.8.2
+E (21079) SvcWiFi: [service_wifi.cpp:0233] (on_init) : Wi-Fi basic HAL interface is not available
+E (21079) SvcMgr: [base.cpp:0997] (init_internal) : Failed to initialize service
+I (21079) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Wifi
+E (21079) SvcMgr: [manager.cpp:0344] (add_service) : Failed to initialize service
+E (21079) SvcMgr: [manager.cpp:0840] (add_all_registered_services) : Failed to add service: Wifi
+I (21079) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: SNTP
+I (21079) SvcSNTP: [service_sntp.cpp:0071] (on_init) : Version: 0.8.2
+I (21089) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: SNTP
+I (21089) SvcMgr: [manager.cpp:0360] (add_service) : Service added: SNTP
+I (21089) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Display
+I (21099) SvcDisplay: [display_lifecycle.cpp:0023] (on_init) : Version: 0.8.2
+I (21099) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 5
+I (21099) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 5
+I (21099) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 6
+I (21109) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CST9220' with reference count 6
+I (21109) SvcDisplay: [display_lifecycle.cpp:0061] (on_init) : Registered display output Output0: 410x502, pixel_format=RGB565, panel=TWatchUltra:CO5300, group_id=t_watch_ultra_display
+I (21109) SvcDisplay: [display_lifecycle.cpp:0092] (on_init) : Registered display touch Touch0: 410x502, max_points=1, operation_mode=Polling, touch=TWatchUltra:CST9220, group_id=t_watch_ultra_display
+I (21119) SvcDisplay: [display_render_tasks.cpp:0171] (bind_default_touches_locked) : Bound display output Output0 to touch Touch0 by group_id(t_watch_ultra_display)
+W (21119) SvcDisplay: [display_lifecycle.cpp:0110] (on_init) : No HAL display backlight interface is available
+I (21119) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 7
+I (21119) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 7
+I (21119) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 6
+I (21129) SvcDisplay: [display_lifecycle.cpp:0120] (on_init) : Registered Display DataFlow provider
+I (21139) twatch_board: I2C_BEGIN seq=3541 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (21139) twatch_board: I2C_END seq=3541 result=ESP_OK elapsed_us=809
+I (21139) twatch_board: I2C_BEGIN seq=3542 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (21139) twatch_board: I2C_END seq=3542 result=ESP_OK elapsed_us=692
+I (21139) twatch_board: I2C_BEGIN seq=3543 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (21139) twatch_board: I2C_END seq=3543 result=ESP_OK elapsed_us=1073
+I (21139) twatch_board: I2C_BEGIN seq=3544 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (21139) twatch_board: I2C_END seq=3544 result=ESP_OK elapsed_us=2809
+I (21149) bhi260ap_core: accelerometer id=4 x=2883 y=-309 z=2908
+I (21149) twatch_board: I2C_BEGIN seq=3545 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (21149) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Display
+I (21149) twatch_board: I2C_END seq=3545 result=ESP_OK elapsed_us=1029
+I (21149) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (21149) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Display
+I (21149) SvcMgr: [manager.cpp:0844] (add_all_registered_services) : All services added
+I (21169) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Manager
+I (21169) SvcMgr: [manager.cpp:0542] (bind) : Service started: Manager
+I (21169) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Utils
+I (21179) SvcMgr: [manager.cpp:0542] (bind) : Service started: Utils
+I (21179) SvcMgr: [base.cpp:1131] (start_internal) : Started service: DataFlow
+I (21189) SvcMgr: [manager.cpp:0542] (bind) : Service started: DataFlow
+I (21189) SvcMgr: [manager.cpp:0259] (start) : Service manager started
+I (21189) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Storage
+I (21189) SvcMgr: [manager.cpp:0542] (bind) : Service started: Storage
+I (21199) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Display
+I (21209) SvcMgr: [manager.cpp:0542] (bind) : Service started: Display
+I (21209) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Display
+I (21209) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Display
+I (21219) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Storage
+I (21219) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Storage
+I (21219) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: DataFlow
+I (21219) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: DataFlow
+I (21229) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Utils
+I (21229) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Utils
+I (21229) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Manager
+I (21229) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Manager
+I (21729) SvcMgr: [manager.cpp:0321] (stop_internal) : Service manager stopped
+I (21739) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Display
+I (21739) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 5
+I (21749) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 4
+I (21749) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Display
+I (21749) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Display
+I (21749) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: SNTP
+I (21759) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: SNTP
+I (21759) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: SNTP
+I (21759) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Storage
+I (21759) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 3
+I (21769) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 2
+I (21769) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Storage
+I (21769) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Storage
+I (21769) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Usb
+I (21769) SvcUsb: [service_usb.cpp:1188] (on_deinit) : Deinitialized
+I (21779) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Usb
+I (21779) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Usb
+I (21779) twatch_board: I2C_BEGIN seq=3546 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (21779) twatch_board: I2C_END seq=3546 result=ESP_OK elapsed_us=809
+I (21779) twatch_board: I2C_BEGIN seq=3547 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (21779) twatch_board: I2C_END seq=3547 result=ESP_OK elapsed_us=711
+I (21779) twatch_board: I2C_BEGIN seq=3548 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (21789) twatch_board: I2C_END seq=3548 result=ESP_OK elapsed_us=864
+I (21789) twatch_board: I2C_BEGIN seq=3549 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (21789) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: DataFlow
+I (21789) twatch_board: I2C_END seq=3549 result=ESP_OK elapsed_us=2668
+I (21789) bhi260ap_core: accelerometer id=4 x=2884 y=-308 z=2908
+I (21789) twatch_board: I2C_BEGIN seq=3550 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (21789) twatch_board: I2C_END seq=3550 result=ESP_OK elapsed_us=769
+I (21789) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (21789) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: DataFlow
+I (21799) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: DataFlow
+I (21799) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Utils
+I (21799) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Utils
+I (21799) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Utils
+I (21799) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Manager
+I (21809) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Manager
+I (21809) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Manager
+I (21809) SvcMgr: [manager.cpp:0887] (remove_all_registered_services) : All services removed
+I (21909) brookesia_system: SERVICE_CYCLE cycle=3 bind=ok before=204600 immediate=204600 settled=204600 tasks=7/7/7 heap_ok=1
+I (21909) twatch_board: I2C_BEGIN seq=3551 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21909) twatch_board: I2C_END seq=3551 result=ESP_OK elapsed_us=778
+I (21909) twatch_board: I2C_BEGIN seq=3552 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21909) twatch_board: I2C_END seq=3552 result=ESP_OK elapsed_us=716
+I (21909) twatch_board: I2C_BEGIN seq=3553 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21909) esp_lvgl:adapter: LVGL adapter initialized successfully
+I (21909) twatch_board: I2C_END seq=3553 result=ESP_OK elapsed_us=742
+I (21909) twatch_board: I2C_BEGIN seq=3554 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21909) twatch_board: I2C_END seq=3554 result=ESP_OK elapsed_us=726
+I (21909) twatch_board: I2C_BEGIN seq=3555 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21919) twatch_board: I2C_END seq=3555 result=ESP_OK elapsed_us=744
+I (21919) twatch_board: I2C_BEGIN seq=3556 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21919) twatch_board: I2C_END seq=3556 result=ESP_OK elapsed_us=741
+I (21919) twatch_board: I2C_BEGIN seq=3557 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21919) twatch_board: I2C_END seq=3557 result=ESP_OK elapsed_us=739
+I (21919) twatch_board: I2C_BEGIN seq=3558 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21919) twatch_board: I2C_END seq=3558 result=ESP_OK elapsed_us=732
+I (21919) twatch_board: I2C_BEGIN seq=3559 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21919) twatch_board: I2C_END seq=3559 result=ESP_OK elapsed_us=757
+I (21919) twatch_board: I2C_BEGIN seq=3560 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (21929) twatch_board: I2C_END seq=3560 result=ESP_OK elapsed_us=782
+I (21929) twatch_board: I2C_BEGIN seq=3561 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (21929) twatch_board: I2C_END seq=3561 result=ESP_OK elapsed_us=782
+I (21929) twatch_board: I2C_BEGIN seq=3562 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (21929) twatch_board: I2C_END seq=3562 result=ESP_OK elapsed_us=784
+I (21929) twatch_board: I2C_BEGIN seq=3563 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (21929) twatch_board: I2C_END seq=3563 result=ESP_OK elapsed_us=792
+I (21929) twatch_board: I2C_BEGIN seq=3564 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (21929) twatch_board: I2C_END seq=3564 result=ESP_OK elapsed_us=735
+I (21929) twatch_board: I2C_BEGIN seq=3565 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (21939) twatch_board: I2C_END seq=3565 result=ESP_OK elapsed_us=721
+I (21939) twatch_board: I2C_BEGIN seq=3566 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (21939) twatch_board: I2C_END seq=3566 result=ESP_OK elapsed_us=726
+I (21939) twatch_board: I2C_BEGIN seq=3567 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (21939) twatch_board: I2C_END seq=3567 result=ESP_OK elapsed_us=728
+I (21939) twatch_board: RTC_READ ctrl1=00 time=20/43/17 date=15 wd=03/09/26 bcd_plausible=1
+I (21939) twatch_board: I2C_BEGIN seq=3568 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21939) twatch_board: I2C_END seq=3568 result=ESP_OK elapsed_us=743
+I (21939) twatch_board: I2C_BEGIN seq=3569 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21939) twatch_board: I2C_END seq=3569 result=ESP_OK elapsed_us=733
+I (21939) twatch_board: I2C_BEGIN seq=3570 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21949) twatch_board: I2C_END seq=3570 result=ESP_OK elapsed_us=739
+I (21949) twatch_board: I2C_BEGIN seq=3571 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21949) twatch_board: I2C_END seq=3571 result=ESP_OK elapsed_us=738
+I (21949) twatch_board: I2C_BEGIN seq=3572 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21949) twatch_board: I2C_END seq=3572 result=ESP_OK elapsed_us=748
+I (21949) twatch_board: I2C_BEGIN seq=3573 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (21949) twatch_board: I2C_END seq=3573 result=ESP_OK elapsed_us=763
+I (21949) twatch_board: I2C_BEGIN seq=3574 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (21949) twatch_board: I2C_END seq=3574 result=ESP_OK elapsed_us=769
+I (21949) twatch_board: I2C_BEGIN seq=3575 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (21949) twatch_board: I2C_END seq=3575 result=ESP_OK elapsed_us=791
+I (21959) twatch_board: I2C_BEGIN seq=3576 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (21959) twatch_board: I2C_END seq=3576 result=ESP_OK elapsed_us=793
+I (21959) twatch_board: I2C_BEGIN seq=3577 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (21959) twatch_board: I2C_END seq=3577 result=ESP_OK elapsed_us=804
+I (21959) twatch_board: I2C_BEGIN seq=3578 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (21959) twatch_board: I2C_END seq=3578 result=ESP_OK elapsed_us=832
+I (21959) twatch_board: I2C_BEGIN seq=3579 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (21959) twatch_board: I2C_END seq=3579 result=ESP_OK elapsed_us=801
+I (21959) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (21959) twatch_board: I2C_BEGIN seq=3580 kind=read task=diag_sample priority=2 addr=0x28 write_bytes=1 read_bytes=1
+I (21969) twatch_board: I2C_END seq=3580 result=ESP_OK elapsed_us=764
+I (21969) twatch_board: I2C_BEGIN seq=3581 kind=read task=diag_sample priority=2 addr=0x28 write_bytes=1 read_bytes=1
+I (21969) twatch_board: I2C_END seq=3581 result=ESP_OK elapsed_us=803
+I (21969) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (22039) twatch_board: I2C_BEGIN seq=3582 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22039) esp_lvgl:adapter: LVGL task started successfully
+I (22039) lvgl_app: LVGL ready owner=adapter display=410x502 buffer_lines=16 sync_flush=1
+I (22039) phase1: READY heap_integrity=ok main_wdt=subscribed timeout_s=10
+I (22039) twatch_board: I2C_END seq=3582 result=ESP_OK elapsed_us=2185
+I (22039) twatch_board: I2C_BEGIN seq=3583 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22039) twatch_board: I2C_END seq=3583 result=ESP_OK elapsed_us=1238
+I (22179) twatch_board: I2C_BEGIN seq=3584 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22179) twatch_board: I2C_BEGIN seq=3585 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22189) twatch_board: I2C_END seq=3584 result=ESP_OK elapsed_us=2173
+I (22189) twatch_board: I2C_BEGIN seq=3586 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22189) twatch_board: I2C_END seq=3586 result=ESP_OK elapsed_us=642
+I (22189) twatch_board: I2C_END seq=3585 result=ESP_OK elapsed_us=4212
+I (22189) twatch_board: I2C_BEGIN seq=3587 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22189) twatch_board: I2C_END seq=3587 result=ESP_OK elapsed_us=717
+I (22189) twatch_board: I2C_BEGIN seq=3588 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22189) twatch_board: I2C_END seq=3588 result=ESP_OK elapsed_us=730
+I (22189) twatch_board: I2C_BEGIN seq=3589 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22189) twatch_board: I2C_END seq=3589 result=ESP_OK elapsed_us=694
+I (22189) twatch_board: I2C_BEGIN seq=3590 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22199) twatch_board: I2C_END seq=3590 result=ESP_OK elapsed_us=692
+I (22199) twatch_board: I2C_BEGIN seq=3591 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22199) twatch_board: I2C_END seq=3591 result=ESP_OK elapsed_us=706
+I (22199) twatch_board: I2C_BEGIN seq=3592 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22199) twatch_board: I2C_END seq=3592 result=ESP_OK elapsed_us=729
+I (22199) twatch_board: I2C_BEGIN seq=3593 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22199) twatch_board: I2C_END seq=3593 result=ESP_OK elapsed_us=690
+I (22199) twatch_board: I2C_BEGIN seq=3594 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22199) twatch_board: I2C_END seq=3594 result=ESP_OK elapsed_us=697
+I (22199) twatch_board: I2C_BEGIN seq=3595 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22199) twatch_board: I2C_END seq=3595 result=ESP_OK elapsed_us=690
+I (22209) twatch_board: I2C_BEGIN seq=3596 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22209) twatch_board: I2C_END seq=3596 result=ESP_OK elapsed_us=703
+I (22209) twatch_board: I2C_BEGIN seq=3597 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22209) twatch_board: I2C_END seq=3597 result=ESP_OK elapsed_us=740
+I (22209) twatch_board: I2C_BEGIN seq=3598 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22209) twatch_board: I2C_END seq=3598 result=ESP_OK elapsed_us=688
+I (22209) twatch_board: I2C_BEGIN seq=3599 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22209) twatch_board: I2C_END seq=3599 result=ESP_OK elapsed_us=677
+I (22209) twatch_board: I2C_BEGIN seq=3600 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (22209) twatch_board: I2C_END seq=3600 result=ESP_OK elapsed_us=740
+I (22209) twatch_board: I2C_BEGIN seq=3601 kind=read task=main priority=1 addr=0x20 write_bytes=1 read_bytes=1
+I (22219) twatch_board: I2C_BEGIN seq=3602 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22219) twatch_board: I2C_END seq=3601 result=ESP_OK elapsed_us=1592
+I (22219) twatch_board: I2C_BEGIN seq=3603 kind=read task=main priority=1 addr=0x20 write_bytes=1 read_bytes=1
+I (22219) twatch_board: I2C_END seq=3602 result=ESP_OK elapsed_us=2234
+I (22219) twatch_board: I2C_BEGIN seq=3604 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22219) twatch_board: I2C_END seq=3604 result=ESP_OK elapsed_us=706
+I (22219) twatch_board: I2C_END seq=3603 result=ESP_OK elapsed_us=3821
+I (22219) twatch_board: I2C_BEGIN seq=3605 kind=read task=main priority=1 addr=0x20 write_bytes=1 read_bytes=1
+I (22219) twatch_board: I2C_END seq=3605 result=ESP_OK elapsed_us=708
+I (22219) twatch_board: I2C_BEGIN seq=3606 kind=read task=main priority=1 addr=0x20 write_bytes=1 read_bytes=1
+I (22219) twatch_board: I2C_END seq=3606 result=ESP_OK elapsed_us=727
+I (22229) twatch_board: I2C_BEGIN seq=3607 kind=read task=main priority=1 addr=0x20 write_bytes=1 read_bytes=1
+I (22229) twatch_board: I2C_END seq=3607 result=ESP_OK elapsed_us=751
+I (22229) twatch_board: I2C_BEGIN seq=3608 kind=read task=main priority=1 addr=0x20 write_bytes=1 read_bytes=1
+I (22229) twatch_board: I2C_END seq=3608 result=ESP_OK elapsed_us=686
+I (22229) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (22229) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (22229) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (22229) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (22229) phase2: battery_mv=4170
+I (22229) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=1 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (22229) phase1: HEALTH sample=0 internal_free=174872 internal_min=112748 psram_free=8375980 stack_free_bytes=2640 heap_integrity=ok
+I (22249) twatch_board: I2C_BEGIN seq=3609 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22249) twatch_board: I2C_END seq=3609 result=ESP_OK elapsed_us=2105
+I (22249) twatch_board: I2C_BEGIN seq=3610 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22249) twatch_board: I2C_END seq=3610 result=ESP_OK elapsed_us=716
+I (22279) twatch_board: I2C_BEGIN seq=3611 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22279) twatch_board: I2C_END seq=3611 result=ESP_OK elapsed_us=2180
+I (22279) twatch_board: I2C_BEGIN seq=3612 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22289) twatch_board: I2C_END seq=3612 result=ESP_OK elapsed_us=706
+I (22309) twatch_board: I2C_BEGIN seq=3613 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22319) twatch_board: I2C_END seq=3613 result=ESP_OK elapsed_us=2205
+I (22319) twatch_board: I2C_BEGIN seq=3614 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22319) twatch_board: I2C_END seq=3614 result=ESP_OK elapsed_us=685
+I (22349) twatch_board: I2C_BEGIN seq=3615 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22349) twatch_board: I2C_END seq=3615 result=ESP_OK elapsed_us=2181
+I (22349) twatch_board: I2C_BEGIN seq=3616 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22349) twatch_board: I2C_END seq=3616 result=ESP_OK elapsed_us=699
+I (22379) twatch_board: I2C_BEGIN seq=3617 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22379) twatch_board: I2C_END seq=3617 result=ESP_OK elapsed_us=2188
+I (22379) twatch_board: I2C_BEGIN seq=3618 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22379) twatch_board: I2C_END seq=3618 result=ESP_OK elapsed_us=682
+I (22409) twatch_board: I2C_BEGIN seq=3619 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22419) twatch_board: I2C_END seq=3619 result=ESP_OK elapsed_us=2094
+I (22419) twatch_board: I2C_BEGIN seq=3620 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22419) twatch_board: I2C_END seq=3620 result=ESP_OK elapsed_us=700
+I (22419) twatch_board: I2C_BEGIN seq=3621 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (22429) twatch_board: I2C_END seq=3621 result=ESP_OK elapsed_us=973
+I (22429) twatch_board: I2C_BEGIN seq=3622 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (22429) twatch_board: I2C_END seq=3622 result=ESP_OK elapsed_us=1097
+I (22429) twatch_board: I2C_BEGIN seq=3623 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (22429) twatch_board: I2C_END seq=3623 result=ESP_OK elapsed_us=816
+I (22429) twatch_board: I2C_BEGIN seq=3624 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (22429) twatch_board: I2C_END seq=3624 result=ESP_OK elapsed_us=2639
+I (22439) bhi260ap_core: accelerometer id=4 x=2884 y=-309 z=2909
+I (22439) twatch_board: I2C_BEGIN seq=3625 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (22439) twatch_board: I2C_END seq=3625 result=ESP_OK elapsed_us=811
+I (22439) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (22449) twatch_board: I2C_BEGIN seq=3626 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22449) twatch_board: I2C_END seq=3626 result=ESP_OK elapsed_us=2097
+I (22449) twatch_board: I2C_BEGIN seq=3627 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22449) twatch_board: I2C_END seq=3627 result=ESP_OK elapsed_us=717
+I (22479) twatch_board: I2C_BEGIN seq=3628 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22479) twatch_board: I2C_END seq=3628 result=ESP_OK elapsed_us=2212
+I (22479) twatch_board: I2C_BEGIN seq=3629 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22479) twatch_board: I2C_END seq=3629 result=ESP_OK elapsed_us=688
+I (22509) twatch_board: I2C_BEGIN seq=3630 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22509) twatch_board: I2C_END seq=3630 result=ESP_OK elapsed_us=2193
+I (22519) twatch_board: I2C_BEGIN seq=3631 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22519) twatch_board: I2C_END seq=3631 result=ESP_OK elapsed_us=861
+I (22549) twatch_board: I2C_BEGIN seq=3632 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22549) twatch_board: I2C_END seq=3632 result=ESP_OK elapsed_us=2190
+I (22549) twatch_board: I2C_BEGIN seq=3633 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22549) twatch_board: I2C_END seq=3633 result=ESP_OK elapsed_us=683
+I (22579) twatch_board: I2C_BEGIN seq=3634 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22579) twatch_board: I2C_END seq=3634 result=ESP_OK elapsed_us=2186
+I (22579) twatch_board: I2C_BEGIN seq=3635 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22579) twatch_board: I2C_END seq=3635 result=ESP_OK elapsed_us=707
+I (22609) twatch_board: I2C_BEGIN seq=3636 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22609) twatch_board: I2C_END seq=3636 result=ESP_OK elapsed_us=2193
+I (22609) twatch_board: I2C_BEGIN seq=3637 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22619) twatch_board: I2C_END seq=3637 result=ESP_OK elapsed_us=859
+I (22639) twatch_board: I2C_BEGIN seq=3638 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22649) twatch_board: I2C_END seq=3638 result=ESP_OK elapsed_us=2189
+I (22649) twatch_board: I2C_BEGIN seq=3639 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22649) twatch_board: I2C_END seq=3639 result=ESP_OK elapsed_us=699
+I (22679) twatch_board: I2C_BEGIN seq=3640 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22679) twatch_board: I2C_END seq=3640 result=ESP_OK elapsed_us=2199
+I (22679) twatch_board: I2C_BEGIN seq=3641 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22679) twatch_board: I2C_END seq=3641 result=ESP_OK elapsed_us=689
+I (22709) twatch_board: I2C_BEGIN seq=3642 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22709) twatch_board: I2C_END seq=3642 result=ESP_OK elapsed_us=2182
+I (22709) twatch_board: I2C_BEGIN seq=3643 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22709) twatch_board: I2C_END seq=3643 result=ESP_OK elapsed_us=706
+I (22739) twatch_board: I2C_BEGIN seq=3644 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22749) twatch_board: I2C_END seq=3644 result=ESP_OK elapsed_us=2197
+I (22749) twatch_board: I2C_BEGIN seq=3645 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22749) twatch_board: I2C_END seq=3645 result=ESP_OK elapsed_us=697
+I (22779) twatch_board: I2C_BEGIN seq=3646 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22779) twatch_board: I2C_END seq=3646 result=ESP_OK elapsed_us=2192
+I (22779) twatch_board: I2C_BEGIN seq=3647 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22779) twatch_board: I2C_END seq=3647 result=ESP_OK elapsed_us=722
+I (22809) twatch_board: I2C_BEGIN seq=3648 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22809) twatch_board: I2C_END seq=3648 result=ESP_OK elapsed_us=2196
+I (22809) twatch_board: I2C_BEGIN seq=3649 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22809) twatch_board: I2C_END seq=3649 result=ESP_OK elapsed_us=685
+I (22839) twatch_board: I2C_BEGIN seq=3650 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22839) twatch_board: I2C_END seq=3650 result=ESP_OK elapsed_us=2181
+I (22849) twatch_board: I2C_BEGIN seq=3651 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22849) twatch_board: I2C_END seq=3651 result=ESP_OK elapsed_us=870
+I (22879) twatch_board: I2C_BEGIN seq=3652 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22879) twatch_board: I2C_END seq=3652 result=ESP_OK elapsed_us=2190
+I (22879) twatch_board: I2C_BEGIN seq=3653 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22879) twatch_board: I2C_END seq=3653 result=ESP_OK elapsed_us=687
+I (22909) twatch_board: I2C_BEGIN seq=3654 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22909) twatch_board: I2C_END seq=3654 result=ESP_OK elapsed_us=2183
+I (22909) twatch_board: I2C_BEGIN seq=3655 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22909) twatch_board: I2C_END seq=3655 result=ESP_OK elapsed_us=695
+I (22939) twatch_board: I2C_BEGIN seq=3656 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22939) twatch_board: I2C_END seq=3656 result=ESP_OK elapsed_us=2187
+I (22939) twatch_board: I2C_BEGIN seq=3657 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22949) twatch_board: I2C_END seq=3657 result=ESP_OK elapsed_us=878
+I (22969) twatch_board: I2C_BEGIN seq=3658 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (22969) twatch_board: I2C_END seq=3658 result=ESP_OK elapsed_us=836
+I (22969) twatch_board: I2C_BEGIN seq=3659 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (22969) twatch_board: I2C_END seq=3659 result=ESP_OK elapsed_us=771
+I (22969) twatch_board: I2C_BEGIN seq=3660 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (22969) twatch_board: I2C_BEGIN seq=3661 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (22979) twatch_board: I2C_END seq=3660 result=ESP_OK elapsed_us=2091
+I (22979) twatch_board: I2C_END seq=3661 result=ESP_OK elapsed_us=2191
+I (22979) twatch_board: I2C_BEGIN seq=3662 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (22979) twatch_board: I2C_BEGIN seq=3663 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (22979) twatch_board: I2C_END seq=3662 result=ESP_OK elapsed_us=761
+I (22979) twatch_board: I2C_END seq=3663 result=ESP_OK elapsed_us=2077
+I (22979) twatch_board: I2C_BEGIN seq=3664 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (22979) twatch_board: I2C_END seq=3664 result=ESP_OK elapsed_us=1146
+I (22989) twatch_board: I2C_BEGIN seq=3665 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (22989) twatch_board: I2C_END seq=3665 result=ESP_OK elapsed_us=1019
+I (22989) twatch_board: I2C_BEGIN seq=3666 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (22989) twatch_board: I2C_END seq=3666 result=ESP_OK elapsed_us=1039
+I (22989) twatch_board: I2C_BEGIN seq=3667 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (22989) twatch_board: I2C_END seq=3667 result=ESP_OK elapsed_us=894
+I (22989) twatch_board: I2C_BEGIN seq=3668 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (22999) twatch_board: I2C_END seq=3668 result=ESP_OK elapsed_us=1103
+I (22999) twatch_board: I2C_BEGIN seq=3669 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (22999) twatch_board: I2C_END seq=3669 result=ESP_OK elapsed_us=926
+I (22999) twatch_board: I2C_BEGIN seq=3670 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (22999) twatch_board: I2C_END seq=3670 result=ESP_OK elapsed_us=1058
+I (22999) twatch_board: I2C_BEGIN seq=3671 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (22999) twatch_board: I2C_END seq=3671 result=ESP_OK elapsed_us=838
+I (23009) twatch_board: I2C_BEGIN seq=3672 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (23009) twatch_board: I2C_END seq=3672 result=ESP_OK elapsed_us=1131
+I (23009) twatch_board: I2C_BEGIN seq=3673 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (23009) twatch_board: I2C_END seq=3673 result=ESP_OK elapsed_us=967
+I (23009) twatch_board: I2C_BEGIN seq=3674 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (23009) twatch_board: I2C_END seq=3674 result=ESP_OK elapsed_us=886
+I (23009) twatch_board: I2C_BEGIN seq=3675 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (23019) twatch_board: I2C_END seq=3675 result=ESP_OK elapsed_us=1084
+I (23019) twatch_board: I2C_BEGIN seq=3676 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (23019) twatch_board: I2C_END seq=3676 result=ESP_OK elapsed_us=1113
+I (23019) twatch_board: RTC_READ ctrl1=00 time=20/43/18 date=15 wd=03/09/26 bcd_plausible=1
+I (23019) twatch_board: I2C_BEGIN seq=3677 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (23019) twatch_board: I2C_END seq=3677 result=ESP_OK elapsed_us=1422
+I (23029) twatch_board: I2C_BEGIN seq=3678 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (23029) twatch_board: I2C_END seq=3678 result=ESP_OK elapsed_us=1145
+I (23029) twatch_board: I2C_BEGIN seq=3679 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (23029) lvgl_app: Diagnostics update RTC=20:43:17 battery=4170mV
+I (23029) twatch_board: I2C_BEGIN seq=3680 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23029) twatch_board: I2C_END seq=3679 result=ESP_OK elapsed_us=1268
+I (23029) twatch_board: I2C_BEGIN seq=3681 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (23029) twatch_board: I2C_END seq=3680 result=ESP_OK elapsed_us=3035
+I (23029) twatch_board: I2C_BEGIN seq=3682 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23029) twatch_board: I2C_END seq=3681 result=ESP_OK elapsed_us=1420
+I (23029) twatch_board: I2C_BEGIN seq=3683 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (23039) twatch_board: I2C_END seq=3682 result=ESP_OK elapsed_us=738
+I (23039) twatch_board: I2C_END seq=3683 result=ESP_OK elapsed_us=1154
+I (23039) twatch_board: I2C_BEGIN seq=3684 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (23039) twatch_board: I2C_END seq=3684 result=ESP_OK elapsed_us=740
+I (23039) twatch_board: I2C_BEGIN seq=3685 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (23039) twatch_board: I2C_END seq=3685 result=ESP_OK elapsed_us=727
+I (23039) twatch_board: I2C_BEGIN seq=3686 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (23039) twatch_board: I2C_END seq=3686 result=ESP_OK elapsed_us=684
+I (23039) twatch_board: I2C_BEGIN seq=3687 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (23039) twatch_board: I2C_END seq=3687 result=ESP_OK elapsed_us=675
+I (23049) twatch_board: I2C_BEGIN seq=3688 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (23049) twatch_board: I2C_END seq=3688 result=ESP_OK elapsed_us=723
+I (23049) twatch_board: I2C_BEGIN seq=3689 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (23049) twatch_board: I2C_END seq=3689 result=ESP_OK elapsed_us=690
+I (23049) twatch_board: I2C_BEGIN seq=3690 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (23049) twatch_board: I2C_END seq=3690 result=ESP_OK elapsed_us=733
+I (23049) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (23049) twatch_board: I2C_BEGIN seq=3691 kind=read task=diag_sample priority=2 addr=0x28 write_bytes=1 read_bytes=1
+I (23049) twatch_board: I2C_END seq=3691 result=ESP_OK elapsed_us=680
+I (23049) twatch_board: I2C_BEGIN seq=3692 kind=read task=diag_sample priority=2 addr=0x28 write_bytes=1 read_bytes=1
+I (23049) twatch_board: I2C_END seq=3692 result=ESP_OK elapsed_us=690
+I (23059) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (23059) twatch_board: I2C_BEGIN seq=3693 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23059) twatch_board: I2C_END seq=3693 result=ESP_OK elapsed_us=2102
+I (23069) twatch_board: I2C_BEGIN seq=3694 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23069) twatch_board: I2C_END seq=3694 result=ESP_OK elapsed_us=736
+I (23069) twatch_board: I2C_BEGIN seq=3695 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (23069) twatch_board: I2C_END seq=3695 result=ESP_OK elapsed_us=845
+I (23069) twatch_board: I2C_BEGIN seq=3696 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (23069) twatch_board: I2C_END seq=3696 result=ESP_OK elapsed_us=684
+I (23069) twatch_board: I2C_BEGIN seq=3697 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (23079) twatch_board: I2C_END seq=3697 result=ESP_OK elapsed_us=811
+I (23079) twatch_board: I2C_BEGIN seq=3698 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (23079) twatch_board: I2C_END seq=3698 result=ESP_OK elapsed_us=2630
+I (23079) bhi260ap_core: accelerometer id=4 x=2884 y=-308 z=2909
+I (23079) twatch_board: I2C_BEGIN seq=3699 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (23079) twatch_board: I2C_END seq=3699 result=ESP_OK elapsed_us=706
+I (23079) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (23099) twatch_board: I2C_BEGIN seq=3700 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23099) twatch_board: I2C_END seq=3700 result=ESP_OK elapsed_us=2183
+I (23099) twatch_board: I2C_BEGIN seq=3701 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23099) twatch_board: I2C_END seq=3701 result=ESP_OK elapsed_us=695
+I (23129) twatch_board: I2C_BEGIN seq=3702 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23129) twatch_board: I2C_END seq=3702 result=ESP_OK elapsed_us=2097
+I (23129) twatch_board: I2C_BEGIN seq=3703 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23129) twatch_board: I2C_END seq=3703 result=ESP_OK elapsed_us=705
+I (23159) twatch_board: I2C_BEGIN seq=3704 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23159) twatch_board: I2C_END seq=3704 result=ESP_OK elapsed_us=2187
+I (23159) twatch_board: I2C_BEGIN seq=3705 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23169) twatch_board: I2C_END seq=3705 result=ESP_OK elapsed_us=870
+I (23189) twatch_board: I2C_BEGIN seq=3706 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23199) twatch_board: I2C_END seq=3706 result=ESP_OK elapsed_us=2083
+I (23199) twatch_board: I2C_BEGIN seq=3707 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23199) twatch_board: I2C_END seq=3707 result=ESP_OK elapsed_us=632
+I (23229) twatch_board: I2C_BEGIN seq=3708 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23229) twatch_board: I2C_END seq=3708 result=ESP_OK elapsed_us=2178
+I (23229) twatch_board: I2C_BEGIN seq=3709 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23229) twatch_board: I2C_END seq=3709 result=ESP_OK elapsed_us=701
+I (23259) twatch_board: I2C_BEGIN seq=3710 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23259) twatch_board: I2C_END seq=3710 result=ESP_OK elapsed_us=2171
+I (23259) twatch_board: I2C_BEGIN seq=3711 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23259) twatch_board: I2C_END seq=3711 result=ESP_OK elapsed_us=688
+I (23289) twatch_board: I2C_BEGIN seq=3712 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23299) twatch_board: I2C_END seq=3712 result=ESP_OK elapsed_us=2174
+I (23299) twatch_board: I2C_BEGIN seq=3713 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23299) twatch_board: I2C_END seq=3713 result=ESP_OK elapsed_us=691
+I (23329) twatch_board: I2C_BEGIN seq=3714 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23329) twatch_board: I2C_END seq=3714 result=ESP_OK elapsed_us=2177
+I (23329) twatch_board: I2C_BEGIN seq=3715 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23329) twatch_board: I2C_END seq=3715 result=ESP_OK elapsed_us=720
+I (23359) twatch_board: I2C_BEGIN seq=3716 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23359) twatch_board: I2C_END seq=3716 result=ESP_OK elapsed_us=2176
+I (23359) twatch_board: I2C_BEGIN seq=3717 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23359) twatch_board: I2C_END seq=3717 result=ESP_OK elapsed_us=690
+I (23389) twatch_board: I2C_BEGIN seq=3718 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23389) twatch_board: I2C_END seq=3718 result=ESP_OK elapsed_us=2170
+I (23399) twatch_board: I2C_BEGIN seq=3719 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23399) twatch_board: I2C_END seq=3719 result=ESP_OK elapsed_us=859
+I (23429) twatch_board: I2C_BEGIN seq=3720 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23429) twatch_board: I2C_END seq=3720 result=ESP_OK elapsed_us=2179
+I (23429) twatch_board: I2C_BEGIN seq=3721 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23429) twatch_board: I2C_END seq=3721 result=ESP_OK elapsed_us=693
+I (23459) twatch_board: I2C_BEGIN seq=3722 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23459) twatch_board: I2C_END seq=3722 result=ESP_OK elapsed_us=2178
+I (23459) twatch_board: I2C_BEGIN seq=3723 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23459) twatch_board: I2C_END seq=3723 result=ESP_OK elapsed_us=691
+I (23489) twatch_board: I2C_BEGIN seq=3724 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23489) twatch_board: I2C_END seq=3724 result=ESP_OK elapsed_us=2181
+I (23489) twatch_board: I2C_BEGIN seq=3725 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23499) twatch_board: I2C_END seq=3725 result=ESP_OK elapsed_us=879
+I (23519) twatch_board: I2C_BEGIN seq=3726 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23529) twatch_board: I2C_END seq=3726 result=ESP_OK elapsed_us=2184
+I (23529) twatch_board: I2C_BEGIN seq=3727 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23529) twatch_board: I2C_END seq=3727 result=ESP_OK elapsed_us=688
+I (23559) twatch_board: I2C_BEGIN seq=3728 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23559) twatch_board: I2C_END seq=3728 result=ESP_OK elapsed_us=2180
+I (23559) twatch_board: I2C_BEGIN seq=3729 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23559) twatch_board: I2C_END seq=3729 result=ESP_OK elapsed_us=695
+I (23589) twatch_board: I2C_BEGIN seq=3730 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23589) twatch_board: I2C_END seq=3730 result=ESP_OK elapsed_us=2176
+I (23589) twatch_board: I2C_BEGIN seq=3731 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23589) twatch_board: I2C_END seq=3731 result=ESP_OK elapsed_us=688
+I (23619) twatch_board: I2C_BEGIN seq=3732 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23629) twatch_board: I2C_END seq=3732 result=ESP_OK elapsed_us=2176
+I (23629) twatch_board: I2C_BEGIN seq=3733 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23629) twatch_board: I2C_END seq=3733 result=ESP_OK elapsed_us=691
+I (23659) twatch_board: I2C_BEGIN seq=3734 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23659) twatch_board: I2C_END seq=3734 result=ESP_OK elapsed_us=2180
+I (23659) twatch_board: I2C_BEGIN seq=3735 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23659) twatch_board: I2C_END seq=3735 result=ESP_OK elapsed_us=724
+I (23689) twatch_board: I2C_BEGIN seq=3736 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23689) twatch_board: I2C_END seq=3736 result=ESP_OK elapsed_us=2176
+I (23689) twatch_board: I2C_BEGIN seq=3737 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23689) twatch_board: I2C_END seq=3737 result=ESP_OK elapsed_us=691
+I (23709) twatch_board: I2C_BEGIN seq=3738 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (23719) twatch_board: I2C_END seq=3738 result=ESP_OK elapsed_us=807
+I (23719) twatch_board: I2C_BEGIN seq=3739 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23719) twatch_board: I2C_BEGIN seq=3740 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (23719) twatch_board: I2C_END seq=3739 result=ESP_OK elapsed_us=2237
+I (23729) twatch_board: I2C_END seq=3740 result=ESP_OK elapsed_us=2240
+I (23729) twatch_board: I2C_BEGIN seq=3741 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23729) twatch_board: I2C_BEGIN seq=3742 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (23729) twatch_board: I2C_END seq=3741 result=ESP_OK elapsed_us=727
+I (23729) twatch_board: I2C_END seq=3742 result=ESP_OK elapsed_us=1041
+I (23729) twatch_board: I2C_BEGIN seq=3743 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (23729) twatch_board: I2C_END seq=3743 result=ESP_OK elapsed_us=2614
+I (23729) bhi260ap_core: accelerometer id=4 x=2884 y=-308 z=2908
+I (23729) twatch_board: I2C_BEGIN seq=3744 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (23739) twatch_board: I2C_END seq=3744 result=ESP_OK elapsed_us=885
+I (23739) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (23759) twatch_board: I2C_BEGIN seq=3745 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23759) twatch_board: I2C_END seq=3745 result=ESP_OK elapsed_us=2189
+I (23759) twatch_board: I2C_BEGIN seq=3746 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23759) twatch_board: I2C_END seq=3746 result=ESP_OK elapsed_us=686
+I (23789) twatch_board: I2C_BEGIN seq=3747 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23789) twatch_board: I2C_END seq=3747 result=ESP_OK elapsed_us=2191
+I (23789) twatch_board: I2C_BEGIN seq=3748 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23789) twatch_board: I2C_END seq=3748 result=ESP_OK elapsed_us=677
+I (23819) twatch_board: I2C_BEGIN seq=3749 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23819) twatch_board: I2C_END seq=3749 result=ESP_OK elapsed_us=2184
+I (23819) twatch_board: I2C_BEGIN seq=3750 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23829) twatch_board: I2C_END seq=3750 result=ESP_OK elapsed_us=858
+I (23849) twatch_board: I2C_BEGIN seq=3751 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23859) twatch_board: I2C_END seq=3751 result=ESP_OK elapsed_us=2189
+I (23859) twatch_board: I2C_BEGIN seq=3752 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23859) twatch_board: I2C_END seq=3752 result=ESP_OK elapsed_us=680
+I (23889) twatch_board: I2C_BEGIN seq=3753 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23889) twatch_board: I2C_END seq=3753 result=ESP_OK elapsed_us=2189
+I (23889) twatch_board: I2C_BEGIN seq=3754 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23889) twatch_board: I2C_END seq=3754 result=ESP_OK elapsed_us=695
+I (23919) twatch_board: I2C_BEGIN seq=3755 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23919) twatch_board: I2C_END seq=3755 result=ESP_OK elapsed_us=2183
+I (23919) twatch_board: I2C_BEGIN seq=3756 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23919) twatch_board: I2C_END seq=3756 result=ESP_OK elapsed_us=683
+I (23949) twatch_board: I2C_BEGIN seq=3757 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (23959) twatch_board: I2C_END seq=3757 result=ESP_OK elapsed_us=2186
+I (23959) twatch_board: I2C_BEGIN seq=3758 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (23959) twatch_board: I2C_END seq=3758 result=ESP_OK elapsed_us=689
+I (24009) twatch_board: I2C_BEGIN seq=3759 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24009) twatch_board: I2C_END seq=3759 result=ESP_OK elapsed_us=2230
+I (24009) twatch_board: I2C_BEGIN seq=3760 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24009) twatch_board: I2C_END seq=3760 result=ESP_OK elapsed_us=652
+I (24039) twatch_board: I2C_BEGIN seq=3761 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24039) twatch_board: I2C_END seq=3761 result=ESP_OK elapsed_us=2232
+I (24039) twatch_board: I2C_BEGIN seq=3762 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24039) twatch_board: I2C_END seq=3762 result=ESP_OK elapsed_us=638
+I (24059) twatch_board: I2C_BEGIN seq=3763 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24059) twatch_board: I2C_END seq=3763 result=ESP_OK elapsed_us=774
+I (24059) twatch_board: I2C_BEGIN seq=3764 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24059) twatch_board: I2C_END seq=3764 result=ESP_OK elapsed_us=778
+I (24059) twatch_board: I2C_BEGIN seq=3765 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24069) twatch_board: I2C_END seq=3765 result=ESP_OK elapsed_us=698
+I (24069) twatch_board: I2C_BEGIN seq=3766 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24069) twatch_board: I2C_END seq=3766 result=ESP_OK elapsed_us=770
+I (24069) twatch_board: I2C_BEGIN seq=3767 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24069) twatch_board: I2C_END seq=3767 result=ESP_OK elapsed_us=761
+I (24069) twatch_board: I2C_BEGIN seq=3768 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24069) twatch_board: I2C_END seq=3768 result=ESP_OK elapsed_us=758
+I (24069) twatch_board: I2C_BEGIN seq=3769 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24069) twatch_board: I2C_BEGIN seq=3770 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24069) twatch_board: I2C_END seq=3769 result=ESP_OK elapsed_us=2102
+I (24069) twatch_board: I2C_BEGIN seq=3771 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24069) twatch_board: I2C_END seq=3770 result=ESP_OK elapsed_us=1801
+I (24079) twatch_board: I2C_BEGIN seq=3772 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24079) twatch_board: I2C_END seq=3771 result=ESP_OK elapsed_us=750
+I (24079) twatch_board: I2C_END seq=3772 result=ESP_OK elapsed_us=772
+I (24079) twatch_board: I2C_BEGIN seq=3773 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24079) twatch_board: I2C_END seq=3773 result=ESP_OK elapsed_us=690
+I (24079) twatch_board: I2C_BEGIN seq=3774 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (24079) twatch_board: I2C_END seq=3774 result=ESP_OK elapsed_us=724
+I (24079) twatch_board: I2C_BEGIN seq=3775 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (24079) twatch_board: I2C_END seq=3775 result=ESP_OK elapsed_us=668
+I (24079) twatch_board: I2C_BEGIN seq=3776 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (24079) twatch_board: I2C_END seq=3776 result=ESP_OK elapsed_us=663
+I (24089) twatch_board: I2C_BEGIN seq=3777 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (24089) twatch_board: I2C_END seq=3777 result=ESP_OK elapsed_us=715
+I (24089) twatch_board: I2C_BEGIN seq=3778 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (24089) twatch_board: I2C_END seq=3778 result=ESP_OK elapsed_us=1279
+I (24089) twatch_board: I2C_BEGIN seq=3779 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (24089) twatch_board: I2C_END seq=3779 result=ESP_OK elapsed_us=686
+I (24089) twatch_board: I2C_BEGIN seq=3780 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (24089) twatch_board: I2C_END seq=3780 result=ESP_OK elapsed_us=732
+I (24089) twatch_board: I2C_BEGIN seq=3781 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (24089) twatch_board: I2C_END seq=3781 result=ESP_OK elapsed_us=686
+I (24089) twatch_board: RTC_READ ctrl1=00 time=20/43/19 date=15 wd=03/09/26 bcd_plausible=1
+I (24099) twatch_board: I2C_BEGIN seq=3782 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24099) twatch_board: I2C_END seq=3782 result=ESP_OK elapsed_us=771
+I (24099) twatch_board: I2C_BEGIN seq=3783 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24099) twatch_board: I2C_END seq=3783 result=ESP_OK elapsed_us=772
+I (24099) twatch_board: I2C_BEGIN seq=3784 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24099) twatch_board: I2C_BEGIN seq=3785 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24109) twatch_board: I2C_END seq=3785 result=ESP_OK elapsed_us=2087
+I (24109) twatch_board: I2C_END seq=3784 result=ESP_OK elapsed_us=2314
+I (24109) twatch_board: I2C_BEGIN seq=3786 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24109) twatch_board: I2C_BEGIN seq=3787 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24109) twatch_board: I2C_END seq=3786 result=ESP_OK elapsed_us=635
+I (24109) twatch_board: I2C_END seq=3787 result=ESP_OK elapsed_us=744
+I (24109) twatch_board: I2C_BEGIN seq=3788 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24109) twatch_board: I2C_END seq=3788 result=ESP_OK elapsed_us=721
+I (24109) twatch_board: I2C_BEGIN seq=3789 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (24109) twatch_board: I2C_END seq=3789 result=ESP_OK elapsed_us=682
+I (24109) twatch_board: I2C_BEGIN seq=3790 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (24119) twatch_board: I2C_END seq=3790 result=ESP_OK elapsed_us=900
+I (24119) twatch_board: I2C_BEGIN seq=3791 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (24119) twatch_board: I2C_END seq=3791 result=ESP_OK elapsed_us=1053
+I (24119) twatch_board: I2C_BEGIN seq=3792 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (24119) twatch_board: I2C_END seq=3792 result=ESP_OK elapsed_us=684
+I (24119) twatch_board: I2C_BEGIN seq=3793 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (24119) twatch_board: I2C_END seq=3793 result=ESP_OK elapsed_us=747
+I (24119) twatch_board: I2C_BEGIN seq=3794 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (24119) twatch_board: I2C_END seq=3794 result=ESP_OK elapsed_us=678
+I (24119) twatch_board: I2C_BEGIN seq=3795 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (24129) twatch_board: I2C_END seq=3795 result=ESP_OK elapsed_us=789
+I (24129) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (24129) twatch_board: I2C_BEGIN seq=3796 kind=read task=diag_sample priority=2 addr=0x28 write_bytes=1 read_bytes=1
+I (24129) twatch_board: I2C_END seq=3796 result=ESP_OK elapsed_us=1281
+I (24129) twatch_board: I2C_BEGIN seq=3797 kind=read task=diag_sample priority=2 addr=0x28 write_bytes=1 read_bytes=1
+I (24129) twatch_board: I2C_END seq=3797 result=ESP_OK elapsed_us=670
+I (24129) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (24139) twatch_board: I2C_BEGIN seq=3798 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24139) twatch_board: I2C_END seq=3798 result=ESP_OK elapsed_us=2105
+I (24139) twatch_board: I2C_BEGIN seq=3799 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24139) twatch_board: I2C_END seq=3799 result=ESP_OK elapsed_us=707
+I (24169) twatch_board: I2C_BEGIN seq=3800 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24169) twatch_board: I2C_END seq=3800 result=ESP_OK elapsed_us=2175
+I (24169) twatch_board: I2C_BEGIN seq=3801 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24169) twatch_board: I2C_END seq=3801 result=ESP_OK elapsed_us=685
+I (24199) twatch_board: I2C_BEGIN seq=3802 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24209) twatch_board: I2C_END seq=3802 result=ESP_OK elapsed_us=2163
+I (24209) twatch_board: I2C_BEGIN seq=3803 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24209) twatch_board: I2C_END seq=3803 result=ESP_OK elapsed_us=693
+I (24239) twatch_board: I2C_BEGIN seq=3804 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24239) twatch_board: I2C_END seq=3804 result=ESP_OK elapsed_us=2093
+I (24239) twatch_board: I2C_BEGIN seq=3805 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24239) twatch_board: I2C_END seq=3805 result=ESP_OK elapsed_us=708
+I (24269) twatch_board: I2C_BEGIN seq=3806 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24269) twatch_board: I2C_END seq=3806 result=ESP_OK elapsed_us=2179
+I (24269) twatch_board: I2C_BEGIN seq=3807 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24269) twatch_board: I2C_END seq=3807 result=ESP_OK elapsed_us=692
+I (24299) twatch_board: I2C_BEGIN seq=3808 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24299) twatch_board: I2C_END seq=3808 result=ESP_OK elapsed_us=2178
+I (24309) twatch_board: I2C_BEGIN seq=3809 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24309) twatch_board: I2C_END seq=3809 result=ESP_OK elapsed_us=853
+I (24339) twatch_board: I2C_BEGIN seq=3810 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24339) twatch_board: I2C_END seq=3810 result=ESP_OK elapsed_us=2178
+I (24339) twatch_board: I2C_BEGIN seq=3811 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24339) twatch_board: I2C_END seq=3811 result=ESP_OK elapsed_us=688
+I (24359) twatch_board: I2C_BEGIN seq=3812 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (24359) twatch_board: I2C_END seq=3812 result=ESP_OK elapsed_us=731
+I (24359) twatch_board: I2C_BEGIN seq=3813 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (24359) twatch_board: I2C_END seq=3813 result=ESP_OK elapsed_us=687
+I (24359) twatch_board: I2C_BEGIN seq=3814 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (24359) twatch_board: I2C_END seq=3814 result=ESP_OK elapsed_us=793
+I (24369) twatch_board: I2C_BEGIN seq=3815 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (24369) twatch_board: I2C_BEGIN seq=3816 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24369) twatch_board: I2C_END seq=3815 result=ESP_OK elapsed_us=3303
+I (24369) bhi260ap_core: accelerometer id=4 x=2885 y=-308 z=2909
+I (24369) twatch_board: I2C_BEGIN seq=3817 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (24369) twatch_board: I2C_END seq=3816 result=ESP_OK elapsed_us=2540
+I (24369) twatch_board: I2C_BEGIN seq=3818 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24369) twatch_board: I2C_END seq=3818 result=ESP_OK elapsed_us=1282
+I (24369) twatch_board: I2C_END seq=3817 result=ESP_OK elapsed_us=2784
+I (24369) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (24399) twatch_board: I2C_BEGIN seq=3819 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24399) twatch_board: I2C_END seq=3819 result=ESP_OK elapsed_us=2110
+I (24399) twatch_board: I2C_BEGIN seq=3820 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24409) twatch_board: I2C_END seq=3820 result=ESP_OK elapsed_us=883
+I (24429) twatch_board: I2C_BEGIN seq=3821 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24439) twatch_board: I2C_END seq=3821 result=ESP_OK elapsed_us=2101
+I (24439) twatch_board: I2C_BEGIN seq=3822 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24439) twatch_board: I2C_END seq=3822 result=ESP_OK elapsed_us=688
+I (24469) twatch_board: I2C_BEGIN seq=3823 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24469) twatch_board: I2C_END seq=3823 result=ESP_OK elapsed_us=2097
+I (24469) twatch_board: I2C_BEGIN seq=3824 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24469) twatch_board: I2C_END seq=3824 result=ESP_OK elapsed_us=700
+I (24499) twatch_board: I2C_BEGIN seq=3825 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24499) twatch_board: I2C_END seq=3825 result=ESP_OK elapsed_us=2090
+I (24499) twatch_board: I2C_BEGIN seq=3826 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24499) twatch_board: I2C_END seq=3826 result=ESP_OK elapsed_us=687
+I (24529) twatch_board: I2C_BEGIN seq=3827 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24539) twatch_board: I2C_END seq=3827 result=ESP_OK elapsed_us=2094
+I (24539) twatch_board: I2C_BEGIN seq=3828 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24539) twatch_board: I2C_END seq=3828 result=ESP_OK elapsed_us=704
+I (24569) twatch_board: I2C_BEGIN seq=3829 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24569) twatch_board: I2C_END seq=3829 result=ESP_OK elapsed_us=2182
+I (24569) twatch_board: I2C_BEGIN seq=3830 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24569) twatch_board: I2C_END seq=3830 result=ESP_OK elapsed_us=710
+I (24599) twatch_board: I2C_BEGIN seq=3831 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24599) twatch_board: I2C_END seq=3831 result=ESP_OK elapsed_us=2089
+I (24599) twatch_board: I2C_BEGIN seq=3832 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24599) twatch_board: I2C_END seq=3832 result=ESP_OK elapsed_us=713
+I (24629) twatch_board: I2C_BEGIN seq=3833 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24629) twatch_board: I2C_END seq=3833 result=ESP_OK elapsed_us=2087
+I (24639) twatch_board: I2C_BEGIN seq=3834 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24639) twatch_board: I2C_END seq=3834 result=ESP_OK elapsed_us=879
+I (24669) twatch_board: I2C_BEGIN seq=3835 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24669) twatch_board: I2C_END seq=3835 result=ESP_OK elapsed_us=2184
+I (24669) twatch_board: I2C_BEGIN seq=3836 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24669) twatch_board: I2C_END seq=3836 result=ESP_OK elapsed_us=698
+I (24699) twatch_board: I2C_BEGIN seq=3837 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24699) twatch_board: I2C_END seq=3837 result=ESP_OK elapsed_us=2094
+I (24699) twatch_board: I2C_BEGIN seq=3838 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24699) twatch_board: I2C_END seq=3838 result=ESP_OK elapsed_us=694
+I (24729) twatch_board: I2C_BEGIN seq=3839 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24729) twatch_board: I2C_END seq=3839 result=ESP_OK elapsed_us=2178
+I (24729) twatch_board: I2C_BEGIN seq=3840 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24739) twatch_board: I2C_END seq=3840 result=ESP_OK elapsed_us=703
+I (24759) twatch_board: I2C_BEGIN seq=3841 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24769) twatch_board: I2C_END seq=3841 result=ESP_OK elapsed_us=2092
+I (24769) twatch_board: I2C_BEGIN seq=3842 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24769) twatch_board: I2C_END seq=3842 result=ESP_OK elapsed_us=697
+I (24799) twatch_board: I2C_BEGIN seq=3843 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24799) twatch_board: I2C_END seq=3843 result=ESP_OK elapsed_us=2185
+I (24799) twatch_board: I2C_BEGIN seq=3844 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24799) twatch_board: I2C_END seq=3844 result=ESP_OK elapsed_us=693
+I (24829) twatch_board: I2C_BEGIN seq=3845 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24829) twatch_board: I2C_END seq=3845 result=ESP_OK elapsed_us=2085
+I (24829) twatch_board: I2C_BEGIN seq=3846 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24829) twatch_board: I2C_END seq=3846 result=ESP_OK elapsed_us=699
+I (24859) twatch_board: I2C_BEGIN seq=3847 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24869) twatch_board: I2C_END seq=3847 result=ESP_OK elapsed_us=2100
+I (24869) twatch_board: I2C_BEGIN seq=3848 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24869) twatch_board: I2C_END seq=3848 result=ESP_OK elapsed_us=711
+I (24899) twatch_board: I2C_BEGIN seq=3849 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24899) twatch_board: I2C_END seq=3849 result=ESP_OK elapsed_us=2101
+I (24899) twatch_board: I2C_BEGIN seq=3850 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24899) twatch_board: I2C_END seq=3850 result=ESP_OK elapsed_us=706
+I (24929) twatch_board: I2C_BEGIN seq=3851 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24929) twatch_board: I2C_END seq=3851 result=ESP_OK elapsed_us=2182
+I (24929) twatch_board: I2C_BEGIN seq=3852 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24929) twatch_board: I2C_END seq=3852 result=ESP_OK elapsed_us=687
+I (24959) twatch_board: I2C_BEGIN seq=3853 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (24959) twatch_board: I2C_END seq=3853 result=ESP_OK elapsed_us=2170
+I (24969) twatch_board: I2C_BEGIN seq=3854 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (24969) twatch_board: I2C_END seq=3854 result=ESP_OK elapsed_us=678
+I (24999) twatch_board: I2C_BEGIN seq=3855 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (25009) twatch_board: I2C_BEGIN seq=3856 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25009) twatch_board: I2C_END seq=3855 result=ESP_OK elapsed_us=1291
+I (25009) twatch_board: I2C_BEGIN seq=3857 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (25009) twatch_board: I2C_END seq=3856 result=ESP_OK elapsed_us=2713
+I (25009) twatch_board: I2C_BEGIN seq=3858 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25009) twatch_board: I2C_END seq=3857 result=ESP_OK elapsed_us=1389
+I (25009) twatch_board: I2C_END seq=3858 result=ESP_OK elapsed_us=708
+I (25009) twatch_board: I2C_BEGIN seq=3859 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (25009) twatch_board: I2C_END seq=3859 result=ESP_OK elapsed_us=801
+I (25009) twatch_board: I2C_BEGIN seq=3860 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (25019) twatch_board: I2C_END seq=3860 result=ESP_OK elapsed_us=2597
+I (25019) bhi260ap_core: accelerometer id=4 x=2885 y=-308 z=2908
+I (25019) twatch_board: I2C_BEGIN seq=3861 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (25019) twatch_board: I2C_END seq=3861 result=ESP_OK elapsed_us=730
+I (25019) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (25039) twatch_board: I2C_BEGIN seq=3862 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25039) twatch_board: I2C_END seq=3862 result=ESP_OK elapsed_us=2224
+I (25039) twatch_board: I2C_BEGIN seq=3863 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25039) twatch_board: I2C_END seq=3863 result=ESP_OK elapsed_us=642
+I (25069) twatch_board: I2C_BEGIN seq=3864 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25069) twatch_board: I2C_END seq=3864 result=ESP_OK elapsed_us=2206
+I (25069) twatch_board: I2C_BEGIN seq=3865 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25079) twatch_board: I2C_END seq=3865 result=ESP_OK elapsed_us=811
+I (25099) twatch_board: I2C_BEGIN seq=3866 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25109) twatch_board: I2C_END seq=3866 result=ESP_OK elapsed_us=2200
+I (25109) twatch_board: I2C_BEGIN seq=3867 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25109) twatch_board: I2C_END seq=3867 result=ESP_OK elapsed_us=690
+I (25129) twatch_board: I2C_BEGIN seq=3868 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25129) twatch_board: I2C_END seq=3868 result=ESP_OK elapsed_us=842
+I (25129) twatch_board: I2C_BEGIN seq=3869 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25129) twatch_board: I2C_END seq=3869 result=ESP_OK elapsed_us=1218
+I (25129) twatch_board: I2C_BEGIN seq=3870 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25129) twatch_board: I2C_END seq=3870 result=ESP_OK elapsed_us=711
+I (25129) twatch_board: I2C_BEGIN seq=3871 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25129) twatch_board: I2C_END seq=3871 result=ESP_OK elapsed_us=752
+I (25129) twatch_board: I2C_BEGIN seq=3872 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25129) twatch_board: I2C_END seq=3872 result=ESP_OK elapsed_us=683
+I (25129) twatch_board: I2C_BEGIN seq=3873 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25139) twatch_board: I2C_BEGIN seq=3874 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25139) twatch_board: I2C_END seq=3874 result=ESP_OK elapsed_us=2155
+I (25139) twatch_board: I2C_END seq=3873 result=ESP_OK elapsed_us=2300
+I (25139) twatch_board: I2C_BEGIN seq=3875 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25139) twatch_board: I2C_BEGIN seq=3876 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25139) twatch_board: I2C_END seq=3875 result=ESP_OK elapsed_us=675
+I (25139) twatch_board: I2C_END seq=3876 result=ESP_OK elapsed_us=1456
+I (25139) twatch_board: I2C_BEGIN seq=3877 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25149) twatch_board: I2C_END seq=3877 result=ESP_OK elapsed_us=700
+I (25149) twatch_board: I2C_BEGIN seq=3878 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25149) twatch_board: I2C_END seq=3878 result=ESP_OK elapsed_us=704
+I (25149) twatch_board: I2C_BEGIN seq=3879 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (25149) twatch_board: I2C_END seq=3879 result=ESP_OK elapsed_us=1248
+I (25149) twatch_board: I2C_BEGIN seq=3880 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (25149) twatch_board: I2C_END seq=3880 result=ESP_OK elapsed_us=674
+I (25149) twatch_board: I2C_BEGIN seq=3881 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (25149) twatch_board: I2C_END seq=3881 result=ESP_OK elapsed_us=689
+I (25149) twatch_board: I2C_BEGIN seq=3882 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (25149) twatch_board: I2C_END seq=3882 result=ESP_OK elapsed_us=732
+I (25159) twatch_board: I2C_BEGIN seq=3883 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (25159) twatch_board: I2C_END seq=3883 result=ESP_OK elapsed_us=701
+I (25159) twatch_board: I2C_BEGIN seq=3884 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (25159) twatch_board: I2C_END seq=3884 result=ESP_OK elapsed_us=1262
+I (25159) twatch_board: I2C_BEGIN seq=3885 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (25159) twatch_board: I2C_END seq=3885 result=ESP_OK elapsed_us=683
+I (25159) twatch_board: I2C_BEGIN seq=3886 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (25159) twatch_board: I2C_END seq=3886 result=ESP_OK elapsed_us=686
+I (25159) twatch_board: RTC_READ ctrl1=00 time=20/43/20 date=15 wd=03/09/26 bcd_plausible=1
+I (25159) twatch_board: I2C_BEGIN seq=3887 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25159) twatch_board: I2C_END seq=3887 result=ESP_OK elapsed_us=697
+I (25159) twatch_board: I2C_BEGIN seq=3888 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25169) twatch_board: I2C_BEGIN seq=3889 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25169) twatch_board: I2C_END seq=3889 result=ESP_OK elapsed_us=2109
+I (25169) twatch_board: I2C_END seq=3888 result=ESP_OK elapsed_us=2268
+I (25169) twatch_board: I2C_BEGIN seq=3890 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25169) twatch_board: I2C_BEGIN seq=3891 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25179) twatch_board: I2C_END seq=3890 result=ESP_OK elapsed_us=686
+I (25179) twatch_board: I2C_END seq=3891 result=ESP_OK elapsed_us=673
+I (25179) twatch_board: I2C_BEGIN seq=3892 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25179) twatch_board: I2C_END seq=3892 result=ESP_OK elapsed_us=811
+I (25179) twatch_board: I2C_BEGIN seq=3893 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25179) twatch_board: I2C_END seq=3893 result=ESP_OK elapsed_us=747
+I (25179) twatch_board: I2C_BEGIN seq=3894 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (25179) twatch_board: I2C_END seq=3894 result=ESP_OK elapsed_us=686
+I (25179) twatch_board: I2C_BEGIN seq=3895 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (25179) twatch_board: I2C_END seq=3895 result=ESP_OK elapsed_us=732
+I (25179) twatch_board: I2C_BEGIN seq=3896 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (25179) twatch_board: I2C_END seq=3896 result=ESP_OK elapsed_us=677
+I (25189) twatch_board: I2C_BEGIN seq=3897 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (25189) twatch_board: I2C_END seq=3897 result=ESP_OK elapsed_us=930
+I (25189) twatch_board: I2C_BEGIN seq=3898 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (25189) twatch_board: I2C_END seq=3898 result=ESP_OK elapsed_us=1068
+I (25189) twatch_board: I2C_BEGIN seq=3899 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (25189) twatch_board: I2C_END seq=3899 result=ESP_OK elapsed_us=767
+I (25189) twatch_board: I2C_BEGIN seq=3900 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (25189) twatch_board: I2C_END seq=3900 result=ESP_OK elapsed_us=686
+I (25189) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (25189) twatch_board: I2C_BEGIN seq=3901 kind=read task=diag_sample priority=2 addr=0x28 write_bytes=1 read_bytes=1
+I (25189) twatch_board: I2C_END seq=3901 result=ESP_OK elapsed_us=675
+I (25199) twatch_board: I2C_BEGIN seq=3902 kind=read task=diag_sample priority=2 addr=0x28 write_bytes=1 read_bytes=1
+I (25199) twatch_board: I2C_END seq=3902 result=ESP_OK elapsed_us=773
+I (25199) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (25199) twatch_board: I2C_BEGIN seq=3903 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25209) twatch_board: I2C_END seq=3903 result=ESP_OK elapsed_us=2604
+I (25209) twatch_board: I2C_BEGIN seq=3904 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25209) twatch_board: I2C_END seq=3904 result=ESP_OK elapsed_us=632
+I (25239) twatch_board: I2C_BEGIN seq=3905 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25239) twatch_board: I2C_END seq=3905 result=ESP_OK elapsed_us=2173
+I (25239) twatch_board: I2C_BEGIN seq=3906 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25239) twatch_board: I2C_END seq=3906 result=ESP_OK elapsed_us=722
+I (25269) twatch_board: I2C_BEGIN seq=3907 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25269) twatch_board: I2C_END seq=3907 result=ESP_OK elapsed_us=2091
+I (25269) twatch_board: I2C_BEGIN seq=3908 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25269) twatch_board: I2C_END seq=3908 result=ESP_OK elapsed_us=707
+I (25299) twatch_board: I2C_BEGIN seq=3909 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25299) twatch_board: I2C_END seq=3909 result=ESP_OK elapsed_us=2100
+I (25309) twatch_board: I2C_BEGIN seq=3910 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25309) twatch_board: I2C_END seq=3910 result=ESP_OK elapsed_us=867
+I (25339) twatch_board: I2C_BEGIN seq=3911 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25339) twatch_board: I2C_END seq=3911 result=ESP_OK elapsed_us=2170
+I (25339) twatch_board: I2C_BEGIN seq=3912 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25339) twatch_board: I2C_END seq=3912 result=ESP_OK elapsed_us=699
+I (25369) twatch_board: I2C_BEGIN seq=3913 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25369) twatch_board: I2C_END seq=3913 result=ESP_OK elapsed_us=2183
+I (25369) twatch_board: I2C_BEGIN seq=3914 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25369) twatch_board: I2C_END seq=3914 result=ESP_OK elapsed_us=697
+I (25399) twatch_board: I2C_BEGIN seq=3915 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25399) twatch_board: I2C_END seq=3915 result=ESP_OK elapsed_us=2180
+I (25399) twatch_board: I2C_BEGIN seq=3916 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25409) twatch_board: I2C_END seq=3916 result=ESP_OK elapsed_us=885
+I (25429) twatch_board: I2C_BEGIN seq=3917 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25439) twatch_board: I2C_END seq=3917 result=ESP_OK elapsed_us=2096
+I (25439) twatch_board: I2C_BEGIN seq=3918 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25439) twatch_board: I2C_END seq=3918 result=ESP_OK elapsed_us=709
+I (25469) twatch_board: I2C_BEGIN seq=3919 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25469) twatch_board: I2C_END seq=3919 result=ESP_OK elapsed_us=2094
+I (25469) twatch_board: I2C_BEGIN seq=3920 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25469) twatch_board: I2C_END seq=3920 result=ESP_OK elapsed_us=707
+W (25469) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (25499) twatch_board: I2C_BEGIN seq=3921 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25499) twatch_board: I2C_END seq=3921 result=ESP_OK elapsed_us=2095
+I (25499) twatch_board: I2C_BEGIN seq=3922 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25499) twatch_board: I2C_END seq=3922 result=ESP_OK elapsed_us=700
+I (25529) twatch_board: I2C_BEGIN seq=3923 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25539) twatch_board: I2C_END seq=3923 result=ESP_OK elapsed_us=2181
+I (25539) twatch_board: I2C_BEGIN seq=3924 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25539) twatch_board: I2C_END seq=3924 result=ESP_OK elapsed_us=701
+I (25569) twatch_board: I2C_BEGIN seq=3925 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25569) twatch_board: I2C_END seq=3925 result=ESP_OK elapsed_us=2191
+I (25569) twatch_board: I2C_BEGIN seq=3926 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25569) twatch_board: I2C_END seq=3926 result=ESP_OK elapsed_us=724
+I (25599) twatch_board: I2C_BEGIN seq=3927 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25599) twatch_board: I2C_END seq=3927 result=ESP_OK elapsed_us=2178
+I (25599) twatch_board: I2C_BEGIN seq=3928 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25599) twatch_board: I2C_END seq=3928 result=ESP_OK elapsed_us=700
+I (25629) twatch_board: I2C_BEGIN seq=3929 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25629) twatch_board: I2C_END seq=3929 result=ESP_OK elapsed_us=2188
+I (25639) twatch_board: I2C_BEGIN seq=3930 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25639) twatch_board: I2C_END seq=3930 result=ESP_OK elapsed_us=880
+I (25649) twatch_board: I2C_BEGIN seq=3931 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (25649) twatch_board: I2C_END seq=3931 result=ESP_OK elapsed_us=741
+I (25649) twatch_board: I2C_BEGIN seq=3932 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (25649) twatch_board: I2C_END seq=3932 result=ESP_OK elapsed_us=743
+I (25649) twatch_board: I2C_BEGIN seq=3933 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (25649) twatch_board: I2C_END seq=3933 result=ESP_OK elapsed_us=791
+I (25659) twatch_board: I2C_BEGIN seq=3934 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (25659) twatch_board: I2C_END seq=3934 result=ESP_OK elapsed_us=2608
+I (25659) bhi260ap_core: accelerometer id=4 x=2885 y=-309 z=2907
+I (25659) twatch_board: I2C_BEGIN seq=3935 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (25659) twatch_board: I2C_END seq=3935 result=ESP_OK elapsed_us=728
+I (25659) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (25669) twatch_board: I2C_BEGIN seq=3936 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25669) twatch_board: I2C_END seq=3936 result=ESP_OK elapsed_us=2172
+I (25669) twatch_board: I2C_BEGIN seq=3937 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25669) twatch_board: I2C_END seq=3937 result=ESP_OK elapsed_us=649
+I (25699) twatch_board: I2C_BEGIN seq=3938 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25699) twatch_board: I2C_END seq=3938 result=ESP_OK elapsed_us=2175
+I (25699) twatch_board: I2C_BEGIN seq=3939 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25699) twatch_board: I2C_END seq=3939 result=ESP_OK elapsed_us=703
+I (25729) twatch_board: I2C_BEGIN seq=3940 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25729) twatch_board: I2C_END seq=3940 result=ESP_OK elapsed_us=2189
+I (25729) twatch_board: I2C_BEGIN seq=3941 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25739) twatch_board: I2C_END seq=3941 result=ESP_OK elapsed_us=812
+I (25759) twatch_board: I2C_BEGIN seq=3942 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25769) twatch_board: I2C_END seq=3942 result=ESP_OK elapsed_us=2101
+I (25769) twatch_board: I2C_BEGIN seq=3943 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25769) twatch_board: I2C_END seq=3943 result=ESP_OK elapsed_us=712
+I (25799) twatch_board: I2C_BEGIN seq=3944 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25799) twatch_board: I2C_END seq=3944 result=ESP_OK elapsed_us=2187
+I (25799) twatch_board: I2C_BEGIN seq=3945 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25799) twatch_board: I2C_END seq=3945 result=ESP_OK elapsed_us=639
+I (25829) twatch_board: I2C_BEGIN seq=3946 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25829) twatch_board: I2C_END seq=3946 result=ESP_OK elapsed_us=2179
+I (25829) twatch_board: I2C_BEGIN seq=3947 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25829) twatch_board: I2C_END seq=3947 result=ESP_OK elapsed_us=702
+I (25859) twatch_board: I2C_BEGIN seq=3948 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25869) twatch_board: I2C_END seq=3948 result=ESP_OK elapsed_us=2186
+I (25869) twatch_board: I2C_BEGIN seq=3949 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25869) twatch_board: I2C_END seq=3949 result=ESP_OK elapsed_us=706
+I (25899) twatch_board: I2C_BEGIN seq=3950 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25899) twatch_board: I2C_END seq=3950 result=ESP_OK elapsed_us=2185
+I (25899) twatch_board: I2C_BEGIN seq=3951 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25899) twatch_board: I2C_END seq=3951 result=ESP_OK elapsed_us=713
+I (25929) twatch_board: I2C_BEGIN seq=3952 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25929) twatch_board: I2C_END seq=3952 result=ESP_OK elapsed_us=2182
+I (25929) twatch_board: I2C_BEGIN seq=3953 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25929) twatch_board: I2C_END seq=3953 result=ESP_OK elapsed_us=708
+I (25959) twatch_board: I2C_BEGIN seq=3954 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (25959) twatch_board: I2C_END seq=3954 result=ESP_OK elapsed_us=2196
+I (25969) twatch_board: I2C_BEGIN seq=3955 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (25969) twatch_board: I2C_END seq=3955 result=ESP_OK elapsed_us=866
+I (26009) twatch_board: I2C_BEGIN seq=3956 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26009) twatch_board: I2C_END seq=3956 result=ESP_OK elapsed_us=2159
+I (26009) twatch_board: I2C_BEGIN seq=3957 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26009) twatch_board: I2C_END seq=3957 result=ESP_OK elapsed_us=658
+I (26039) twatch_board: I2C_BEGIN seq=3958 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26039) twatch_board: I2C_END seq=3958 result=ESP_OK elapsed_us=2222
+I (26039) twatch_board: I2C_BEGIN seq=3959 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26039) twatch_board: I2C_END seq=3959 result=ESP_OK elapsed_us=638
+I (26069) twatch_board: I2C_BEGIN seq=3960 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26069) twatch_board: I2C_END seq=3960 result=ESP_OK elapsed_us=2208
+I (26069) twatch_board: I2C_BEGIN seq=3961 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26079) twatch_board: I2C_END seq=3961 result=ESP_OK elapsed_us=810
+I (26099) twatch_board: I2C_BEGIN seq=3962 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26109) twatch_board: I2C_END seq=3962 result=ESP_OK elapsed_us=2202
+I (26109) twatch_board: I2C_BEGIN seq=3963 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26109) twatch_board: I2C_END seq=3963 result=ESP_OK elapsed_us=706
+I (26139) twatch_board: I2C_BEGIN seq=3964 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26139) twatch_board: I2C_END seq=3964 result=ESP_OK elapsed_us=2198
+I (26139) twatch_board: I2C_BEGIN seq=3965 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26139) twatch_board: I2C_END seq=3965 result=ESP_OK elapsed_us=636
+I (26169) twatch_board: I2C_BEGIN seq=3966 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26169) twatch_board: I2C_END seq=3966 result=ESP_OK elapsed_us=2194
+I (26169) twatch_board: I2C_BEGIN seq=3967 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26169) twatch_board: I2C_END seq=3967 result=ESP_OK elapsed_us=627
+I (26199) twatch_board: I2C_BEGIN seq=3968 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26199) twatch_board: I2C_END seq=3968 result=ESP_OK elapsed_us=849
+I (26199) twatch_board: I2C_BEGIN seq=3969 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26199) twatch_board: I2C_BEGIN seq=3970 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26199) twatch_board: I2C_END seq=3969 result=ESP_OK elapsed_us=795
+I (26199) twatch_board: I2C_BEGIN seq=3971 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26209) twatch_board: I2C_END seq=3970 result=ESP_OK elapsed_us=2192
+I (26209) twatch_board: I2C_BEGIN seq=3972 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26209) twatch_board: I2C_END seq=3971 result=ESP_OK elapsed_us=1769
+I (26209) twatch_board: I2C_BEGIN seq=3973 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26209) twatch_board: I2C_END seq=3972 result=ESP_OK elapsed_us=679
+I (26209) twatch_board: I2C_END seq=3973 result=ESP_OK elapsed_us=732
+I (26209) twatch_board: I2C_BEGIN seq=3974 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26209) twatch_board: I2C_END seq=3974 result=ESP_OK elapsed_us=745
+I (26209) twatch_board: I2C_BEGIN seq=3975 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26209) twatch_board: I2C_END seq=3975 result=ESP_OK elapsed_us=680
+I (26209) twatch_board: I2C_BEGIN seq=3976 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26209) twatch_board: I2C_END seq=3976 result=ESP_OK elapsed_us=648
+I (26219) twatch_board: I2C_BEGIN seq=3977 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26219) twatch_board: I2C_END seq=3977 result=ESP_OK elapsed_us=704
+I (26219) twatch_board: I2C_BEGIN seq=3978 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26219) twatch_board: I2C_END seq=3978 result=ESP_OK elapsed_us=1247
+I (26219) twatch_board: I2C_BEGIN seq=3979 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (26219) twatch_board: I2C_END seq=3979 result=ESP_OK elapsed_us=700
+I (26219) twatch_board: I2C_BEGIN seq=3980 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (26219) twatch_board: I2C_END seq=3980 result=ESP_OK elapsed_us=728
+I (26219) twatch_board: I2C_BEGIN seq=3981 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (26219) twatch_board: I2C_END seq=3981 result=ESP_OK elapsed_us=679
+I (26219) twatch_board: I2C_BEGIN seq=3982 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (26229) twatch_board: I2C_END seq=3982 result=ESP_OK elapsed_us=676
+I (26229) twatch_board: I2C_BEGIN seq=3983 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (26229) twatch_board: I2C_END seq=3983 result=ESP_OK elapsed_us=1272
+I (26229) twatch_board: I2C_BEGIN seq=3984 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (26229) twatch_board: I2C_END seq=3984 result=ESP_OK elapsed_us=671
+I (26229) twatch_board: I2C_BEGIN seq=3985 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (26229) twatch_board: I2C_END seq=3985 result=ESP_OK elapsed_us=688
+I (26229) twatch_board: I2C_BEGIN seq=3986 kind=read task=diag_sample priority=2 addr=0x51 write_bytes=1 read_bytes=1
+I (26229) twatch_board: I2C_END seq=3986 result=ESP_OK elapsed_us=719
+I (26229) twatch_board: RTC_READ ctrl1=00 time=20/43/21 date=15 wd=03/09/26 bcd_plausible=1
+I (26229) twatch_board: I2C_BEGIN seq=3987 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26239) twatch_board: I2C_BEGIN seq=3988 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26239) twatch_board: I2C_END seq=3988 result=ESP_OK elapsed_us=2085
+I (26239) twatch_board: I2C_END seq=3987 result=ESP_OK elapsed_us=4183
+I (26239) twatch_board: I2C_BEGIN seq=3989 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26239) twatch_board: I2C_BEGIN seq=3990 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26239) twatch_board: I2C_END seq=3989 result=ESP_OK elapsed_us=688
+I (26239) twatch_board: I2C_END seq=3990 result=ESP_OK elapsed_us=730
+I (26239) twatch_board: I2C_BEGIN seq=3991 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26239) twatch_board: I2C_END seq=3991 result=ESP_OK elapsed_us=724
+I (26239) twatch_board: I2C_BEGIN seq=3992 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26239) twatch_board: I2C_END seq=3992 result=ESP_OK elapsed_us=685
+I (26249) twatch_board: I2C_BEGIN seq=3993 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26249) twatch_board: I2C_END seq=3993 result=ESP_OK elapsed_us=708
+I (26249) twatch_board: I2C_BEGIN seq=3994 kind=read task=diag_sample priority=2 addr=0x34 write_bytes=1 read_bytes=1
+I (26249) twatch_board: I2C_END seq=3994 result=ESP_OK elapsed_us=1279
+I (26249) twatch_board: I2C_BEGIN seq=3995 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (26249) twatch_board: I2C_END seq=3995 result=ESP_OK elapsed_us=691
+I (26249) twatch_board: I2C_BEGIN seq=3996 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (26249) twatch_board: I2C_END seq=3996 result=ESP_OK elapsed_us=690
+I (26249) twatch_board: I2C_BEGIN seq=3997 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (26249) twatch_board: I2C_END seq=3997 result=ESP_OK elapsed_us=742
+I (26249) twatch_board: I2C_BEGIN seq=3998 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (26259) twatch_board: I2C_END seq=3998 result=ESP_OK elapsed_us=703
+I (26259) twatch_board: I2C_BEGIN seq=3999 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (26259) twatch_board: I2C_END seq=3999 result=ESP_OK elapsed_us=1288
+I (26259) twatch_board: I2C_BEGIN seq=4000 kind=read task=diag_sample priority=2 addr=0x20 write_bytes=1 read_bytes=1
+I (26259) twatch_board: I2C_END seq=4000 result=ESP_OK elapsed_us=746
+I (26259) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (26259) twatch_board: I2C_BEGIN seq=4001 kind=read task=diag_sample priority=2 addr=0x28 write_bytes=1 read_bytes=1
+I (26259) twatch_board: I2C_END seq=4001 result=ESP_OK elapsed_us=675
+I (26259) twatch_board: I2C_BEGIN seq=4002 kind=read task=diag_sample priority=2 addr=0x28 write_bytes=1 read_bytes=1
+I (26259) twatch_board: I2C_END seq=4002 result=ESP_OK elapsed_us=723
+I (26269) twatch_board: I2C_BEGIN seq=4003 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26269) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (26269) twatch_board: I2C_END seq=4003 result=ESP_OK elapsed_us=2273
+I (26269) twatch_board: I2C_BEGIN seq=4004 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26269) twatch_board: I2C_END seq=4004 result=ESP_OK elapsed_us=635
+I (26289) twatch_board: I2C_BEGIN seq=4005 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (26299) twatch_board: I2C_END seq=4005 result=ESP_OK elapsed_us=809
+I (26299) twatch_board: I2C_BEGIN seq=4006 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (26299) twatch_board: I2C_BEGIN seq=4007 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26309) twatch_board: I2C_END seq=4007 result=ESP_OK elapsed_us=2274
+I (26309) twatch_board: I2C_END seq=4006 result=ESP_OK elapsed_us=2454
+I (26309) twatch_board: I2C_BEGIN seq=4008 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26309) twatch_board: I2C_BEGIN seq=4009 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (26309) twatch_board: I2C_END seq=4008 result=ESP_OK elapsed_us=688
+I (26309) twatch_board: I2C_END seq=4009 result=ESP_OK elapsed_us=1328
+I (26309) twatch_board: I2C_BEGIN seq=4010 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (26309) twatch_board: I2C_END seq=4010 result=ESP_OK elapsed_us=2614
+I (26309) bhi260ap_core: accelerometer id=4 x=2885 y=-308 z=2908
+I (26309) twatch_board: I2C_BEGIN seq=4011 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (26319) twatch_board: I2C_END seq=4011 result=ESP_OK elapsed_us=736
+I (26319) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (26339) twatch_board: I2C_BEGIN seq=4012 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26339) twatch_board: I2C_END seq=4012 result=ESP_OK elapsed_us=2178
+I (26339) twatch_board: I2C_BEGIN seq=4013 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26339) twatch_board: I2C_END seq=4013 result=ESP_OK elapsed_us=648
+I (26369) twatch_board: I2C_BEGIN seq=4014 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26369) twatch_board: I2C_END seq=4014 result=ESP_OK elapsed_us=2190
+I (26369) twatch_board: I2C_BEGIN seq=4015 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26369) twatch_board: I2C_END seq=4015 result=ESP_OK elapsed_us=711
+I (26399) twatch_board: I2C_BEGIN seq=4016 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26399) twatch_board: I2C_END seq=4016 result=ESP_OK elapsed_us=2183
+I (26399) twatch_board: I2C_BEGIN seq=4017 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26409) twatch_board: I2C_END seq=4017 result=ESP_OK elapsed_us=881
+I (26429) twatch_board: I2C_BEGIN seq=4018 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26439) twatch_board: I2C_END seq=4018 result=ESP_OK elapsed_us=2194
+I (26439) twatch_board: I2C_BEGIN seq=4019 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26439) twatch_board: I2C_END seq=4019 result=ESP_OK elapsed_us=692
+I (26469) twatch_board: I2C_BEGIN seq=4020 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26469) twatch_board: I2C_END seq=4020 result=ESP_OK elapsed_us=2191
+I (26469) twatch_board: I2C_BEGIN seq=4021 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26469) twatch_board: I2C_END seq=4021 result=ESP_OK elapsed_us=706
+I (26499) twatch_board: I2C_BEGIN seq=4022 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26499) twatch_board: I2C_END seq=4022 result=ESP_OK elapsed_us=2177
+I (26499) twatch_board: I2C_BEGIN seq=4023 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26499) twatch_board: I2C_END seq=4023 result=ESP_OK elapsed_us=686
+I (26529) twatch_board: I2C_BEGIN seq=4024 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26539) twatch_board: I2C_END seq=4024 result=ESP_OK elapsed_us=2186
+I (26539) twatch_board: I2C_BEGIN seq=4025 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26539) twatch_board: I2C_END seq=4025 result=ESP_OK elapsed_us=701
+I (26569) twatch_board: I2C_BEGIN seq=4026 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26569) twatch_board: I2C_END seq=4026 result=ESP_OK elapsed_us=2193
+I (26569) twatch_board: I2C_BEGIN seq=4027 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26569) twatch_board: I2C_END seq=4027 result=ESP_OK elapsed_us=718
+I (26599) twatch_board: I2C_BEGIN seq=4028 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26599) twatch_board: I2C_END seq=4028 result=ESP_OK elapsed_us=2179
+I (26599) twatch_board: I2C_BEGIN seq=4029 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26599) twatch_board: I2C_END seq=4029 result=ESP_OK elapsed_us=698
+I (26629) twatch_board: I2C_BEGIN seq=4030 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26629) twatch_board: I2C_END seq=4030 result=ESP_OK elapsed_us=2194
+I (26639) twatch_board: I2C_BEGIN seq=4031 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26639) twatch_board: I2C_END seq=4031 result=ESP_OK elapsed_us=858
+I (26669) twatch_board: I2C_BEGIN seq=4032 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26669) twatch_board: I2C_END seq=4032 result=ESP_OK elapsed_us=2172
+I (26669) twatch_board: I2C_BEGIN seq=4033 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26669) twatch_board: I2C_END seq=4033 result=ESP_OK elapsed_us=621
+I (26699) twatch_board: I2C_BEGIN seq=4034 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26699) twatch_board: I2C_END seq=4034 result=ESP_OK elapsed_us=2190
+I (26699) twatch_board: I2C_BEGIN seq=4035 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26699) twatch_board: I2C_END seq=4035 result=ESP_OK elapsed_us=700
+I (26729) twatch_board: I2C_BEGIN seq=4036 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26729) twatch_board: I2C_END seq=4036 result=ESP_OK elapsed_us=2185
+I (26729) twatch_board: I2C_BEGIN seq=4037 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26739) twatch_board: I2C_END seq=4037 result=ESP_OK elapsed_us=881
+I (26759) twatch_board: I2C_BEGIN seq=4038 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26769) twatch_board: I2C_END seq=4038 result=ESP_OK elapsed_us=2108
+I (26769) twatch_board: I2C_BEGIN seq=4039 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26769) twatch_board: I2C_END seq=4039 result=ESP_OK elapsed_us=621
+I (26799) twatch_board: I2C_BEGIN seq=4040 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26799) twatch_board: I2C_END seq=4040 result=ESP_OK elapsed_us=2191
+I (26799) twatch_board: I2C_BEGIN seq=4041 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26799) twatch_board: I2C_END seq=4041 result=ESP_OK elapsed_us=715
+I (26829) twatch_board: I2C_BEGIN seq=4042 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26829) twatch_board: I2C_END seq=4042 result=ESP_OK elapsed_us=2185
+I (26829) twatch_board: I2C_BEGIN seq=4043 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26829) twatch_board: I2C_END seq=4043 result=ESP_OK elapsed_us=685
+I (26859) twatch_board: I2C_BEGIN seq=4044 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26869) twatch_board: I2C_END seq=4044 result=ESP_OK elapsed_us=2182
+I (26869) twatch_board: I2C_BEGIN seq=4045 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26869) twatch_board: I2C_END seq=4045 result=ESP_OK elapsed_us=701
+I (26899) twatch_board: I2C_BEGIN seq=4046 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26899) twatch_board: I2C_END seq=4046 result=ESP_OK elapsed_us=2192
+I (26899) twatch_board: I2C_BEGIN seq=4047 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26899) twatch_board: I2C_END seq=4047 result=ESP_OK elapsed_us=716
+I (26929) twatch_board: I2C_BEGIN seq=4048 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26929) twatch_board: I2C_END seq=4048 result=ESP_OK elapsed_us=2184
+I (26929) twatch_board: I2C_BEGIN seq=4049 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26929) twatch_board: I2C_END seq=4049 result=ESP_OK elapsed_us=700
+I (26939) twatch_board: I2C_BEGIN seq=4050 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (26939) twatch_board: I2C_END seq=4050 result=ESP_OK elapsed_us=746
+I (26939) twatch_board: I2C_BEGIN seq=4051 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (26939) twatch_board: I2C_END seq=4051 result=ESP_OK elapsed_us=689
+I (26939) twatch_board: I2C_BEGIN seq=4052 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=2
+I (26939) twatch_board: I2C_END seq=4052 result=ESP_OK elapsed_us=789
+I (26949) twatch_board: I2C_BEGIN seq=4053 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=22
+I (26949) twatch_board: I2C_END seq=4053 result=ESP_OK elapsed_us=2607
+I (26949) bhi260ap_core: accelerometer id=4 x=2883 y=-309 z=2907
+I (26949) twatch_board: I2C_BEGIN seq=4054 kind=read task=bhi_irq priority=5 addr=0x28 write_bytes=1 read_bytes=1
+I (26949) twatch_board: I2C_END seq=4054 result=ESP_OK elapsed_us=776
+I (26949) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (26959) twatch_board: I2C_BEGIN seq=4055 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (26959) twatch_board: I2C_END seq=4055 result=ESP_OK elapsed_us=2084
+I (26969) twatch_board: I2C_BEGIN seq=4056 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (26969) twatch_board: I2C_END seq=4056 result=ESP_OK elapsed_us=719
+I (27009) twatch_board: I2C_BEGIN seq=4057 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (27009) twatch_board: I2C_END seq=4057 result=ESP_OK elapsed_us=2242
+I (27009) twatch_board: I2C_BEGIN seq=4058 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (27009) twatch_board: I2C_END seq=4058 result=ESP_OK elapsed_us=645
+I (27039) lvgl_app: ADAPTER_HEALTH flushes=57 stack_free_bytes=4016
+I (27039) twatch_board: I2C_BEGIN seq=4059 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (27039) twatch_board: I2C_END seq=4059 result=ESP_OK elapsed_us=2156
+I (27039) twatch_board: I2C_BEGIN seq=4060 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (27039) twatch_board: I2C_END seq=4060 result=ESP_OK elapsed_us=648
+I (27069) twatch_board: I2C_BEGIN seq=4061 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (27069) twatch_board: I2C_END seq=4061 result=ESP_OK elapsed_us=2206
+I (27069) twatch_board: I2C_BEGIN seq=4062 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (27079) twatch_board: I2C_END seq=4062 result=ESP_OK elapsed_us=812
+I (27099) twatch_board: I2C_BEGIN seq=4063 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (27109) twatch_board: I2C_END seq=4063 result=ESP_OK elapsed_us=2111
+I (27109) twatch_board: I2C_BEGIN seq=4064 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (27109) twatch_board: I2C_END seq=4064 result=ESP_OK elapsed_us=706
+I (27139) twatch_board: I2C_BEGIN seq=4065 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (27139) twatch_board: I2C_END seq=4065 result=ESP_OK elapsed_us=2195
+I (27139) twatch_board: I2C_BEGIN seq=4066 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (27139) twatch_board: I2C_END seq=4066 result=ESP_OK elapsed_us=703
+I (27169) twatch_board: I2C_BEGIN seq=4067 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (27169) twatch_board: I2C_END seq=4067 result=ESP_OK elapsed_us=2182
+I (27169) twatch_board: I2C_BEGIN seq=4068 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (27169) twatch_board: I2C_END seq=4068 result=ESP_OK elapsed_us=696
+I (27189) twatch_board: I2C_BEGIN seq=4069 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27189) twatch_board: I2C_END seq=4069 result=ESP_OK elapsed_us=746
+I (27189) twatch_board: I2C_BEGIN seq=4070 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27189) twatch_board: I2C_END seq=4070 result=ESP_OK elapsed_us=719
+I (27189) twatch_board: I2C_BEGIN seq=4071 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27189) twatch_board: I2C_END seq=4071 result=ESP_OK elapsed_us=689
+I (27189) twatch_board: I2C_BEGIN seq=4072 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27189) twatch_board: I2C_END seq=4072 result=ESP_OK elapsed_us=689
+I (27189) twatch_board: I2C_BEGIN seq=4073 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27189) twatch_board: I2C_END seq=4073 result=ESP_OK elapsed_us=759
+I (27199) twatch_board: I2C_BEGIN seq=4074 kind=read task=lvgl priority=6 addr=0x1a write_bytes=2 read_bytes=15
+I (27199) twatch_board: I2C_BEGIN seq=4075 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27209) twatch_board: I2C_END seq=4074 result=ESP_OK elapsed_us=2148
+I (27209) twatch_board: I2C_BEGIN seq=4076 kind=write task=lvgl priority=6 addr=0x1a write_bytes=3 read_bytes=0
+I (27209) twatch_board: I2C_END seq=4076 result=ESP_OK elapsed_us=687
+I (27209) twatch_board: I2C_END seq=4075 result=ESP_OK elapsed_us=4214
+I (27209) twatch_board: I2C_BEGIN seq=4077 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27209) twatch_board: I2C_END seq=4077 result=ESP_OK elapsed_us=698
+I (27209) twatch_board: I2C_BEGIN seq=4078 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27209) twatch_board: I2C_END seq=4078 result=ESP_OK elapsed_us=734
+I (27209) twatch_board: I2C_BEGIN seq=4079 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27209) twatch_board: I2C_END seq=4079 result=ESP_OK elapsed_us=691
+I (27209) twatch_board: I2C_BEGIN seq=4080 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27219) twatch_board: I2C_END seq=4080 result=ESP_OK elapsed_us=712
+I (27219) twatch_board: I2C_BEGIN seq=4081 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27219) twatch_board: I2C_END seq=4081 result=ESP_OK elapsed_us=696
+I (27219) twatch_board: I2C_BEGIN seq=4082 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27219) twatch_board: I2C_END seq=4082 result=ESP_OK elapsed_us=728
+I (27219) twatch_board: I2C_BEGIN seq=4083 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27219) twatch_board: I2C_END seq=4083 result=ESP_OK elapsed_us=678
+I (27219) twatch_board: I2C_BEGIN seq=4084 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27219) twatch_board: I2C_END seq=4084 result=ESP_OK elapsed_us=676
+I (27219) twatch_board: I2C_BEGIN seq=4085 kind=read task=main priority=1 addr=0x34 write_bytes=1 read_bytes=1
+I (27219) twatch_board: I2C_END seq=4085 result=ESP_OK elapsed_us=743
+I (27229) twatch_board: I2C_BEGIN seq=4086 kind=read task=main priority=1 addr=0x20 write_bytes=1 read_bytes=1
+I (27229) twatch_board: I2C_END seq=4086 result=ESP_OK elapsed_us=693
+I (27229) twatch_board: I2C_BEGIN seq=4087 kind=read task=main priority=1 addr=0x20 write_bytes=1 read_bytes=1
+I (27229) twatch_board: I2C_END seq=4087 result=ESP_OK elapsed_us=720
+I (27229) twatch_board: I2C_BEGIN seq=4088 kind=read task=main priority=1 addr=0x20 write_bytes=1 read_bytes=1
+I (27229) twatch_board: I2C_END seq=4088 result=ESP_OK elapsed_us=684
+I (27229) twatch_board: I2C_BEGIN seq=4089 kind=read task=main priority=1 addr=0x20 write_bytes=1 read_bytes=1
+I (27229) twatch_board: I2C_END seq=4089 result=ESP_OK elapsed_u
