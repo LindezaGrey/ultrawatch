@@ -1,0 +1,650 @@
+I (1401) esp_psram: SPI SRAM memory test OK
+I (1410) cpu_start: Pro cpu start user code
+I (1410) cpu_start: cpu freq: 160000000 Hz
+I (1410) app_init: Application information:
+I (1410) app_init: Project name:     twatch_ultra_phase1
+I (1411) app_init: App version:      0.5.6-row-aligned-flush
+I (1411) app_init: Compile time:     Sep 15 2026 18:56:55
+I (1411) app_init: ELF file SHA256:  b7d9ba153...
+I (1411) app_init: ESP-IDF:          v6.0.2
+I (1411) efuse_init: Min chip rev:     v0.0
+I (1411) efuse_init: Max chip rev:     v0.99 
+I (1412) efuse_init: Chip rev:         v0.2
+I (1412) heap_init: Initializing. RAM available for dynamic allocation:
+I (1412) heap_init: At 3FCB8880 len 00030E90 (195 KiB): RAM
+I (1412) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (1412) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (1413) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+I (1413) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+I (1414) spi_flash: detected chip: winbond
+I (1414) spi_flash: flash io: dio
+I (1421) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (1422) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (1423) main_task: Started on CPU0
+I (1423) main_task: Calling app_main()
+I (1423) phase1: BOOT board=T-Watch-Ultra-V1.0 radio_variant=SX1262 app=0.5.6-row-aligned-flush idf=v6.0.2
+I (1423) phase1: reset_reason=11 chip_model=9 revision=2 cores=2
+I (1423) phase1: flash_bytes=16777216 psram_bytes=8388608
+I (1433) twatch_board: PMU identity=0x4a I2C0 SDA=3 SCL=2 hz=100000 read_only=1
+I (1433) twatch_board: ALDO4 prepare before_ctrl=1f before_volt=0d expected_ctrl=1f expected_volt=0d after_ctrl=1f after_volt=0d
+I (1443) twatch_board: XL reg=02 before=ff expected=ff after=ff wrote=0
+I (1443) twatch_board: XL reg=03 before=ff expected=ff after=ff wrote=0
+I (1443) twatch_board: XL reg=06 before=7f expected=7f after=7f wrote=0
+I (1443) twatch_board: XL reg=07 before=fe expected=fe after=fe wrote=0
+I (1453) twatch_board: ESSENTIAL_IO ready P07=output-high P10=output-high PMU_unchanged=1
+I (1463) bhi260ap_core: core_probe result=0 product=0x89 expected=0x89 valid=1
+I (11943) bhi260ap_core: firmware_load bytes=103676 result=0 boot_status=0x38
+I (11953) bhi260ap_core: virtual sensor list retrieved count=33
+I (11953) phase1: BHI260AP virtual sensors available=33
+I (11953) phase1: BHI260AP virtual sensor id=1
+I (11953) phase1: BHI260AP virtual sensor id=3
+I (11953) phase1: BHI260AP virtual sensor id=4
+I (11953) phase1: BHI260AP virtual sensor id=5
+I (11953) phase1: BHI260AP virtual sensor id=6
+I (11953) phase1: BHI260AP virtual sensor id=7
+I (11953) phase1: BHI260AP virtual sensor id=10
+I (11953) phase1: BHI260AP virtual sensor id=12
+I (11953) phase1: BHI260AP virtual sensor id=13
+I (11953) phase1: BHI260AP virtual sensor id=14
+I (11953) phase1: BHI260AP virtual sensor id=15
+I (11953) phase1: BHI260AP virtual sensor id=16
+I (11953) phase1: BHI260AP virtual sensor id=28
+I (11953) phase1: BHI260AP virtual sensor id=29
+I (11953) phase1: BHI260AP virtual sensor id=31
+I (11953) phase1: BHI260AP virtual sensor id=32
+I (11953) phase1: BHI260AP virtual sensor id=37
+I (11953) phase1: BHI260AP virtual sensor id=38
+I (11953) phase1: BHI260AP virtual sensor id=48
+I (11953) phase1: BHI260AP virtual sensor id=50
+I (11953) phase1: BHI260AP virtual sensor id=52
+I (11953) phase1: BHI260AP virtual sensor id=53
+I (11953) phase1: BHI260AP virtual sensor id=55
+I (11953) phase1: BHI260AP virtual sensor id=57
+I (11953) phase1: BHI260AP virtual sensor id=59
+I (11953) phase1: BHI260AP virtual sensor id=61
+I (11953) phase1: BHI260AP virtual sensor id=63
+I (11953) phase1: BHI260AP virtual sensor id=67
+I (11963) phase1: BHI260AP virtual sensor id=69
+I (11963) phase1: BHI260AP virtual sensor id=70
+I (11963) phase1: BHI260AP virtual sensor id=75
+I (11963) phase1: BHI260AP virtual sensor id=77
+I (11963) phase1: BHI260AP virtual sensor id=94
+I (12143) bhi260ap_core: stream readback intr=0x40 intf=0x80 status=0x0b result=0
+I (12143) bhi260ap_core: accelerometer stream id=4 rate=1Hz configured
+I (12143) bhi260ap_core: irq probe GPIO8 configured idle=0
+I (12143) twatch_board: TOUCH_PROBE candidate=0x1a present=1 identity=unverified
+I (12163) twatch_board: TOUCH_INFO addr=0x1a checkcode=0xcaca4e20 chip=0x9220 resolution=410x502 firmware=0x01000003
+I (12163) twatch_board: RTC_PROBE candidate=0x51 present=1 identity=unverified
+I (12163) twatch_board: RTC_READ ctrl1=00 time=17/58/38 date=15 wd=03/09/26 bcd_plausible=1
+I (12973) bhi260ap_core: accelerometer id=4 x=3122 y=-57 z=2790
+I (12973) bhi260ap_core: sensor fifo notifications=0 drains=2 status=0x00 result=0
+I (12973) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (13193) bhi260ap_core: accelerometer id=4 x=3142 y=-60 z=2810
+I (13193) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (13843) bhi260ap_core: accelerometer id=4 x=3060 y=-60 z=2736
+I (13843) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (14173) twatch_board: RTC_READ ctrl1=00 time=17/58/40 date=15 wd=03/09/26 bcd_plausible=1
+I (14173) phase1: RTC_TICK_CHECK first=17/58/38 followup=17/58/40
+I (14483) bhi260ap_core: accelerometer id=4 x=3060 y=-60 z=2736
+I (14483) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (15133) bhi260ap_core: accelerometer id=4 x=3060 y=-60 z=2736
+I (15133) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (15353) twatch_display: CO5300 ready 410x502 QSPI cs=41 rst=37 clk=40 d0=38 d1=39 d2=42 d3=45
+I (15353) HalIface: [device.cpp:0415] (init) : Version: 0.8.2
+I (15353) HalIface: [device.cpp:0443] (init) : - [TWatchUltra] Registered interface 'TWatchUltra:CO5300'
+I (15353) HalIface: [device.cpp:0443] (init) : - [TWatchUltra] Registered interface 'TWatchUltra:CST9220'
+I (15363) HalIface: [device.cpp:0443] (init) : - [TWatchUltra] Registered interface 'TWatchUltra:NVS'
+I (15363) HalIface: [device.cpp:0448] (init) : - [TWatchUltra] Initialized
+I (15363) HalIface: [device.cpp:0496] (acquire) : - [TWatchUltra] Reference count increased to 1
+I (15363) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 1
+I (15363) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 2
+I (15373) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CST9220' with reference count 2
+I (15373) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 3
+I (15373) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:NVS' with reference count 3
+I (15423) TWatchStorage: STORAGE_PROBE init=ok list=ok entries=0 kv_writes=0
+I (15433) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 2
+I (15433) SvcMgr: [manager.cpp:0093] (init_internal) : Version: 0.8.2
+I (15433) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Manager
+I (15443) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Manager
+I (15443) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Manager
+I (15443) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Utils
+I (15453) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Utils
+I (15453) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Utils
+I (15453) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: DataFlow
+I (15463) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: DataFlow
+I (15463) SvcMgr: [manager.cpp:0360] (add_service) : Service added: DataFlow
+I (15473) SvcMgr: [manager.cpp:0810] (topological_sort) : Service initialization order: 
+I (15473) SvcMgr: [manager.cpp:0812] (topological_sort) :   1. Usb
+I (15473) SvcMgr: [manager.cpp:0812] (topological_sort) :   2. Storage
+I (15473) SvcMgr: [manager.cpp:0812] (topological_sort) :   3. Wifi
+I (15473) SvcMgr: [manager.cpp:0812] (topological_sort) :   4. SNTP
+I (15483) SvcMgr: [manager.cpp:0812] (topological_sort) :   5. Display
+I (15483) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Usb
+I (15483) SvcUsb: [service_usb.cpp:1175] (on_init) : Version: 0.8.0
+I (15483) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Usb
+I (15493) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Usb
+I (15493) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Storage
+I (15493) SvcStorage: [service_storage.cpp:0789] (on_init) : Version: 0.8.3
+I (15493) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 3
+I (15503) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:NVS' with reference count 3
+I (15503) SvcStorage: [service_storage.cpp:0795] (on_init) : Using storage KV interface: TWatchUltra:NVS
+W (15553) SvcStorage: [service_storage.cpp:0815] (on_init) : Storage file-system HAL interface is not available
+I (15563) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Storage
+I (15563) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Storage
+I (15563) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Wifi
+I (15573) SvcWiFi: [service_wifi.cpp:0224] (on_init) : Version: 0.8.2
+E (15573) SvcWiFi: [service_wifi.cpp:0233] (on_init) : Wi-Fi basic HAL interface is not available
+E (15573) SvcMgr: [base.cpp:0997] (init_internal) : Failed to initialize service
+I (15573) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Wifi
+E (15573) SvcMgr: [manager.cpp:0344] (add_service) : Failed to initialize service
+E (15573) SvcMgr: [manager.cpp:0840] (add_all_registered_services) : Failed to add service: Wifi
+I (15583) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: SNTP
+I (15583) SvcSNTP: [service_sntp.cpp:0071] (on_init) : Version: 0.8.2
+I (15583) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: SNTP
+I (15593) SvcMgr: [manager.cpp:0360] (add_service) : Service added: SNTP
+I (15593) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Display
+I (15593) SvcDisplay: [display_lifecycle.cpp:0023] (on_init) : Version: 0.8.2
+I (15593) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 4
+I (15593) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 4
+I (15603) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 5
+I (15603) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CST9220' with reference count 5
+I (15603) SvcDisplay: [display_lifecycle.cpp:0061] (on_init) : Registered display output Output0: 410x502, pixel_format=RGB565, panel=TWatchUltra:CO5300, group_id=t_watch_ultra_display
+I (15613) SvcDisplay: [display_lifecycle.cpp:0092] (on_init) : Registered display touch Touch0: 410x502, max_points=1, operation_mode=Polling, touch=TWatchUltra:CST9220, group_id=t_watch_ultra_display
+I (15613) SvcDisplay: [display_render_tasks.cpp:0171] (bind_default_touches_locked) : Bound display output Output0 to touch Touch0 by group_id(t_watch_ultra_display)
+W (15613) SvcDisplay: [display_lifecycle.cpp:0110] (on_init) : No HAL display backlight interface is available
+I (15613) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 6
+I (15623) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 6
+I (15623) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 5
+I (15623) SvcDisplay: [display_lifecycle.cpp:0120] (on_init) : Registered Display DataFlow provider
+I (15643) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Display
+I (15643) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Display
+I (15643) SvcMgr: [manager.cpp:0844] (add_all_registered_services) : All services added
+I (15663) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Manager
+I (15663) SvcMgr: [manager.cpp:0542] (bind) : Service started: Manager
+I (15673) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Utils
+I (15673) SvcMgr: [manager.cpp:0542] (bind) : Service started: Utils
+I (15683) SvcMgr: [base.cpp:1131] (start_internal) : Started service: DataFlow
+I (15683) SvcMgr: [manager.cpp:0542] (bind) : Service started: DataFlow
+I (15683) SvcMgr: [manager.cpp:0259] (start) : Service manager started
+I (15683) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Storage
+I (15693) SvcMgr: [manager.cpp:0542] (bind) : Service started: Storage
+I (15703) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Display
+I (15703) SvcMgr: [manager.cpp:0542] (bind) : Service started: Display
+I (15703) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Display
+I (15713) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Display
+I (15713) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Storage
+I (15713) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Storage
+I (15723) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: DataFlow
+I (15723) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: DataFlow
+I (15723) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Utils
+I (15723) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Utils
+I (15733) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Manager
+I (15733) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Manager
+I (15773) bhi260ap_core: accelerometer id=4 x=3061 y=-60 z=2736
+I (15783) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (16243) SvcMgr: [manager.cpp:0321] (stop_internal) : Service manager stopped
+I (16253) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Display
+I (16253) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 4
+I (16253) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 3
+I (16263) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Display
+I (16263) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Display
+I (16263) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: SNTP
+I (16273) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: SNTP
+I (16273) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: SNTP
+I (16273) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Storage
+I (16273) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 2
+I (16283) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Storage
+I (16283) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Storage
+I (16283) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Usb
+I (16283) SvcUsb: [service_usb.cpp:1188] (on_deinit) : Deinitialized
+I (16283) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Usb
+I (16293) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Usb
+I (16293) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: DataFlow
+I (16293) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: DataFlow
+I (16293) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: DataFlow
+I (16303) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Utils
+I (16303) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Utils
+I (16303) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Utils
+I (16303) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Manager
+I (16313) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Manager
+I (16313) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Manager
+I (16313) SvcMgr: [manager.cpp:0887] (remove_all_registered_services) : All services removed
+I (16413) brookesia_system: SERVICE_CYCLE cycle=1 bind=ok before=222376 immediate=192636 settled=192636 tasks=7/7/7 heap_ok=1
+I (16413) SvcMgr: [manager.cpp:0093] (init_internal) : Version: 0.8.2
+I (16413) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Manager
+I (16423) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Manager
+I (16423) bhi260ap_core: accelerometer id=4 x=3060 y=-60 z=2736
+I (16423) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (16423) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Manager
+I (16423) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Utils
+I (16433) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Utils
+I (16433) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Utils
+I (16433) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: DataFlow
+I (16443) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: DataFlow
+I (16443) SvcMgr: [manager.cpp:0360] (add_service) : Service added: DataFlow
+I (16443) SvcMgr: [manager.cpp:0810] (topological_sort) : Service initialization order: 
+I (16453) SvcMgr: [manager.cpp:0812] (topological_sort) :   1. Usb
+I (16453) SvcMgr: [manager.cpp:0812] (topological_sort) :   2. Storage
+I (16453) SvcMgr: [manager.cpp:0812] (topological_sort) :   3. Wifi
+I (16453) SvcMgr: [manager.cpp:0812] (topological_sort) :   4. SNTP
+I (16453) SvcMgr: [manager.cpp:0812] (topological_sort) :   5. Display
+I (16453) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Usb
+I (16463) SvcUsb: [service_usb.cpp:1175] (on_init) : Version: 0.8.0
+I (16463) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Usb
+I (16463) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Usb
+I (16473) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Storage
+I (16473) SvcStorage: [service_storage.cpp:0789] (on_init) : Version: 0.8.3
+I (16473) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 3
+I (16473) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:NVS' with reference count 3
+I (16473) SvcStorage: [service_storage.cpp:0795] (on_init) : Using storage KV interface: TWatchUltra:NVS
+W (16533) SvcStorage: [service_storage.cpp:0815] (on_init) : Storage file-system HAL interface is not available
+I (16533) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Storage
+I (16543) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Storage
+I (16543) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Wifi
+I (16543) SvcWiFi: [service_wifi.cpp:0224] (on_init) : Version: 0.8.2
+E (16543) SvcWiFi: [service_wifi.cpp:0233] (on_init) : Wi-Fi basic HAL interface is not available
+E (16543) SvcMgr: [base.cpp:0997] (init_internal) : Failed to initialize service
+I (16543) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Wifi
+E (16553) SvcMgr: [manager.cpp:0344] (add_service) : Failed to initialize service
+E (16553) SvcMgr: [manager.cpp:0840] (add_all_registered_services) : Failed to add service: Wifi
+I (16553) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: SNTP
+I (16553) SvcSNTP: [service_sntp.cpp:0071] (on_init) : Version: 0.8.2
+I (16563) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: SNTP
+I (16563) SvcMgr: [manager.cpp:0360] (add_service) : Service added: SNTP
+I (16563) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Display
+I (16563) SvcDisplay: [display_lifecycle.cpp:0023] (on_init) : Version: 0.8.2
+I (16573) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 4
+I (16573) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 4
+I (16573) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 5
+I (16573) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CST9220' with reference count 5
+I (16583) SvcDisplay: [display_lifecycle.cpp:0061] (on_init) : Registered display output Output0: 410x502, pixel_format=RGB565, panel=TWatchUltra:CO5300, group_id=t_watch_ultra_display
+I (16583) SvcDisplay: [display_lifecycle.cpp:0092] (on_init) : Registered display touch Touch0: 410x502, max_points=1, operation_mode=Polling, touch=TWatchUltra:CST9220, group_id=t_watch_ultra_display
+I (16583) SvcDisplay: [display_render_tasks.cpp:0171] (bind_default_touches_locked) : Bound display output Output0 to touch Touch0 by group_id(t_watch_ultra_display)
+W (16583) SvcDisplay: [display_lifecycle.cpp:0110] (on_init) : No HAL display backlight interface is available
+I (16593) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 6
+I (16593) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 6
+I (16593) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 5
+I (16603) SvcDisplay: [display_lifecycle.cpp:0120] (on_init) : Registered Display DataFlow provider
+I (16613) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Display
+I (16613) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Display
+I (16613) SvcMgr: [manager.cpp:0844] (add_all_registered_services) : All services added
+I (16633) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Manager
+I (16633) SvcMgr: [manager.cpp:0542] (bind) : Service started: Manager
+I (16643) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Utils
+I (16643) SvcMgr: [manager.cpp:0542] (bind) : Service started: Utils
+I (16643) SvcMgr: [base.cpp:1131] (start_internal) : Started service: DataFlow
+I (16653) SvcMgr: [manager.cpp:0542] (bind) : Service started: DataFlow
+I (16653) SvcMgr: [manager.cpp:0259] (start) : Service manager started
+I (16653) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Storage
+I (16653) SvcMgr: [manager.cpp:0542] (bind) : Service started: Storage
+I (16663) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Display
+I (16673) SvcMgr: [manager.cpp:0542] (bind) : Service started: Display
+I (16673) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Display
+I (16673) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Display
+I (16683) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Storage
+I (16683) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Storage
+I (16693) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: DataFlow
+I (16693) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: DataFlow
+I (16693) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Utils
+I (16693) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Utils
+I (16703) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Manager
+I (16703) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Manager
+I (17063) bhi260ap_core: accelerometer id=4 x=3063 y=-60 z=2736
+I (17063) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (17203) SvcMgr: [manager.cpp:0321] (stop_internal) : Service manager stopped
+I (17203) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Display
+I (17213) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 4
+I (17213) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 3
+I (17213) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Display
+I (17223) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Display
+I (17223) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: SNTP
+I (17223) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: SNTP
+I (17223) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: SNTP
+I (17233) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Storage
+I (17233) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 2
+I (17233) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Storage
+I (17233) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Storage
+I (17243) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Usb
+I (17243) SvcUsb: [service_usb.cpp:1188] (on_deinit) : Deinitialized
+I (17243) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Usb
+I (17243) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Usb
+I (17253) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: DataFlow
+I (17253) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: DataFlow
+I (17253) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: DataFlow
+I (17253) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Utils
+I (17263) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Utils
+I (17263) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Utils
+I (17263) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Manager
+I (17263) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Manager
+I (17263) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Manager
+I (17273) SvcMgr: [manager.cpp:0887] (remove_all_registered_services) : All services removed
+I (17373) brookesia_system: SERVICE_CYCLE cycle=2 bind=ok before=192636 immediate=192636 settled=192636 tasks=7/7/7 heap_ok=1
+I (17373) SvcMgr: [manager.cpp:0093] (init_internal) : Version: 0.8.2
+I (17373) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Manager
+I (17383) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Manager
+I (17383) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Manager
+I (17383) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Utils
+I (17393) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Utils
+I (17393) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Utils
+I (17393) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: DataFlow
+I (17403) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: DataFlow
+I (17403) SvcMgr: [manager.cpp:0360] (add_service) : Service added: DataFlow
+I (17403) SvcMgr: [manager.cpp:0810] (topological_sort) : Service initialization order: 
+I (17403) SvcMgr: [manager.cpp:0812] (topological_sort) :   1. Usb
+I (17403) SvcMgr: [manager.cpp:0812] (topological_sort) :   2. Storage
+I (17413) SvcMgr: [manager.cpp:0812] (topological_sort) :   3. Wifi
+I (17413) SvcMgr: [manager.cpp:0812] (topological_sort) :   4. SNTP
+I (17413) SvcMgr: [manager.cpp:0812] (topological_sort) :   5. Display
+I (17413) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Usb
+I (17413) SvcUsb: [service_usb.cpp:1175] (on_init) : Version: 0.8.0
+I (17423) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Usb
+I (17423) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Usb
+I (17423) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Storage
+I (17423) SvcStorage: [service_storage.cpp:0789] (on_init) : Version: 0.8.3
+I (17433) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 3
+I (17433) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:NVS' with reference count 3
+I (17433) SvcStorage: [service_storage.cpp:0795] (on_init) : Using storage KV interface: TWatchUltra:NVS
+W (17483) SvcStorage: [service_storage.cpp:0815] (on_init) : Storage file-system HAL interface is not available
+I (17493) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Storage
+I (17493) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Storage
+I (17503) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Wifi
+I (17503) SvcWiFi: [service_wifi.cpp:0224] (on_init) : Version: 0.8.2
+E (17503) SvcWiFi: [service_wifi.cpp:0233] (on_init) : Wi-Fi basic HAL interface is not available
+E (17503) SvcMgr: [base.cpp:0997] (init_internal) : Failed to initialize service
+I (17503) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Wifi
+E (17503) SvcMgr: [manager.cpp:0344] (add_service) : Failed to initialize service
+E (17503) SvcMgr: [manager.cpp:0840] (add_all_registered_services) : Failed to add service: Wifi
+I (17513) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: SNTP
+I (17513) SvcSNTP: [service_sntp.cpp:0071] (on_init) : Version: 0.8.2
+I (17513) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: SNTP
+I (17523) SvcMgr: [manager.cpp:0360] (add_service) : Service added: SNTP
+I (17523) SvcMgr: [manager.cpp:0342] (add_service) : Initializing service: Display
+I (17523) SvcDisplay: [display_lifecycle.cpp:0023] (on_init) : Version: 0.8.2
+I (17523) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 4
+I (17523) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 4
+I (17533) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 5
+I (17533) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CST9220' with reference count 5
+I (17533) SvcDisplay: [display_lifecycle.cpp:0061] (on_init) : Registered display output Output0: 410x502, pixel_format=RGB565, panel=TWatchUltra:CO5300, group_id=t_watch_ultra_display
+I (17543) SvcDisplay: [display_lifecycle.cpp:0092] (on_init) : Registered display touch Touch0: 410x502, max_points=1, operation_mode=Polling, touch=TWatchUltra:CST9220, group_id=t_watch_ultra_display
+I (17543) SvcDisplay: [display_render_tasks.cpp:0171] (bind_default_touches_locked) : Bound display output Output0 to touch Touch0 by group_id(t_watch_ultra_display)
+W (17543) SvcDisplay: [display_lifecycle.cpp:0110] (on_init) : No HAL display backlight interface is available
+I (17543) HalIface: [device.cpp:0490] (acquire) : - [TWatchUltra] Reference count increased to 6
+I (17553) HalIface: [device.cpp:0155] (try_acquire_interface) : - [TWatchUltra] Acquired interface 'TWatchUltra:CO5300' with reference count 6
+I (17553) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 5
+I (17553) SvcDisplay: [display_lifecycle.cpp:0120] (on_init) : Registered Display DataFlow provider
+I (17573) SvcMgr: [base.cpp:1015] (init_internal) : Initialized service: Display
+I (17573) SvcMgr: [manager.cpp:0360] (add_service) : Service added: Display
+I (17573) SvcMgr: [manager.cpp:0844] (add_all_registered_services) : All services added
+I (17593) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Manager
+I (17593) SvcMgr: [manager.cpp:0542] (bind) : Service started: Manager
+I (17593) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Utils
+I (17603) SvcMgr: [manager.cpp:0542] (bind) : Service started: Utils
+I (17603) SvcMgr: [base.cpp:1131] (start_internal) : Started service: DataFlow
+I (17603) SvcMgr: [manager.cpp:0542] (bind) : Service started: DataFlow
+I (17613) SvcMgr: [manager.cpp:0259] (start) : Service manager started
+I (17613) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Storage
+I (17613) SvcMgr: [manager.cpp:0542] (bind) : Service started: Storage
+I (17623) SvcMgr: [base.cpp:1131] (start_internal) : Started service: Display
+I (17633) SvcMgr: [manager.cpp:0542] (bind) : Service started: Display
+W (17633) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+W (17633) SvcDisplay: [display_touch_tasks.cpp:0277] (read_touch) : Failed to read Display touch Touch0
+I (17643) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Display
+I (17643) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Display
+I (17643) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Storage
+I (17653) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Storage
+I (17653) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: DataFlow
+I (17653) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: DataFlow
+I (17653) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Utils
+I (17663) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Utils
+I (17663) SvcMgr: [base.cpp:1199] (stop_internal) : Stopped service: Manager
+I (17663) SvcMgr: [manager.cpp:0630] (unbind) : Service stopped: Manager
+I (17713) bhi260ap_core: accelerometer id=4 x=3063 y=-60 z=2736
+I (17713) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (18163) SvcMgr: [manager.cpp:0321] (stop_internal) : Service manager stopped
+I (18173) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Display
+I (18173) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 4
+I (18183) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 3
+I (18183) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Display
+I (18183) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Display
+I (18183) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: SNTP
+I (18193) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: SNTP
+I (18193) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: SNTP
+I (18193) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Storage
+I (18193) HalIface: [device.cpp:0511] (release) : - [TWatchUltra] Reference count decreased to 2
+I (18203) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Storage
+I (18203) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Storage
+I (18203) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Usb
+I (18203) SvcUsb: [service_usb.cpp:1188] (on_deinit) : Deinitialized
+I (18213) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Usb
+I (18213) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Usb
+I (18213) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: DataFlow
+I (18213) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: DataFlow
+I (18223) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: DataFlow
+I (18223) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Utils
+I (18223) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Utils
+I (18223) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Utils
+I (18233) SvcMgr: [manager.cpp:0420] (remove_service) : Deinitializing service: Manager
+I (18233) SvcMgr: [base.cpp:1066] (deinit_internal_locked) : Deinitialized service: Manager
+I (18233) SvcMgr: [manager.cpp:0430] (remove_service) : Service removed: Manager
+I (18233) SvcMgr: [manager.cpp:0887] (remove_all_registered_services) : All services removed
+I (18333) brookesia_system: SERVICE_CYCLE cycle=3 bind=ok before=192636 immediate=192536 settled=192536 tasks=7/7/7 heap_ok=1
+I (18343) twatch_board: RTC_READ ctrl1=00 time=17/58/44 date=15 wd=03/09/26 bcd_plausible=1
+I (18353) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (18353) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (18353) bhi260ap_core: accelerometer id=4 x=3063 y=-59 z=2736
+I (18353) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (18413) lvgl_app: LVGL ready display=410x502 buffer_lines=16
+I (18413) phase1: READY heap_integrity=ok main_wdt=subscribed timeout_s=10
+I (18523) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (18523) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (18523) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (18523) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (18533) phase2: battery_mv=4170
+I (18533) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=11 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (18533) phase1: HEALTH sample=0 internal_free=187908 internal_min=100768 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (19003) bhi260ap_core: accelerometer id=4 x=3063 y=-60 z=2736
+I (19003) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (19353) twatch_board: RTC_READ ctrl1=00 time=17/58/45 date=15 wd=03/09/26 bcd_plausible=1
+I (19363) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (19363) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (19423) lvgl_app: Diagnostics update RTC=17:58:45 battery=4170mV
+I (19643) bhi260ap_core: accelerometer id=4 x=3063 y=-60 z=2736
+I (19643) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (20293) bhi260ap_core: accelerometer id=4 x=3062 y=-60 z=2736
+I (20293) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (20363) twatch_board: RTC_READ ctrl1=00 time=17/58/46 date=15 wd=03/09/26 bcd_plausible=1
+I (20373) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (20373) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (20933) bhi260ap_core: accelerometer id=4 x=3063 y=-60 z=2737
+I (20933) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (21373) twatch_board: RTC_READ ctrl1=00 time=17/58/47 date=15 wd=03/09/26 bcd_plausible=1
+I (21383) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (21383) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (21583) bhi260ap_core: accelerometer id=4 x=3063 y=-60 z=2737
+I (21583) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (22223) bhi260ap_core: accelerometer id=4 x=3062 y=-60 z=2736
+I (22223) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (22383) twatch_board: RTC_READ ctrl1=00 time=17/58/48 date=15 wd=03/09/26 bcd_plausible=1
+I (22393) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (22393) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+W (22503) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (22873) bhi260ap_core: accelerometer id=4 x=3062 y=-61 z=2737
+I (22873) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (23393) twatch_board: RTC_READ ctrl1=00 time=17/58/49 date=15 wd=03/09/26 bcd_plausible=1
+I (23403) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (23403) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (23513) bhi260ap_core: accelerometer id=4 x=3061 y=-60 z=2736
+I (23513) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (23533) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (23533) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (23533) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (23533) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (23533) phase2: battery_mv=4170
+I (23533) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=11 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (23533) phase1: HEALTH sample=486 internal_free=187908 internal_min=100768 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (24163) bhi260ap_core: accelerometer id=4 x=3060 y=-60 z=2737
+I (24163) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (24403) twatch_board: RTC_READ ctrl1=00 time=17/58/50 date=15 wd=03/09/26 bcd_plausible=1
+I (24413) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (24413) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (24803) bhi260ap_core: accelerometer id=4 x=3060 y=-60 z=2736
+I (24813) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (25413) twatch_board: RTC_READ ctrl1=00 time=17/58/51 date=15 wd=03/09/26 bcd_plausible=1
+I (25423) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (25423) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (25453) bhi260ap_core: accelerometer id=4 x=3061 y=-61 z=2736
+I (25453) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (26093) bhi260ap_core: accelerometer id=4 x=3060 y=-61 z=2736
+I (26103) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (26443) twatch_board: RTC_READ ctrl1=00 time=17/58/52 date=15 wd=03/09/26 bcd_plausible=1
+I (26443) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (26453) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+W (26503) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (26743) bhi260ap_core: accelerometer id=4 x=3061 y=-61 z=2737
+I (26743) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (27383) bhi260ap_core: accelerometer id=4 x=3061 y=-63 z=2735
+I (27393) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (27453) twatch_board: RTC_READ ctrl1=00 time=17/58/53 date=15 wd=03/09/26 bcd_plausible=1
+I (27463) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (27463) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (28033) bhi260ap_core: accelerometer id=4 x=3061 y=-64 z=2735
+I (28033) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (28463) twatch_board: RTC_READ ctrl1=00 time=17/58/54 date=15 wd=03/09/26 bcd_plausible=1
+I (28473) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (28473) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (28543) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (28543) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (28543) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (28543) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (28543) phase2: battery_mv=4171
+I (28543) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=11 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (28543) phase1: HEALTH sample=972 internal_free=187908 internal_min=100768 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (28673) bhi260ap_core: accelerometer id=4 x=3062 y=-65 z=2736
+I (28683) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (29323) bhi260ap_core: accelerometer id=4 x=3061 y=-65 z=2735
+I (29323) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (29423) lvgl_app: Diagnostics update RTC=17:58:54 battery=4171mV
+I (29473) twatch_board: RTC_READ ctrl1=00 time=17/58/55 date=15 wd=03/09/26 bcd_plausible=1
+I (29483) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (29483) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (29963) bhi260ap_core: accelerometer id=4 x=3062 y=-65 z=2735
+I (29973) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (30483) twatch_board: RTC_READ ctrl1=00 time=17/58/56 date=15 wd=03/09/26 bcd_plausible=1
+I (30493) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (30493) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+W (30523) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (30613) bhi260ap_core: accelerometer id=4 x=3061 y=-65 z=2735
+I (30613) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (31253) bhi260ap_core: accelerometer id=4 x=3062 y=-65 z=2735
+I (31263) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (31493) twatch_board: RTC_READ ctrl1=00 time=17/58/57 date=15 wd=03/09/26 bcd_plausible=1
+I (31503) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (31503) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (31903) bhi260ap_core: accelerometer id=4 x=3062 y=-65 z=2735
+I (31903) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (32503) twatch_board: RTC_READ ctrl1=00 time=17/58/58 date=15 wd=03/09/26 bcd_plausible=1
+I (32513) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (32513) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (32553) bhi260ap_core: accelerometer id=4 x=3061 y=-67 z=2735
+I (32553) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (33193) bhi260ap_core: accelerometer id=4 x=3062 y=-65 z=2735
+I (33193) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (33513) twatch_board: RTC_READ ctrl1=00 time=17/58/59 date=15 wd=03/09/26 bcd_plausible=1
+I (33523) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (33523) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (33543) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (33543) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (33543) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (33543) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (33543) phase2: battery_mv=4170
+I (33543) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=11 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (33543) phase1: HEALTH sample=1462 internal_free=187908 internal_min=100768 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (33843) bhi260ap_core: accelerometer id=4 x=3062 y=-65 z=2735
+I (33843) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (34483) bhi260ap_core: accelerometer id=4 x=3061 y=-65 z=2735
+I (34483) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (34523) twatch_board: RTC_READ ctrl1=00 time=17/59/00 date=15 wd=03/09/26 bcd_plausible=1
+I (34533) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (34533) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+W (34543) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (35133) bhi260ap_core: accelerometer id=4 x=3062 y=-66 z=2734
+I (35133) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (35533) twatch_board: RTC_READ ctrl1=00 time=17/59/01 date=15 wd=03/09/26 bcd_plausible=1
+I (35543) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (35543) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (35773) bhi260ap_core: accelerometer id=4 x=3062 y=-66 z=2735
+I (35773) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (36423) bhi260ap_core: accelerometer id=4 x=3063 y=-67 z=2734
+I (36423) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (36543) twatch_board: RTC_READ ctrl1=00 time=17/59/02 date=15 wd=03/09/26 bcd_plausible=1
+I (36553) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (36553) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (37063) bhi260ap_core: accelerometer id=4 x=3062 y=-67 z=2735
+I (37063) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (37553) twatch_board: RTC_READ ctrl1=00 time=17/59/03 date=15 wd=03/09/26 bcd_plausible=1
+I (37563) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (37563) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (37713) bhi260ap_core: accelerometer id=4 x=3063 y=-68 z=2734
+I (37713) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (38353) bhi260ap_core: accelerometer id=4 x=3062 y=-68 z=2735
+I (38353) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+W (38533) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (38543) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (38543) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (38543) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (38543) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (38543) phase2: battery_mv=4169
+I (38543) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=11 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (38543) phase1: HEALTH sample=1953 internal_free=187908 internal_min=100768 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (38563) twatch_board: RTC_READ ctrl1=00 time=17/59/04 date=15 wd=03/09/26 bcd_plausible=1
+I (38573) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (38573) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (39003) bhi260ap_core: accelerometer id=4 x=3062 y=-68 z=2734
+I (39003) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (39433) lvgl_app: Diagnostics update RTC=17:59:04 battery=4170mV
+I (39573) twatch_board: RTC_READ ctrl1=00 time=17/59/05 date=15 wd=03/09/26 bcd_plausible=1
+I (39583) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (39583) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (39643) bhi260ap_core: accelerometer id=4 x=3062 y=-68 z=2734
+I (39643) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (40293) bhi260ap_core: accelerometer id=4 x=3063 y=-68 z=2734
+I (40293) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (40583) twatch_board: RTC_READ ctrl1=00 time=17/59/06 date=15 wd=03/09/26 bcd_plausible=1
+I (40593) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (40593) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (40933) bhi260ap_core: accelerometer id=4 x=3063 y=-69 z=2734
+I (40933) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (41583) bhi260ap_core: accelerometer id=4 x=3062 y=-68 z=2734
+I (41583) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (41593) twatch_board: RTC_READ ctrl1=00 time=17/59/07 date=15 wd=03/09/26 bcd_plausible=1
+I (41603) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (41603) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (42223) bhi260ap_core: accelerometer id=4 x=3062 y=-69 z=2734
+I (42223) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+W (42533) twatch_board: TOUCH_PACKET ack=0x06 raw=ff ff ff ff 07 00 06
+I (42603) twatch_board: RTC_READ ctrl1=00 time=17/59/08 date=15 wd=03/09/26 bcd_plausible=1
+I (42613) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (42613) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (42873) bhi260ap_core: accelerometer id=4 x=3062 y=-68 z=2734
+I (42873) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (43513) bhi260ap_core: accelerometer id=4 x=3062 y=-68 z=2734
+I (43513) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (43553) phase2: RAILS dcdc=19 dc1_raw=12 ldo=1f/00 aldo2_raw=1c dc1_on=1 dc1_valid=1 dc1_config_mv=3300 aldo2_on=1 aldo2_valid=1 aldo2_config_mv=3300
+I (43553) phase2: XL_CANDIDATE addr=20 out=ff/ff polarity=00/00 cfg=7f/fe P07_output=1 P07_latch=1 P10_output=1 P10_latch=1
+I (43553) phase2: BATTERY_RUN samples=0 span_ms=0 first_ms=0 last_ms=0 voltage_samples=0 min_mv=0 max_mv=0 charging_samples=0 active=0
+I (43553) phase2: PMU status=28/14 adc=ff usb=1 battery_present=1 charging=0 charger_state=4 irq=10/81/30 off_en=06
+I (43553) phase2: battery_mv=4170
+I (43553) phase1: BOOT_EVIDENCE app=0.5.6-row-aligned-flush idf=v6.0.2 reset_reason=11 flash_bytes=16777216 psram_bytes=8388608 psram_memtest_config=1 startup_checks=ok main_wdt=subscribed
+I (43553) phase1: HEALTH sample=2444 internal_free=187908 internal_min=100768 psram_free=8376024 stack_free_bytes=2640 heap_integrity=ok
+I (43613) twatch_board: RTC_READ ctrl1=00 time=17/59/09 date=15 wd=03/09/26 bcd_plausible=1
+I (43623) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (43623) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (44163) bhi260ap_core: accelerometer id=4 x=3062 y=-69 z=2734
+I (44163) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (44623) twatch_board: RTC_READ ctrl1=00 time=17/59/10 date=15 wd=03/09/26 bcd_plausible=1
+I (44633) twatch_board: BHI_PROBE candidate=0x28 present=1 identity=unverified
+I (44633) twatch_board: BHI_ID product=0x89 chip=0x70 expected_product=0x89
+I (44803) bhi260ap_core: accelerometer id=4 x=3062 y=-69 z=2735
+I (44803) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0
+I (45453) bhi260ap_core: accelerometer id=4 x=3062 y=-69 z=2735
+I (45453) bhi260ap_core: sensor fifo notifications=1 drains=1 status=0x00 result=0

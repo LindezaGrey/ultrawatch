@@ -113,3 +113,15 @@ control or flash is part of this preparation.
 
 Repeated-cycle diagnostic build passed on ESP-IDF 6.0.2; see
 2026-09-15-service-cycle-build.txt. Device measurements pending.
+
+Service-cycle device result (dcb12b0): flash verified; all three bindings pass.
+Internal heap before/immediate/settled: cycle1 222376/192636/192636;
+cycle2 192636/192636/192636; cycle3 192636/192536/192536. Task counts
+7/7/7 each cycle; heap integrity passes. The 100 ms observation did not recover
+the first-cycle 29,740 bytes. This large delta does not recur in these three
+cycles, consistent with first-use retention, but allocation ownership remains
+unproven. The additional 100 bytes in cycle3 are unresolved; no leak-free claim.
+Native LVGL starts and subsequent heap samples are stable at 187908 bytes.
+Evidence: docs/bringup/2026-09-15-service-cycles-serial.log.
+Visual/touch confirmation pending for this image. Next investigation: attribute
+retained allocations with heap tracing or JTAG before declaring cleanup complete.
