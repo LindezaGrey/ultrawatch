@@ -132,6 +132,18 @@ bool bhi260ap_core_get_accel(int16_t *x, int16_t *y, int16_t *z)
     return true;
 }
 
+esp_err_t bhi260ap_core_stop_accel(void)
+{
+    if (!initialized) return ESP_ERR_INVALID_STATE;
+    int8_t result = bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_ACC, 0.0f, 0, &device);
+    if (result != BHY2_OK) {
+        ESP_LOGE(TAG, "accelerometer stop failed result=%d", result);
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "accelerometer stream stopped id=%u ALDO4 unchanged", BHY2_SENSOR_ID_ACC);
+    return ESP_OK;
+}
+
 esp_err_t bhi260ap_core_start_irq_probe(void)
 {
     if (!initialized) return ESP_ERR_INVALID_STATE;
