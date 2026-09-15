@@ -46,9 +46,12 @@ static void diagnostics_sample_task(void *arg)
         if (xSemaphoreTake(diagnostics_snapshot_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             if (power_valid) diagnostics_snapshot.power = power;
             if (rtc_valid) diagnostics_snapshot.rtc = rtc;
-            diagnostics_snapshot.power_valid = power_valid;
-            diagnostics_snapshot.rtc_valid = rtc_valid;
+            if (power_valid) diagnostics_snapshot.power_valid = true;
+            if (rtc_valid) diagnostics_snapshot.rtc_valid = true;
             xSemaphoreGive(diagnostics_snapshot_mutex);
+        }
+        if (!power_valid || !rtc_valid) {
+            ESP_LOGW(TAG, "Diagnostics sample incomplete power=%u rtc=%u", power_valid, rtc_valid);
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
