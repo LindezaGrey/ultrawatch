@@ -156,3 +156,6 @@ Exact LilyGo evidence now supports the sensor rail sequence. The native port
 prepares ALDO4 at 1800 mV with a masked, readback-verified write before probing
 the sensor. This is build-tested and pending device validation; current draw
 and sensor firmware behavior remain unmeasured.
+Device validation of commit `6d93ea6` confirmed `ALDO4: on 1800mV` and
+`BHI260AP: ACK` in Diagnostics. This validates rail enable and bus presence;
+no BHI registers were configured and no Bosch firmware was uploaded.

@@ -118,16 +118,18 @@ uploading firmware in the native port.
 The native rail reader now also reads AXP2101 ALDO4 enable bit 3 at register
 `0x90` and its voltage code at `0x95`, using the pinned XPowersAXP2101
 definitions (`ALDO4` range 500–3500 mV, 100 mV steps). The change is strictly
-read-only and build-tested; device validation is pending the next flash.
+read-only and build-tested. Device validation on commit `6d93ea6` reports ALDO4
+enabled at 1800 mV.
 The new BHI preparation path follows LilyGo's documented sequence by setting
 ALDO4 to 1800 mV and enabling it, with masked writes and readback verification;
-this is the first native PMU write for the sensor rail and remains pending
-device validation.
+this is the first native PMU write for the sensor rail.
 
 The native diagnostics worker now performs a read-only ACK probe at BHI260AP
 address `0x28` once per second and reports `ACK` or `absent`. It does not read
 sensor registers, upload Bosch firmware, enable interrupts, or change PMU state.
 The probe is build-tested and awaits device validation.
+Device validation on commit `6d93ea6` reports `BHI_PROBE candidate=0x28
+present=1`; chip identity and firmware acceptance remain unverified.
 
 Ten controlled resets each reached the I2C scan in a 20-second capture, with
 the same three known errors and no new fault messages; the operator reports
