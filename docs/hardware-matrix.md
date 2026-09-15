@@ -430,3 +430,7 @@ Back latency device measurement on 4f776e5: four full-screen transitions
 complete 133–142 ms after click dispatch, including 27–28 ms HAL drawing,
 32 flushes and zero transfer failures each. No panic in these trials; earlier
 panic remains unresolved. See back-timing results and bring-up analysis.
+
+Back refresh profiling extended with public LVGL render/flush/wait event
+measurements. Board transport, alignment, buffer size and scheduling unchanged.
+Awaiting device phase samples; elapsed scopes do not isolate CPU/preemption.

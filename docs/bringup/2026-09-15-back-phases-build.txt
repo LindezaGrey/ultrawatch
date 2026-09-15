@@ -1,0 +1,7 @@
+Back refresh phase diagnostic: build-tested only, not flashed
+Pinned ESP-IDF 6.0.2 idf.py build: exit 0
+Source review: LVGL9.4 single-buffer PARTIAL flush-wait scopes are within render events; flush and wait scopes do not overlap
+Expected markers: BACK_TIMING and BACK_PHASES after Diagnostics -> Back
+No device phase timings, CPU/preemption attribution or speedup claimed.
+build/twatch_ultra_phase1.elf: bytes=170612412 sha256=cd323c472e74ece0c6e3c1dc542669785ca033c48d608074ed2f02d20b467a9e
+build/twatch_ultra_phase1.bin: bytes=2421360 sha256=50423c8e60fcf8f956612d997d91c2334febf1ed566b033c8b57b3dfc3c0194a

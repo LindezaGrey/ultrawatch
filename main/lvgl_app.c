@@ -40,6 +40,16 @@ typedef struct {
     int64_t refresh_us;
     int64_t draw_us;
     int64_t max_draw_us;
+    int64_t render_start_us;
+    int64_t render_end_us;
+    int64_t flush_start_us;
+    int64_t flush_wall_us;
+    int64_t flush_wait_start_us;
+    int64_t flush_wait_us;
+    int64_t adapter_pre_us;
+    int64_t draw_end_us;
+    int64_t adapter_post_us;
+    uint32_t wait_calls;
     uint32_t flushes;
     uint32_t pixels;
     uint32_t failures;
@@ -59,6 +69,21 @@ static void back_refresh_cb(lv_event_t *event)
     const int64_t now_us = esp_timer_get_time();
     if (lv_event_get_code(event) == LV_EVENT_REFR_START) {
         if (!back_timing.refresh_us) back_timing.refresh_us = now_us;
+    } else if (lv_event_get_code(event) == LV_EVENT_RENDER_START) {
+        back_timing.render_start_us = now_us;
+    } else if (lv_event_get_code(event) == LV_EVENT_RENDER_READY) {
+        back_timing.render_end_us = now_us;
+    } else if (lv_event_get_code(event) == LV_EVENT_FLUSH_START) {
+        back_timing.flush_start_us = now_us;
+        back_timing.draw_end_us = 0;
+    } else if (lv_event_get_code(event) == LV_EVENT_FLUSH_FINISH) {
+        back_timing.flush_wall_us += now_us - back_timing.flush_start_us;
+        if (back_timing.draw_end_us) back_timing.adapter_post_us += now_us - back_timing.draw_end_us;
+    } else if (lv_event_get_code(event) == LV_EVENT_FLUSH_WAIT_START) {
+        back_timing.flush_wait_start_us = now_us;
+        ++back_timing.wait_calls;
+    } else if (lv_event_get_code(event) == LV_EVENT_FLUSH_WAIT_FINISH) {
+        back_timing.flush_wait_us += now_us - back_timing.flush_wait_start_us;
     } else if (lv_event_get_code(event) == LV_EVENT_REFR_READY && back_timing.flushes) {
         /* Synchronous HAL transfers have completed before REFR_READY. This
          * does not measure the AMOLED scanout or time before input dispatch. */
@@ -73,6 +98,15 @@ static void back_refresh_cb(lv_event_t *event)
                  now_us - back_timing.refresh_us, back_timing.draw_us, back_timing.max_draw_us,
                  now_us - back_timing.clicked_us, back_timing.flushes, back_timing.pixels,
                  back_timing.failures);
+        const int64_t render_wall_us = back_timing.render_end_us - back_timing.render_start_us;
+        ESP_LOGI(TAG, "BACK_PHASES pre_render_us=%" PRId64 " render_wall_us=%" PRId64
+                 " render_other_us=%" PRId64 " flush_wall_us=%" PRId64
+                 " adapter_pre_us=%" PRId64 " adapter_post_us=%" PRId64
+                 " flush_wait_us=%" PRId64 " wait_calls=%" PRIu32 " post_render_us=%" PRId64,
+                 back_timing.render_start_us - back_timing.refresh_us, render_wall_us,
+                 render_wall_us - back_timing.flush_wall_us - back_timing.flush_wait_us,
+                 back_timing.flush_wall_us, back_timing.adapter_pre_us, back_timing.adapter_post_us,
+                 back_timing.flush_wait_us, back_timing.wait_calls, now_us - back_timing.render_end_us);
     }
 }
 
@@ -166,9 +200,11 @@ static esp_err_t adapter_draw_cb(lv_display_t *display_handle, esp_lcd_panel_han
     (void)panel;
     (void)ctx;
     const int64_t draw_start_us = back_timing.active ? esp_timer_get_time() : 0;
+    if (back_timing.active) back_timing.adapter_pre_us += draw_start_us - back_timing.flush_start_us;
     const bool drawn = twatch_brookesia_bridge_draw(x1, y1, x2, y2, pixels);
     if (back_timing.active) {
-        const int64_t elapsed_us = esp_timer_get_time() - draw_start_us;
+        back_timing.draw_end_us = esp_timer_get_time();
+        const int64_t elapsed_us = back_timing.draw_end_us - draw_start_us;
         back_timing.draw_us += elapsed_us;
         if (elapsed_us > back_timing.max_draw_us) back_timing.max_draw_us = elapsed_us;
         ++back_timing.flushes;
@@ -362,6 +398,12 @@ esp_err_t lvgl_app_init(void)
     lv_display_add_event_cb(display, rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
     lv_display_add_event_cb(display, back_refresh_cb, LV_EVENT_REFR_START, NULL);
     lv_display_add_event_cb(display, back_refresh_cb, LV_EVENT_REFR_READY, NULL);
+    lv_display_add_event_cb(display, back_refresh_cb, LV_EVENT_RENDER_START, NULL);
+    lv_display_add_event_cb(display, back_refresh_cb, LV_EVENT_RENDER_READY, NULL);
+    lv_display_add_event_cb(display, back_refresh_cb, LV_EVENT_FLUSH_START, NULL);
+    lv_display_add_event_cb(display, back_refresh_cb, LV_EVENT_FLUSH_FINISH, NULL);
+    lv_display_add_event_cb(display, back_refresh_cb, LV_EVENT_FLUSH_WAIT_START, NULL);
+    lv_display_add_event_cb(display, back_refresh_cb, LV_EVENT_FLUSH_WAIT_FINISH, NULL);
     touch_input = lv_indev_create();
     if (touch_input == NULL) return ESP_ERR_NO_MEM;
     lv_indev_set_type(touch_input, LV_INDEV_TYPE_POINTER);

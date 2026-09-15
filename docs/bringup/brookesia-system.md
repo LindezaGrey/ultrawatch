@@ -352,3 +352,33 @@ completion but does not explicitly rate perceived latency in the reply.
 Evidence: 2026-09-15-back-timing-{flash.log,serial.log,results.json}. Serial
 logger stopped after the test (exit 143); watch left running. Next: profile the
 non-HAL part of full-screen refresh before changing buffers or display timings.
+
+## Back refresh phase instrumentation
+
+Extend the existing timing diagnostic with LVGL9 public display events; no
+upstream patch or hardware-setting change. BACK_PHASES follows BACK_TIMING:
+pre_render_us measures refresh start through layout/invalidation processing to
+render start; render_wall_us spans rendering AND flushes; flush_wall_us sums
+FLUSH_START/FINISH; adapter_pre_us measures flush start to custom HAL callback
+entry (including packing/swapping); adapter_post_us measures HAL return to flush
+finish (including completion/counter overhead); flush_wait_us and wait_calls
+measure LVGL's flush-wait scopes; post_render_us measures render end to refresh
+ready. render_other_us subtracts flush and flush-wait scopes from render wall
+time. In the selected single-buffer partial synchronous path these scopes are
+within rendering and nonoverlapping. Recheck that assumption if modes change.
+
+Sources: pinned LVGL9.4.0 lv_refr.c refr_invalid_areas, call_flush_cb,
+wait_for_flushing and refresh timer; adapter0.6.4 OTHER default flush. Public
+render events enclose transfers, so render_wall_us must not be called pure
+rendering time. All values include preemption, callback overhead and any internal
+draw-task wait not exposed as a flush wait. No scheduler instrumentation is
+added; CPU work versus preemption is still unseparated. Two aggregate logs are
+emitted after completion, never per transfer. Only task-owned counters are added.
+
+After authorized flash, repeat the same Diagnostics/touch/Back trials. Check
+zero failures and nonnegative components, then compare phase sums with total
+refresh time. Identify dominant scopes before optimizing. Prior latency results
+remain baseline evidence, not validation of this new diagnostic image.
+
+Back phase build passed; see 2026-09-15-back-phases-build.txt. Exact ELF and
+binary preserved locally in .cache/firmware/back-phases. No flash performed.
