@@ -469,3 +469,9 @@ Extended d08530f capture: main priority 1 PMU reg0 read succeeded after
 76.932 ms once; no timeout/panic during three minutes. Duration includes wait,
 transfer and preemption. Prepared exact-ELF JTAG semaphore-failure trap, not
 yet executed; delaying task remains unknown. See extended I2C bring-up notes.
+
+JTAG on d08530f caught main PMU read failing the bus semaphore take while
+lvgl waited inside s_i2c_send_commands for an I2C transaction event. Other
+sampling tasks were idle at the snapshot. Exact active address and full LVGL
+caller remain to be captured. Debugger left cores halted after initial detach;
+manual breakpoint-state clearing/resume restored serial health. Firmware unchanged.

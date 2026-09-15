@@ -1,0 +1,96 @@
+0x40000400 in ?? ()
+Hardware assisted breakpoint 1 at 0x4216d37c: file /home/peter/esp/esp-idf/components/esp_driver_i2c/i2c_master.c, line 1010.
+[esp32s3.cpu0] Target halted, PC=0x4216D37C, debug_reason=00000001
+Set GDB target to 'esp32s3.cpu0'
+[esp32s3.cpu1] Target halted, PC=0x4037C9E6, debug_reason=00000000
+[New Thread 1070314220]
+[Remote target exited]
+[New Thread 1070316196]
+[New Thread 1070318172]
+[New Thread 1070508052]
+[New Thread 1070519012]
+[New Thread 1070525448]
+[New Thread 1070303072]
+[New Thread 1070291516]
+[New Thread 1070290052]
+[Switching to Thread 1070314220]
+I2C_LOCK_TIMEOUT breakpoint: semaphore acquisition failed
+pc             0x4216d37c          0x4216d37c <s_i2c_synchronous_transaction+168>
+#0  0x4216d37c in s_i2c_synchronous_transaction (i2c_dev=0x3c2522a4, i2c_ops=0x3fcbac6c, ops_dim=6, timeout_ms=100) at /home/peter/esp/esp-idf/components/esp_driver_i2c/i2c_master.c:1010
+#1  0x4216e172 in i2c_master_transmit_receive (i2c_dev=0x3c2522a4, write_buffer=0x3fcbad3b "", write_size=1, read_buffer=<optimized out>, read_size=1, xfer_timeout_ms=100) at /home/peter/esp/esp-idf/components/esp_driver_i2c/i2c_master.c:1327
+#2  0x42128a8d in read_device_regs (device=0x3c2522a4, reg=0 '\000', data=0x3fcbada8 "", count=2) at /home/peter/SynologyDrive/Projekte/Brookesia/components/twatch_board/twatch_board.c:62
+#3  0x42128b8c in read_regs (reg=0 '\000', data=0x3fcbada8 "", count=2) at /home/peter/SynologyDrive/Projekte/Brookesia/components/twatch_board/twatch_board.c:85
+#4  0x421291c2 in twatch_board_read_power (snapshot=0x3fcbae72) at /home/peter/SynologyDrive/Projekte/Brookesia/components/twatch_board/twatch_board.c:172
+#5  0x42071c98 in app_main () at /home/peter/SynologyDrive/Projekte/Brookesia/main/main.c:152
+#6  0x4200824e in main_task (args=0x0) at /home/peter/esp/esp-idf/components/freertos/app_startup.c:206
+#7  0x421705e9 in vPortTaskWrapper (pxCode=0x420081c4 <main_task>, pvParameters=0x0) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:147
+  Id   Target Id                                                     Frame 
+* 2    Thread 1070314220 "main" (Name: main, State: Running @CPU0)   0x4216d37c in s_i2c_synchronous_transaction (i2c_dev=0x3c2522a4, i2c_ops=0x3fcbac6c, ops_dim=6, timeout_ms=100) at /home/peter/esp/esp-idf/components/esp_driver_i2c/i2c_master.c:1010
+  3    Thread 1070316196 "IDLE0" (Name: IDLE0)                       0x4037c9e6 in esp_cpu_wait_for_intr () at /home/peter/esp/esp-idf/components/esp_hw_support/cpu.c:64
+  4    Thread 1070318172 "IDLE1" (Name: IDLE1, State: Running @CPU1) 0x4037c9e6 in esp_cpu_wait_for_intr () at /home/peter/esp/esp-idf/components/esp_hw_support/cpu.c:64
+  5    Thread 1070508052 "bhi_irq" (Name: bhi_irq)                   0x400559e0 in ?? ()
+  6    Thread 1070519012 "diag_sample" (Name: diag_sample)           vTaskDelay (xTicksToDelay=100) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/tasks.c:1615
+  7    Thread 1070525448 "lvgl" (Name: lvgl)                         0x400559e0 in ?? ()
+  8    Thread 1070303072 "esp_timer" (Name: esp_timer)               0x400559e0 in ?? ()
+  9    Thread 1070291516 "ipc1" (Name: ipc1)                         0x400559e0 in ?? ()
+  10   Thread 1070290052 "ipc0" (Name: ipc0)                         0x400559e0 in ?? ()
+
+Thread 10 (Thread 1070290052 "ipc0" (Name: ipc0)):
+#0  0x400559e0 in ?? ()
+#1  0x40380405 in vPortClearInterruptMaskFromISR (prev_level=<optimized out>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h:547
+#2  vPortExitCritical (mux=0x3fc97498 <xKernelLock>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:528
+#3  0x421720b2 in ulTaskGenericNotifyTake (uxIndexToWait=0, xClearCountOnExit=1, xTicksToWait=<optimized out>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/tasks.c:5768
+#4  0x403758a9 in ipc_task (arg=0x0) at /home/peter/esp/esp-idf/components/esp_system/esp_ipc.c:62
+
+Thread 9 (Thread 1070291516 "ipc1" (Name: ipc1)):
+#0  0x400559e0 in ?? ()
+#1  0x40380405 in vPortClearInterruptMaskFromISR (prev_level=<optimized out>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h:547
+#2  vPortExitCritical (mux=0x3fc97498 <xKernelLock>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:528
+#3  0x421720b2 in ulTaskGenericNotifyTake (uxIndexToWait=0, xClearCountOnExit=1, xTicksToWait=<optimized out>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/tasks.c:5768
+#4  0x403758a9 in ipc_task (arg=0x1) at /home/peter/esp/esp-idf/components/esp_system/esp_ipc.c:62
+
+Thread 8 (Thread 1070303072 "esp_timer" (Name: esp_timer)):
+#0  0x400559e0 in ?? ()
+#1  0x40380405 in vPortClearInterruptMaskFromISR (prev_level=<optimized out>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h:547
+#2  vPortExitCritical (mux=0x3fc97498 <xKernelLock>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:528
+#3  0x421720b2 in ulTaskGenericNotifyTake (uxIndexToWait=0, xClearCountOnExit=1, xTicksToWait=<optimized out>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/tasks.c:5768
+#4  0x4212cebf in timer_task (arg=0x0) at /home/peter/esp/esp-idf/components/esp_timer/src/esp_timer.c:461
+
+Thread 7 (Thread 1070525448 "lvgl" (Name: lvgl)):
+#0  0x400559e0 in ?? ()
+#1  0x40380405 in vPortClearInterruptMaskFromISR (prev_level=<optimized out>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h:547
+#2  vPortExitCritical (mux=0x3c252278) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:528
+#3  0x42170dcc in xQueueReceive (xQueue=0x3c25222c, pvBuffer=0x3fccc228, xTicksToWait=<optimized out>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/queue.c:1632
+#4  0x4216d014 in s_i2c_send_commands (i2c_master=0x3c251e20, ticks_to_wait=10) at /home/peter/esp/esp-idf/components/esp_driver_i2c/i2c_master.c:582
+
+Thread 6 (Thread 1070519012 "diag_sample" (Name: diag_sample)):
+#0  vTaskDelay (xTicksToDelay=100) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/tasks.c:1615
+#1  0x42072b75 in diagnostics_sample_task (arg=<optimized out>) at /home/peter/SynologyDrive/Projekte/Brookesia/main/lvgl_app.c:169
+#2  0x421705e9 in vPortTaskWrapper (pxCode=0x42072984 <diagnostics_sample_task>, pvParameters=0x0) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:147
+
+Thread 5 (Thread 1070508052 "bhi_irq" (Name: bhi_irq)):
+#0  0x400559e0 in ?? ()
+#1  0x40380405 in vPortClearInterruptMaskFromISR (prev_level=<optimized out>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/include/freertos/portmacro.h:547
+#2  vPortExitCritical (mux=0x3fc97498 <xKernelLock>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:528
+#3  0x421720b2 in ulTaskGenericNotifyTake (uxIndexToWait=0, xClearCountOnExit=1, xTicksToWait=<optimized out>) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/tasks.c:5768
+#4  0x4212751c in bhi_irq_task (arg=0x0) at /home/peter/SynologyDrive/Projekte/Brookesia/components/bhi260ap_core/bhi260ap_core.c:101
+
+Thread 4 (Thread 1070318172 "IDLE1" (Name: IDLE1, State: Running @CPU1)):
+#0  0x4037c9e6 in esp_cpu_wait_for_intr () at /home/peter/esp/esp-idf/components/esp_hw_support/cpu.c:64
+#1  0x4216febd in esp_vApplicationIdleHook () at /home/peter/esp/esp-idf/components/esp_system/freertos_hooks.c:58
+#2  0x421711d1 in prvIdleTask (pvParameters=0x0) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/tasks.c:4350
+#3  0x421705e9 in vPortTaskWrapper (pxCode=0x421711c8 <prvIdleTask>, pvParameters=0x0) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:147
+
+Thread 3 (Thread 1070316196 "IDLE0" (Name: IDLE0)):
+#0  0x4037c9e6 in esp_cpu_wait_for_intr () at /home/peter/esp/esp-idf/components/esp_hw_support/cpu.c:64
+#1  0x4216febd in esp_vApplicationIdleHook () at /home/peter/esp/esp-idf/components/esp_system/freertos_hooks.c:58
+#2  0x421711d1 in prvIdleTask (pvParameters=0x0) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/tasks.c:4350
+#3  0x421705e9 in vPortTaskWrapper (pxCode=0x421711c8 <prvIdleTask>, pvParameters=0x0) at /home/peter/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c:147
+
+Thread 2 (Thread 1070314220 "main" (Name: main, State: Running @CPU0)):
+#0  0x4216d37c in s_i2c_synchronous_transaction (i2c_dev=0x3c2522a4, i2c_ops=0x3fcbac6c, ops_dim=6, timeout_ms=100) at /home/peter/esp/esp-idf/components/esp_driver_i2c/i2c_master.c:1010
+#1  0x4216e172 in i2c_master_transmit_receive (i2c_dev=0x3c2522a4, write_buffer=0x3fcbad3b "", write_size=1, read_buffer=<optimized out>, read_size=1, xfer_timeout_ms=100) at /home/peter/esp/esp-idf/components/esp_driver_i2c/i2c_master.c:1327
+#2  0x42128a8d in read_device_regs (device=0x3c2522a4, reg=0 '\000', data=0x3fcbada8 "", count=2) at /home/peter/SynologyDrive/Projekte/Brookesia/components/twatch_board/twatch_board.c:62
+#3  0x42128b8c in read_regs (reg=0 '\000', data=0x3fcbada8 "", count=2) at /home/peter/SynologyDrive/Projekte/Brookesia/components/twatch_board/twatch_board.c:85
+#4  0x421291c2 in twatch_board_read_power (snapshot=0x3fcbae72) at /home/peter/SynologyDrive/Projekte/Brookesia/components/twatch_board/twatch_board.c:172
+[Inferior 1 (Remote target) detached]

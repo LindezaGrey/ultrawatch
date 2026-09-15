@@ -546,3 +546,34 @@ A host negative test with the wrong preserved ELF rejects before connection;
 see 2026-09-15-i2c-gdb-guard-test.log. This is not device-tested and cannot verify
 the flashed image automatically. Next useful step is a controlled JTAG capture,
 not another timing/priority patch. Actual delaying task remains unverified.
+
+## First live JTAG semaphore failure capture
+
+On unchanged d08530f, matching-ELF hardware breakpoint hit 0x4216d37c. Main was
+returning a failed 100 ms semaphore take via read_device_regs(PMU reg0) ->
+twatch_board_read_power -> app_main. At the halt, lvgl was in xQueueReceive ->
+s_i2c_send_commands (line582), waiting for a transaction event while inside the
+I2C transfer. diag_sample was in vTaskDelay, bhi_irq waiting for notification,
+and CPU1 in idle. This identifies the LVGL task as the active I2C transfer path
+at the timeout snapshot, not proof of who held the semaphore during the entire
+100 ms interval. It does not support a simple all-CPU-busy explanation. Five
+frames were insufficient to show the exact LVGL caller or current bus address;
+the next script captures 16 frames and active/caller addresses plus bus status.
+See 2026-09-15-i2c-lock-jtag.log. No firmware change or flash.
+
+Debugger cleanup issue: after the original script disabled breakpoints and
+detached, a 25 s serial capture was empty and the operator reported a crash.
+A new OpenOCD session found both cores halted at the diagnostic breakpoint PC.
+Its breakpoint list was empty (new server bookkeeping), so hardware state was
+cleared explicitly with reg ibreakenable 0 on both cores and resume on CPU0.
+Both targets then reported running. OpenOCD was shut down and serial confirmed
+continued heap/adapter/sensor execution through uptime 234.771 s, with
+internal_free=178960 and heap_integrity=ok. The debugger attach had caused the
+documented reset (serial reset_reason=3); no new panic appears in the resumed
+capture. This apparent crash was a debugger halt, not an established firmware
+panic. The script now deletes breakpoints and explicitly requests monitor resume
+before detach. Revised automatic cleanup is not yet device-tested; manual
+cleanup and serial recovery were tested. Always verify execution after detach.
+
+Next inspect the full LVGL I2C stack, active transfer address/status and event
+wait before choosing a bus/driver change. No timeout, priority or PMU changes.

@@ -1,0 +1,34 @@
+Open On-Chip Debugger v0.12.0-esp32-20260424 (2026-04-24-15:13)
+Licensed under GNU GPL v2
+For bug reports, read
+	http://openocd.org/doc/doxygen/bugs.html
+Info : esp_usb_jtag: VID set to 0x303a and PID to 0x1001
+Info : esp_usb_jtag: capabilities descriptor set to 0x2000
+Info : esp_usb_jtag: serial ([REDACTED_DEVICE_ID])
+Info : esp_usb_jtag: Device found. Base speed 40000KHz, div range 1 to 255
+Info : clock speed 40000 kHz
+Info : JTAG tap: esp32s3.tap0 tap/device found: 0x120034e5 (mfg: 0x272 (Tensilica), part: 0x2003, ver: 0x1)
+Info : JTAG tap: esp32s3.tap1 tap/device found: 0x120034e5 (mfg: 0x272 (Tensilica), part: 0x2003, ver: 0x1)
+Info : [esp32s3.cpu0] Examination succeed
+Info : [esp32s3.cpu1] Examination succeed
+Info : [esp32s3.cpu0] starting gdb server on 3333
+Info : Listening on port 3333 for gdb connections
+    TargetName         Type       Endian TapName            State       
+--  ------------------ ---------- ------ ------------------ ------------
+ 0* esp32s3.cpu0       esp32s3    little esp32s3.tap0       running
+ 1  esp32s3.cpu1       esp32s3    little esp32s3.tap1       running
+Info : Listening on port 6666 for tcl connections
+Info : Listening on port 4444 for telnet connections
+Info : [esp32s3.cpu0] Target halted, PC=0x4216D37C, debug_reason=00000001
+Info : [esp32s3.cpu0] Reset cause (3) - (Software core reset)
+Info : Set GDB target to 'esp32s3.cpu0'
+Info : [esp32s3.cpu1] Target halted, PC=0x4037C9E6, debug_reason=00000000
+Info : [esp32s3.cpu1] Reset cause (3) - (Software core reset)
+Info : [esp32s3.cpu1] Chip revision v0.2
+Info : accepting 'telnet' connection on tcp/4444
+Info : dropped 'telnet' connection
+Info : accepting 'telnet' connection on tcp/4444
+Info : dropped 'telnet' connection
+Info : accepting 'telnet' connection on tcp/4444
+shutdown command invoked
+Info : dropped 'telnet' connection

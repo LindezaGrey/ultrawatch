@@ -88,3 +88,20 @@ but the binary semaphore does not record a mutex owner, so do not assume a
 single snapshot proves who held it throughout the wait.
 
 Prepared and disassembly-reviewed only; this script has not yet run on-device.
+
+### Cleanup correction from live capture
+
+The first live timeout trap captured main blocked behind an LVGL I2C event wait.
+Disabling breakpoints then detaching was insufficient: the watch subsequently
+remained halted at the diagnostic PC with no serial output. A fresh server had
+no breakpoint bookkeeping but both cores were halted. Recovery, with both cores
+halted, used `targets esp32s3.cpu0; reg ibreakenable 0`, then the same for cpu1,
+then `targets esp32s3.cpu0; resume`. This intentionally clears all hardware
+instruction-breakpoint enables; do this only when this diagnostic session owns
+the debugger. Verify both targets running, stop OpenOCD, and confirm serial
+health. No firmware reset or flash was needed for this recovery.
+
+The script now deletes breakpoints, issues monitor resume, then detaches. It
+also records 16 stack frames and bus/requester address/status. This revised
+script is prepared, not yet live-validated. Treat missing serial output after
+cleanup as a possible debugger halt before diagnosing a firmware crash.

@@ -25,11 +25,17 @@ commands
 silent
 printf "I2C_LOCK_TIMEOUT breakpoint: semaphore acquisition failed\n"
 info registers pc
-bt 8
+bt 12
+printf "Failed caller address and active bus transfer address/status:\n"
+p/x i2c_dev->device_address
+p/x i2c_dev->master_bus->i2c_trans.device_address
+p i2c_dev->master_bus->status
 info threads
-thread apply all bt 5
-# Resume by detaching after the first capture; never leave a caught task halted.
-disable breakpoints
+thread apply all bt 16
+# Delete (not merely disable) debugger breakpoints and explicitly resume.
+# Still verify running state/serial after detach; cleanup failures are visible.
+delete breakpoints
+monitor resume
 detach
 set logging enabled off
 quit
