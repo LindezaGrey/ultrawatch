@@ -507,3 +507,21 @@ I2C contention diagnostic build passed. See 2026-09-15-i2c-contention-build.txt;
 matching ELF/binary cached under .cache/firmware/i2c-contention. No device control
 or flash in this investigation. After authorization, capture I2C_READ during
 repeated navigation and idle operation; retain the nonfatal telemetry behavior.
+
+## I2C caller diagnostic device result (d08530f)
+
+Flash verified, startup clean; operator repeated Diagnostics/touch/Back and
+reports "looks fine, no crash". Capture through uptime 98.661 s contains no
+I2C_READ slow/error marker, TELEMETRY_READ failure, or panic. Recent internal
+heap remains 178960 with integrity checks passing; minimum observed adapter
+stack margin 3812 bytes, main 2488 bytes. Logger stopped after test (exit 143),
+watch left running on d08530f. Evidence:
+2026-09-15-i2c-contention-{flash.log,serial.log}.
+
+Device-tested: ordinary navigation and idle operation with instrumentation.
+Not device-tested in this run: new error/slow-read logging path, because no
+qualifying read occurred. Contention cause/delaying owner remain unverified;
+no-failure capture does not establish a bus fix. Nonfatal telemetry handling
+remains enabled and was separately exercised on the previous image. Retain this
+build for a longer natural capture or JTAG investigation on recurrence; no
+speculative hardware or priority changes justified by this run.

@@ -459,3 +459,8 @@ I2C0 bus semaphore acquisition timeouts, before that caller starts its transfer.
 Delaying owner/activity remains unverified. Startup 0x108 PMU failure is separate.
 Prepared I2C_READ task/priority/duration diagnostics and corrected non-PMU address
 labels; no bus timing, rail, priority or scheduling changes. See bring-up audit.
+
+I2C diagnostic d08530f flashed; user confirmed clean navigation/no crash.
+Capture through 98.661 s had no slow/read-error event, stable recent heap and
+healthy stack margins. Contention did not reproduce; holder/cause still open.
+See 2026-09-15-i2c-contention-serial.log and device notes.
