@@ -1,0 +1,20 @@
+Device-service deployment result
+================================
+
+Firmware commit: 10534e8
+Target: LilyGO T-Watch Ultra V1.0 / SX1262
+Port: /dev/ttyACM0
+
+The authorized flash completed and esptool verified bootloader, partition
+table, and application hashes. A raw serial capture with RTS/DTR disabled
+avoided the monitor reset race. It showed:
+
+* `SvcStorage`: NVS and SPIFFS interfaces acquired and initialized.
+* `SvcDisplay`: 410x502 CO5300 output and CST9220 touch registered.
+* `SvcDevice`: version 0.8.2 initialized.
+* Service manager: `All services added`.
+
+The Wi-Fi service reports its absent HAL and is skipped as expected. This is
+device-tested evidence that Device service registration now works. The capture
+ended during service cleanup/transition; System Super's final visual state and
+long-duration stability still require operator confirmation.

@@ -63,6 +63,14 @@ board interfaces or peripheral behavior change. The build passed with
 `brookesia_service_device` 0.8.2 resolved from the local vendor tree. Physical
 System Super startup and fallback validation remain pending.
 
+Device capture result (10534e8): after reset, the service graph initialized
+Storage, Display, and Device and logged `All services added`; Device logged
+`Version: 0.8.2` and `Initialized`. This confirms the manifest registration gap
+is fixed. Wi-Fi still reports its expected absent HAL and is skipped. The raw
+capture was taken with RTS/DTR disabled to avoid the USB reset/re-enumeration
+race. Full System Super visual confirmation and a longer no-reboot run remain
+pending.
+
 ## System Super enablement preparation
 
 With the filesystem gate passed, `BROOKESIA_SYSTEM_RUNTIME` is enabled. The
