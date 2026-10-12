@@ -274,16 +274,30 @@ Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
 
 ## Low
 
-- `[pending]` **`sx1262.c` — `s_rx_active` (`:76`) and `s_recv_task` (`:88`)
+- `[done]` **`sx1262.c` — `s_rx_active` (`:76`) and `s_recv_task` (`:88`)
   have no protection.** Currently benign: only `mesh_log`'s task calls the RX
   API, and `s_recv_task` is already documented as a deliberate single-pointer
   atomic (`:79-88`). Worth a comment on `s_rx_active` recording that it is
   single-task by design, so nobody adds a second caller.
-- `[pending]` **`gpx_log.c` — `s_path` (`:41`)** is written from the UI/dbg task
+  **Fixed (12. Oct):** `s_rx_active` now carries that same single-owner note.
+- `[done]` **`gpx_log.c` — `s_path` (`:41`)** is written from the UI/dbg task
   and read by the track task; a path swap mid-write can produce a torn filename.
-- `[pending]` **`ble_scan.c` / `wifi_scan.c`** control tasks poll on a 200 ms
+  **Fixed (12. Oct):** `s_mux` now guards every access to the start/stop state,
+  and the track task copies the path into its own local buffer under that lock
+  before opening the file, so no SD I/O happens inside the critical section.
+  `gpx_log_stop()` reports the path through a caller-owned buffer
+  (`gpx_log_current_path()`) instead of returning a pointer into `s_path`.
+  `s_claimed` rejects a second `gpx_log_start()` while a track task still owns
+  the old path, which is what made the stale-path window reachable at all.
+- `[done]` **`ble_scan.c` / `wifi_scan.c`** control tasks poll on a 200 ms
   `vTaskDelay` loop even when the radio is off; a notification with timeout
   avoids the wakeups.
+  **Fixed (12. Oct):** both idle waits are now binary-semaphore takes with the
+  previous timeout kept as a safety net, and `set_enabled()` gives the semaphore
+  so an enable is acted on immediately instead of up to 200/500 ms later.
+  `ble_scan.c` also gives it from the NimBLE `BLE_GAP_EVENT_DISC_COMPLETE`
+  handler, which removes the second 200 ms poll loop that used to run for the
+  whole duration of every scan.
 
 ## Verified clean (checked, not raised)
 
@@ -389,9 +403,14 @@ error by rate alone.
 - `[pending]` **`CAP_SEL` is never configured.** `CTRL1=0x00` leaves the POR
   7 pF load capacitance. If the crystal needs a different value the resulting
   ppm error is systematic and eats into the ±273 ppm trim budget.
-- `[pending]` **`pcf85063a_set_time()` writes the time registers without setting
+- `[done]` **`pcf85063a_set_time()` writes the time registers without setting
   `CTRL1_STOP` first**, which the datasheet recommends against; a time write
   while running can produce an intermediate state.
+  **Fixed (12. Oct):** follows §7.2.1.2 — set `STOP`, write the time registers,
+  release `STOP`, then clear `OS`/`OSI`. Releasing `STOP` is not conditional on
+  the caller's previous `CTRL1`, so a failed time write cannot leave the
+  oscillator stopped. The first second after release is advanced by the
+  datasheet's 0.5078 s (Table 6), which is well inside the 1 s sync threshold.
 
 ## Verified clean (checked, not raised)
 

@@ -73,6 +73,9 @@ static const char *TAG = "sx1262";
 #define CMD_MAX_LEN 12
 
 static spi_device_handle_t s_spi;
+/* Only sx1262_rx_start()/rx_stop() touch this, and mesh_log's background
+ * listener is the sole caller of the RX API for the lifetime of the process.
+ * Unlocked on purpose - a second RX caller would have to guard it. */
 static bool s_rx_active;
 
 /* Task to notify when DIO1 (RxDone) fires - set at the top of every

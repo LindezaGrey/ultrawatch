@@ -54,6 +54,7 @@ static volatile bool s_scanning;
 static bool s_low_mem;     /* last enable attempt was refused for low memory */
 
 static SemaphoreHandle_t s_mux;
+static SemaphoreHandle_t s_kick;   /* set_enabled()/scan-done wake the control task */
 static ble_scan_result_t s_results[BLE_SCAN_MAX_RESULTS];
 static size_t s_result_count;
 
@@ -113,6 +114,9 @@ static int ble_scan_gap_event(struct ble_gap_event *event, void *arg)
         s_scanning = false;
         s_enabled = false;   /* one-shot: reflect "done" back to the switch */
         ESP_LOGI(TAG, "scan complete: %u device(s)", (unsigned)s_result_count);
+        if (s_kick) {
+            xSemaphoreGive(s_kick);   /* control task re-reads the target state */
+        }
         break;
     default:
         break;
@@ -189,9 +193,12 @@ static void ble_scan_ensure_host(void)
 static void ble_scan_task(void *arg)
 {
     (void)arg;
-    bool was_enabled = false;
     for (;;) {
-        if (s_enabled && !was_enabled) {
+        /* Idle until set_enabled() asks for something or a scan finishes -
+         * the scan itself runs on NimBLE's host task. Every wake re-reads
+         * s_enabled/s_scanning, so coalesced kicks stay correct. */
+        xSemaphoreTake(s_kick, portMAX_DELAY);
+        if (s_enabled && !s_scanning) {
             /* Only actually attempt bringing up the BT stack (first use)
              * when there's real headroom for it - see
              * BLE_SCAN_MIN_FREE_DMA_BYTES's comment above. A later
@@ -204,8 +211,6 @@ static void ble_scan_task(void *arg)
                          (unsigned)free_dma, (unsigned)BLE_SCAN_MIN_FREE_DMA_BYTES);
                 s_low_mem = true;
                 s_enabled = false;
-                was_enabled = false;
-                vTaskDelay(pdMS_TO_TICKS(200));
                 continue;
             }
             s_low_mem = false;
@@ -217,12 +222,10 @@ static void ble_scan_task(void *arg)
             if (ble_hs_synced()) {
                 ble_scan_start_disc();
             }
-        } else if (!s_enabled && was_enabled && s_scanning) {
+        } else if (!s_enabled && s_scanning) {
             ble_gap_disc_cancel();
             s_scanning = false;
         }
-        was_enabled = s_enabled;
-        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
 
@@ -237,6 +240,9 @@ void ble_scan_set_enabled(bool on)
         return;
     }
     s_enabled = on;
+    if (s_kick) {
+        xSemaphoreGive(s_kick);
+    }
     nvs_handle_t h;
     if (nvs_open(BLE_SCAN_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
         nvs_set_u8(h, "en", on ? 1 : 0);
@@ -270,8 +276,16 @@ void ble_scan_init(void)
 {
     if (!s_mux) {
         s_mux = xSemaphoreCreateMutex();
-        if (!s_mux) {
-            ESP_LOGE(TAG, "results mutex allocation failed");
+        s_kick = xSemaphoreCreateBinary();
+        if (!s_mux || !s_kick) {
+            ESP_LOGE(TAG, "scan semaphores allocation failed, scanning disabled");
+            if (s_mux) {
+                vSemaphoreDelete(s_mux);
+            }
+            if (s_kick) {
+                vSemaphoreDelete(s_kick);
+            }
+            s_mux = s_kick = NULL;
             return;
         }
     }

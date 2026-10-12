@@ -33,6 +33,7 @@ static bool s_netif_inited;   /* netif/event-loop scaffolding, set up once, neve
 static bool s_low_mem;        /* last power-on attempt was refused for low memory */
 
 static SemaphoreHandle_t s_mux;
+static SemaphoreHandle_t s_kick;   /* set_enabled() wakes the idle control task */
 static wifi_scan_result_t s_results[WIFI_SCAN_MAX_RESULTS];
 static size_t s_result_count;
 
@@ -153,7 +154,6 @@ static void wifi_scan_task(void *arg)
                              (unsigned)free_dma, (unsigned)WIFI_SCAN_MIN_FREE_DMA_BYTES);
                     s_low_mem = true;
                     s_wifi_enabled = false;   /* bounce the switch back off */
-                    vTaskDelay(pdMS_TO_TICKS(200));
                     continue;
                 }
                 s_low_mem = false;
@@ -176,7 +176,9 @@ static void wifi_scan_task(void *arg)
             wifi_do_scan();
             vTaskDelay(pdMS_TO_TICKS(WIFI_RESCAN_INTERVAL_MS));
         } else {
-            vTaskDelay(pdMS_TO_TICKS(200));
+            /* Radio off: wait for set_enabled() instead of polling for the
+             * switch to move. */
+            xSemaphoreTake(s_kick, portMAX_DELAY);
         }
     }
 }
@@ -192,6 +194,9 @@ void wifi_scan_set_enabled(bool on)
         return;
     }
     s_wifi_enabled = on;
+    if (s_kick) {
+        xSemaphoreGive(s_kick);
+    }
     nvs_handle_t h;
     if (nvs_open(WIFI_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
         nvs_set_u8(h, "en", on ? 1 : 0);
@@ -225,8 +230,16 @@ void wifi_scan_init(void)
 {
     if (!s_mux) {
         s_mux = xSemaphoreCreateMutex();
-        if (!s_mux) {
-            ESP_LOGE(TAG, "results mutex allocation failed");
+        s_kick = xSemaphoreCreateBinary();
+        if (!s_mux || !s_kick) {
+            ESP_LOGE(TAG, "scan semaphores allocation failed, scanning disabled");
+            if (s_mux) {
+                vSemaphoreDelete(s_mux);
+            }
+            if (s_kick) {
+                vSemaphoreDelete(s_kick);
+            }
+            s_mux = s_kick = NULL;
             return;
         }
     }

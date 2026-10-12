@@ -24,6 +24,8 @@
 #include "pcf85063a.h"
 #include "m10q.h"
 #include "sd_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include <string.h>
@@ -36,9 +38,38 @@ static const char *TAG = "gpx_log";
 #define GPX_DIR          "/sdcard/log/gpx"
 #define GPX_LOG_INTERVAL_MS 30000   /* 30 s, per docs/application.md section 6 */
 
+/* start()/stop() run on the UI or dbg task, the tick on housekeeping, and
+ * gpxcat reads the path from the dbg task, so every access to s_path takes
+ * this lock - a filename swap under a concurrent fopen is what would produce
+ * a torn path. Only the state copy is inside the critical section, never SD
+ * I/O. The claim flag keeps a second start() out while the first one is
+ * still doing its header write, which is the window where s_path used to be
+ * swappable. */
+static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_active;
+static bool s_claimed;
 static uint32_t s_point_count;
 static char s_path[64];
+
+/* Stable copy of the session filename for the caller's own use. */
+static void path_snapshot(char *out, size_t out_len)
+{
+    portENTER_CRITICAL(&s_mux);
+    size_t n = strlen(s_path);
+    if (n > out_len - 1) {
+        n = out_len - 1;
+    }
+    memcpy(out, s_path, n);
+    out[n] = '\0';
+    portEXIT_CRITICAL(&s_mux);
+}
+
+static void release_claim(void)
+{
+    portENTER_CRITICAL(&s_mux);
+    s_claimed = false;
+    portEXIT_CRITICAL(&s_mux);
+}
 
 static void make_timestamp(char *buf, size_t len)
 {
@@ -52,23 +83,33 @@ static void make_timestamp(char *buf, size_t len)
 
 esp_err_t gpx_log_start(void)
 {
-    if (s_active) {
+    portENTER_CRITICAL(&s_mux);
+    bool busy = s_active || s_claimed;
+    if (!busy) {
+        s_claimed = true;
+    }
+    portEXIT_CRITICAL(&s_mux);
+    if (busy) {
         return ESP_ERR_INVALID_STATE;
     }
+
     if (sd_log_session_begin() != ESP_OK) {
         sd_log_session_end();
+        release_claim();
         return ESP_ERR_NOT_FOUND;
     }
     mkdir(GPX_DIR, 0755);
 
     char ts[24];
     make_timestamp(ts, sizeof(ts));
-    snprintf(s_path, sizeof(s_path), "%s/track_%s.gpx", GPX_DIR, ts);
+    char path[64];
+    snprintf(path, sizeof(path), "%s/track_%s.gpx", GPX_DIR, ts);
 
-    FILE *f = fopen(s_path, "a");
+    FILE *f = fopen(path, "a");
     if (!f) {
-        ESP_LOGW(TAG, "start: fopen %s failed", s_path);
+        ESP_LOGW(TAG, "start: fopen %s failed", path);
         sd_log_session_end();
+        release_claim();
         return ESP_FAIL;
     }
     fprintf(f, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -77,27 +118,36 @@ esp_err_t gpx_log_start(void)
     fclose(f);
     sd_log_session_end();
 
+    portENTER_CRITICAL(&s_mux);
+    memcpy(s_path, path, sizeof(s_path));
     s_point_count = 0;
     s_active = true;
-    ESP_LOGI(TAG, "started: %s", s_path);
+    s_claimed = false;
+    portEXIT_CRITICAL(&s_mux);
+    ESP_LOGI(TAG, "started: %s", path);
     return ESP_OK;
 }
 
 esp_err_t gpx_log_stop(void)
 {
-    if (!s_active) {
+    char path[64];
+    portENTER_CRITICAL(&s_mux);
+    bool was_active = s_active;
+    s_active = false;
+    memcpy(path, s_path, sizeof(path));
+    portEXIT_CRITICAL(&s_mux);
+    if (!was_active) {
         return ESP_ERR_INVALID_STATE;
     }
-    s_active = false;
     if (sd_log_session_begin() == ESP_OK) {
-        FILE *f = fopen(s_path, "a");
+        FILE *f = fopen(path, "a");
         if (f) {
             fprintf(f, "</trkseg></trk></gpx>\n");
             fclose(f);
         }
     }
     sd_log_session_end();
-    ESP_LOGI(TAG, "stopped: %s (%lu points)", s_path, (unsigned long)s_point_count);
+    ESP_LOGI(TAG, "stopped: %s (%lu points)", path, (unsigned long)s_point_count);
     return ESP_OK;
 }
 
@@ -111,13 +161,18 @@ uint32_t gpx_log_point_count(void)
     return s_point_count;
 }
 
-const char *gpx_log_current_path(void)
+void gpx_log_current_path(char *out, size_t out_len)
 {
-    return s_path;
+    path_snapshot(out, out_len);
 }
 
 static void append_trackpoint(void)
 {
+    char path[64];
+    path_snapshot(path, sizeof(path));
+    if (path[0] == '\0') {
+        return;
+    }
     m10q_fix_t fix;
     if (m10q_get_fix(&fix) != ESP_OK || !fix.valid || !fix.time_valid) {
         ESP_LOGD(TAG, "tick: no valid fix, skipping point");
@@ -131,9 +186,9 @@ static void append_trackpoint(void)
         sd_log_session_end();
         return;
     }
-    FILE *f = fopen(s_path, "a");
+    FILE *f = fopen(path, "a");
     if (!f) {
-        ESP_LOGW(TAG, "tick: fopen %s failed", s_path);
+        ESP_LOGW(TAG, "tick: fopen %s failed", path);
         sd_log_session_end();
         return;
     }

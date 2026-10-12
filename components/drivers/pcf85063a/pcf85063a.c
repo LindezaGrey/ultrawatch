@@ -109,6 +109,15 @@ esp_err_t pcf85063a_get_time(i2c_master_dev_handle_t dev, pcf85063a_time_t *t)
 
 esp_err_t pcf85063a_set_time(i2c_master_dev_handle_t dev, const pcf85063a_time_t *t)
 {
+    /* Datasheet 7.2.1.2: halt the time circuits first - they only accept a
+     * setting while STOP is set and do not increment until it is released,
+     * which is what keeps a running divider from landing the calendar in an
+     * intermediate state. The first tick after release comes 0.5078 s later,
+     * so the sub-second phase is the only thing this costs us. */
+    uint8_t ctrl1 = 0;
+    ESP_RETURN_ON_ERROR(read_regs(dev, REG_CTRL1, &ctrl1, 1), TAG, "read ctrl1");
+    ESP_RETURN_ON_ERROR(write_byte(dev, REG_CTRL1, ctrl1 | CTRL1_STOP), TAG, "set stop");
+
     uint8_t r[7];
     r[0] = bin_to_bcd(t->sec) & 0x7f;
     r[1] = bin_to_bcd(t->min) & 0x7f;
@@ -117,7 +126,13 @@ esp_err_t pcf85063a_set_time(i2c_master_dev_handle_t dev, const pcf85063a_time_t
     r[4] = (uint8_t)(t->weekday & 0x07);
     r[5] = (bin_to_bcd(t->month) & 0x1f) | ((t->year >= 2100) ? MON_CENTURY : 0);
     r[6] = bin_to_bcd((uint8_t)(t->year % 100));
-    ESP_RETURN_ON_ERROR(write_regs(dev, REG_SEC, r, sizeof(r)), TAG, "write time");
+    esp_err_t err = write_regs(dev, REG_SEC, r, sizeof(r));
+
+    /* Release STOP even if the write failed - leaving the clock halted would
+     * be worse than a wrong time. */
+    esp_err_t restart = write_byte(dev, REG_CTRL1, ctrl1 & ~CTRL1_STOP);
+    ESP_RETURN_ON_ERROR(err, TAG, "write time");
+    ESP_RETURN_ON_ERROR(restart, TAG, "clear stop");
 
     /* Clear the oscillator-stop flag so get_time accepts the new value. */
     uint8_t sec = 0;

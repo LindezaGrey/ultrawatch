@@ -1110,15 +1110,18 @@ void debug_cmd_gpxstatus(const char *args)
         printf("gpxstatus: stop: %s\n", e == ESP_OK ? "ok" : esp_err_to_name(e));
         return;
     }
+    char path[64];
+    gpx_log_current_path(path, sizeof(path));
     printf("gpxstatus: active=%d points=%lu path=%s\n", (int)gpx_log_is_active(),
-           (unsigned long)gpx_log_point_count(), gpx_log_current_path());
+           (unsigned long)gpx_log_point_count(), path);
     printf("gpxstatus: usage gpxstatus [on|off]\n");
 }
 
 void debug_cmd_gpxcat(const char *args)
 {
     (void)args;
-    const char *path = gpx_log_current_path();
+    char path[64];
+    gpx_log_current_path(path, sizeof(path));
     if (path[0] == '\0') {
         printf("gpxcat: no session yet this boot\n");
         return;

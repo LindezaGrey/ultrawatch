@@ -13,6 +13,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
 
@@ -38,9 +39,10 @@ bool gpx_log_is_active(void);
  * session. For the GPS screen's live display. */
 uint32_t gpx_log_point_count(void);
 
-/* Path of the current (or most recently finished) session's file, or an
- * empty string if none yet this boot. For the gpxcat debug command. */
-const char *gpx_log_current_path(void);
+/* Path of the current (or most recently finished) session's file into `out`,
+ * empty string if none yet this boot. Copied out so a concurrent start()
+ * cannot swap the filename under the caller. For the gpxcat command. */
+void gpx_log_current_path(char *out, size_t out_len);
 
 #ifdef __cplusplus
 }
