@@ -138,6 +138,28 @@ The panel has rounded corners; `assets/ui/safe_area_transparent.png` is the tran
 - **DIO2 drives the antenna TX/RX switch** (`SetDIO2AsRfSwitchCtrl(enable=true)`), separate from the SX1262's own antenna-path relative to the board-level `LORA_SEL` XL9555 pin above. Also confirmed against the same LilyGO reference firmware (`radio.setDio2AsRfSwitch()`) and the SKY13453 RF switch visible on the schematic next to the antenna connector.
 - Both are configured once, early, in `sx1262_configure_lora()` (`components/drivers/sx1262/sx1262.c`), before any packet-type/frequency/modulation setup.
 
+### RTC crystal load capacitance (PCF85063A)
+
+The schematic (`Datasheets/T-Watch_Ultra_V1.0_Schematic.pdf`) draws the RTC
+crystal **Y4 "32.768K" with 12 pF load capacitors C31 and C32**. The PCF85063A
+also has switchable *integrated* load capacitance: `CTRL1` bit 0 (`CAP_SEL`),
+**0 = 7 pF, 1 = 12.5 pF**, and 0 is the power-on default.
+
+`components/drivers/pcf85063a/` never writes `CAP_SEL`, so `CTRL1=0x00` leaves
+the 7 pF integrated load enabled on top of the external pair. Two 12 pF caps
+from crystal pin to ground are 6 pF in series as seen by the crystal, plus a
+couple of pF of stray, so the total is plausibly near a 12.5 pF crystal's
+specification and the POR default may already be right. What is *not* right is
+guessing: the choice is a systematic frequency pull, and the offset trim only
+covers +63/−64 LSB ≈ ±273 ppm ≈ ±23 s/day, so a fixed pull eats part of the
+budget the trim needs for temperature and ageing.
+
+Do not change `CAP_SEL` on the datasheet's authority alone — the board was laid
+out with external caps, and the correct setting for that combination is
+whatever measures best. Decide it by comparing RTC drift with `rtcdump` against
+host NTP/PPS for `CAP_SEL=0` and `CAP_SEL=1` over the same interval, and keep
+the lower |drift|.
+
 ## AXP2101 power tree
 
 | Channel | Rail |

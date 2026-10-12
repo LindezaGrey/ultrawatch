@@ -1295,7 +1295,9 @@ void power_mgmt_init(void)
     if (s_sparmodus_active) {
         display_controller_set_brightness(PM_NIGHT_BRIGHTNESS);
     }
-    /* DFS + automatic light sleep (tickless). */
+    /* DFS + automatic light sleep. The light sleep comes from esp_pm's own
+     * auto-sleep path, not tickless idle: CONFIG_FREERTOS_USE_TICKLESS_IDLE is
+     * a no-op on the SMP kernel (IDF-4986). */
     esp_pm_config_t pm = {
         .max_freq_mhz = 240,
         .min_freq_mhz = 80,
