@@ -1,6 +1,6 @@
 # UWatch Firmware - Known Issues and Code Review
 
-Updated: 2026-09-04
+Updated: 2026-10-10
 
 ## Recently Fixed
 
@@ -20,18 +20,30 @@ Updated: 2026-09-04
 - **Hardcoded timezone** — local-time conversion now uses the build-time `CONFIG_UWATCH_TIMEZONE` POSIX string, defaulting to CET/CEST. The hardware RTC continues to store UTC.
 - **Factory-app partition headroom** — the 2026-09-04 image uses 2,554,224 bytes of the 3 MiB app partition, leaving 591,504 bytes (19%). The already-linked SX1262, ST25R3916, and NDEF archives total about 10 KiB, so no layout change is currently justified. Revisit below 10% free or before adding a large dependency; resizing would relocate the coredump/assets partitions and requires a coordinated full flash.
 - **Static analysis** — CI installs cppcheck and runs `tools/run_cppcheck.sh` over project-owned firmware and simulator sources. Imported ubxlib/Bosch code and generated fonts are excluded; intentional `panictest` behavior and one unsupported Bosch preprocessor expression have narrowly scoped suppressions.
+- **NFC antenna tuning/range validation** — hardware sweeps and repeated tag reads selected `A=0x82`, `B=0x00`. Register A showed a broad reliable plateau, while B=0 improved a fixed-position read test from 37/70 to 109/109; moving edge-of-range behavior was also verified.
+- **RTC ten minutes fast** — measured against an NTP-synced host: the RTC held 688 s of absolute error but kept correct rate (153 s per 153 s wall clock, 60.003 s per RTC second), so this was an unset clock rather than drift. GNSS had no fix that day, so no sync had run. Corrected with `settime` from the host clock; readback matched within about one second. Findings below cover why it could not self-correct.
+- **Weekday convention mismatch (driver vs alarm service)** — `pcf85063a_time_t.weekday` is now the raw Register_03 value and matches `tm_wday` (0=Sunday…6=Saturday). Updated `pcf85063a_epoch_to_time()`, the header contract, the unit-test anchors, `sim/mock_hw.c` and the `rtc_fields_plausible()` guard; added a test that pins the field against libc `gmtime_r()` across a week. The device's stored weekday stays invalid (`WD=0x07`) until the time is written again.
+- **OS flag blocking GNSS time sync** — `rtc_sync_from_utc()` no longer returns early when `pcf85063a_get_time()` reports the sticky oscillator-stop bit; it logs, skips the offset report, and writes the time unconditionally, which clears `OS`. (There is no `pcf85063a_clear_os_flag()` in the tree — the only clearer was always `pcf85063a_set_time()`.)
+- **`rtccal` only trimming rate** — `m10q_rtc_calibrate()` now carries the current fix's UTC time into `s_pending_utc` (new `fix_utc_epoch()` helper, also used by `nav_pvt_cb()`), so a manual calibration corrects absolute time as well as ppm.
+- **`s_rtc_offset` sentinel collision** — the "unset" marker is now `INT16_MIN` instead of −1, which is a legal −1 LSB offset.
+- **`s_wake_sources` cleared outside its critical section** — `pm_arm_gpio_wakeup()` now clears it under `s_wake_sources_lock`, matching the GPIO ISR and `pm_wake_task()`.
+- **Torn 64-bit PPS timestamp in `m10q.c`** — `pps_isr` brackets the timestamp with a sequence counter and `pps_snapshot()` retries until it reads a stable pair, so a PPS edge can no longer tear the 64-bit value into a bogus calibration sample. The window now counts edge deltas, so a missed edge no longer divides a two-second span by one interval.
+- **`ble_debug.c` capture buffer race** — the vprintf hook appends under `s_capture_lock` and `ble_debug_send_capture()` swaps to a second buffer before notifying, so a log line from another task can no longer keep the buffer from draining.
+- **Unbounded `haptic_test` task creation** — the waveform preview is single-flight behind a `s_test_running` flag; a tap while one runs is dropped instead of stacking another 2 kB task on the same HAPTIC_EN rail.
+- **ST25R3916 concurrent SPI sessions** — `open()` now takes a driver mutex for the whole session and `close()` releases it, so `nfc_ctrl_task` and the `nfcpoll`/`nfctune` commands can no longer interleave bring-up, RF field state, or the antenna-tuning registers. A colliding caller gets `ESP_ERR_INVALID_STATE` immediately; `close()` after a failed `open()` no longer touches another task's session, and `nfcprobe` checks `st25r3916_busy()` before sweeping rails.
 
 ## Critical Issues (remaining)
 
-No critical issues are currently tracked.
+Full detail, evidence and suggested fixes are in [the review log](todo.md#rtc-time-source-review-10-oct) and [the 10 Oct re-review](todo.md#code-review-findings-10-oct-full-re-review).
+
+No open critical items.
 
 ## Medium-Priority Fixes
 
-No medium-priority fixes are currently tracked.
+- **Unchecked FreeRTOS creation returns** in `ble_debug.c`, `syslog_capture.c` and `daily_log.c`.
+- **`debug_cmd_dispte` busy-waits 200 ms** at priority 5 without yielding.
+- **Inconsistent synchronization in `power_mgmt.c`** (`s_brightness`, `s_sparmodus_active`, `s_night_mode_auto`) and **no synchronization at all in `cd_timer.c`**.
 
 ## Low-Priority / Cleanup
 
-- **NFC antenna tuning/range validation** — the generic RFAL antenna-tuning
-  values have not been calibrated for this board. The measured RFI amplitude
-  is low; validate AAT values and practical read range before treating NFC
-  bring-up as fully characterized. See `docs/nfc.md`.
+- **Deferred NFC tuning automation** — replace manual setting-by-setting tests with a repeatable passive-tag fixture and automated sweep. Evaluate the available PN532 as an additional target; Flipper/VNA options and measurement limits are recorded in [the NFC follow-up plan](nfc.md#deferred-easier-antenna-tuning-and-measurements). Current validated tuning stays unchanged.
