@@ -74,16 +74,40 @@ void haptic_play_test(uint8_t wave_id)
     xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
 }
 
+static portMUX_TYPE s_test_mux = portMUX_INITIALIZER_UNLOCKED;
+static bool s_test_running;
+
 static void haptic_play_test_task(void *arg)
 {
     haptic_play_test((uint8_t)(uintptr_t)arg);
+    portENTER_CRITICAL(&s_test_mux);
+    s_test_running = false;
+    portEXIT_CRITICAL(&s_test_mux);
     vTaskDelete(NULL);
 }
 
+/* One preview at a time. Every run drives the shared HAPTIC_EN rail through
+ * the XL9555, so overlapping runs cut each other off mid-effect and each one
+ * costs another 2 kB of task stack - tapping through the picker quickly used to
+ * start a task per tap. */
 void haptic_play_test_async(uint8_t wave_id)
 {
+    bool start = false;
+    portENTER_CRITICAL(&s_test_mux);
+    if (!s_test_running) {
+        s_test_running = true;
+        start = true;
+    }
+    portEXIT_CRITICAL(&s_test_mux);
+    if (!start) {
+        ESP_LOGD(TAG, "preview running, ignoring wave %u", (unsigned)wave_id);
+        return;
+    }
     if (xTaskCreate(haptic_play_test_task, "haptic_test", 2048,
                     (void *)(uintptr_t)wave_id, 3, NULL) != pdPASS) {
+        portENTER_CRITICAL(&s_test_mux);
+        s_test_running = false;
+        portEXIT_CRITICAL(&s_test_mux);
         ESP_LOGE(TAG, "test task allocation failed");
     }
 }

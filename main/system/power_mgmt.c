@@ -985,7 +985,9 @@ if (sources & PM_WAKE_RTC) {
 
 static void pm_arm_gpio_wakeup(void)
 {
+    portENTER_CRITICAL(&s_wake_sources_lock);
     s_wake_sources = 0;
+    portEXIT_CRITICAL(&s_wake_sources_lock);
     /* Clear any previously-armed RTC level wakeups. gpio_wakeup_enable()
      * config persists across sleep cycles until explicitly disabled, so a
      * stale LOW_LEVEL from an earlier cycle could instantly re-wake the watch

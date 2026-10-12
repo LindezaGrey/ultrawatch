@@ -311,8 +311,12 @@ void ble_debug_notify_telemetry(void)
  * buffered while a command runs, then sent as RESP notifications from the
  * telemetry task (NOT from the GATT callback, where notify is re-entrant). */
 #define CMD_CAPTURE_MAX 2048
-static char s_capture[CMD_CAPTURE_MAX];
+static char s_capture_bufs[2][CMD_CAPTURE_MAX];
+/* Buffer the logging tasks are writing into; send_capture() swaps it for the
+ * other one so the next command can start while notifications go out. */
+static char *s_cap_buf = s_capture_bufs[0];
 static size_t s_capture_len;
+static portMUX_TYPE s_capture_lock = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_capturing;
 static volatile bool s_resp_pending;
 
@@ -321,10 +325,14 @@ static void ble_debug_console_write(const char *text, size_t len)
     if (!s_capturing || len == 0) {
         return;
     }
-    while (len > 0 && s_capture_len < sizeof(s_capture) - 1) {
-        s_capture[s_capture_len++] = *text++;
+    /* Any task that logs lands here, not just the one running the command, so
+     * the append has to be atomic or two writers lose each other's bytes. */
+    portENTER_CRITICAL(&s_capture_lock);
+    while (len > 0 && s_capture_len < CMD_CAPTURE_MAX - 1) {
+        s_cap_buf[s_capture_len++] = *text++;
         len--;
     }
+    portEXIT_CRITICAL(&s_capture_lock);
 }
 
 /* Send the buffered command output as RESP notifications. Runs on the
@@ -335,22 +343,30 @@ static void ble_debug_send_capture(void)
         return;
     }
     s_resp_pending = false;
-    if (s_capture_len == 0 || s_conn_handle == BLE_HS_CONN_HANDLE_NONE ||
+
+    char *sent;
+    size_t sent_len;
+    portENTER_CRITICAL(&s_capture_lock);
+    sent = s_cap_buf;
+    sent_len = s_capture_len;
+    s_cap_buf = (sent == s_capture_bufs[0]) ? s_capture_bufs[1] : s_capture_bufs[0];
+    s_capture_len = 0;
+    portEXIT_CRITICAL(&s_capture_lock);
+
+    if (sent_len == 0 || s_conn_handle == BLE_HS_CONN_HANDLE_NONE ||
         !s_resp_subscribed) {
-        s_capture_len = 0;
         return;
     }
     const size_t chunk = 120;
     size_t off = 0;
-    while (off < s_capture_len) {
-        size_t c = (s_capture_len - off) < chunk ? (s_capture_len - off) : chunk;
-        struct os_mbuf *om = ble_hs_mbuf_from_flat(s_capture + off, (uint16_t)c);
+    while (off < sent_len) {
+        size_t c = (sent_len - off) < chunk ? (sent_len - off) : chunk;
+        struct os_mbuf *om = ble_hs_mbuf_from_flat(sent + off, (uint16_t)c);
         if (om) {
             ble_gatts_notify_custom(s_conn_handle, s_resp_val_handle, om);
         }
         off += c;
     }
-    s_capture_len = 0;
 }
 
 /* vprintf hook: when capturing a BLE command, tee output into the buffer. */
@@ -391,12 +407,16 @@ void ble_debug_run_command(const char *cmd)
 /* Deferred command runner: executes a queued command, capturing its output. */
 static void ble_debug_exec_command(const char *cmd)
 {
-    s_capture_len = 0;
+    /* Nothing to reset: send_capture() left a fresh, empty buffer here. */
     s_capturing = true;
     uwatch_debug_process_cmd(cmd);
     s_capturing = false;
     s_resp_pending = true;
-    ESP_LOGI(TAG, "cmd '%s' captured %u bytes", cmd, (unsigned)s_capture_len);
+    size_t captured;
+    portENTER_CRITICAL(&s_capture_lock);
+    captured = s_capture_len;
+    portEXIT_CRITICAL(&s_capture_lock);
+    ESP_LOGI(TAG, "cmd '%s' captured %u bytes", cmd, (unsigned)captured);
 }
 
 static void ble_debug_process_command_queue(void)
