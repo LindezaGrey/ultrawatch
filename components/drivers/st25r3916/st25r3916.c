@@ -182,6 +182,7 @@ static const char *TAG = "st25r3916";
 #define DCMD_NFC_INITIAL_FIELD_ON 0xC8
 #define DCMD_ADJUST_REGULATORS 0xD6
 #define DCMD_MEASURE_AMPLITUDE 0xD3
+#define DCMD_MEASURE_PHASE     0xD9
 #define DCMD_RESET_RXGAIN    0xD5
 #define DCMD_CLEAR_FIFO      0xDB
 #define REG_AD_CONVERTER_OUTPUT 0x25
@@ -574,8 +575,8 @@ static esp_err_t apply_analog_defaults_pre_osc(void)
     err |= reg_change_bits(REG_PASSIVE_TARGET, 0xF0, 0x50);           /* FDT alignment with the bit grid */
     err |= reg_write1_b(REG_B_PT_MOD, 0x5F);                          /* reduced RFO resistance, modulated state */
     err |= reg_change_bits_b(REG_B_EMD_SUP_CONF, 0x40, 0x40);         /* EMD suppression: start on first 4 bits */
-    err |= reg_write1(REG_ANT_TUNE_A, 0x82);                          /* antenna tuning (poller): ANTL */
-    err |= reg_write1(REG_ANT_TUNE_B, 0x82);
+    err |= reg_write1(REG_ANT_TUNE_A, 0x82);                          /* board-calibrated AAT: series */
+    err |= reg_write1(REG_ANT_TUNE_B, 0x00);                          /* board-calibrated AAT: parallel */
     return (err == ESP_OK) ? ESP_OK : ESP_FAIL;
 }
 
@@ -667,6 +668,17 @@ static esp_err_t field_on(void)
         err = ESP_OK;
     }
     return err;
+}
+
+static esp_err_t measure_tuning(uint8_t *amplitude, uint8_t *phase)
+{
+    ESP_RETURN_ON_FALSE(amplitude && phase, ESP_ERR_INVALID_ARG, TAG, "null tuning result");
+    ESP_RETURN_ON_ERROR(direct_cmd(DCMD_MEASURE_AMPLITUDE), TAG, "measure amplitude");
+    vTaskDelay(pdMS_TO_TICKS(2));
+    ESP_RETURN_ON_ERROR(reg_read1(REG_AD_CONVERTER_OUTPUT, amplitude), TAG, "read amplitude");
+    ESP_RETURN_ON_ERROR(direct_cmd(DCMD_MEASURE_PHASE), TAG, "measure phase");
+    vTaskDelay(pdMS_TO_TICKS(2));
+    return reg_read1(REG_AD_CONVERTER_OUTPUT, phase);
 }
 
 /* ---- public API ---- */
@@ -808,21 +820,42 @@ esp_err_t st25r3916_open(void)
      * So: no force-write, just log what the chip actually reports. */
     uint8_t op_after_field_on = 0;
     reg_read1(REG_OP_CONTROL, &op_after_field_on);
-    ESP_LOGI(TAG, "op_control after field_on(): 0x%02x (want en|rx_en|tx_en = 0x%02x)",
-             op_after_field_on, (unsigned)(OP_EN | OP_RX_EN | OP_TX_EN));
+    ESP_LOGI(TAG, "op_control after field_on(): 0x%02x (expected 0x%02x: en|rx_en|tx_en|en_fd_c=01)",
+             op_after_field_on,
+             (unsigned)(OP_EN | OP_RX_EN | OP_TX_EN | OP_EN_FD_MANUAL_CA));
 
     /* Diagnostic-only: RFI input amplitude with the field on, independent of
      * REQA/ATQA framing - separates "TX isn't radiating" from "TX radiates,
      * something's wrong receiving". "Measure amplitude" is a plain <1ms A/D
      * conversion (Table 13), so it needs no completion IRQ. */
-    direct_cmd(DCMD_MEASURE_AMPLITUDE);
-    vTaskDelay(pdMS_TO_TICKS(2));
     uint8_t amplitude = 0;
-    if (reg_read1(REG_AD_CONVERTER_OUTPUT, &amplitude) == ESP_OK) {
+    uint8_t phase = 0;
+    if (measure_tuning(&amplitude, &phase) == ESP_OK) {
         ESP_LOGI(TAG, "RFI amplitude reading: %u (0-255, higher = more signal)", amplitude);
+        unsigned phase_deg = 17u + ((255u - phase) * 146u + 127u) / 255u;
+        ESP_LOGI(TAG, "RFI phase reading: %u (~%u deg; 128 raw ~= 90 deg)",
+                 phase, phase_deg);
     }
 
     return ESP_OK;
+}
+
+esp_err_t st25r3916_tuning_measure(uint8_t aat_a, uint8_t aat_b,
+                                   uint8_t *amplitude, uint8_t *phase)
+{
+    ESP_RETURN_ON_FALSE(amplitude && phase, ESP_ERR_INVALID_ARG, TAG, "null tuning result");
+    ESP_RETURN_ON_ERROR(reg_write1(REG_ANT_TUNE_A, aat_a), TAG, "write AAT A");
+    ESP_RETURN_ON_ERROR(reg_write1(REG_ANT_TUNE_B, aat_b), TAG, "write AAT B");
+    vTaskDelay(pdMS_TO_TICKS(3));   /* AN5322: varicap settling is typically 2-3 ms */
+    return measure_tuning(amplitude, phase);
+}
+
+esp_err_t st25r3916_field_reset(void)
+{
+    ESP_RETURN_ON_ERROR(reg_change_bits(REG_OP_CONTROL, OP_TX_EN, 0x00),
+                        TAG, "field off");
+    vTaskDelay(pdMS_TO_TICKS(5));
+    return field_on();
 }
 
 void st25r3916_close(void)

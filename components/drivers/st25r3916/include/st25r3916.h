@@ -68,6 +68,17 @@ esp_err_t st25r3916_open(void);
  * pair. */
 esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms);
 
+/* Diagnostic AAT primitive, valid only between open()/close(): temporarily
+ * apply one Antenna tuning control register pair, wait for the varicaps to
+ * settle, then return the raw amplitude and phase measurements. The next
+ * open() restores the normal board defaults. */
+esp_err_t st25r3916_tuning_measure(uint8_t aat_a, uint8_t aat_b,
+                                   uint8_t *amplitude, uint8_t *phase);
+
+/* Briefly cycle the RF field so a selected tag returns to its idle state and
+ * can answer another REQA. Preserves the current antenna-tuning registers. */
+esp_err_t st25r3916_field_reset(void);
+
 /* Reads a Type 2 Tag's (NTAG21x / MIFARE Ultralight family) user memory -
  * page 4 onward - into `out`, up to `out_cap` bytes; `*out_len` is set to
  * how much was actually read (may be less than out_cap: the tag's own

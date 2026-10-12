@@ -503,6 +503,70 @@ void debug_cmd_nfcpoll(const char *args)
     }
 }
 
+void debug_cmd_nfctune(const char *args)
+{
+    int a = -1, b = -1, secs = 0;
+    int parsed = sscanf(args, "%i %i %d", &a, &b, &secs);
+    if (parsed < 2 || a < 0 || a > 255 || b < 0 || b > 255 || secs < 0 || secs > 60) {
+        printf("nfctune: usage nfctune <A 0..255> <B 0..255> [poll seconds 0..60]\n");
+        return;
+    }
+
+    esp_err_t err = st25r3916_open();
+    if (err != ESP_OK) {
+        st25r3916_close();
+        printf("nfctune: open: %s\n", esp_err_to_name(err));
+        return;
+    }
+
+    uint8_t amplitude = 0, phase = 0;
+    err = st25r3916_tuning_measure((uint8_t)a, (uint8_t)b, &amplitude, &phase);
+    if (err == ESP_OK) {
+        unsigned phase_deg = 17u + ((255u - phase) * 146u + 127u) / 255u;
+        printf("nfctune: A=0x%02x B=0x%02x amplitude=%u phase=%u (~%u deg)\n",
+               (unsigned)a, (unsigned)b, amplitude, phase, phase_deg);
+    }
+
+    st25r3916_tag_t tag = { 0 };
+    unsigned attempts = 0;
+    unsigned reads = 0;
+    bool tag_present = false;
+    if (err == ESP_OK && parsed == 3 && secs > 0) {
+        TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(secs * 1000);
+        printf("nfctune: polling at this setting for %ds...\n", secs);
+        while (xTaskGetTickCount() < deadline) {
+            err = st25r3916_try(&tag, 300);
+            attempts++;
+            if (err == ESP_OK) {
+                reads++;
+                if (!tag_present) {
+                    printf("nfctune: tag present\n");
+                    tag_present = true;
+                }
+                err = st25r3916_field_reset();
+                if (err != ESP_OK) {
+                    break;
+                }
+                vTaskDelay(pdMS_TO_TICKS(100));
+            } else if (err == ESP_ERR_NOT_FOUND) {
+                if (tag_present) {
+                    printf("nfctune: tag lost\n");
+                    tag_present = false;
+                }
+            } else {
+                break;
+            }
+        }
+    }
+    st25r3916_close();
+
+    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
+        printf("nfctune: %s\n", esp_err_to_name(err));
+    } else if (parsed == 3 && secs > 0) {
+        printf("nfctune: tag reads=%u/%u\n", reads, attempts);
+    }
+}
+
 void debug_cmd_nfcprobe(const char *args)
 {
     /* Sweep the three rails that can plausibly keep the ST25R3916 off the

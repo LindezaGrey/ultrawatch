@@ -26,6 +26,7 @@ void debug_cmd_sparmodus(const char *args);
 void debug_cmd_pwroff(const char *args);
 void debug_cmd_rails(const char *args);
 void debug_cmd_nfcpoll(const char *args);
+void debug_cmd_nfctune(const char *args);
 void debug_cmd_nfcprobe(const char *args);
 void debug_cmd_i2cscan(const char *args);
 void debug_cmd_bat(const char *args);

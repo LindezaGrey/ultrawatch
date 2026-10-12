@@ -213,12 +213,74 @@ LilyGoLib's `examples/factory/app_nfc.cpp` wraps), narrowed to the NFC-A /
 `single = 0` (differential driving) is correct here: the schematic shows both
 RFO1 and RFO2 driving a 270 nH / 680 pF matching network into RFI1/RFI2.
 
-**Open item (unverified):** `REG_ANT_TUNE_A`/`REG_ANT_TUNE_B` = `0x82` are
-RFAL's generic defaults, not values calibrated for this board's antenna, and the
-board has real AAT hardware (ATT_P/ATT_S). An RFI amplitude reading of 15–16/255
-with the field on is low. This is the leading remaining explanation for weak
-range — but it cannot explain interrupt registers reading `0x00`, so it was not
-the place to start.
+The board has real AAT hardware: register A drives the `ATT_S` series tuning
+elements and register B drives the `ATT_P` shunt element. A hardware sweep found
+amplitude nearly flat at 36–38 and phase ranging only from raw 161–179, so the
+nominal raw phase target of about 128 was outside the available tuning range.
+Practical tag reads were the useful optimization criterion instead:
+
+| A | B | Successful reads | Result |
+|---:|---:|---:|---|
+| `0x00` | `0x00` | 14/58 | weak |
+| `0x82` | `0x82` | 37/70 | generic RFAL baseline |
+| `0x62` | `0x00` | 109/109 | reliable |
+| `0x82` | `0x00` | 109/109 | reliable |
+| `0xA2` | `0x00` | 110/110 | reliable |
+
+Register A therefore has a broad useful plateau, while reducing B to zero made
+the decisive improvement. The board default is `A=0x82`, `B=0x00`: it retains
+the existing midpoint for A and changes only the control demonstrated to
+matter. A moving edge-of-range run at this setting produced 98/153 reads and
+clean tag-present/lost transitions; exact physical distance depends heavily on
+tag antenna and alignment.
+
+## Deferred: easier antenna tuning and measurements
+
+Deferred at the user's request on 2026-09-09. The manual tuning process was
+cumbersome; the next iteration should automate measurements and make tag
+position repeatable. The user has a **PN532 module** available. Flipper Zero
+and a VNA are possible alternatives, not confirmed available equipment.
+The current validated default remains `A=0x82`, `B=0x00`.
+
+| Option | Useful for | Limits / prerequisites |
+|---|---|---|
+| Watch's ST25R3916 | Antenna amplitude and phase; receive RSSI; automatic tuning algorithms | Amplitude/phase are already exposed by `nfctune`. Receive RSSI needs driver support and validation. These are not interchangeable measurements. |
+| PN532 in target/card-emulation mode | A programmable counterpart for repeated detection and response tests | Confirm the module, host interface and emulated protocol fit our NFC-A test. It is not a calibrated field-strength meter, and target mode does not imply full NTAG emulation. |
+| Flipper Zero | Convenient card emulation and reader analysis | Its standard NFC application is not an antenna analyzer. Emulation coverage depends on card type. |
+| VNA with a suitable fixture | Antenna impedance and matching measurements to investigate hardware limits | Requires access to the matching network and the correct differential measurement setup. Disable the reader transmitter before direct connection, following ST's procedure, to avoid damaging the VNA. |
+
+Proposed first implementation, using a real passive tag:
+
+1. Fix the watch and tag in a repeatable position with a non-metallic spacer,
+   near the edge of reliable reception. Keep orientation and nearby objects
+   unchanged during comparisons.
+2. Automate a coarse A/B sweep, then refine around the best region. Use the
+   same number of attempts per setting and reset the tag between attempts.
+3. Log A/B values, successful reads / attempts, response times, amplitude,
+   phase and, once implemented, receive RSSI. Keep raw results for comparison;
+   do not automatically persist a new default before validation.
+4. Re-test finalists at another distance and with the watch worn. Keep the
+   current default as the baseline and favor a broad reliable region over
+   one isolated winning point.
+5. Optionally use the PN532 or Flipper as an additional automated target.
+   Keep a passive tag as the final reference: powered emulators can behave
+   differently from a tag that obtains all its energy from the watch's field.
+   Do not operate both devices as active readers during this test.
+
+The earlier sweep showed amplitude almost unchanged despite a large change
+in successful reads. Maximizing amplitude alone is therefore not a sufficient
+optimization criterion for this board. ST's automatic tuning algorithms are
+worth evaluating, but their amplitude/phase targets need to suit the actual
+matching network; blindly chasing the previously unreachable phase target
+would not establish better practical range.
+
+References for resuming this work:
+
+- [ST25R3916 measurement capabilities](https://www.st.com/en/nfc/st25r3916.html).
+- [ST AN5322: automatic antenna tuning and VNA connection procedure](https://www.st.com/resource/en/application_note/an5322-automatic-antenna-tuning-aat-for-st25r391616b-and-st25r392020b-devices-stmicroelectronics.pdf).
+- [ST AN5276: antenna design and matching measurements](https://www.st.com/resource/en/application_note/an5276-antenna-design-for-st25r391616b-st25r391717b-st25r3918-st25r3919b-and-st25r392020b-devices-stmicroelectronics.pdf).
+- [NXP PN532 datasheet](https://www.nxp.com/docs/en/nxp/data-sheets/PN532_C1.pdf).
+- [Flipper Zero NFC documentation](https://docs.flipper.net/zero/nfc).
 
 ## Shared SPI bus
 
@@ -236,8 +298,17 @@ The console command `nfcpoll [seconds]` (`main/debug/debug_cmds.c`, registered i
 `main/uwatch_main.c`) opens the reader, retries `st25r3916_try()` for the given
 window (default 8 s) and closes. Console is USB-Serial-JTAG on `/dev/ttyACM0`.
 
+`nfctune <A> <B> [seconds]` temporarily applies one AAT register pair after
+bring-up, waits 3 ms for the varicaps, and reports raw amplitude and phase. If
+`seconds` is non-zero it polls for the full interval, reports tag-present/lost
+transitions and a successful-read ratio, briefly cycling the RF field after
+each read so the selected tag can answer the next REQA. This allows a range
+comparison without rebuilding. Values accept decimal or `0x` notation, and
+normal `0x82/0x00` defaults are restored on the next reader open.
+
 Reference for a healthy log: `ic_identity` type nibble `0x28` after each stage,
 `op_control` with `en|rx_en|tx_en` set after field-on *without* any force-write,
+an RFI amplitude and phase baseline at the configured `0x82/0x00` AAT point,
 then `I_apon` → `I_cat` → `I_txe` → `I_rxe` and a 2-byte ATQA in the FIFO.
 
 
@@ -406,7 +477,7 @@ register-level probe cannot tell you whether that rail is healthy.
 ### Confirmed working
 
 ```
-op_control after field_on(): 0xc9 (want en|rx_en|tx_en = 0xc8)
+op_control after field_on(): 0xc9 (expected 0xc9: en|rx_en|tx_en|en_fd_c=01)
 RFI amplitude reading: 36 (0-255, higher = more signal)
 tag found: ATQA=4400 UID=1D E2 A9 40 1A 10 80 (7 bytes)
 ```
