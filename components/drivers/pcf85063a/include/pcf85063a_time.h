@@ -17,7 +17,8 @@ extern "C" {
 /* The hardware always stores UTC (never local wall time): callers convert to
  * local only at display or alarm-arming time, via pcf85063a_time_to_epoch()/
  * pcf85063a_epoch_to_time() below plus mktime()/localtime_r() and the
- * process TZ. Weekday follows the RTC convention: 1=Sunday .. 7=Saturday. */
+ * process TZ. Weekday is the raw Register_03 value and matches struct tm's
+ * tm_wday: 0=Sunday .. 6=Saturday. */
 typedef struct {
     uint8_t  sec;
     uint8_t  min;

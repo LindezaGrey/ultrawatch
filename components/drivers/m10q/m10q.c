@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <math.h>
+#include <stdint.h>
 #include <time.h>
 
 #include "esp_log.h"
@@ -88,10 +89,11 @@ static void m10q_data_unlock(void)
 #define PPS_OFFSET_STEP_PPM   4.340     /* PCF85063A normal-mode LSB */
 #define PPS_MIN_EDGES         10        /* abort calibration below this */
 static bool s_cal_active;
-static int16_t s_rtc_offset = -1;     /* last calibrated OFFSET value, or -1 if unset */
+static int16_t s_rtc_offset = INT16_MIN;  /* last calibrated OFFSET value, or INT16_MIN if unset */
 static TaskHandle_t s_cal_task;
 static volatile int64_t s_pps_time_us;   /* esp_timer at last PPS rising edge */
 static volatile uint32_t s_pps_count;    /* PPS edge counter */
+static volatile uint32_t s_pps_seq;      /* seqlock guarding s_pps_time_us */
 static time_t s_pending_utc;             /* UTC epoch from last fix; 0 = none */
 
 static void rtc_sync_from_utc(time_t utc);
@@ -122,8 +124,32 @@ static void mga_ini_seed(void);
 static void IRAM_ATTR pps_isr(void *arg)
 {
     (void)arg;
+    s_pps_seq++;                    /* odd: write in progress */
     s_pps_time_us = esp_timer_get_time();
+    s_pps_seq++;                    /* even: timestamp committed */
     s_pps_count++;
+}
+
+/* A 64-bit volatile read is not atomic on Xtensa: an edge landing between the
+ * two halves yields a timestamp from neither. s_pps_seq is the seqlock the ISR
+ * brackets the write with, so a changed (or odd) value means retry. Handing
+ * back the edge count with it keeps the caller's edge bookkeeping and the
+ * timestamp describing the same edge. */
+static void pps_snapshot(uint32_t *edge, int64_t *us)
+{
+    for (;;) {
+        uint32_t seq = s_pps_seq;
+        if (seq & 1u) {
+            continue;    /* ISR is mid-write */
+        }
+        int64_t t = s_pps_time_us;
+        uint32_t cnt = s_pps_count;
+        if (s_pps_seq == seq) {
+            *edge = cnt;
+            *us = t;
+            return;
+        }
+    }
 }
 
 static int64_t rollover_detect(uint8_t *prev);
@@ -155,16 +181,23 @@ static bool s_ubxlib_init;
 static void rtc_sync_from_utc(time_t utc)
 {
     pcf85063a_time_t rt;
-    if (pcf85063a_get_time(s_rtc, &rt) != ESP_OK) {
-        return;
+    bool rtc_readable = (pcf85063a_get_time(s_rtc, &rt) == ESP_OK);
+    if (!rtc_readable) {
+        /* Usually the sticky OS bit in Register_00 (oscillator stopped, e.g.
+         * after a supply glitch). Its time is meaningless, and only
+         * pcf85063a_set_time() clears OS - so write unconditionally instead of
+         * bailing, otherwise the RTC could never recover from GPS. */
+        ESP_LOGW(TAG, "RTC time unreadable (oscillator stopped) - forcing sync");
     }
-    time_t rtc_epoch = pcf85063a_time_to_epoch(&rt);
+    time_t rtc_epoch = rtc_readable ? pcf85063a_time_to_epoch(&rt) : 0;
     int32_t delta = (int32_t)(utc - rtc_epoch);
-    m10q_data_lock();
-    s_fix.rtc_offset_s = delta;
-    m10q_data_unlock();
+    if (rtc_readable) {
+        m10q_data_lock();
+        s_fix.rtc_offset_s = delta;
+        m10q_data_unlock();
+    }
 
-    if (delta < -RTC_SYNC_MIN_DELTA_S || delta > RTC_SYNC_MIN_DELTA_S) {
+    if (!rtc_readable || delta < -RTC_SYNC_MIN_DELTA_S || delta > RTC_SYNC_MIN_DELTA_S) {
         pcf85063a_time_t nt;
         pcf85063a_epoch_to_time(utc, &nt);
         if (pcf85063a_set_time(s_rtc, &nt) == ESP_OK) {
@@ -244,8 +277,9 @@ static void cal_run(void)
         if (s_pps_count == last_cnt || !s_cal_active) {
             break;
         }
-        last_cnt = s_pps_count;
-        int64_t pps = s_pps_time_us;
+        int64_t pps;
+        uint32_t edge;
+        pps_snapshot(&edge, &pps);
         int64_t roll = rollover_detect(&prev_sec);
         if (roll == 0) {
             break;
@@ -256,7 +290,10 @@ static void cal_run(void)
         }
         p_last = pps;
         r_last = roll;
-        n++;
+        /* Count edges, not loop passes: a stalled poll can miss one, and the
+         * first/last span below then covers that many more seconds. */
+        n += (int)(edge - last_cnt);
+        last_cnt = edge;
     }
     gpio_isr_handler_remove(M10Q_PIN_PPS);
     gpio_set_intr_type(M10Q_PIN_PPS, GPIO_INTR_DISABLE);
@@ -373,7 +410,7 @@ static void offset_load(void)
 {
     nvs_handle_t h;
     if (nvs_open(M10Q_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
-        int16_t v = -1;
+        int16_t v = INT16_MIN;
         nvs_get_i16(h, NVS_KEY_RTCOFF, &v);
         if (v >= -63 && v <= 63) {
             s_rtc_offset = v;
@@ -504,6 +541,17 @@ static void position_updated(bool valid, double lat, double lon, uint16_t sats, 
     }
 }
 
+/* UTC epoch from a decoded NAV-PVT time, 0 if the time is not valid. */
+static time_t fix_utc_epoch(const m10q_fix_t *f)
+{
+    if (!f->time_valid) {
+        return 0;
+    }
+    pcf85063a_time_t date = { .year = f->year, .month = f->month, .day = f->day,
+        .hour = f->hour, .min = f->minute, .sec = f->second };
+    return pcf85063a_time_to_epoch(&date);
+}
+
 /* Read the complete NAV-PVT epoch, including real fix type and heading. */
 static void nav_pvt_cb(uDeviceHandle_t handle, const uGnssMessageId_t *id,
                        int32_t length, void *arg)
@@ -517,12 +565,7 @@ static void nav_pvt_cb(uDeviceHandle_t handle, const uGnssMessageId_t *id,
     bool valid = s_fix.valid;
     double lat = s_fix.lat, lon = s_fix.lon;
     uint16_t sats = s_fix.sat_count;
-    time_t utc = 0;
-    if (s_fix.time_valid) {
-        pcf85063a_time_t date = { .year = s_fix.year, .month = s_fix.month, .day = s_fix.day,
-            .hour = s_fix.hour, .min = s_fix.minute, .sec = s_fix.second };
-        utc = pcf85063a_time_to_epoch(&date);
-    }
+    time_t utc = fix_utc_epoch(&s_fix);
     m10q_data_unlock();
     if (decoded) position_updated(valid, lat, lon, sats, utc);
 }
@@ -872,7 +915,7 @@ static bool rtc_fields_plausible(const pcf85063a_time_t *rt)
         rt->month < 1 || rt->month > 12 ||
         rt->day < 1 || rt->day > 31 ||
         rt->hour > 23 || rt->min > 59 || rt->sec > 60 ||
-        rt->weekday < 1 || rt->weekday > 7) {
+        rt->weekday > 6) {
         return false;
     }
     return true;
@@ -947,6 +990,10 @@ void m10q_rtc_calibrate(void)
     m10q_get_fix(&fix);
     bool ok = fix.valid && fix.time_valid;
     if (ok) {
+        /* A manual cal request means "correct the clock", so carry the GPS time
+         * through: without s_pending_utc, cal_task skips rtc_sync_from_utc()
+         * and only trims the rate, leaving an absolute time error in place. */
+        s_pending_utc = fix_utc_epoch(&fix);
         xTaskNotify(s_cal_task, RTC_CAL_START_BIT, eSetBits);
     } else {
         ESP_LOGW(TAG, "PPS cal: no valid fix, skipping");

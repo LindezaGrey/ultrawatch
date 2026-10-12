@@ -51,7 +51,8 @@ void pcf85063a_epoch_to_time(time_t epoch, pcf85063a_time_t *out)
     out->hour = (uint8_t)(rem / 3600);
     out->min = (uint8_t)((rem % 3600) / 60);
     out->sec = (uint8_t)(rem % 60);
-    /* 1970-01-01 (day 0) was a Thursday; RTC convention is 1=Sunday. */
+    /* 1970-01-01 (day 0) was a Thursday. Register_03 stores 0..6, matching
+     * struct tm's tm_wday, so no offset is needed. */
     int64_t wd = ((days % 7) + 7 + 4) % 7;   /* 0=Sunday .. 6=Saturday */
-    out->weekday = (uint8_t)(wd + 1);
+    out->weekday = (uint8_t)wd;
 }

@@ -84,7 +84,7 @@ bool sensor_cache_get_rtc(pcf85063a_time_t *out)
     out->min = (uint8_t)gt.tm_min;
     out->hour = (uint8_t)gt.tm_hour;
     out->day = (uint8_t)gt.tm_mday;
-    out->weekday = (uint8_t)(gt.tm_wday + 1);  /* pcf85063a: 1=Sun..7=Sat */
+    out->weekday = (uint8_t)gt.tm_wday;  /* pcf85063a Register_03: 0=Sun..6=Sat */
     out->month = (uint8_t)(gt.tm_mon + 1);
     out->year = (uint16_t)(gt.tm_year + 1900);
     return true;

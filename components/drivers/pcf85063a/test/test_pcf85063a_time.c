@@ -4,6 +4,7 @@
  *
  * Build/run: see README.md in this directory.
  */
+#define _XOPEN_SOURCE 700   /* gmtime_r, used as an independent reference below */
 #include "pcf85063a_time.h"
 #include <assert.h>
 #include <stdio.h>
@@ -30,7 +31,7 @@ static void test_epoch_zero_is_1970_01_01_thursday(void)
     CHECK(t.hour == 0);
     CHECK(t.min == 0);
     CHECK(t.sec == 0);
-    CHECK(t.weekday == 5);   /* RTC convention: 1=Sunday .. so Thursday=5 */
+    CHECK(t.weekday == 4);   /* Register_03 / tm_wday convention: 0=Sunday */
 }
 
 /* Round-trip a real-world value independently verified via `date -u` during
@@ -46,8 +47,24 @@ static void test_roundtrip_real_world_value(void)
     CHECK(t.hour == 4);
     CHECK(t.min == 21);
     CHECK(t.sec == 56);
-    CHECK(t.weekday == 6);   /* Friday */
+    CHECK(t.weekday == 5);   /* Friday */
     CHECK(pcf85063a_time_to_epoch(&t) == epoch);
+}
+
+/* The convention alarm.c depends on: weekday must equal struct tm's tm_wday
+ * (0=Sunday), not an offset of it. Checked against libc across a week. */
+static void test_weekday_matches_tm_wday(void)
+{
+    const time_t base = 1787890916;   /* 2026-08-28, a Friday */
+    for (int i = -3; i <= 3; i++) {
+        time_t epoch = base + (time_t)i * 86400;
+        pcf85063a_time_t t;
+        pcf85063a_epoch_to_time(epoch, &t);
+        struct tm gt;
+        gmtime_r(&epoch, &gt);
+        CHECK(t.weekday == (uint8_t)gt.tm_wday);
+        CHECK(t.weekday <= 6);
+    }
 }
 
 /* Leap day: Feb 29 2024 exists, and the gap to Mar 1 00:00:00 is exactly
@@ -104,6 +121,7 @@ int main(void)
 {
     test_epoch_zero_is_1970_01_01_thursday();
     test_roundtrip_real_world_value();
+    test_weekday_matches_tm_wday();
     test_leap_day_2024();
     test_century_leap_rule();
     test_year_rollover();
