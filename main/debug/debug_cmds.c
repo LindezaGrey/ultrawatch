@@ -894,6 +894,9 @@ void debug_cmd_dispte(const char *args)
             last = now;
         }
         if (now) { high = 1; } else { low = 1; }
+        /* 1 ms tick at CONFIG_FREERTOS_HZ=1000 still resolves a 60 Hz TE
+         * signal, and keeps this priority-5 task from starving IDLE. */
+        vTaskDelay(1);
     }
     printf("dispte: edges=%d in 200ms (~%d Hz) level=%d seen_high=%d seen_low=%d\n",
            edges, edges * 5 / 2, gpio_get_level(CO5300_PIN_TE), high, low);

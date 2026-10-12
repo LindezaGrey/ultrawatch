@@ -12,6 +12,8 @@
 #include <stdarg.h>
 #include <stdbool.h>
 
+static const char *TAG = "syslog_cap";
+
 #define SYSLOG_FILE               "/sdcard/log/syslog.txt"
 #define SYSLOG_BUF_SIZE           4096
 /* Flush once the buffer is this full, rather than waiting for the next
@@ -141,6 +143,11 @@ static void syslog_flush(void)
 void syslog_capture_service(uint32_t timeout_ms)
 {
     static TickType_t last_flush;
+    if (!s_flush_wake) {
+        /* init() failed to allocate: keep the caller's cadence, do nothing. */
+        vTaskDelay(pdMS_TO_TICKS(timeout_ms));
+        return;
+    }
     bool signaled = xSemaphoreTake(s_flush_wake, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
     TickType_t now = xTaskGetTickCount();
     if (signaled || now - last_flush >= pdMS_TO_TICKS(60000)) {
@@ -153,5 +160,18 @@ void syslog_capture_init(void)
 {
     s_mux = xSemaphoreCreateMutex();
     s_flush_wake = xSemaphoreCreateBinary();
+    if (!s_mux || !s_flush_wake) {
+        /* Leave both unset so the guards in the capture/flush paths cover
+         * the whole module instead of half of it. */
+        ESP_LOGE(TAG, "out of memory, syslog capture disabled");
+        if (s_mux) {
+            vSemaphoreDelete(s_mux);
+        }
+        if (s_flush_wake) {
+            vSemaphoreDelete(s_flush_wake);
+        }
+        s_mux = s_flush_wake = NULL;
+        return;
+    }
     s_prev_vprintf = esp_log_set_vprintf(syslog_vprintf);
 }

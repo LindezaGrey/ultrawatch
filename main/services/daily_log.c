@@ -36,7 +36,15 @@ static SemaphoreHandle_t s_log_mutex;
 static uint32_t s_steps;
 #define TOTALS_CSV "/sdcard/log/activity_totals.csv"
 #define SUMMARY_DIR "/sdcard/log/daily"
-void daily_log_init(void) { if (!s_log_mutex) s_log_mutex = xSemaphoreCreateMutex(); }
+void daily_log_init(void)
+{
+    if (!s_log_mutex) {
+        s_log_mutex = xSemaphoreCreateMutex();
+        if (!s_log_mutex) {
+            ESP_LOGE(TAG, "out of memory, activity logging disabled");
+        }
+    }
+}
 static bool s_log_ready;                 /* CSV header written this boot */
 
 /* Short, greppable names for the AXP2101 charge state, so the CSV is readable

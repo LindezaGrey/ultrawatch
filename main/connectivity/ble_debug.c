@@ -502,11 +502,24 @@ esp_err_t ble_debug_init(void)
     /* Mirror console output to the BLE RESP characteristic (chains onto the
      * sd_log vprintf hook, which keeps console + SD logging intact). */
     s_cmd_queue = xQueueCreate(CMD_QUEUE_LEN, sizeof(char *));
-    s_prev_vprintf = esp_log_set_vprintf(ble_debug_vprintf);
+    if (!s_cmd_queue) {
+        ESP_LOGE(TAG, "command queue: out of memory, log mirror disabled");
+    }
 
     nimble_port_freertos_init(ble_debug_host_task);
 
-    xTaskCreate(telemetry_task, "ble_telem", 3072, NULL, 4, NULL);
+    /* The queue is only drained by the telemetry task, so both are needed
+     * before the vprintf hook can be installed - otherwise every log line
+     * allocates a string that nobody frees. */
+    if (s_cmd_queue &&
+        xTaskCreate(telemetry_task, "ble_telem", 3072, NULL, 4, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "telemetry task: out of memory, log mirror disabled");
+        vQueueDelete(s_cmd_queue);
+        s_cmd_queue = NULL;
+    }
+    if (s_cmd_queue) {
+        s_prev_vprintf = esp_log_set_vprintf(ble_debug_vprintf);
+    }
     ESP_LOGI(TAG, "BLE debug bridge started (service 0xDEAD)");
     return ESP_OK;
 }

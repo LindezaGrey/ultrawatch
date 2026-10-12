@@ -218,7 +218,7 @@ Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
 
 ## Medium
 
-6. `[pending]` **Unchecked FreeRTOS creation returns.** Mostly the codebase is
+6. `[done]` **Unchecked FreeRTOS creation returns.** Mostly the codebase is
    careful; these are the gaps:
    - `main/connectivity/ble_debug.c:484` `xQueueCreate` and `:489`
      `xTaskCreate(telemetry_task, "ble_telem", 3072, …)` — return values ignored
@@ -228,14 +228,25 @@ Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
      (the tick path at `:185` does guard it)
 
    Under heap pressure these fail silently and the feature is simply dead.
+   **Fixed (12. Oct):** each site logs and degrades instead of failing quietly.
+   `ble_debug_init()` only installs its vprintf mirror once both the queue and
+   `ble_telem` exist (the queue is drained solely by that task, so installing
+   the hook first would leak one `strdup` per log line); `syslog_capture_init()`
+   keeps both-or-neither — on failure it deletes whatever it got and leaves the
+   hook uninstalled, and `syslog_capture_service()` then just holds the
+   caller's cadence instead of taking a NULL semaphore. `daily_log_init()` logs
+   the allocation failure.
 
-7. `[pending]` **`debug_cmds.c` — busy-wait without yield.** `debug_cmd_dispte`
+7. `[done]` **`debug_cmds.c` — busy-wait without yield.** `debug_cmd_dispte`
    spins for 200 ms polling `CO5300_PIN_TE` (`main/debug/debug_cmds.c:882-890`)
    on the priority-5 `dbg` task, starving every task at priority ≤ 5 on that
    core including IDLE.
    **Fix:** `vTaskDelay(1)` inside the sampling loop, or an esp_timer.
+   **Fixed (12. Oct):** `vTaskDelay(1)` per sample. At `CONFIG_FREERTOS_HZ=1000`
+   that is 1 ms against a ~16 ms TE period, so the edge count and the derived
+   Hz stay meaningful while IDLE gets the core back.
 
-8. `[pending]` **`power_mgmt.c` — inconsistent synchronization policy.**
+8. `[done]` **`power_mgmt.c` — inconsistent synchronization policy.**
    `s_display_timeout_s` and `s_return_timeout_s` are guarded by `s_idle_mux`
    (`:326-371`), but `s_brightness` (`:176`, read `:385`, written `:314`/`:393`,
    used `:688`), `s_sparmodus_active` (`:177`) and `s_night_mode_auto` (`:168`)
@@ -243,12 +254,23 @@ Status labels: `[pending]` not started, `[in-progress]`, `[done]`.
    Byte accesses do not tear on Xtensa, so the impact is stale reads — but the
    read-modify-write at `:390` and the sleep-entry read at `:688` can act on a
    value that just changed. Pick one policy for this file.
+   **Fixed (12. Oct):** one policy, stated at the declarations: these scalars
+   are `volatile`, written inside `s_idle_mux` (so a setter's compare-and-store
+   cannot lose to another writer), and read without it — a lock-free reader
+   gets the old or the new value, never a mix. Paired reads
+   (`s_display_activity_ms` with the timeout in `display_idle_expired()`) keep
+   the mux on the read side. NVS writes and the display/UI calls stay outside
+   the critical section, and `set_brightness()` now uses its local `level`
+   instead of re-reading the global.
 
-9. `[pending]` **`cd_timer.c` — no synchronization at all.** `s_active` /
+9. `[done]` **`cd_timer.c` — no synchronization at all.** `s_active` /
    `s_remaining_s` (`main/services/cd_timer.c:10-11`) are written by
-   `cdtimer_start`/`stop` (UI task), decremented by `cdtimer_tick`
-   (housekeeping), and read by the UI getters. A `start` racing a `tick` can be
-   clobbered, or a `stop` undone.
+   `cdtimer_start`/`cdtimer_cancel` (UI screen *and* the `dbg` console task),
+   decremented by `cdtimer_check()` (watch-face UI tick), and read by the UI
+   getters. A `start` racing a `check` can be clobbered, or a `cancel` undone.
+   **Fixed (12. Oct):** a `s_mux` spinlock around all four state accesses;
+   `cdtimer_check()` decides expiry under the lock and calls
+   `alarm_ring_now()` outside it.
 
 ## Low
 

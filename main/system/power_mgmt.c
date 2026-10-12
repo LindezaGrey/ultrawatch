@@ -165,16 +165,24 @@ static void axp_irq_describe(uint32_t irq, char *out, size_t out_len)
 #define PM_NVS_KEY_BRIGHT  "bright"
 #define PM_NVS_KEY_SPARMODUS "sparmodus"
 
-static bool s_night_mode_auto = true;    /* default: auto-enter night mode */
-static bool s_skip_sleep_on_usb = true;  /* default: never sleep on USB */
+/* Synchronization policy for this file's cross-task settings: the
+ * single-word scalars below are written inside s_idle_mux, so a setter's
+ * compare-and-store cannot lose to another writer, and read without it.
+ * Xtensa loads/stores of these widths do not tear, so a lock-free reader
+ * sees either the old or the new value; acting on one that a UI change has
+ * just replaced is acceptable for power policy. Values read as a PAIR -
+ * the activity timestamp with the timeout in display_idle_expired() - still
+ * take the mux on the read side too. */
+static volatile bool s_night_mode_auto = true;   /* default: auto-enter night mode */
+static volatile bool s_skip_sleep_on_usb = true; /* default: never sleep on USB */
 static uint32_t s_display_timeout_s = 10;
 static uint32_t s_return_timeout_s = 30;
 /* Cross-task activity reports (alarm, power keys) share one monotonic clock. */
 static portMUX_TYPE s_idle_mux = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t s_display_activity_ms;
 
-static uint8_t s_brightness = 0x80;      /* default: matches the historical 0x80 literal */
-static bool s_sparmodus_active = false;  /* Ultra-Sparmodus, docs/application.md section 10 */
+static volatile uint8_t s_brightness = 0x80;     /* default: matches the historical 0x80 literal */
+static volatile bool s_sparmodus_active = false; /* Ultra-Sparmodus, docs/application.md section 10 */
 
 /* Survives a deep-sleep wake (unlike every other static above, which is
  * re-initialized from scratch since deep sleep wipes normal DRAM/task
@@ -387,13 +395,19 @@ uint8_t power_mgmt_get_brightness(void)
 
 void power_mgmt_set_brightness(uint8_t level)
 {
-    if (level == 0 || level == s_brightness) {
+    if (level == 0) {
+        return;
+    }
+    portENTER_CRITICAL(&s_idle_mux);
+    if (level == s_brightness) {
+        portEXIT_CRITICAL(&s_idle_mux);
         return;
     }
     s_brightness = level;
+    portEXIT_CRITICAL(&s_idle_mux);
     pm_config_save();
     if (!s_night_mode) {
-        display_controller_set_brightness(s_brightness);
+        display_controller_set_brightness(level);
     }
 }
 
@@ -409,10 +423,13 @@ bool power_mgmt_get_sparmodus_active(void)
  * `sparmodus on` debug command while that wiring is being built/verified. */
 void power_mgmt_set_sparmodus_active(bool on)
 {
+    portENTER_CRITICAL(&s_idle_mux);
     if (on == s_sparmodus_active) {
+        portEXIT_CRITICAL(&s_idle_mux);
         return;
     }
     s_sparmodus_active = on;
+    portEXIT_CRITICAL(&s_idle_mux);
     pm_config_save();
 }
 
@@ -652,10 +669,13 @@ bool power_mgmt_get_night_mode_auto(void)
 
 void power_mgmt_set_night_mode_auto(bool on)
 {
+    portENTER_CRITICAL(&s_idle_mux);
     if (on == s_night_mode_auto) {
+        portEXIT_CRITICAL(&s_idle_mux);
         return;
     }
     s_night_mode_auto = on;
+    portEXIT_CRITICAL(&s_idle_mux);
     /* Re-apply from the current time: turning auto off forces night mode off
      * immediately; turning it back on re-enters night mode right away. */
     pm_apply_night_mode(pm_is_night_time());
@@ -669,10 +689,13 @@ bool power_mgmt_get_skip_sleep_on_usb(void)
 
 void power_mgmt_set_skip_sleep_on_usb(bool yes)
 {
+    portENTER_CRITICAL(&s_idle_mux);
     if (yes == s_skip_sleep_on_usb) {
+        portEXIT_CRITICAL(&s_idle_mux);
         return;
     }
     s_skip_sleep_on_usb = yes;
+    portEXIT_CRITICAL(&s_idle_mux);
     pm_config_save();
 }
 
