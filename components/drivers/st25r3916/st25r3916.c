@@ -47,6 +47,7 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #include <inttypes.h>
 #include <stdio.h>
@@ -216,7 +217,26 @@ static i2c_master_dev_handle_t s_pmu;
  * this chip's own DLDO1 - registered as an SPI2_POWER_OWNED rail, which
  * spi2_power_release() never lowers on its own, matching this chip's
  * inability to reliably survive a rail power-cycle once it has completed
- * bring-up (see st25r3916_close()). */
+ * bring-up (see st25r3916_close()).
+ *
+ * The same open()/close() pair also brackets a chip session, and more than
+ * one task starts one: nfc_ctrl_task scans periodically from its own task
+ * while the nfcpoll/nfctune console commands run from the debug console
+ * task. The SPI driver serializes each individual transfer, so nothing is
+ * corrupted mid-byte, but a session is dozens of transfers plus a live RF
+ * field long - a second task's open() landing in the middle runs
+ * DCMD_SET_DEFAULT and re-tunes the antenna under the first one.
+ * s_session_lock is taken by open() and dropped by close(), so a concurrent
+ * session fails with ESP_ERR_INVALID_STATE instead of corrupting the one in
+ * progress. */
+static SemaphoreHandle_t s_session_lock;
+
+/* True only for the task currently inside an open()/close() session. */
+static bool session_held(void)
+{
+    return s_session_lock &&
+           xSemaphoreGetMutexHolder(s_session_lock) == xTaskGetCurrentTaskHandle();
+}
 
 /* ---- raw SPI primitives ---- */
 
@@ -688,6 +708,10 @@ esp_err_t st25r3916_init(spi_device_handle_t spi, i2c_master_dev_handle_t pmu)
     s_spi = spi;
     s_pmu = pmu;
 
+    if (!s_session_lock) {
+        s_session_lock = xSemaphoreCreateMutex();
+    }
+
     gpio_config_t irq_io = {
         .pin_bit_mask = 1ULL << ST25R3916_PIN_IRQ,
         .mode = GPIO_MODE_INPUT,
@@ -703,6 +727,11 @@ esp_err_t st25r3916_init(spi_device_handle_t spi, i2c_master_dev_handle_t pmu)
 
 esp_err_t st25r3916_open(void)
 {
+    /* Non-blocking on purpose: the periodic scanner and a console command
+     * that collide here should report "busy" and move on, not queue up
+     * behind an 8-second scan. */
+    ESP_RETURN_ON_FALSE(s_session_lock && xSemaphoreTake(s_session_lock, 0) == pdTRUE,
+                        ESP_ERR_INVALID_STATE, TAG, "another NFC session is active");
     /* What the PMU actually has programmed for DLDO1 (reg 0x99, low 5 bits
      * = (mV - 500) / 100). Read over I2C from the PMU, so it is valid
      * whether or not the NFC chip answers SPI - which makes it the number to
@@ -758,6 +787,7 @@ esp_err_t st25r3916_open(void)
          * against a chip stuck in whatever state it's currently in. */
         axp2101_enable_rail(s_pmu, AXP2101_DLDO1, false);
         spi2_power_release(AXP2101_RAIL_MAX);
+        xSemaphoreGive(s_session_lock);
         return (err == ESP_OK) ? ESP_ERR_INVALID_RESPONSE : err;
     }
 
@@ -803,6 +833,7 @@ esp_err_t st25r3916_open(void)
          * spi2_power's normal "never auto-lower DLDO1" policy. */
         axp2101_enable_rail(s_pmu, AXP2101_DLDO1, false);
         spi2_power_release(AXP2101_RAIL_MAX);
+        xSemaphoreGive(s_session_lock);
         return err;
     }
 
@@ -844,6 +875,7 @@ esp_err_t st25r3916_tuning_measure(uint8_t aat_a, uint8_t aat_b,
                                    uint8_t *amplitude, uint8_t *phase)
 {
     ESP_RETURN_ON_FALSE(amplitude && phase, ESP_ERR_INVALID_ARG, TAG, "null tuning result");
+    ESP_RETURN_ON_FALSE(session_held(), ESP_ERR_INVALID_STATE, TAG, "tuning outside a session");
     ESP_RETURN_ON_ERROR(reg_write1(REG_ANT_TUNE_A, aat_a), TAG, "write AAT A");
     ESP_RETURN_ON_ERROR(reg_write1(REG_ANT_TUNE_B, aat_b), TAG, "write AAT B");
     vTaskDelay(pdMS_TO_TICKS(3));   /* AN5322: varicap settling is typically 2-3 ms */
@@ -852,6 +884,7 @@ esp_err_t st25r3916_tuning_measure(uint8_t aat_a, uint8_t aat_b,
 
 esp_err_t st25r3916_field_reset(void)
 {
+    ESP_RETURN_ON_FALSE(session_held(), ESP_ERR_INVALID_STATE, TAG, "field reset outside a session");
     ESP_RETURN_ON_ERROR(reg_change_bits(REG_OP_CONTROL, OP_TX_EN, 0x00),
                         TAG, "field off");
     vTaskDelay(pdMS_TO_TICKS(5));
@@ -860,6 +893,13 @@ esp_err_t st25r3916_field_reset(void)
 
 void st25r3916_close(void)
 {
+    /* No-op unless this task actually owns an open session: callers that
+     * clean up after a failed open() (st25r3916_poll(), the console
+     * commands) must not stop another task's field or drop its lock. */
+    if (!session_held()) {
+        return;
+    }
+
     /* spi2_power_release() leaves DLDO1 up (SPI2_POWER_OWNED - see the
      * file-top comment and spi2_power.h): the ST25R3916 has proven unable
      * to come back after a rail power-cycle once bring-up has completed,
@@ -869,6 +909,12 @@ void st25r3916_close(void)
      * else needs them. */
     reg_change_bits(REG_OP_CONTROL, OP_TX_EN, 0x00);
     spi2_power_release(AXP2101_DLDO1);
+    xSemaphoreGive(s_session_lock);
+}
+
+bool st25r3916_busy(void)
+{
+    return s_session_lock && xSemaphoreGetMutexHolder(s_session_lock) != NULL;
 }
 
 esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
@@ -876,6 +922,7 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
     if (!tag) {
         return ESP_ERR_INVALID_ARG;
     }
+    ESP_RETURN_ON_FALSE(session_held(), ESP_ERR_INVALID_STATE, TAG, "try outside a session");
     memset(tag, 0, sizeof(*tag));
 
     TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
@@ -1000,6 +1047,7 @@ esp_err_t st25r3916_read_type2(uint8_t *out, size_t out_cap, size_t *out_len, in
     if (!out || !out_len || out_cap == 0) {
         return ESP_ERR_INVALID_ARG;
     }
+    ESP_RETURN_ON_FALSE(session_held(), ESP_ERR_INVALID_STATE, TAG, "read outside a session");
     *out_len = 0;
     TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
 

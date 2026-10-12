@@ -625,6 +625,14 @@ void debug_cmd_nfcprobe(const char *args)
         settle = 20;
     }
 
+    /* This sweep drives the rails directly, which is only safe while nobody
+     * is using them - cutting DLDO1 under an open() session would pull the
+     * chip out from under it mid-transfer. */
+    if (st25r3916_busy()) {
+        printf("nfcprobe: an NFC session is active (UI scan or nfcpoll) - try again\n");
+        return;
+    }
+
     /* Unmount cleanly first if the card is up: cutting the rail from under a
      * mounted card is what leaves it unable to remount (sd_log.c). */
     bool was_mounted = sd_log_available();

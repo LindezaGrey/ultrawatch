@@ -56,7 +56,15 @@ esp_err_t st25r3916_init(spi_device_handle_t spi, i2c_master_dev_handle_t pmu);
  * Call once before one or more st25r3916_try() calls; call st25r3916_close()
  * when done. Returns the same error codes bring-up can fail with (chip
  * absent/unresponsive, oscillator never stabilizes, ...) - never
- * ESP_ERR_NOT_FOUND (that's a try()-only outcome). */
+ * ESP_ERR_NOT_FOUND (that's a try()-only outcome).
+ *
+ * open()/close() own the chip for their whole duration: a second task
+ * calling open() while another session is running returns
+ * ESP_ERR_INVALID_STATE immediately (no waiting), so a background scan and a
+ * console command can never interleave bring-up, RF field state, or the
+ * antenna-tuning registers. try()/tuning_measure()/field_reset()/
+ * read_type2() answer the same way if called outside the caller's own
+ * session. */
 esp_err_t st25r3916_open(void);
 
 /* One REQA + anticollision/select cascade attempt against whatever chip
@@ -94,8 +102,17 @@ esp_err_t st25r3916_field_reset(void);
  * its own, only the chip-level read primitive. */
 esp_err_t st25r3916_read_type2(uint8_t *out, size_t out_cap, size_t *out_len, int timeout_ms);
 
-/* Power the chip back down. Safe to call even if st25r3916_open() failed. */
+/* End the session owned by the calling task: stops the RF field and releases
+ * the shared SPI2 rails. Safe to call even if st25r3916_open() failed, and a
+ * no-op when this task has no session open (it never disturbs another
+ * task's). */
 void st25r3916_close(void);
+
+/* True while some task holds an open()/close() session. Cheap, non-blocking
+ * check for callers that must not touch the chip or its bus at all while the
+ * chip is mid-session (st25r3916_probe_identity() below, the nfcprobe rail
+ * sweep). */
+bool st25r3916_busy(void);
 
 /* Diagnostic primitive: probe the IC identity register through the driver's
  * own permanent SPI device (the one wired up by st25r3916_init(), same one
