@@ -423,6 +423,18 @@ void debug_cmd_rails(const char *args)
     } else {
         printf("VBACKUP coin cell chg read failed: %s\n", esp_err_to_name(bc_err));
     }
+
+    /* What power_mgmt_init() armed the gauge's low-SOC alarms to, and where the
+     * gauge stands now - the two numbers pm_battery_guard() compares. */
+    uint8_t warn_pct = 0, shut_pct = 0, soc = 0;
+    esp_err_t lvl_err = axp2101_get_low_soc_levels(twatch_pmu_dev, &warn_pct, &shut_pct);
+    if (lvl_err != ESP_OK) {
+        printf("gauge low-SOC levels  read failed: %s\n", esp_err_to_name(lvl_err));
+    } else {
+        axp2101_get_battery_pct(twatch_pmu_dev, &soc);
+        printf("gauge low-SOC levels  warning %u%%, shutdown %u%% (now %u%%)\n",
+               warn_pct, shut_pct, soc);
+    }
 }
 
 void debug_cmd_nfcpoll(const char *args)

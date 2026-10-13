@@ -78,6 +78,14 @@ esp_err_t axp2101_enable_vbus_irq(i2c_master_dev_handle_t dev);
 /* Mask the fuel gauge's periodic "new SOC reading" interrupt, which otherwise
  * asserts the shared IRQ line every ~20 s and wakes the sleeping host. */
 esp_err_t axp2101_disable_gauge_soc_irq(i2c_master_dev_handle_t dev);
+/* Gauge low-SOC thresholds (datasheet REG1AH) + their IRQ enables (REG40
+ * bits 7/6). warn_pct is level 2, the "Warning Level" (5-20 %); shutdown_pct
+ * is level 1, the "Shutdown Level" REG48H bit 6 is named after (0-15 %).
+ * Crossing a level only raises the IRQ (power_mgmt.c's AXP_IRQ_SOCWL1/2) -
+ * the PMIC does not power itself off at either, so the host must act. */
+esp_err_t axp2101_set_low_soc_levels(i2c_master_dev_handle_t dev, uint8_t warn_pct, uint8_t shutdown_pct);
+/* Read back what axp2101_set_low_soc_levels() set (POR: 15 % / 1 %). */
+esp_err_t axp2101_get_low_soc_levels(i2c_master_dev_handle_t dev, uint8_t *warn_pct, uint8_t *shutdown_pct);
 
 esp_err_t axp2101_clear_irq(i2c_master_dev_handle_t dev);
 /* 24-bit IRQ status: bits 0-7 = INTSTS1, 8-15 = INTSTS2, 16-23 = INTSTS3.

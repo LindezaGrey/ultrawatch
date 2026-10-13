@@ -19,6 +19,7 @@ static const char *TAG = "axp2101";
 #define AXP_REG_ADC_DATA_TEMP0  0x3C /* die/battery temp hi (H6L8) */
 #define AXP_REG_ADC_DATA_TEMP1  0x3D
 #define AXP_REG_CHG_GAUGE_WDT   0x18 /* charging + gauge + watchdog ctrl */
+#define AXP_REG_LOW_SOC_LVL     0x1A /* low battery warning levels (see axp2101_set_low_soc_levels) */
 #define AXP_REG_ICC_CHG_SET     0x62 /* constant charge current */
 #define AXP_REG_BTN_BATT_CHG_V  0x6A /* button battery charge termination voltage */
 #define AXP_REG_BAT_PERCENT     0xA4
@@ -40,6 +41,11 @@ static const char *TAG = "axp2101";
  * matching status bit - it simply fires every time the gauge refreshes its
  * state-of-charge estimate, roughly every 20 s, forever. */
 #define AXP_INTEN1_NEWSOC (1u << 4)
+/* REG40 bits 7/6: the gauge's two low-SOC alarms, whose levels REG1AH sets.
+ * Both are enabled by the system reset default; axp2101_set_low_soc_levels()
+ * sets them explicitly anyway. */
+#define AXP_INTEN1_SOCWL2 (1u << 7)   /* "SOC drop to Warning Level2" */
+#define AXP_INTEN1_SOCWL1 (1u << 6)   /* "SOC drop to Warning Level1" */
 #define AXP_PWROFF_EN_PWRON_OFFLEVEL  (1u << 1)
 #define AXP_COMMON_CFG_SOFT_PWROFF    (1u << 0)
 #define AXP_OFFLEVEL_MASK   0x0C   /* bits 3:2 */
@@ -375,6 +381,32 @@ esp_err_t axp2101_disable_gauge_soc_irq(i2c_master_dev_handle_t dev)
     ESP_LOGI(TAG, "masking gauge new-SOC IRQ (INTEN1 0x%02x -> 0x%02x)",
              val, (uint8_t)(val & ~AXP_INTEN1_NEWSOC));
     return axp2101_write_reg(dev, AXP_REG_INTEN1, (uint8_t)(val & ~AXP_INTEN1_NEWSOC));
+}
+
+esp_err_t axp2101_set_low_soc_levels(i2c_master_dev_handle_t dev, uint8_t warn_pct, uint8_t shutdown_pct)
+{
+    /* REG1AH: bits 7:4 = warning level 2 (5-20 %, 1 %/step, code = pct - 5),
+     * bits 3:0 = warning level 1, the level REG48H bit 6 calls "Shutdown Level"
+     * (0-15 %, code = pct). Crossing them only raises an IRQ - the gauge never
+     * powers anything off, and its VBAT_UVLOZ of 2.4 V is far below the point
+     * where DCDC1 stops holding up the SoC, so the host has to act. */
+    if (warn_pct < 5 || warn_pct > 20 || shutdown_pct > 15) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t val = (uint8_t)(((warn_pct - 5) << 4) | shutdown_pct);
+    ESP_RETURN_ON_ERROR(axp2101_write_reg(dev, AXP_REG_LOW_SOC_LVL, val), TAG, "write low soc levels");
+    ESP_LOGI(TAG, "gauge low-SOC levels: warning %u%%, shutdown %u%% (REG1A=0x%02x)",
+             warn_pct, shutdown_pct, val);
+    return axp2101_set_bit(dev, AXP_REG_INTEN1, AXP_INTEN1_SOCWL2 | AXP_INTEN1_SOCWL1, true);
+}
+
+esp_err_t axp2101_get_low_soc_levels(i2c_master_dev_handle_t dev, uint8_t *warn_pct, uint8_t *shutdown_pct)
+{
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_LOW_SOC_LVL, &val), TAG, "read low soc levels");
+    *warn_pct = (uint8_t)(5 + ((val >> 4) & 0x0F));
+    *shutdown_pct = (uint8_t)(val & 0x0F);
+    return ESP_OK;
 }
 
 esp_err_t axp2101_clear_irq(i2c_master_dev_handle_t dev)

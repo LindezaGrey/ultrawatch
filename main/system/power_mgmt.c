@@ -797,7 +797,7 @@ static bool pm_imu_wake_is_real(void)
  * power once the PMIC acknowledges the command. */
 void power_mgmt_shutdown(void)
 {
-    ESP_LOGI(TAG, "PWRKEY long-press: shutting down");
+    ESP_LOGI(TAG, "shutting down");
     /* The PMIC immediately removes panel power, so omit SLPIN deliberately.
      * This is still serialized with the LVGL flush path by the controller. */
     esp_err_t display_err = display_controller_power_off(pdMS_TO_TICKS(1000));
@@ -807,6 +807,67 @@ void power_mgmt_shutdown(void)
     daily_log_flush();
     sd_log_unmount();
     axp2101_soft_poweroff(twatch_pmu_dev);
+}
+
+/* Gauge state-of-charge levels (REG1AH, see axp2101_set_low_soc_levels()).
+ * Measured on this cell (docs/todo.md, 12. Oct): the gauge falls ~3 %/h above
+ * 40 % but 10-18 %/h below 30 %, and the cell then brownouts the SoC instead of
+ * shutting it down cleanly - the PMIC's own VBAT_UVLOZ is 2.4 V, far below the
+ * point where DCDC1 stops holding up the ESP32-S3, so nothing else intervenes.
+ * 15 % is roughly an hour of lead time; 3 % is the last point where a clean
+ * power-off still beats the brownout reboot. */
+#define PM_BATT_WARN_PCT     15
+#define PM_BATT_SHUTDOWN_PCT  3
+/* Measured discharge slope once the gauge is below ~20 % (10 %->1 % took 35
+ * min on 11 Oct), used only to put a lead time on the warning log line. */
+#define PM_BATT_MIN_PER_PCT   4
+
+/* Act on the gauge instead of only logging it. Called both from the AXP SOCWL
+ * IRQ and from the periodic Sparmodus check, so a low cell does not depend on
+ * a fresh wake-to-idle transition the way the Ultra-Sparmodus flag does.
+ * Needs two consecutive readings at or below the shutdown level: the gauge
+ * estimate (or one bad I2C read) can briefly report 0 % while VBAT is still
+ * healthy, and a false power-off of a watch that was actually fine is the worse
+ * failure here. */
+static void pm_battery_guard(bool vbus_present)
+{
+    static uint8_t shutdown_streak;
+    static bool warn_logged;
+
+    bool present = false;
+    if (vbus_present ||
+            axp2101_is_battery_present(twatch_pmu_dev, &present) != ESP_OK || !present) {
+        shutdown_streak = 0;
+        return;
+    }
+    uint8_t pct = 0;
+    if (axp2101_get_battery_pct(twatch_pmu_dev, &pct) != ESP_OK) {
+        return;
+    }
+    if (pct <= PM_BATT_SHUTDOWN_PCT) {
+        if (++shutdown_streak < 2) {
+            ESP_LOGW(TAG, "battery at %u%%, confirming on the next check", pct);
+            return;
+        }
+        ESP_LOGE(TAG, "battery at %u%%, at or below the %u%% shutdown level: powering off",
+                 pct, PM_BATT_SHUTDOWN_PCT);
+        power_mgmt_shutdown();
+        /* Still running, so the PMIC did not cut power (same case the PEK_LONG
+         * path handles). Start over; the next check retries. */
+        shutdown_streak = 0;
+        return;
+    }
+    shutdown_streak = 0;
+    if (pct <= PM_BATT_WARN_PCT) {
+        if (!warn_logged) {
+            warn_logged = true;
+            ESP_LOGW(TAG, "battery at %u%%, at or below the %u%% warning level: ~%d min left",
+                     pct, PM_BATT_WARN_PCT,
+                     (int)(pct - PM_BATT_SHUTDOWN_PCT) * PM_BATT_MIN_PER_PCT);
+        }
+    } else {
+        warn_logged = false;
+    }
 }
 
 /* Ultra-Sparmodus auto-entry/exit check period (docs/application.md
@@ -919,6 +980,7 @@ static void pm_wake_task(void *arg)
                     }
                 }
                 sparmodus_last_vbus = vbus_now;
+                pm_battery_guard(vbus_now);
             }
             continue;
         }
@@ -952,6 +1014,17 @@ static void pm_wake_task(void *arg)
                  * same as BOOT below: the callback itself decides whether
                  * there's anything to do right now. */
                 s_button_cb();
+            }
+            if (irq & (AXP_IRQ_SOCWL1 | AXP_IRQ_SOCWL2)) {
+                /* Gauge says SOC crossed one of the levels armed in
+                 * power_mgmt_init(). Handled here as well as on the periodic
+                 * check so a low cell is noticed at once rather than up to
+                 * PM_SPARMODUS_CHECK_MS later. Deliberately not part of the
+                 * if-chain above: a low-SOC IRQ sharing this line with a button
+                 * press must not swallow the button. */
+                bool vbus = false;
+                axp2101_is_vbus_present(twatch_pmu_dev, &vbus);
+                pm_battery_guard(vbus);
             }
         } else if ((sources & PM_WAKE_BOOT) && s_button_cb) {
             s_button_cb();
@@ -1318,6 +1391,16 @@ void power_mgmt_init(void)
      * every light-sleep period and putting the watch back into a full awake
      * cycle with the display on. See axp2101_disable_gauge_soc_irq(). */
     axp2101_disable_gauge_soc_irq(twatch_pmu_dev);
+    /* Arm the gauge's two low-SOC levels (REG1AH) so the SOCWL IRQs mean
+     * something instead of firing at the power-on defaults (15 % / 1 %), and so
+     * pm_battery_guard() acts on levels chosen here. Clear the IRQ status after
+     * re-arming: a cell already below the warning level asserts SOCWL2 the
+     * moment the threshold is written. */
+    esp_err_t soc_lvl_err = axp2101_set_low_soc_levels(twatch_pmu_dev,
+                                                       PM_BATT_WARN_PCT, PM_BATT_SHUTDOWN_PCT);
+    if (soc_lvl_err != ESP_OK) {
+        ESP_LOGW(TAG, "axp2101_set_low_soc_levels: %s", esp_err_to_name(soc_lvl_err));
+    }
     axp2101_clear_irq(twatch_pmu_dev);
 
     /* PWRKEY long-press (>4s) shuts the watch down, but in software: disable
