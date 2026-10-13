@@ -156,6 +156,11 @@ static esp_err_t twatch_spi_init(void)
 /* Push the RTC wall-clock time into the FreeRTOS/ESP-IDF system clock. */
 static void sync_system_time(void)
 {
+    /* Steady state is the RTC and the system clock agreeing, and this runs on
+     * every sensor-cache tick - one capture held 18,801 copies of the same
+     * sentence. Only the first sync and any real correction are news. */
+    static bool first = true;
+
     pcf85063a_time_t t;
     if (pcf85063a_get_time(twatch_rtc_dev, &t) != ESP_OK) {
         ESP_LOGW(TAG, "RTC time invalid, system clock not synced");
@@ -165,9 +170,17 @@ static void sync_system_time(void)
      * no mktime()/TZ involved (system time()/mktime() is always UTC-epoch
      * regardless of the process TZ used for display). */
     time_t now = pcf85063a_time_to_epoch(&t);
+    long delta = (long)(now - time(NULL));
     struct timeval tv = { .tv_sec = now, .tv_usec = 0 };
     settimeofday(&tv, NULL);
-    ESP_LOGI(TAG, "system clock synced from RTC (UTC)");
+    if (first) {
+        ESP_LOGI(TAG, "system clock synced from RTC (UTC)");
+        first = false;
+    } else if (delta > 2 || delta < -2) {
+        ESP_LOGW(TAG, "system clock corrected by %ld s", delta);
+    } else {
+        ESP_LOGD(TAG, "system clock re-synced from RTC (%ld s)", delta);
+    }
 }
 
 /* Public wrapper: the sensor cache calls this periodically so the ESP32
