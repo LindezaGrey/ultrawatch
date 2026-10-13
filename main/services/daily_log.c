@@ -46,6 +46,7 @@ void daily_log_init(void)
     }
 }
 static bool s_log_ready;                 /* CSV header written this boot */
+static bool s_snapshot_lost;             /* steps/activity rows currently skipped */
 
 /* Short, greppable names for the AXP2101 charge state, so the CSV is readable
  * without a decoder ring. */
@@ -116,17 +117,25 @@ static void ensure_header(void)
 }
 
 /* Called only from within a sd_log_session_begin()/end() bracket (see
- * daily_log_task). */
-static void append_lines(const struct tm *lt, uint32_t lifetime)
+ * daily_log_tick). */
+static void fmt_stamp(const struct tm *lt, char *date, size_t date_len,
+                      char *clock, size_t clock_len)
 {
-    char stemp[24], stem[24];
-    snprintf(stemp, sizeof(stemp), "%04u-%02u-%02u", (unsigned)(lt->tm_year + 1900),
+    snprintf(date, date_len, "%04u-%02u-%02u", (unsigned)(lt->tm_year + 1900),
              (unsigned)(lt->tm_mon + 1), (unsigned)lt->tm_mday);
-    snprintf(stem, sizeof(stem), "%02u:%02u", (unsigned)lt->tm_hour, (unsigned)lt->tm_min);
+    snprintf(clock, clock_len, "%02u:%02u", (unsigned)lt->tm_hour, (unsigned)lt->tm_min);
+}
+
+/* Steps + activity rows. Both depend on the BHI260AP daily checkpoint, so they
+ * are written as a pair only when that path is healthy (see daily_log_tick). */
+static void append_activity_lines(const struct tm *lt, uint32_t lifetime)
+{
+    char date[12], clock[6];
+    fmt_stamp(lt, date, sizeof(date), clock, sizeof(clock));
 
     FILE *s = fopen(STEPS_CSV, "a");
     if (s) {
-        fprintf(s, "%s %s,%lu,%lu\n", stemp, stem, (unsigned long)s_steps,
+        fprintf(s, "%s,%s,%lu,%lu\n", date, clock, (unsigned long)s_steps,
                 (unsigned long)lifetime);
         fclose(s);
     }
@@ -135,38 +144,50 @@ static void append_lines(const struct tm *lt, uint32_t lifetime)
         /* Determine the class that was current at this sample. */
         uint8_t act = BHI260AP_ACTIVITY_UNKNOWN;
         bhi260ap_get_activity(&act);
-        fprintf(a, "%s %s,%s\n", stemp, stem, class_name(activity_class(act)));
+        fprintf(a, "%s,%s,%s\n", date, clock, class_name(activity_class(act)));
         fclose(a);
     }
-    /* Battery sample. Written even when the cache is stale (valid==false) -
-     * a row of zeros with the timestamp still shows the gap, which is more
-     * useful when reconstructing an overnight drain than a missing line. */
+}
+
+/* Battery sample, written on its own rather than alongside the two above.
+ * Those depend on the BHI260AP daily checkpoint, and when that path failed the
+ * battery history went blind with it: through the last five hours of the cell
+ * on 2026-10-11 the gauge kept reporting normally while battery.csv got no rows
+ * at all, which is what made the brownout impossible to see coming. */
+static void append_battery_line(const struct tm *lt)
+{
+    char date[12], clock[6];
+    fmt_stamp(lt, date, sizeof(date), clock, sizeof(clock));
+
     FILE *b = fopen(BATTERY_CSV, "a");
-    if (b) {
-        sensor_cache_t c;
-        sensor_cache_get(&c);
-        /* date and time as two real columns, matching the header. The other
-         * two CSVs join them with a space into a single field despite their
-         * headers claiming otherwise; not changed there, because those files
-         * already hold history in that shape and re-splitting mid-file would
-         * break the existing series. */
-        /* uptime comes from the kernel, not from sensor_cache like the
-         * timestamp and the battery figures do. On 2026-09-02 the cache task
-         * stopped updating for ~19 minutes: housekeeping kept writing a row a
-         * minute, but every row carried the same stale time (07:26) and the
-         * same stale 3844 mV, so the file looked like a 19-minute gap when in
-         * fact it was 20 frozen samples. With uptime alongside, the two are
-         * immediately distinguishable - uptime climbing while the timestamp
-         * stands still means the cache is stale, both standing still means the
-         * logger itself stopped. */
-        fprintf(b, "%s,%s,%lu,%u,%u,%s,%u,%u,%d\n", stemp, stem,
-                (unsigned long)(esp_timer_get_time() / 1000000),
-                (unsigned)c.batt_pct, (unsigned)c.batt_mv,
-                c.valid ? charge_state_name(c.chg_state) : "invalid",
-                (unsigned)(c.chg_enabled ? 1 : 0), (unsigned)c.chg_ma,
-                (int)c.batt_temp_c10);
-        fclose(b);
-    }
+    if (!b) return;
+    sensor_cache_t c;
+    sensor_cache_get(&c);
+    /* Written even when the cache is stale (valid==false) - a row of zeros
+     * with the timestamp still shows the gap, which is more useful when
+     * reconstructing an overnight drain than a missing line. */
+    /* date and time as two real columns, matching the header. steps.csv and
+     * activity.csv used to join them with a space into one field despite their
+     * headers claiming otherwise; fixed here so all three files parse the same
+     * way. Rows written before 2026-10-13 in those two files have one field
+     * where the header declares two, so anything reading them has to cope with
+     * both shapes. */
+    /* uptime comes from the kernel, not from sensor_cache like the
+     * timestamp and the battery figures do. On 2026-09-02 the cache task
+     * stopped updating for ~19 minutes: housekeeping kept writing a row a
+     * minute, but every row carried the same stale time (07:26) and the
+     * same stale 3844 mV, so the file looked like a 19-minute gap when in
+     * fact it was 20 frozen samples. With uptime alongside, the two are
+     * immediately distinguishable - uptime climbing while the timestamp
+     * stands still means the cache is stale, both standing still means the
+     * logger itself stopped. */
+    fprintf(b, "%s,%s,%lu,%u,%u,%s,%u,%u,%d\n", date, clock,
+            (unsigned long)(esp_timer_get_time() / 1000000),
+            (unsigned)c.batt_pct, (unsigned)c.batt_mv,
+            c.valid ? charge_state_name(c.chg_state) : "invalid",
+            (unsigned)(c.chg_enabled ? 1 : 0), (unsigned)c.chg_ma,
+            (int)c.batt_temp_c10);
+    fclose(b);
 }
 
 static bool local_date(struct tm *lt, uint32_t *ymd)
@@ -212,11 +233,16 @@ void daily_log_tick(void)
     }
     /* A full pending queue may have just been drained. */
     if (update != ESP_OK) update = bhi260ap_daily_update(ymd, true);
+    if (!s_log_ready) { ensure_header(); s_log_ready = true; }
+    /* Deliberately outside the snapshot gate below: the gauge is independent
+     * of the step counter, and gating it cost the whole battery history for
+     * the last five hours of the cell on 2026-10-11. */
+    append_battery_line(&lt);
     activity_day_t day;
     if (update == ESP_OK && bhi260ap_daily_snapshot(&day) == ESP_OK && day.ymd == ymd) {
+        s_snapshot_lost = false;
         s_steps = day.steps;
-        if (!s_log_ready) { ensure_header(); s_log_ready = true; }
-        append_lines(&lt, day.lifetime);
+        append_activity_lines(&lt, day.lifetime);
         FILE *file = fopen(TOTALS_CSV, "a");
         if (file) {
             char clock[12], row[256];
@@ -228,6 +254,12 @@ void daily_log_tick(void)
             if (fclose(file) != 0) ok = false;
             if (!ok) ESP_LOGW(TAG, "activity totals append failed");
         }
+    } else if (!s_snapshot_lost) {
+        /* Logged once, not once a minute: this is why steps.csv has a gap
+         * while battery.csv does not. bhi260_task() already reports the
+         * sensor side of it. */
+        s_snapshot_lost = true;
+        ESP_LOGW(TAG, "daily snapshot unavailable, steps/activity rows skipped");
     }
     sd_log_session_end();
 done:
