@@ -15,14 +15,28 @@
 static const char *TAG = "syslog_cap";
 
 #define SYSLOG_FILE               "/sdcard/log/syslog.txt"
-#define SYSLOG_BUF_SIZE           4096
+#define SYSLOG_OLD_FILE           "/sdcard/log/syslog.1.txt"
+/* FATFS has no append-side cap, so the mirror only ever grew: 8.0 MB over six
+ * weeks, which turned a bare `synclog` full-file scan into a ~200 s console
+ * read and left the interesting part (the hour before a reboot) buried. Two
+ * generations keeps the window before a failure without an unbounded file. */
+#define SYSLOG_MAX_BYTES          (2u * 1024u * 1024u)
+/* The telemetry writers share this card; if it gets tight, drop the old
+ * generation rather than let the log mirror be what fills it. */
+#define SYSLOG_MIN_FREE_BYTES     (8u * 1024u * 1024u)
+/* Ping-pong pair: while one batch is being written to the card, capture keeps
+ * filling the other, so a flush costs no copy and the RAM mirror holds twice
+ * as much. Internal DRAM only - the hook runs in any task, including ones that
+ * may be inside a flash operation with the cache disabled. */
+#define SYSLOG_BUF_SIZE           8192
 /* Flush once the buffer is this full, rather than waiting for the next
  * periodic tick - leaves headroom for the one line that pushed it over,
  * which still gets appended (into the now-empty buffer) after the flush. */
 #define SYSLOG_HIGH_WATER         (SYSLOG_BUF_SIZE * 3 / 4)
 #define SYSLOG_LINE_MAX           256
 
-static char s_buf[SYSLOG_BUF_SIZE];
+static char s_bufs[2][SYSLOG_BUF_SIZE];
+static int s_buf_idx;                    /* the buffer capture is filling */
 static size_t s_buf_len;
 static SemaphoreHandle_t s_mux;
 static SemaphoreHandle_t s_flush_wake;
@@ -36,16 +50,17 @@ static void syslog_restore(const char *data, size_t len)
     if (xSemaphoreTake(s_mux, portMAX_DELAY) != pdTRUE) {
         return;
     }
+    char *buf = s_bufs[s_buf_idx];
     if (len >= SYSLOG_BUF_SIZE) {
-        memcpy(s_buf, data, SYSLOG_BUF_SIZE);
+        memcpy(buf, data, SYSLOG_BUF_SIZE);
         s_buf_len = SYSLOG_BUF_SIZE;
     } else {
         size_t retained_len = s_buf_len;
         if (retained_len > SYSLOG_BUF_SIZE - len) {
             retained_len = SYSLOG_BUF_SIZE - len;
         }
-        memmove(s_buf + len, s_buf, retained_len);
-        memcpy(s_buf, data, len);
+        memmove(buf + len, buf, retained_len);
+        memcpy(buf, data, len);
         s_buf_len = len + retained_len;
     }
     bool full = s_buf_len >= SYSLOG_HIGH_WATER;
@@ -81,10 +96,11 @@ static int syslog_vprintf(const char *fmt, va_list args)
     if (n > 0) {
         size_t len = (size_t)n < sizeof(line) - 1 ? (size_t)n : sizeof(line) - 1;
         if (xSemaphoreTake(s_mux, pdMS_TO_TICKS(20)) == pdTRUE) {
+            char *buf = s_bufs[s_buf_idx];
             if (s_buf_len + len > SYSLOG_BUF_SIZE) {
                 len = SYSLOG_BUF_SIZE - s_buf_len;   /* truncate rather than drop the whole line */
             }
-            memcpy(s_buf + s_buf_len, line, len);
+            memcpy(buf + s_buf_len, line, len);
             s_buf_len += len;
             bool full = s_buf_len >= SYSLOG_HIGH_WATER;
             xSemaphoreGive(s_mux);
@@ -100,6 +116,18 @@ static int syslog_vprintf(const char *fmt, va_list args)
     return vprintf(fmt, args);
 }
 
+/* syslog.txt -> syslog.1.txt, dropping the previous generation. */
+static void syslog_rotate(void)
+{
+    remove(SYSLOG_OLD_FILE);
+    if (rename(SYSLOG_FILE, SYSLOG_OLD_FILE) != 0) {
+        /* Nothing to rename, or the card refused: start the mirror over rather
+         * than keep appending past the cap. */
+        remove(SYSLOG_FILE);
+    }
+    ESP_LOGI(TAG, "syslog rotated, %s holds the previous generation", SYSLOG_OLD_FILE);
+}
+
 static void syslog_flush(void)
 {
     if (xSemaphoreTake(s_mux, portMAX_DELAY) != pdTRUE) {
@@ -109,11 +137,12 @@ static void syslog_flush(void)
         xSemaphoreGive(s_mux);
         return;
     }
-    /* Copy out and reset the shared buffer before doing any SD I/O, so the
-     * vprintf hook (called from any task) is never blocked on the card. */
-    static char flush_copy[SYSLOG_BUF_SIZE];
+    /* Hand capture the other buffer and keep this batch for ourselves, so the
+     * vprintf hook (called from any task) is never blocked on the card and the
+     * batch needs no copy-out. */
+    int idx = s_buf_idx;
+    s_buf_idx ^= 1;
     size_t len = s_buf_len;
-    memcpy(flush_copy, s_buf, len);
     s_buf_len = 0;
     xSemaphoreGive(s_mux);
 
@@ -124,19 +153,34 @@ static void syslog_flush(void)
          * debug console commands) deadlocks forever on its own
          * sd_log_session_begin(). */
         sd_log_session_end();
-        syslog_restore(flush_copy, len);
+        syslog_restore(s_bufs[idx], len);
         return;
+    }
+    uint64_t total = 0, free_bytes = 0;
+    if (sd_log_get_space(&total, &free_bytes) == ESP_OK &&
+            free_bytes < SYSLOG_MIN_FREE_BYTES &&
+            remove(SYSLOG_OLD_FILE) == 0) {
+        ESP_LOGW(TAG, "SD low (%llu MB free), dropped %s",
+                 (unsigned long long)(free_bytes / (1024u * 1024u)), SYSLOG_OLD_FILE);
     }
     FILE *f = fopen(SYSLOG_FILE, "a");
     bool saved = false;
     if (f) {
-        size_t written = fwrite(flush_copy, 1, len, f);
-        int close_rc = fclose(f);
-        saved = written == len && close_rc == 0;
+        long size = ftell(f);
+        if (size >= 0 && (unsigned long)size + len > SYSLOG_MAX_BYTES) {
+            fclose(f);
+            syslog_rotate();
+            f = fopen(SYSLOG_FILE, "a");
+        }
+        if (f) {
+            size_t written = fwrite(s_bufs[idx], 1, len, f);
+            int close_rc = fclose(f);
+            saved = written == len && close_rc == 0;
+        }
     }
     sd_log_session_end();
     if (!saved) {
-        syslog_restore(flush_copy, len);
+        syslog_restore(s_bufs[idx], len);
     }
 }
 

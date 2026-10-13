@@ -115,6 +115,15 @@ void debug_cmd_synclog(const char *args)
         printf("\n");
     }
     fclose(f);
+    /* syslog_capture.c rotates at 2 MB; say so, otherwise the older half of a
+     * post-mortem looks like it was never recorded. */
+    FILE *older = fopen("/sdcard/log/syslog.1.txt", "r");
+    if (older) {
+        fseek(older, 0, SEEK_END);
+        printf("synclog: syslog.1.txt holds %ld byte(s) from before the last rotation\n",
+               ftell(older));
+        fclose(older);
+    }
     sd_log_session_end();
     printf("synclog: %ld byte(s) total\n", size);
 }
