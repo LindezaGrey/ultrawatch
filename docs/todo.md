@@ -477,25 +477,44 @@ cycle also runs to 0 % (07:15) with the session ending at 07:18.
 | 2026-10-11 | 2827 | 0 | 2 | 6 | 16 |
 | **all** | 23575 | 1 | **4** | 7 | 19 |
 
-Median 4 %/h ≈ 44 mA on the 1100 mAh cell, i.e. roughly 2.5 days per charge —
-which matches the observed 09 Oct charge → 11 Oct death. **10-11 is the best
-day in the log, not a regression.** The failure is at the bottom of the gauge:
+Median 4 %/h ≈ 44 mA on the 1100 mAh cell, i.e. about **25 h of run time per
+charge**, so one charge lasting just over a day is the expected figure, not a
+regression. The measured fatal cycle agrees: unplugged at 100 % on 10 Oct 17:07,
+dead at 23:02 on 11 Oct = **29.9 h**, ≈3.3 %/h. **10-11 is the best day in the
+log, not a regression.** The failure is at the bottom of the gauge:
 
 | cycle | 30 % | 20 % | 10 % | 5 % | 1 % | 30→1 | 10→1 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 12 Sep 15:13 → 14 Sep 07:18 | 04:55 | 05:55 | 06:38 | 06:59 | 07:15 | 140 min | 37 min |
-| 09 Oct 09:41 → 11 Oct 23:02 | 20:35 | 21:40 | 22:23 | 22:43 | 22:58 | 143 min | 35 min |
+| 10 Oct 17:07 → 11 Oct 23:01 | 20:35 | 21:40 | 22:23 | 22:43 | 22:58 | 143 min | 35 min |
 
 The last 30 % lasts ~2.4 h and the last 10 % only ~35 min, on both cycles. So
 the single battery threshold in the firmware buys 35 minutes — and as finding 2
 shows, it does not actually buy anything.
 
+The same fatal cycle, split into 10-point bands, shows how little `pct` tracks
+charge:
+
+| band | 100→90 | 90→80 | 80→70 | 70→60 | 60→50 | 50→40 | 40→30 | 30→20 | 20→10 | 10→0 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| %/h | 3.6 | 4.4 | 3.7 | 2.8 | 2.9 | **1.0** | 4.4 | 9.3 | 13.8 | 15.7 |
+| crossed | 19:54 | 22:09 | 00:52 | 04:22 | 07:50 | 18:19 | 20:35 | 21:40 | 22:23 | 23:01 |
+
+The 50→40 band (07:50–18:19, a working day on the wrist) runs at 1 %/h; the
+bands below it run at 4–16 %/h. The evening is the *quieter* of the two — the
+longest sleep episode in the whole log, 19:21→22:02, sits inside the fast bands
+— so the acceleration is the gauge and the cell voltage, not a load spike.
+`pct` is a fuel-gauge estimate, not a coulomb count, and it collapses at the
+bottom of the discharge curve (finding 8).
+
 ## High
 
-1. `[pending]` **No low-battery warning and no low-battery shutdown anywhere in
+1. `[done]` **No low-battery warning and no low-battery shutdown anywhere in
    `main/`.** The only battery threshold in the whole project is
    `PM_SPARMODUS_BATT_PCT 10` (`main/system/power_mgmt.c:464`, used at 624 and
-   902). There is no UI warning, no log line at 5 %/3 %, and no shutdown path
+   902). The only UI signal is the status-bar battery icon turning red at
+   `batt_pct <= 15` (`main/screens/status_bar.c:204`) — there is no warning
+   event, no warning screen, no log line at 5 %/3 %, and no shutdown path
    triggered by state of charge — a grep for `battery_low`/`batt_low` in `main/`
    returns nothing. The device therefore relies entirely on the AXP2101's
    hardware UVLO, which is what produced the brownout reboot, the truncated
@@ -506,7 +525,21 @@ shows, it does not actually buy anything.
    off, `daily_log_flush()`, `sd_log_unmount()`, soft power off — but it is only
    reachable from the PWRKEY long-press. Reusing it on a SOC threshold is a
    small change.
-2. `[pending]` **The one low-battery action in the code sets a flag nothing
+
+   **Fixed (13. Oct):** `pm_battery_guard()` in `main/system/power_mgmt.c` now
+   owns the decision. It skips when VBUS is present or the battery is absent
+   (`axp2101_get_battery_pct()` reports 0 % for an absent cell, so checking the
+   gauge alone would shut the watch down with no battery fitted), warns once at
+   `PM_BATT_WARN_PCT` 15 %, and calls `power_mgmt_shutdown()` after **two
+   consecutive** readings at or below `PM_BATT_SHUTDOWN_PCT` 3 % — the gauge
+   reads 0 % while VBAT is still 3496 mV, so a single sample is not trusted.
+   It runs from both the AXP IRQ path and the 30 s sparmodus tick, so it is not
+   gated on a wake-to-idle transition (finding 2). The warning line also states
+   the lead time using `PM_BATT_MIN_PER_PCT` 4 min/%, the measured 10 %→1 %
+   figure: at 15 % that is ~48 min. No new UI screen — the red icon at 15 %
+   already covers the visible case, and a shutdown at 3 % leaves no time to read
+   a screen.
+2. `[done]` **The one low-battery action in the code sets a flag nothing
    consumes while the device is asleep.** The `<10 %` check runs on the periodic
    tick of `pm_wake_task()` (`main/system/power_mgmt.c:899-919`) and the
    auto-entry branch (916) only sets `s_sparmodus_active`. The only place that
@@ -522,7 +555,17 @@ shows, it does not actually buy anything.
    `power_mgmt_sparmodus_enter_sleep()` call that sleeps without waiting for an
    idle transition is on the "USB removed, still low" path (909), which never
    ran because that session had no VBUS at all.
-3. `[pending]` **`battery.csv` — the only power telemetry — is gated behind the
+
+   **Fixed (13. Oct):** the shutdown decision no longer travels through
+   `s_sparmodus_active` at all. `pm_battery_guard()` is called directly from the
+   AXP IRQ handler and from the 30 s sparmodus check in `pm_wake_task()`, so it
+   runs whether or not a wake-to-idle transition ever happens. `PM_SPARMODUS_BATT_PCT`
+   is unchanged — it only selects a sleep *mode* — but it is no longer the last
+   line of defence. The one path that still skips the guard is
+   `power_mgmt_sparmodus_enter_sleep()`, which does not return; the guard
+   resumes on the next 30 s tick after wake, and the `socwl1` IRQ is itself a
+   wake source.
+3. `[done]` **`battery.csv` — the only power telemetry — is gated behind the
    IMU daily path.** `daily_log_tick()` (`main/services/daily_log.c:191`,
    called from `main/services/housekeeping.c:50`) holds `s_log_mutex` and then
    `goto done` unless `local_date()`, `sd_log_session_begin()`,
@@ -533,9 +576,18 @@ shows, it does not actually buy anything.
    counter (finding 7) also suppresses them. Power telemetry must not depend on
    the IMU snapshot.
 
+   **Fixed (13. Oct):** `daily_log_tick()` is split into `append_battery_line()`
+   and `append_activity_lines()`. The battery row now only needs the clock and an
+   SD session; the BHI260AP snapshot gate guards the steps/activity rows alone,
+   and when it fails it logs one `W daily_log: daily snapshot unavailable,
+   steps/activity rows skipped` instead of silently dropping everything. Header
+   creation moved out of the gate too, so a new day's files are still valid when
+   the IMU is dead. In the 12 Oct zombie boot this would have produced 57 battery
+   rows instead of none — enough to see the cell recovering or not.
+
 ## Medium
 
-4. `[pending]` **The AXP2101's own low-battery warnings are decoded and
+4. `[done]` **The AXP2101's own low-battery warnings are decoded and
    ignored.** `AXP_IRQ_SOCWL1`/`SOCWL2` (`main/system/power_mgmt.c:105-107`)
    only ever reach `axp_irq_describe()` for the log string; the sole action on
    an AXP IRQ is `AXP_IRQ_PEK_LONG` (941). The decisive line:
@@ -552,15 +604,29 @@ shows, it does not actually buy anything.
      firing exactly as configured — the PMIC warned on time, in the log, and was
      ignored.
    - `REG40` bits 7/6 enable `socwl2_irq`/`socwl1_irq` (both enabled out of
-     reset); `REG48` bits 7/6 are the RW1C status flags the log decodes. Note
-     `REG48` bit 6 is documented as "SOC drop to **Shutdown** Level IRQ", so the
-     one `irq=0x000050 (lowsoc socwl1)` line in the log may be the PMIC's
-     shutdown-level trip, not a warning — worth confirming before acting on it.
+     reset); `REG48` bits 7/6 are the RW1C status flags the log decodes. `REG48`
+     bit 7 is "SOC drop to **Warning** Level IRQ" and bit 6 is "SOC drop to
+     **Shutdown** Level IRQ", so level 2 is the warning and level 1 the shutdown
+     trip. The lone `irq=0x000050 (lowsoc socwl1)` line is the PMIC reaching its
+     shutdown level — 1 %, the POR default — and the firmware treated it as
+     another log line. That session cannot be dated from the syslog (see the
+     corrections below), so do not claim which cycle it belongs to; the flag
+     itself is unambiguous.
    - `REG17` resets the fuel gauge, `REGA4H` is the SOC the driver already reads.
 
    `AXP_IRQ_LOWSOC` (bit 4) is the *gauge new-SOC* flag, which is what
    `axp2101_disable_gauge_soc_irq()` masks at boot; the warning bits 6/7 are
    separate, were never masked, and were never acted on.
+
+   **Fixed (13. Oct):** `axp2101_set_low_soc_levels()` /
+   `axp2101_get_low_soc_levels()` write `REG1A` with level 2 = 15 % and level
+   1 = 3 %, armed by `power_mgmt_init()` after `axp2101_disable_gauge_soc_irq()`
+   followed by `axp2101_clear_irq()`. Level 1 is lifted off the 1 % POR default
+   because the gauge reports 0 % while VBAT is still 3496 mV; the firmware wants
+   the decision made at 3 % and the guard's two-sample rule covers the gauge's
+   optimism. `debug_cmd_rails()` prints the armed levels next to the live gauge
+   SOC, so the write is verifiable over the console instead of inferred from the
+   driver source.
 5. `[pending]` **There is no current measurement path on this PMIC, so a drain
    cannot be attributed to a rail.** `battery.csv` has `chg_ma`, which is the
    *configured* charge current, not a measurement. Unlike the AXP192/AXP202, the
@@ -573,7 +639,7 @@ shows, it does not actually buy anything.
    Attributing the drain needs either the e-gauge's own bookkeeping (SOC +
    VBAT over time, which is what this section's tables do) or a bench
    measurement in series with the cell.
-6. `[pending]` **No syslog rotation, and the RAM mirror is tiny.**
+6. `[done]` **No syslog rotation, and the RAM mirror is tiny.**
    `main/system/syslog_capture.c:130` opens `SYSLOG_FILE` with `"a"` and never
    checks size, renames or truncates, so the file is now 8,020,377 bytes and
    still growing; a full-file `synclog <substring>` scan costs ~200 s at
@@ -581,7 +647,21 @@ shows, it does not actually buy anything.
    is `SYSLOG_BUF_SIZE 4096` (line 18) with a 3 KB high-water mark, so a boot
    where the SD session fails keeps ~1 s of history — which is exactly the
    zombie-boot case.
-7. `[pending]` **BHI260AP soft recovery never sticks, and the step counter
+
+   **Fixed (13. Oct):** the buffer is now a ping-pong pair of 8 KB halves
+   (`SYSLOG_BUF_SIZE 8192`), so the RAM window is 16 KB instead of 4 KB and a
+   flush costs no copy — the flusher keeps the batch it is writing and hands
+   capture the other half, which is why the old `static char flush_copy[]` is
+   gone. Capture is never blocked on SD I/O, and the buffers stay in internal
+   DRAM because the `vprintf` hook can run while the cache is disabled during a
+   flash operation. The SD mirror rotates at `SYSLOG_MAX_BYTES` 2 MB into
+   `syslog.1.txt`, two generations total, and drops the old generation with a
+   one-line warning below `SYSLOG_MIN_FREE_BYTES` 8 MB free so the log mirror is
+   never what fills the card. `synclog` now also reports `syslog.1.txt`'s size,
+   otherwise the older half of a post-mortem looks like it was never recorded.
+   Rotation is not yet exercised on hardware — check it with `synclog` after the
+   next flash.
+7. `[done]` **BHI260AP soft recovery never sticks, and the step counter
    froze.** `W lvgl_app: BHI260AP data stale but chip responsive; soft
    recovery` appears 880 times and `bhi260ap: sensors re-enabled (soft
    recovery)` 879 times, in bursts at 24 h (65), 30 h (45), 49 h (15), 53 h
@@ -592,17 +672,78 @@ shows, it does not actually buy anything.
    never advanced again through the end of the log on 12 Oct; `day_steps` was 0
    on 12 Oct. Both late boots report `persisted steps 81825`.
 
+   **Fixed (13. Oct):** `bhi260_task()` now counts consecutive stale-but-
+   responsive periods and escalates after `BHI_SOFT_RECOVERY_LIMIT` (3, about
+   15 s of dead stream) to `bhi260ap_deinit()` plus a full re-init, which
+   re-uploads the RAM firmware image. Counting attempts rather than acting on
+   age is the only way to tell the two cases apart, because
+   `bhi260ap_reenable_sensors()` calls `bhi260ap_mark_data()` and so resets the
+   staleness clock on every "recovery" — that is exactly why 879 re-enables
+   changed nothing. The escalation waits `BHI_REINIT_BACKOFF_MAX_MS` (30 s)
+   before the next pass so a genuinely wedged chip does not re-upload its
+   firmware every 15 s. This makes the freeze recoverable, not explained: why
+   the virtual-sensor configuration is lost in the first place is still open.
+8. `[pending]` **The percentage on the screen cannot answer "how much time is
+   left", and the gauge has never been told which cell it is driving.** The band
+   table above spans 1 %/h to 16 %/h inside a single discharge, so "42 %" carries
+   no time information and any threshold scheme has to sit where the gauge falls
+   fastest rather than be spaced evenly. Two reasons this is a configuration gap
+   rather than a bug:
+
+   - The AXP2101's E-Gauge (§6.11) is a voltage/profile estimator, not a coulomb
+     counter. It exports SOC (`REGA4H`) and VBAT (`REG34H`/`REG35H`) and nothing
+     else — no capacity-remaining or time-remaining register to read instead, and
+     no current channel to integrate (finding 5).
+   - Its accuracy comes from a battery parameter table: `REGA1H` selects a ROM
+     profile, `REGA2H` bit 4 picks ROM vs. a user SRAM table and bit 0 is a
+     "brom writer". §6.11 states programming the battery module is "highly
+     recommended to achieve better Fuel Gauge accuracy". **The driver never
+     writes `REG1AH`, `REGA1H`, `REGA2H` or `REG17H`**, so the gauge runs on
+     whatever ROM profile it booted with, against an 1100 mAh cell whose real
+     curve nobody has measured. The datasheet contradicts itself here: §6.13.2.86
+     marks `REGA1H` read-only, the register map marks it writable.
+
+   The datasheet does not document SOC non-linearity and gives no SOC-vs-voltage
+   or SOC-vs-time curve, so the knee measured above is measurement, not spec;
+   what the datasheet supplies is the mechanism that makes it expected.
+
+   Two spec facts that bear on the shutdown design:
+   - `VBAT_UVLOZ` is 2.4 V (Table 5-5), while DCDC1 — which feeds the ESP32-S3 —
+     is specified 2.6–5.5 V in, 1.5–3.4 V out, with no documented dropout. The
+     PMIC's own battery cutoff is therefore below the point where the 3.3 V rail
+     sags, which is consistent with the brownout reboot on 11 Oct, and leaves the
+     firmware's shutdown level as the only protection that actually works. The
+     rail collapse point stays an inference, not a datasheet number.
+   - Reaching the shutdown level only sets `REG48` bit 6; nothing in the
+     datasheet says the PMIC cuts power on SOC by itself. The level is a
+     notification and the action is firmware's.
+
+   Options, in rough order of value: program the battery parameters for the
+   fitted cell (needs its datasheet, or a measured discharge curve — `battery.csv`
+   already logs VBAT next to SOC, so the data to fit one exists); or stop
+   presenting `pct` as if it were linear and show time remaining from the
+   measured band table instead of the raw number.
+
 ## Low
 
-8. `[pending]` **`steps.csv` and `activity.csv` headers declare more columns
-   than the rows write.** Headers are `date,time,day_steps,lifetime_steps`
-   (`main/services/daily_log.c:98`) and `date,time,activity` (line 104), but the
-   rows use `"%s %s,%lu,%lu\n"` (129) and `"%s %s,%s\n"` (138) — date and time
-   are merged into one field, so the files are 3- and 2-column. `battery.csv` is
-   the only one that matches its header. The comment near daily_log.c:145
-   already acknowledges this and deliberately leaves it; either fix the header
-   or the rows.
-9. `[done]` **Wrong power-management comment.** `main/system/power_mgmt.c:1298`
+9. `[done]` **`steps.csv` and `activity.csv` headers declare more columns
+    than the rows write.** Headers are `date,time,day_steps,lifetime_steps`
+    (`main/services/daily_log.c:98`) and `date,time,activity` (line 104), but the
+    rows use `"%s %s,%lu,%lu\n"` (129) and `"%s %s,%s\n"` (138) — date and time
+    are merged into one field, so the files are 3- and 2-column. `battery.csv` is
+    the only one that matches its header. The comment near daily_log.c:145
+    already acknowledges this and deliberately leaves it; either fix the header
+    or the rows.
+
+    **Fixed (13. Oct):** the rows were split into `date,time,...` so they match
+    the declared headers — changing the headers instead would have silently
+    reinterpreted every existing row. This is a format break for those two files:
+    rows written before **2026-10-13** have one merged date+time field, later rows
+    have two, so any analysis must normalise by field count, as it already does
+    for `battery.csv`'s pre-2026-09-02 rows. The date is in the code comment next
+    to the `fprintf` calls, because this is the kind of thing that only matters
+    six weeks later.
+10. `[done]` **Wrong power-management comment.** `main/system/power_mgmt.c:1298`
    said "DFS + automatic light sleep (tickless)". Tickless idle is not the
    mechanism here: `CONFIG_FREERTOS_USE_TICKLESS_IDLE=y` is a no-op on the SMP
    kernel (IDF-4986; `portSUPPRESS_TICKS_AND_SLEEP` is empty in
@@ -612,11 +753,27 @@ shows, it does not actually buy anything.
 
    **Fixed (12. Oct):** comment replaced in place; no behaviour change, and
    `UWatch.bin` is byte-identical in size after the rebuild.
-10. `[pending]` **Idle boots look like hangs in the log.** Once the watch is
+11. `[done]` **Idle boots look like hangs in the log.** Once the watch is
     asleep, the only line emitted is `twatch_board: system clock synced from
     RTC (UTC)` every 60 s — 18,801 of them across the syslog, the single
     largest source after `power_mgmt` and `mesh_log`. A 2.7 h sleep episode is
     indistinguishable from a dead device unless you diff the timestamps.
+
+    **Fixed (13. Oct):** `sync_system_time()` keeps the first sync at INFO and
+    logs later ones at DEBUG, promoting to WARN only when the system clock
+    actually moved — `|delta| > 2 s` measured before `settimeofday()`. That is
+    the case worth keeping: it is the only in-field sign of the RTC drifting or
+    being reset while running. Steady state is the RTC and the system clock
+    agreeing, which is not news 18,801 times — which is 17 % of the syslog's
+    lines and 15 % of its bytes. Removing them is also what makes the new 2 MB
+    rotation worth having: the 8 MB file covered 42 days, so one generation is
+    roughly 10 days of history instead of an unbounded file that costs 200 s to
+    scan.
+
+    Note this also removes the heartbeat the 12 Oct post-mortem was built from:
+    the zombie boot was identified by 57 minutes of *only* that line. The
+    equivalent signal now is `battery.csv` rows, which finding 3's fix puts back
+    on that path, plus the WARN line if the clock is being corrected.
 
 ## Corrections to earlier reasoning (do not re-raise)
 
@@ -643,6 +800,13 @@ shows, it does not actually buy anything.
 - The 638 `st25r3916: wait_irq(want=0x00000010) timed out` /
   `no response: txe=yes, timer/nfc irq=0x80` pairs (637) are NFC bench sessions
   (`nfcprobe`), not runtime traffic — none of them fall in the 11 Oct window.
+- The 8 MB syslog is not a reliable wall-clock index. Only 71 lines carry a date,
+  and both `battery.csv`'s `uptime_s` and the log's uptimes repeat across boot
+  sessions, so a log line's date can only be interpolated between anchors. The
+  one AXP warning that matters *is* anchored — `irq=0x000090` at uptime
+  217,937,338 ms sits 9 s from the `battery.csv` row at 22:02 on 11 Oct, 15 % —
+  but the other four warnings cannot be dated, so do not read a per-cycle story
+  into them.
 - Other high-count lines are noise, not findings: `draw-complete request
   dropped: controller queue full` ×1048, `gpio_install_isr_service(537): GPIO
   isr service already installed` ×339, `scan_start: ESP_ERR_WIFI_NOT_INIT` ×68
@@ -652,23 +816,26 @@ shows, it does not actually buy anything.
 
 ## Suggested next steps (not implemented)
 
-Ordered by how much each one would have changed the outcome on 11 Oct.
+Findings 1-4, 6-7 and 9-11 are fixed on `ui-redesign`; findings 5 and 8 are the
+ones that need a bench or another week of logging rather than a code change.
+What is left is ordered by how much each one would change the next low-battery
+outcome.
 
-1. Act on state of charge instead of logging it. Set `REG1AH` to something
-   useful (level 2 = 10 %, level 1 = 5 %), keep `REG40` bits 7/6 enabled, and
-   subscribe to `AXP_IRQ_SOCWL1`/`SOCWL2` in the AXP IRQ handler next to
-   `AXP_IRQ_PEK_LONG`. At the shutdown level, reuse `power_mgmt_shutdown()`
-   (`main/system/power_mgmt.c:798`) — it already does display off,
-   `daily_log_flush()`, `sd_log_unmount()`, `axp2101_soft_poweroff()` — and show
-   a "battery empty" screen first. This is the change that turns a brownout
-   reboot plus a 57-minute zombie boot into a clean stop with a log record.
-2. Decouple the `battery.csv` row from the IMU daily snapshot in
-   `daily_log_tick()` so power telemetry survives an IMU or SD failure
-   (finding 3).
-3. Escalate the BHI260AP recovery from re-enable to full re-init after N failed
-   soft recoveries, and make the failure visible instead of 880 identical
-   warnings (finding 7).
-4. Rotate syslog (size cap plus one rename) and enlarge the RAM mirror so a
-   boot with no SD session keeps more than ~1 s of history (finding 6).
+1. Find out what the 3 % shutdown level is actually worth. It is a guess derived
+   from one cycle's 10 %→1 % in 35 minutes. `debug_cmd_rails()` now prints the
+   armed levels next to the live gauge SOC, so the next discharge can show how
+   much runtime is left after the guard's first sample. Raise the level if the
+   watch still browns out before the guard fires; lower it if it fires with an
+   hour to spare.
+2. Program the gauge for the fitted cell, or stop treating `pct` as linear
+   (finding 8). `battery.csv` already records VBAT beside SOC, which is enough to
+   fit a curve and turn the displayed number into a usable time estimate.
+3. Root-cause why BHI260AP soft recovery never sticks — finding 7's fix makes
+   the freeze recoverable, not explained — and why the 12 Oct zombie boot wrote
+   no `daily_log_tick()` rows at all. Finding 3's fix assumes the clock and the
+   SD session were healthy there, which the 57-minute gap does not prove.
+4. Settle `CAP_SEL` by measurement rather than datasheet: `rtcdump` plus host
+   NTP/PPS drift for `CAP_SEL=0` vs `1` (see the load-capacitance subsection in
+   `docs/hardware.md`).
 5. If discharge current is ever needed, measure it on the bench — there is no
    IBAT register on this PMIC (finding 5).
