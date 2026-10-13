@@ -234,9 +234,9 @@ void daily_log_tick(void)
     /* A full pending queue may have just been drained. */
     if (update != ESP_OK) update = bhi260ap_daily_update(ymd, true);
     if (!s_log_ready) { ensure_header(); s_log_ready = true; }
-    /* Deliberately outside the snapshot gate below: the gauge is independent
-     * of the step counter, and gating it cost the whole battery history for
-     * the last five hours of the cell on 2026-10-11. */
+    /* Deliberately outside the snapshot gate below: the gauge has nothing to do
+     * with the step counter, but before this it shared the gate, so any IMU or
+     * RTC problem also stopped the power history. */
     append_battery_line(&lt);
     activity_day_t day;
     if (update == ESP_OK && bhi260ap_daily_snapshot(&day) == ESP_OK && day.ymd == ymd) {

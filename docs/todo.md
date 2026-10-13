@@ -571,10 +571,10 @@ bottom of the discharge curve (finding 8).
    `goto done` unless `local_date()`, `sd_log_session_begin()`,
    `bhi260ap_daily_update()` and `bhi260ap_daily_snapshot()` all succeed and
    `day.ymd == ymd` (daily_log.c:216). The `battery.csv` row is written inside
-   that same block (`append_lines()`, daily_log.c:219). Consequence: the 57-minute post-brownout
-   boot produced **zero** rows while the device was up, and the frozen step
-   counter (finding 7) also suppresses them. Power telemetry must not depend on
-   the IMU snapshot.
+   that same block (`append_lines()`, daily_log.c:219). Consequence: any IMU or
+   RTC problem silently stops the power history, and the frozen step counter
+   (finding 7) suppresses the steps/activity rows for the same reason. Power
+   telemetry must not depend on the IMU snapshot.
 
    **Fixed (13. Oct):** `daily_log_tick()` is split into `append_battery_line()`
    and `append_activity_lines()`. The battery row now only needs the clock and an
@@ -582,8 +582,13 @@ bottom of the discharge curve (finding 8).
    and when it fails it logs one `W daily_log: daily snapshot unavailable,
    steps/activity rows skipped` instead of silently dropping everything. Header
    creation moved out of the gate too, so a new day's files are still valid when
-   the IMU is dead. In the 12 Oct zombie boot this would have produced 57 battery
-   rows instead of none — enough to see the cell recovering or not.
+   the IMU is dead. Verified live after the flash: `steps.csv` now writes
+   `2026-10-13,16:32,700,82525` against its 4-field header and `activity.csv`
+   matches its 3-field one. What this fix does **not** explain is the 12 Oct
+   zombie boot: that boot wrote two battery rows (uptime 4 s and 14 s) and then
+   nothing for the remaining 56 minutes, so either `housekeeping_task()` stopped
+   reaching `daily_log_tick()` or the tick's clock/SD-session preconditions
+   failed - neither of which ungating changes.
 
 ## Medium
 
@@ -813,6 +818,16 @@ bottom of the discharge curve (finding 8).
   paired with `pcf85063a_get_time(90): read time` ×68, and `PPS cal aborted:
   only 0 edges (need 10)` ×60 (no GPS fix in view, expected indoors). Counts are
   for the whole 8 MB syslog at the time of the dump.
+- "`battery.csv` stopped recording five hours before the cell went empty" and
+  "the 57-minute post-brownout boot produced zero rows" are both wrong, and so
+  is the claim in the finding 3 fix note that ungating would have produced 57
+  rows there. Re-dumping the card on 13 Oct: 11 Oct has one row a minute right
+  up to 23:02, where the last pre-brownout row (uptime 221,502 s, 0 %, 3496 mV)
+  sits 6 s after the one before it, and the zombie boot wrote two rows (uptime
+  4 s and 14 s) before going silent. The only gap on those dates is 620 minutes,
+  10-11 23:02 to 10-12 09:22, and that is the dead watch, not a logging fault.
+  Finding 3's fix is still the right change - the gate really does couple power
+  telemetry to the IMU - but it was never the explanation for 12 Oct.
 
 ## Suggested next steps (not implemented)
 
@@ -831,11 +846,26 @@ outcome.
    (finding 8). `battery.csv` already records VBAT beside SOC, which is enough to
    fit a curve and turn the displayed number into a usable time estimate.
 3. Root-cause why BHI260AP soft recovery never sticks — finding 7's fix makes
-   the freeze recoverable, not explained — and why the 12 Oct zombie boot wrote
-   no `daily_log_tick()` rows at all. Finding 3's fix assumes the clock and the
-   SD session were healthy there, which the 57-minute gap does not prove.
+   the freeze recoverable, not explained.
 4. Settle `CAP_SEL` by measurement rather than datasheet: `rtcdump` plus host
    NTP/PPS drift for `CAP_SEL=0` vs `1` (see the load-capacitance subsection in
    `docs/hardware.md`).
 5. If discharge current is ever needed, measure it on the bench — there is no
    IBAT register on this PMIC (finding 5).
+6. Find out why `battery.csv` alone loses rows. The 13 Oct dump has 55 gaps
+   longer than 2 minutes that are not boot boundaries — 393 minutes of power
+   telemetry missing, usually 6-10 minutes at a stretch — and in every one
+   checked `steps.csv` and `activity.csv` hold the rows for those same minutes.
+   All three files were opened inside a single `append_lines()` call, so the
+   battery `fopen()`/`fclose()` failed on its own, and that call checks neither
+   return, so it left no trace: for the 11 Oct 20:01-20:06 gap (uptime
+   210,609-211,033 s) the syslog holds nothing but the 60 s RTC-sync line.
+   Finding 3's fix does not touch this; checking the open and logging the
+   failure would at least make the next one visible.
+7. Work out why the 12 Oct zombie boot wrote two `daily_log_tick()` rows and then
+   none for 56 minutes while the 60 s RTC-sync task kept running. Either
+   `housekeeping_task()` stopped reaching the tick — it takes `s_log_mutex` with
+   `portMAX_DELAY`, and `sd_log_session_begin()` blocks the same way — or
+   `local_date()`/the SD session failed and the tick exited quietly.
+   `syslog_capture.c` drops every `sd_log:` line, so an SD failure in that boot
+   is invisible by design.
