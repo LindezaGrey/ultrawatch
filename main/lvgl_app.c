@@ -781,12 +781,22 @@ static uint32_t navigation_clock_ms(void)
  * this just needs to not overflow across a very long-wedged session. */
 #define BHI_REINIT_BACKOFF_MAX_MS 30000
 
+/* Soft recovery only re-applies the virtual-sensor enables, and each attempt
+ * resets the driver's staleness clock, so this many consecutive stale periods
+ * is roughly BHI_SOFT_RECOVERY_LIMIT * BHI_STALE_MS of a dead stream before
+ * the firmware image itself is assumed gone. Without the escalation the soft
+ * path ran 880 times in a row on 2026-10-11 and the step counter stayed frozen
+ * for two days. */
+#define BHI_SOFT_RECOVERY_LIMIT 3
+
 static void bhi260_task(void *arg)
 {
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(50));
     bool initialized = (bhi260ap_init(twatch_imu_dev) == ESP_OK);
     uint32_t fail_streak = 0;
+    uint32_t soft_streak = 0;
+    uint32_t retry_delay_ms = 200;
     if (!initialized) {
         ESP_LOGW(TAG, "BHI260AP init failed; retrying");
         fail_streak = 1;
@@ -800,7 +810,7 @@ static void bhi260_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(200));
             continue;
         }
-        uint32_t retry_delay_ms = 200;
+        retry_delay_ms = 200;
         if (initialized) {
             if (bhi260ap_process_fifo() != ESP_OK) {
                 ESP_LOGW(TAG, "BHI260AP FIFO read failed");
@@ -823,19 +833,35 @@ static void bhi260_task(void *arg)
                  * gating DISP_PWR/TOUCH_RST) shares, and would otherwise
                  * fire on every transient stall instead of just real ones. */
                 if (bhi260ap_ping()) {
-                    ESP_LOGW(TAG, "BHI260AP data stale but chip responsive; soft recovery");
-                    bhi260ap_reenable_sensors();
+                    if (++soft_streak >= BHI_SOFT_RECOVERY_LIMIT) {
+                        /* The enables are not the problem - escalate. */
+                        ESP_LOGW(TAG, "BHI260AP soft recovery did not restore data "
+                                      "(%lu tries); re-initializing",
+                                 (unsigned long)soft_streak);
+                        bhi260ap_deinit();
+                        initialized = false;
+                        fail_streak = 0;
+                        soft_streak = 0;
+                        /* Keep a wedged chip from re-uploading its firmware on
+                         * every pass once escalation is in play. */
+                        retry_delay_ms = BHI_REINIT_BACKOFF_MAX_MS;
+                    } else {
+                        ESP_LOGW(TAG, "BHI260AP data stale but chip responsive; soft recovery");
+                        bhi260ap_reenable_sensors();
+                    }
                 } else {
                     ESP_LOGW(TAG, "BHI260AP unresponsive, re-initializing");
                     bhi260ap_deinit();
                     initialized = false;
                     fail_streak = 0;   /* this is a fresh re-init attempt, not a repeat failure yet */
+                    soft_streak = 0;
                 }
             }
         } else {
             if (bhi260ap_init(twatch_imu_dev) == ESP_OK) {
                 initialized = true;
                 fail_streak = 0;
+                soft_streak = 0;
             } else {
                 /* Back off exponentially on repeated failures instead of
                  * hammering the bus with a full boot handshake every 200ms -
