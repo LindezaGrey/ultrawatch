@@ -869,3 +869,173 @@ outcome.
    `local_date()`/the SD session failed and the tick exited quietly.
    `syslog_capture.c` drops every `sd_log:` line, so an SD failure in that boot
    is invisible by design.
+
+# Boot forensics and Ultra-Sparmodus logging (14. Oct)
+
+24 h wear/drain run on the Batch 1-5 build, 13 Oct 15:32 to 14 Oct 10:51, read-only
+console checks only (`rails`/`rtcdump`/`crashls`/`dailycat`/`synclog`/`sparmodus`).
+It answered the drain question and raised a worse one: the watch rebooted three
+times in the night and the firmware has no way to say why.
+
+## What the run showed
+
+SOC fell 100 % → 91 % across the wear window, then rose to 99 % on the charger.
+No brownout, and the 15 % warning and 3 % guard from Batch 1 never came close to
+firing, so those two levels are still uncalibrated on a normal-wear run.
+
+Five boot sessions, not one:
+
+| wall clock | uptime | rows | SOC | note |
+| --- | --- | --- | --- | --- |
+| 13 Oct 15:32 → 20:26 | 0 → 17,658 s | 370 | 100 → 97 % | worn, mostly long light sleeps |
+| 13 Oct 20:27 | 4, 19 s | 2 | 97 % | then 171 min of nothing |
+| 13 Oct 23:18 | 4, 19 s | 2 | 95 % | then 288 min of nothing |
+| 14 Oct 04:06 | 4, 19 s | 2 | 93 % | then 245 min of nothing |
+| 14 Oct 08:11 → 10:51 | 0 → 9,614 s | 404 | 91 → 99 % | on the charger |
+
+Inside all three gaps **no CSV file has a row for any minute** — not just
+`battery.csv`, so this is not finding 3's per-file failure. `esp_timer_get_time()`
+advances through light sleep on this build, so a reset `uptime_s` means a real
+boot: the device was powered off or in deep sleep, not merely idle. `temp_c10`
+supports that: 35.3 °C at 20:26, 31.6 °C at 23:18, 25.7 °C at 04:06 — the watch
+cooled to ambient, so it was off a wrist and not self-heating.
+
+## Findings
+
+1. [done] **High: any boot session shorter than 60 s leaves no log at all.**
+   `syslog.txt` holds only two of the five sessions above; the three 2-row sessions
+   produced zero lines. `syslog_capture.c` buffers in the RAM ping-pong pair and
+   writes only at the 6 KB high-water mark or when
+   `now - last_flush >= pdMS_TO_TICKS(60000)` in `syslog_capture_service()`.
+   `last_flush` starts at 0, so the first flush of a boot cannot happen before
+   tick 60,000 — 60 s of uptime. A boot that dies at 20 s has its whole log in
+   RAM when the power goes. The 13 Oct 20:26 session proves the loss is real:
+   its last flushed line is `co5300: panel re-initialized (display off)` at
+   uptime 17,599,996 ms, i.e. the mirror stops mid-wake, and everything after
+   that — including whatever ended the session — was never written.
+   **Fixed (14. Oct):** `syslog_capture_flush()` is public now, and called at the
+   end of `app_main()`, so every boot writes its whole bring-up sequence to
+   `syslog.txt` immediately instead of waiting for the 60 s tick. A session that
+   dies in a brownout still loses its tail, but it always leaves its boot banner
+   and reset reason behind, which is what makes a short session identifiable.
+   The 60 s periodic cadence is deliberately unchanged: at the measured ~9 KB/h
+   log rate a shorter interval would mean thousands more SD open/write/close
+   cycles a day for little extra evidence.
+2. [done] **Medium: the Ultra-Sparmodus switch is never logged.**
+   `power_mgmt_set_sparmodus_active()` (`main/system/power_mgmt.c`) returns
+   early when the value is unchanged and otherwise sets the flag and calls
+   `pm_config_save()` without logging, so the Settings toggle
+   (`main/screens/settings_screen.c:822`) and `sparmodus set on|off` both change
+   persisted behaviour in total silence. The value loaded from NVS key
+   `PM_NVS_KEY_SPARMODUS` in `pm_config_load()` is not logged at boot either.
+   Only the entry paths log (`"Ultra-Sparmodus: entering deep sleep"`, the
+   PWRKEY-IRQ and BOOT-held lines, the mesh-radio stop), and those lines are
+   exactly the ones finding 1 throws away. Reading the state requires asking for
+   it: `sparmodus` with no argument prints `persisted flag=%d`, which is how this
+   was checked - it reads 0 now, and since the flag is NVS-persisted and nothing
+   else writes it except the low-battery auto-activate in `pm_wake_task()`
+   (SOC < 10 %, never reached), it was off all night.
+   **Fixed (14. Oct):** the setter logs `Ultra-Sparmodus enabled`/`disabled` on
+   every real change, `pm_config_load()` logs `Ultra-Sparmodus disabled at boot
+   (NVS)` once per boot, and `app_main()` logs `Ultra-Sparmodus: explicit wake,
+   staying awake` for a deep-sleep wake that is not a timer resleep;
+   `power_mgmt_sparmodus_handle_wake()` only logged the alarm-wake case before.
+   Together with finding 3's reset line this makes the mode's state and every
+   wake from it visible in `syslog.txt`.
+3. [done] **Medium: no reset reason or wake cause is logged at boot.**
+   Nothing in `main/` calls `esp_reset_reason()`; `esp_sleep_get_wakeup_causes()`
+   is only used inside `power_mgmt.c` to decide whether to resleep. So a boot
+   leaves no record of whether it came from power-on, a brownout, a watchdog,
+   `esp_restart()` or a deep-sleep wake. This is the single missing datum for the
+   three night reboots, and it is cheap: one line after `syslog_capture_init()`
+   in `app_main()`.
+   **Fixed (14. Oct):** `power_mgmt_log_boot_reason()` logs
+   `boot: reset=power-on` (or `brownout`, `deep sleep`, `software restart`,
+   `task WDT`, …) plus `wake_causes=0x…` when the wake-cause bitmap is non-zero,
+   and `app_main()` calls it immediately after `syslog_capture_init()`.
+4. [done] **Medium: the paths that end a session flush the CSV outbox but not
+   the log mirror.** `power_mgmt_shutdown()` (the >4 s PWRKEY path, also
+   `pwroff`) calls `daily_log_flush()` and `sd_log_unmount()` but nothing flushes
+   the syslog buffer, so the `"shutting down"` line it logs is itself lost.
+   `power_mgmt_sparmodus_enter_sleep()` reaches `esp_deep_sleep_start()` the same
+   way. `sd_log_unmount()` flushing "the RAM ring" refers to the sd_log ring, not
+   the syslog mirror.
+   **Fixed (14. Oct):** both call `syslog_capture_flush()` before
+   `daily_log_flush()`/`sd_log_unmount()`, so a clean power-off and a Sparmodus
+   deep-sleep entry now write their own last lines. The silent-resleep path needs
+   no flush because it logs nothing.
+5. [pending] **Medium: the three night reboots are unexplained.** What is ruled
+   out: Ultra-Sparmodus (flag 0, and its 60 s tick would have produced a row every
+   minute, not a 3 h gap), a firmware crash (`crashls` still shows no dump after
+   31 Aug), the Batch 1 low-SOC guard (97 %), and a brownout (97 %, 4125 mV).
+   What is left is the power path: a PWRKEY press long enough to hit the 4 s
+   OFFLEVEL, which runs `power_mgmt_shutdown()` and cuts power, or the AXP's own
+   PEK handling. A watch in a pocket or case pressing its own side button fits
+   the pattern — boot, ~20 s, off, hours later boot again — and findings 1-4
+   mean the firmware would record none of it. Distinguishing them needs finding
+   3's reset-reason line plus finding 1's flush.
+   Findings 1-4 are now fixed, so the next 24 h run answers this: a short session
+   that starts with `boot: reset=power-on` and ends with `shutting down` was a
+   PWRKEY power-off, `reset=brownout` is the power path, and `reset=deep sleep`
+   with `wake_causes=0x8` is a Sparmodus timer wake.
+
+## Next steps
+
+- [pending] Re-run 24 h of normal wear on this build and read the new boot lines
+  for every session, including the short ones; that is what closes finding 5 and
+  also gives the first normal-wear pass at the Batch 1 15 %/3 % levels.
+- [pending] Check the `fopen()`/`fclose()` results in `append_battery_line()` and
+  its steps/activity equivalents and log a failure — the 55 in-session
+  `battery.csv`-only gaps of the 13 Oct dump are still unexplained, and the
+  unchecked open is the only candidate the code offers.
+- [pending] Root-cause the 12 Oct zombie boot, which wrote two rows and then went
+  silent for the rest of its session while `steps.csv`/`activity.csv` kept going.
+
+## Corrections to earlier reasoning (do not re-raise)
+
+- "The overnight 2-row sessions were Ultra-Sparmodus deep sleep" is withdrawn.
+  It was wrong twice: the persisted flag reads 0, and `PM_SPARMODUS_TICK_US` is
+  60 s, so an armed Sparmodus wakes every minute and a silent-resleep cycle would
+  show up as a row every 1-2 min, not three boots in a night. The `uptime_s`
+  reset plus all-three-CSVs-silent reasoning still identifies whole-device-off
+  windows; only the mode attribution was wrong.
+- "The syslog shows nothing happened at 20:26" is withdrawn and is the basis of
+  finding 1. The absence of lines is the buffer never being flushed, not the
+  absence of events. Any `syslog.txt` from before the 14 Oct flush fix carries
+  gaps that say nothing about that time window; from that build on, a session
+  always leaves at least its boot banner.
+- `I (…) sd_log: SD mounted: 59 MB` appearing mid-session (uptime 12,242,970 ms
+  in the pre-flash session, again at 16,849,631 ms on 14 Oct) is the normal
+  re-mount after light sleep cut ALDO1, not a boot marker and not an SD fault.
+  It is also the only line that survived from some sessions, which is how the
+  session count in the old log reading came out wrong.
+
+## Step and activity counters (14. Oct review)
+
+Checked against the 14 Oct dump rather than only the code. The day model is
+correct where it matters: `s_daily_total`/`s_daily_id`/`s_activity_ms` are
+`#define` aliases into `s_days.current` (`bhi260ap.c:69`, `101-103`), so there is
+no second stale copy; steps are a monotonic BHI lifetime counter read as
+`base + delta` with the sub-ms remainder kept and a `now_us < since_us` guard;
+`activity_days_advance()` refuses backward dates and a full outbox instead of
+dropping a completed day; the lock order `s_bhy2_mux` → `s_persist_mux` →
+`s_step_mux` is never inverted. The live proof: `steps.csv` reads
+`day_steps=1146, lifetime=82971` at 13 Oct 23:18 and
+`day_steps=0, lifetime=82971` at 14 Oct 04:06 — the daily counter rolled at the
+next boot and the lifetime total survived all three night reboots.
+
+1. [pending] **Medium: light sleep is credited as activity time.**
+   `bhi260ap_ap_suspend()` (`bhi260ap.c:762`) folds steps but leaves
+   `s_activity_since_us` open, and `BHY2_SENSOR_ID_AR` is an AP-FIFO sensor that
+   `ap_suspend()` even flushes, so no transition is seen while asleep. The next
+   `parse_activity()` or `bhi260ap_daily_update()` then credits the whole sleep to
+   the class that happened to be current when the watch dozed — session 1 slept in
+   290 s stretches, so that is minutes at a time. Usually the class is STILL,
+   which is harmless; the 14 Oct morning shows 250 of 404 samples as `unknown`,
+   and every one of those minutes is booked to `UNKNOWN`. Decide the intended
+   meaning of `ms[UNKNOWN]` and either close the window in `ap_suspend()`/reopen
+   it in `ap_resume()`, or subtract the slept interval.
+2. [pending] **Low: dead legacy NVS keys.** `step_base_load()` reads
+   `STEP_NVS_DAY`, `STEP_NVS_TOTAL`, `STEP_NVS_DAY_START` and `STEP_NVS_DAY_LAST`,
+   and nothing in the tree writes any of them; `STEP_NVS_DAY_ID` is neither read
+   nor written. Harmless, but they read like live state and are not.
