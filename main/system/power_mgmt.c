@@ -36,6 +36,7 @@
 #include "screens/navigation.h"
 #include "alarm.h"
 #include "sd_log.h"
+#include "syslog_capture.h"
 #include "mesh_log.h"
 #include "tracking.h"
 
@@ -325,6 +326,11 @@ static void pm_config_load(void)
         if (nvs_get_u8(h, PM_NVS_KEY_SPARMODUS, &v) == ESP_OK) {
             s_sparmodus_active = (v != 0);
         }
+        /* Say what mode this boot is running in: the flag is persisted, so
+         * without this line nothing in syslog.txt distinguishes a session
+         * that could deep-sleep from one that never could. */
+        ESP_LOGI(TAG, "Ultra-Sparmodus %s at boot (NVS)",
+                 s_sparmodus_active ? "enabled" : "disabled");
         nvs_close(h);
     }
 }
@@ -430,6 +436,11 @@ void power_mgmt_set_sparmodus_active(bool on)
     }
     s_sparmodus_active = on;
     portEXIT_CRITICAL(&s_idle_mux);
+    /* Both the Settings toggle and `sparmodus set` change what the idle
+     * timeout does and what gets armed at the next sleep, so the change has
+     * to be visible in syslog.txt after the fact (docs/todo.md, 14. Oct:
+     * three overnight reboots with no record of the mode's state). */
+    ESP_LOGI(TAG, "Ultra-Sparmodus %s", on ? "enabled" : "disabled");
     pm_config_save();
 }
 
@@ -553,6 +564,10 @@ void power_mgmt_sparmodus_enter_sleep(void)
      * cost. Not worth trading that for Sparmodus's incremental savings on
      * an already low-priority peripheral. */
 
+    /* esp_deep_sleep_start() below never returns and the RTC core keeps no
+     * log of its own, so this is the last chance to get this session's
+     * lines onto the card. */
+    syslog_capture_flush();
     daily_log_flush();
     sd_log_unmount();
     /* VBUS-insert IRQ is a one-time PMIC register write (persists on its
@@ -788,6 +803,31 @@ static bool pm_imu_wake_is_real(void)
     return real;
 }
 
+/* How this boot started. Nothing else in the firmware reads
+ * esp_reset_reason(), so a session that ends early - the three 20 s sessions
+ * of 13/14 Oct - cannot be told apart afterwards: a PWRKEY power-off, a
+ * brownout, a watchdog and a deep-sleep wake all look identical in the CSVs.
+ * Call after syslog_capture_init(), or the line is buffered and lost with the
+ * rest of the session. Wake causes are only non-zero after a deep-sleep wake. */
+void power_mgmt_log_boot_reason(void)
+{
+    static const char *const names[] = {
+        "unknown", "power-on", "external pin", "software restart", "panic",
+        "interrupt WDT", "task WDT", "watchdog", "deep sleep", "brownout",
+        "SDIO", "USB", "JTAG", "efuse", "power glitch", "CPU lockup",
+    };
+    esp_reset_reason_t r = esp_reset_reason();
+    const char *name = (size_t)r < sizeof(names) / sizeof(names[0])
+                           ? names[r] : "out of range";
+    uint32_t causes = esp_sleep_get_wakeup_causes();
+    if (causes == 0) {
+        ESP_LOGI(TAG, "boot: reset=%s", name);
+    } else {
+        ESP_LOGI(TAG, "boot: reset=%s wake_causes=0x%lx", name,
+                 (unsigned long)causes);
+    }
+}
+
 /* PWRKEY held past OFFLEVEL (4s - see axp2101_configure_pwrkey_shutdown()).
  * The PMIC's own instant hardware cutoff for this is disabled specifically so
  * this can run first: blank the display for a clean visual finish, unmount
@@ -804,6 +844,10 @@ void power_mgmt_shutdown(void)
     if (display_err != ESP_OK) {
         ESP_LOGW(TAG, "shutdown display off: %s", esp_err_to_name(display_err));
     }
+    /* Power is about to go, so the periodic 60 s mirror flush will not run:
+     * without this the "shutting down" line above, and everything else this
+     * session logged, is only in RAM. Must precede sd_log_unmount(). */
+    syslog_capture_flush();
     daily_log_flush();
     sd_log_unmount();
     axp2101_soft_poweroff(twatch_pmu_dev);

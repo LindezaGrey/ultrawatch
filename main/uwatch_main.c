@@ -298,6 +298,16 @@ void app_main(void)
      * to miss or lose on reconnect. */
     syslog_capture_init();
 
+    /* First line the mirror can see, and the only record of why this boot
+     * happened at all (power-on, brownout, watchdog, deep-sleep wake). */
+    power_mgmt_log_boot_reason();
+    if (sparmodus_explicit_wake) {
+        /* handle_wake() below only logs the alarm-wake case; without this
+         * line an explicit Sparmodus wake is indistinguishable from a cold
+         * boot in syslog.txt. */
+        ESP_LOGI(TAG, "Ultra-Sparmodus: explicit wake, staying awake");
+    }
+
     /* SD card is mounted on demand, per write (sd_log_session_begin()/end(),
      * see sd_log.h) - crash dumps, daily activity logs, GPX/mesh logging,
      * and screenshots each bracket their own I/O rather than relying on a
@@ -355,4 +365,9 @@ void app_main(void)
      * that the 48-row display buffer needs, causing BLE connections to drop.
      * Re-enable when BLE can coexist (e.g. by shrinking the draw buffer). */
     /* ble_debug_init(); */
+
+    /* Bring-up is finished and the boot sequence is the most useful thing to
+     * keep from a session that ends early, so write it now rather than
+     * waiting for the housekeeping task's next 60 s flush. */
+    syslog_capture_flush();
 }

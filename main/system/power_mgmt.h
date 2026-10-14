@@ -16,6 +16,11 @@ void power_mgmt_init(void);
  * power_mgmt_init() also calls this during startup. */
 void power_mgmt_load_config(void);
 
+/* Log one line saying how this boot started (reset reason + deep-sleep wake
+ * causes). Call once from app_main() right after syslog_capture_init(), or
+ * the line is buffered and lost with the session it describes. */
+void power_mgmt_log_boot_reason(void);
+
 /* Adapter auto-sleep callbacks (PAUSE mode). */
 esp_err_t power_mgmt_enter_sleep(void *ctx);
 esp_err_t power_mgmt_exit_sleep(void *ctx);

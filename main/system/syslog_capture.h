@@ -34,6 +34,13 @@ void syslog_capture_init(void);
  * telemetry tick. */
 void syslog_capture_service(uint32_t timeout_ms);
 
+/* Writes whatever is buffered right now, bypassing the periodic cadence.
+ * Needed before anything that can end the boot session - a power-off, a
+ * deep-sleep entry, or the end of app_main() - because the periodic flush
+ * only runs once a minute and a session shorter than that otherwise leaves
+ * no log at all (docs/todo.md, 14. Oct). Blocks on the SD card. */
+void syslog_capture_flush(void);
+
 #ifdef __cplusplus
 }
 #endif

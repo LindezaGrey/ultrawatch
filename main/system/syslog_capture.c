@@ -184,6 +184,14 @@ static void syslog_flush(void)
     }
 }
 
+void syslog_capture_flush(void)
+{
+    if (!s_mux) {
+        return;
+    }
+    syslog_flush();
+}
+
 void syslog_capture_service(uint32_t timeout_ms)
 {
     static TickType_t last_flush;
