@@ -1039,3 +1039,67 @@ next boot and the lifetime total survived all three night reboots.
    `STEP_NVS_DAY`, `STEP_NVS_TOTAL`, `STEP_NVS_DAY_START` and `STEP_NVS_DAY_LAST`,
    and nothing in the tree writes any of them; `STEP_NVS_DAY_ID` is neither read
    nor written. Harmless, but they read like live state and are not.
+
+# Clean-card check of the boot forensics build (15. Oct)
+
+The SD card was formatted so the next wear run starts with no pre-existing log,
+and the watch was read back ~40 min into the first session on the fresh card.
+Read-only set: `synclog`, `rtcdump`, `rails`, `crashls`, `dailycat`.
+
+## What the build now records (all four hooks confirmed on hardware)
+
+- `I (1718) power_mgmt: boot: reset=power-on wake_causes=0x1` is the first line
+  of `syslog.txt`. The session was at 1,302 s when read and the file ended at
+  49 s, which is the point of the end-of-`app_main()` flush: a session that dies
+  after a few seconds now leaves its boot banner instead of nothing.
+- The 60 s mirror cadence still works: the `rtcdump` line logged at uptime
+  1,013 s appeared in `syslog.txt` on a later read (file 3,244 B to 3,367 B).
+  Nothing else was logged between 49 s and 1,013 s because the watch sat still
+  on USB power, so there was nothing to flush - not a stalled flush.
+- `Ultra-Sparmodus disabled at boot (NVS)` is present, so the persisted flag is
+  now visible in the log without asking the device.
+- `rails` prints the armed gauge levels beside the live SOC, which is what
+  calibrating the 3 % shutdown level needs.
+- `crashls: no crash dir` on the fresh card, as expected after a format.
+- CSVs are continuous at one row/minute for the whole session (22 battery rows,
+  uptime 4 s to 1,270 s, 54 % to 69 % while charging), and the boot wrote two
+  rows at uptime 4 s and 19 s. That double row is the same signature the 12 Oct
+  zombie boot wrote, so it is normal boot behaviour, not a fault.
+- `steps.csv`/`activity.csv` behave while the watch lies still: `day_steps=1866,
+  lifetime=91103` unchanged, activity `unknown` on the first row then `still`.
+
+## Findings
+
+1. [done] **Low: the Ultra-Sparmodus boot line is printed twice per boot**
+   (`uptime 1766` and `2233` in the same session). `power_mgmt_load_config()`
+   runs from `lvgl_app_start()` (`lvgl_app.c:911`, needed early for the
+   brightness) and again from `power_mgmt_init()` (`lvgl_app.c:982`), so the NVS
+   read and its log line both happen twice. A doubled boot line is exactly the
+   kind of thing that makes a post-mortem read "two boots" where there was one.
+   **Fixed (15. Oct):** the line is logged once per boot by a static guard in
+   `pm_config_load()`; the reload itself stays, it is idempotent.
+2. [done] **Low: `wake_causes=0x1` on a cold boot reads like a fault.** See the
+   correction below - the raw bitmap is meaningless to whoever reads the log
+   after the fact, and the interesting case (a Sparmodus timer wake) is buried
+   in hex.
+   **Fixed (15. Oct):** `power_mgmt_log_boot_reason()` now masks out the
+   `UNDEFINED` bit and names the rest, so a cold boot logs `boot: reset=power-on`
+   and a Sparmodus timer wake logs `boot: reset=deep sleep wake_causes=timer`.
+3. [pending] **Low: three AXP2101 I2C read failures in the first 4 s of boot** -
+   `axp2101_is_rail_enabled(336): read ldo_onoff0` at 2,889 ms and
+   `axp2101_set_bit(137): read reg 0x90` at 3,526 and 3,626 ms. Reg 0x90 is
+   `LDO_ONOFF0`, so these are rail enable/disable read-modify-write attempts
+   failing; the callers log and continue, so one rail toggle at boot may simply
+   not have taken effect. The preceding 24 h of `syslog.txt` contain zero of
+   these lines, so this is either new or tied to this boot (fresh card, VBUS
+   just applied). Needs a second boot to see whether it reproduces.
+
+## Corrections to earlier reasoning (do not re-raise)
+
+- "`wake_causes=0x8` is TIMER and `0x1` is EXT0/GPIO" is only half right.
+  `esp_sleep_get_wakeup_causes()` returns `BIT(esp_sleep_source_t)`, so 0x8 is
+  `BIT(ESP_SLEEP_WAKEUP_TIMER)` = 3, correct. But 0x1 is
+  `BIT(ESP_SLEEP_WAKEUP_UNDEFINED)` - the bit IDF sets for any boot that was not
+  a sleep wake. So `boot: reset=power-on wake_causes=0x1` is the normal cold-boot
+  reading, and the `waking: src=0x100 causes=0x1` line on a light-sleep wake
+  means the cause was not attributed, not that EXT0/GPIO8 fired.

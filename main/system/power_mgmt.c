@@ -328,9 +328,15 @@ static void pm_config_load(void)
         }
         /* Say what mode this boot is running in: the flag is persisted, so
          * without this line nothing in syslog.txt distinguishes a session
-         * that could deep-sleep from one that never could. */
-        ESP_LOGI(TAG, "Ultra-Sparmodus %s at boot (NVS)",
-                 s_sparmodus_active ? "enabled" : "disabled");
+         * that could deep-sleep from one that never could. lvgl_app_start()
+         * loads the config early for the brightness, and power_mgmt_init()
+         * loads it again, so log it once per boot. */
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            ESP_LOGI(TAG, "Ultra-Sparmodus %s at boot (NVS)",
+                     s_sparmodus_active ? "enabled" : "disabled");
+        }
         nvs_close(h);
     }
 }
@@ -819,12 +825,35 @@ void power_mgmt_log_boot_reason(void)
     esp_reset_reason_t r = esp_reset_reason();
     const char *name = (size_t)r < sizeof(names) / sizeof(names[0])
                            ? names[r] : "out of range";
-    uint32_t causes = esp_sleep_get_wakeup_causes();
-    if (causes == 0) {
+    /* esp_sleep_get_wakeup_causes() reports a bitmap of esp_sleep_source_t bits
+     * and sets BIT(UNDEFINED) for every boot that was not a sleep wake, so the
+     * raw hex says nothing to whoever reads this after the fact. Name the bits
+     * that matter: a Sparmodus timer wake is the one this line exists for. */
+    static const struct {
+        uint32_t bit;
+        const char *name;
+    } cause_bits[] = {
+        { 1u << ESP_SLEEP_WAKEUP_TIMER, "timer" },
+        { 1u << ESP_SLEEP_WAKEUP_GPIO, "gpio" },
+        { 1u << ESP_SLEEP_WAKEUP_EXT0, "ext0" },
+        { 1u << ESP_SLEEP_WAKEUP_EXT1, "ext1" },
+        { 1u << ESP_SLEEP_WAKEUP_ULP, "ulp" },
+        { 1u << ESP_SLEEP_WAKEUP_UART, "uart" },
+    };
+    uint32_t bitmap = esp_sleep_get_wakeup_causes() & ~(1u << ESP_SLEEP_WAKEUP_UNDEFINED);
+    char list[64] = "";
+    for (size_t i = 0; i < sizeof(cause_bits) / sizeof(cause_bits[0]); i++) {
+        if (bitmap & cause_bits[i].bit) {
+            if (list[0] != '\0') {
+                strlcat(list, ",", sizeof(list));
+            }
+            strlcat(list, cause_bits[i].name, sizeof(list));
+        }
+    }
+    if (list[0] == '\0') {
         ESP_LOGI(TAG, "boot: reset=%s", name);
     } else {
-        ESP_LOGI(TAG, "boot: reset=%s wake_causes=0x%lx", name,
-                 (unsigned long)causes);
+        ESP_LOGI(TAG, "boot: reset=%s wake_causes=%s", name, list);
     }
 }
 
