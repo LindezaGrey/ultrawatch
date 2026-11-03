@@ -16,11 +16,16 @@ esp_err_t i2c_bus_read(i2c_master_dev_handle_t dev, uint8_t reg,
 esp_err_t i2c_bus_write(i2c_master_dev_handle_t dev, uint8_t reg,
                          const uint8_t *buf, size_t len, uint32_t timeout_ms)
 {
+    size_t frame_len;
+    if ((!buf && len > 0) || !i2c_bus_frame_size(len, &frame_len)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     uint8_t small[1 + I2C_BUS_SMALL_WRITE_MAX];
     uint8_t *data = small;
     bool heap = false;
     if (len > I2C_BUS_SMALL_WRITE_MAX) {
-        data = heap_caps_malloc(len + 1, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        data = heap_caps_malloc(frame_len, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         if (!data) {
             return ESP_ERR_NO_MEM;
         }
@@ -33,7 +38,7 @@ esp_err_t i2c_bus_write(i2c_master_dev_handle_t dev, uint8_t reg,
         }
         return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t err = i2c_master_transmit(dev, data, len + 1, timeout_ms);
+    esp_err_t err = i2c_master_transmit(dev, data, frame_len, timeout_ms);
 
     if (heap) {
         heap_caps_free(data);

@@ -18,10 +18,14 @@
 extern "C" {
 #endif
 
+/* Compute the full register-plus-payload frame length. Returns false if
+ * frame_len is NULL or len + 1 cannot be represented by size_t. */
+bool i2c_bus_frame_size(size_t len, size_t *frame_len);
+
 /* Writes reg into out[0] and buf[0..len) into out[1..len+1) - out must
  * point at a buffer of at least len+1 bytes. Returns false (out left
- * untouched) if buf is NULL while len > 0; true otherwise (len == 0 with
- * buf == NULL is valid - only the register byte is written, out[0..1)). */
+ * untouched) if out is NULL, buf is NULL while len > 0, or len + 1
+ * overflows size_t. len == 0 with buf == NULL is valid. */
 bool i2c_bus_build_frame(uint8_t reg, const uint8_t *buf, size_t len, uint8_t *out);
 
 #ifdef __cplusplus

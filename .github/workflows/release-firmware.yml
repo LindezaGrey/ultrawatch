@@ -1,0 +1,82 @@
+name: Build and Release Firmware
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: espressif/idf:v6.0.2
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+
+      - name: Fetch pinned public BHI260AP firmware
+        run: |
+          mkdir -p assets/bhi260
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/BoschSensortec/BHI2xy_SensorAPI/master/firmware/bhi260ap/BHI260AP.fw \
+            --output assets/bhi260/BHI260AP.fw
+          echo "318def511fd8eb762bf1e61cf02cfd6ecac70f8627d3bacfa7d24a1641f9e915  assets/bhi260/BHI260AP.fw" | sha256sum --check
+
+      - name: Build and merge firmware
+        shell: bash
+        run: |
+          source /opt/esp/idf/export.sh
+          idf.py build
+          mkdir -p release-assets
+          idf.py merge-bin -o release-assets/uwatch-factory.bin -f raw
+          test -s release-assets/uwatch-factory.bin
+
+      - name: Prepare manifest and checksum
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          jq -n --arg version "$RELEASE_VERSION" '{
+            name: "UltraWatch",
+            version: $version,
+            new_install_prompt_erase: true,
+            builds: [{
+              chipFamily: "ESP32-S3",
+              parts: [{path: "uwatch-factory.bin", offset: 0}]
+            }]
+          }' > release-assets/manifest.json
+          cd release-assets
+          sha256sum uwatch-factory.bin > SHA256SUMS
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: uwatch-release-${{ github.run_id }}
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@v4
+        with:
+          name: uwatch-release-${{ github.run_id }}
+          path: release-assets
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          gh release create "$RELEASE_TAG"
+          release-assets/uwatch-factory.bin
+          release-assets/manifest.json
+          release-assets/SHA256SUMS
+          --verify-tag
+          --generate-notes

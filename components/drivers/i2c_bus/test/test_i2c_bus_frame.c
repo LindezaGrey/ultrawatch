@@ -17,6 +17,17 @@ static int g_failures;
     } \
 } while (0)
 
+static void test_frame_size(void)
+{
+    size_t frame_len = 0;
+    CHECK(i2c_bus_frame_size(0, &frame_len));
+    CHECK(frame_len == 1);
+    CHECK(i2c_bus_frame_size(7, &frame_len));
+    CHECK(frame_len == 8);
+    CHECK(!i2c_bus_frame_size(SIZE_MAX, &frame_len));
+    CHECK(!i2c_bus_frame_size(0, NULL));
+}
+
 /* One-byte payload: register address in out[0], payload byte in out[1]. */
 static void test_single_byte_payload(void)
 {
@@ -62,6 +73,7 @@ static void test_multibyte_payload_layout(void)
 
 int main(void)
 {
+    test_frame_size();
     test_single_byte_payload();
     test_zero_length_null_buf();
     test_null_buf_nonzero_len_rejected();
