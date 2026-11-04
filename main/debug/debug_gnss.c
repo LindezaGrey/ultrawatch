@@ -182,10 +182,10 @@ void debug_gnss_cachedump(const char *args)
            (int)c.valid, (unsigned)c.rtc.year, (unsigned)c.rtc.month,
            (unsigned)c.rtc.day, (unsigned)c.rtc.hour, (unsigned)c.rtc.min,
            (unsigned)c.rtc.sec, (unsigned)c.rtc.weekday);
-    printf("cache: batt=%u%% %umV chg=%d en=%d ma=%u temp=%d.%dC\n",
+    printf("cache: batt=%u%% %umV chg=%d en=%d ma=%u pmu_temp=%d.%dC\n",
            (unsigned)c.batt_pct, (unsigned)c.batt_mv, (int)c.chg_state,
            (int)c.chg_enabled, (unsigned)c.chg_ma,
-           c.batt_temp_c10 / 10, abs(c.batt_temp_c10 % 10));
+           c.pmu_die_temp_c10 / 10, abs(c.pmu_die_temp_c10 % 10));
     battery_estimate_t e;
     battery_estimate_get(&e);
     printf("batt est: valid=%d pct_per_hour=%.2f runtime_h=%.1f charge_h=%.1f\n",

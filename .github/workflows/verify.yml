@@ -19,6 +19,24 @@ jobs:
           apt-get install --yes cmake cppcheck libsdl2-dev pkg-config
       - name: Build firmware
         run: idf.py build
+      - name: Test AXP2101 pure logic
+        run: |
+          gcc -Wall -Wextra -Werror -std=c11 \
+            -I components/drivers/axp2101 \
+            components/drivers/axp2101/test/test_axp2101_logic.c \
+            components/drivers/axp2101/axp2101_logic.c \
+            -o /tmp/test_axp2101_logic
+          /tmp/test_axp2101_logic
+
+      - name: Test I2C frame logic
+        run: |
+          gcc -Wall -Wextra -Werror -std=c11 \
+            -I components/drivers/i2c_bus/include \
+            components/drivers/i2c_bus/test/test_i2c_bus_frame.c \
+            components/drivers/i2c_bus/i2c_bus_frame.c \
+            -o /tmp/test_i2c_bus_frame
+          /tmp/test_i2c_bus_frame
+
       - name: Run static analysis
         run: bash tools/run_cppcheck.sh
       - name: Build simulator and capture the watch face

@@ -1,5 +1,6 @@
 #include <string.h>
 #include "axp2101.h"
+#include "axp2101_logic.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "i2c_bus.h"
@@ -100,17 +101,18 @@ typedef struct {
     uint8_t reg;
     uint8_t en_mask;
     uint16_t min_mv;
+    uint16_t max_mv;
     uint16_t step_mv;
     uint8_t vol_mask;
 } axp_rail_map_t;
 
 static const axp_rail_map_t s_rail_map[AXP2101_RAIL_MAX] = {
-    [AXP2101_ALDO1] = { AXP_REG_LDO_VOL0 + 0, AXP_EN_ALDO1, 500, 100, 0x1F },
-    [AXP2101_ALDO2] = { AXP_REG_LDO_VOL0 + 1, AXP_EN_ALDO2, 500, 100, 0x1F },
-    [AXP2101_ALDO3] = { AXP_REG_LDO_VOL0 + 2, AXP_EN_ALDO3, 500, 100, 0x1F },
-    [AXP2101_ALDO4] = { AXP_REG_LDO_VOL0 + 3, AXP_EN_ALDO4, 500, 100, 0x1F },
-    [AXP2101_BLDO1] = { AXP_REG_LDO_VOL0 + 4, AXP_EN_BLDO1, 500, 100, 0x1F },
-    [AXP2101_BLDO2] = { AXP_REG_LDO_VOL0 + 5, AXP_EN_BLDO2, 500, 100, 0x1F },
+    [AXP2101_ALDO1] = { AXP_REG_LDO_VOL0 + 0, AXP_EN_ALDO1, 500, 3500, 100, 0x1F },
+    [AXP2101_ALDO2] = { AXP_REG_LDO_VOL0 + 1, AXP_EN_ALDO2, 500, 3500, 100, 0x1F },
+    [AXP2101_ALDO3] = { AXP_REG_LDO_VOL0 + 2, AXP_EN_ALDO3, 500, 3500, 100, 0x1F },
+    [AXP2101_ALDO4] = { AXP_REG_LDO_VOL0 + 3, AXP_EN_ALDO4, 500, 3500, 100, 0x1F },
+    [AXP2101_BLDO1] = { AXP_REG_LDO_VOL0 + 4, AXP_EN_BLDO1, 500, 3500, 100, 0x1F },
+    [AXP2101_BLDO2] = { AXP_REG_LDO_VOL0 + 5, AXP_EN_BLDO2, 500, 3500, 100, 0x1F },
     /* DLDO1's voltage register is 0x99, NOT 0x92+6=0x98 - 0x98 is CPUSLDO
      * (datasheet 6.13.2.83/6.13.2.84). With +6 this wrote DLDO1's 3300mV
      * encoding (0b11100) into CPUSLDO's register, where that value is
@@ -118,7 +120,7 @@ static const axp_rail_map_t s_rail_map[AXP2101_RAIL_MAX] = {
      * rail unconfigured at its EFUSE default. DLDO1 itself is 0.5-3.4V in
      * 100mV steps, so the min/step/mask below are correct; only the register
      * index was wrong. */
-    [AXP2101_DLDO1] = { AXP_REG_LDO_VOL0 + 7, AXP_EN_DLDO1, 500, 100, 0x1F },
+    [AXP2101_DLDO1] = { AXP_REG_LDO_VOL0 + 7, AXP_EN_DLDO1, 500, 3400, 100, 0x1F },
 };
 
 esp_err_t axp2101_read_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t *val)
@@ -150,6 +152,9 @@ esp_err_t axp2101_read_chip_id(i2c_master_dev_handle_t dev, uint8_t *id)
 
 esp_err_t axp2101_is_battery_present(i2c_master_dev_handle_t dev, bool *present)
 {
+    if (!present) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t st = 0;
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_STATUS1, &st), TAG, "read status1");
     *present = (st & (1u << 3)) != 0;
@@ -158,6 +163,9 @@ esp_err_t axp2101_is_battery_present(i2c_master_dev_handle_t dev, bool *present)
 
 esp_err_t axp2101_is_vbus_present(i2c_master_dev_handle_t dev, bool *present)
 {
+    if (!present) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t st1 = 0, st2 = 0;
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_STATUS1, &st1), TAG, "read status1");
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_STATUS2, &st2), TAG, "read status2");
@@ -192,7 +200,7 @@ esp_err_t axp2101_init(i2c_master_dev_handle_t dev)
 
 esp_err_t axp2101_init_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, uint16_t mv)
 {
-    if (rail >= AXP2101_RAIL_MAX) {
+    if ((unsigned)rail >= (unsigned)AXP2101_RAIL_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
     const axp_rail_map_t *m = &s_rail_map[rail];
@@ -201,7 +209,14 @@ esp_err_t axp2101_init_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, ui
         return ESP_ERR_INVALID_ARG;
     }
 
-    uint8_t vol = (mv - m->min_mv) / m->step_mv;
+    uint8_t vol = 0;
+    if (!axp2101_voltage_code(mv, m->min_mv, m->max_mv, m->step_mv,
+                              m->vol_mask, &vol)) {
+        ESP_LOGE(TAG, "invalid rail voltage %umV (range %u-%umV, step %umV)",
+                 mv, m->min_mv, m->max_mv, m->step_mv);
+        return ESP_ERR_INVALID_ARG;
+    }
+
     uint8_t cur = 0;
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, m->reg, &cur), TAG, "read vol reg 0x%02x", m->reg);
     cur = (cur & ~m->vol_mask) | (vol & m->vol_mask);
@@ -294,6 +309,9 @@ esp_err_t axp2101_set_default_power(i2c_master_dev_handle_t dev)
 
 esp_err_t axp2101_get_battery_mv(i2c_master_dev_handle_t dev, uint16_t *mv)
 {
+    if (!mv) {
+        return ESP_ERR_INVALID_ARG;
+    }
     bool present = false;
     ESP_RETURN_ON_ERROR(axp2101_is_battery_present(dev, &present), TAG, "battery present check");
     if (!present) {
@@ -310,6 +328,9 @@ esp_err_t axp2101_get_battery_mv(i2c_master_dev_handle_t dev, uint16_t *mv)
 
 esp_err_t axp2101_get_battery_pct(i2c_master_dev_handle_t dev, uint8_t *pct)
 {
+    if (!pct) {
+        return ESP_ERR_INVALID_ARG;
+    }
     bool present = false;
     ESP_RETURN_ON_ERROR(axp2101_is_battery_present(dev, &present), TAG, "battery present check");
     if (!present) {
@@ -321,7 +342,7 @@ esp_err_t axp2101_get_battery_pct(i2c_master_dev_handle_t dev, uint8_t *pct)
 
 esp_err_t axp2101_enable_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, bool enable)
 {
-    if (rail >= AXP2101_RAIL_MAX) {
+    if ((unsigned)rail >= (unsigned)AXP2101_RAIL_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
     return axp2101_set_bit(dev, AXP_REG_LDO_ONOFF0, s_rail_map[rail].en_mask, enable);
@@ -329,7 +350,7 @@ esp_err_t axp2101_enable_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, 
 
 esp_err_t axp2101_is_rail_enabled(i2c_master_dev_handle_t dev, axp2101_rail_t rail, bool *enabled)
 {
-    if (rail >= AXP2101_RAIL_MAX) {
+    if ((unsigned)rail >= (unsigned)AXP2101_RAIL_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
     uint8_t val = 0;
@@ -485,77 +506,47 @@ esp_err_t axp2101_is_button_batt_charge_enabled(i2c_master_dev_handle_t dev, boo
     return ESP_OK;
 }
 
-/* Map a charge-current code (0x62 low 5 bits) to mA. */
-static uint16_t charge_code_to_ma(uint8_t code)
-{
-    switch (code) {
-    case 0:  return 0;
-    case 4:  return 100;
-    case 5:  return 125;
-    case 6:  return 150;
-    case 7:  return 175;
-    case 8:  return 200;
-    case 9:  return 300;
-    case 10: return 400;
-    case 11: return 500;
-    case 12: return 600;
-    case 13: return 700;
-    case 14: return 800;
-    case 15: return 900;
-    case 16: return 1000;
-    default: return 0;
-    }
-}
-
-/* Map mA to the nearest charge-current code. */
-static uint8_t charge_ma_to_code(uint16_t ma)
-{
-    if (ma < 100) return 0;
-    if (ma < 125) return 4;
-    if (ma < 150) return 5;
-    if (ma < 175) return 6;
-    if (ma < 200) return 7;
-    if (ma < 300) return 8;
-    if (ma < 400) return 9;
-    if (ma < 500) return 10;
-    if (ma < 600) return 11;
-    if (ma < 700) return 12;
-    if (ma < 800) return 13;
-    if (ma < 900) return 14;
-    if (ma < 1000) return 15;
-    return 16;
-}
+/* Charge-current selections use sparse codes; conversion helpers are pure
+ * functions so the exact table is covered by host tests. */
 
 esp_err_t axp2101_get_charge_current_ma(i2c_master_dev_handle_t dev, uint16_t *ma)
 {
+    if (!ma) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t val = 0;
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ICC_CHG_SET, &val), TAG, "read chg current");
-    *ma = charge_code_to_ma(val & AXP_ICC_CHG_MASK);
+    if (!axp2101_charge_current_ma(val & AXP_ICC_CHG_MASK, ma)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
     return ESP_OK;
 }
 
 esp_err_t axp2101_set_charge_current_ma(i2c_master_dev_handle_t dev, uint16_t ma)
 {
-    uint8_t code = charge_ma_to_code(ma);
+    uint8_t code = 0;
+    if (!axp2101_charge_current_code(ma, &code)) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t val = 0;
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ICC_CHG_SET, &val), TAG, "read chg current");
     val = (uint8_t)((val & ~AXP_ICC_CHG_MASK) | (code & AXP_ICC_CHG_MASK));
     return axp2101_write_reg(dev, AXP_REG_ICC_CHG_SET, val);
 }
 
-/* Battery/die temperature in 0.1 deg C from the TS ADC (H6L8 @ 0x3C/0x3D).
- * XPowers conversion: T(C) = 22.0 + (7274 - raw) / 20.0. */
-esp_err_t axp2101_get_battery_temp(i2c_master_dev_handle_t dev, int16_t *tenths_c)
+/* AXP2101 internal die temperature in 0.1 deg C from H6L8 @ 0x3C/0x3D.
+ * This is NOT battery temperature; the board's TS thermistor path is separate. */
+esp_err_t axp2101_get_die_temp(i2c_master_dev_handle_t dev, int16_t *tenths_c)
 {
+    if (!tenths_c) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t hi = 0, lo = 0;
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ADC_DATA_TEMP0, &hi), TAG, "read temp hi");
     ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ADC_DATA_TEMP1, &lo), TAG, "read temp lo");
     uint16_t raw = (uint16_t)(((hi & 0x3F) << 8) | lo);
-    if (raw > 16383) {
+    if (!axp2101_die_temperature_c10(raw, tenths_c)) {
         return ESP_ERR_INVALID_RESPONSE;
     }
-    /* 22.0 + (7274 - raw)/20.0  ->  fixed point 0.1 deg C */
-    int32_t v = 220 + ((int32_t)7274 - (int32_t)raw) / 2;
-    *tenths_c = (int16_t)v;
     return ESP_OK;
 }

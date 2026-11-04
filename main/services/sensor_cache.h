@@ -1,7 +1,7 @@
 /*
  * services/sensor_cache.h - background telemetry cache for slow I2C peripherals.
  *
- * The AXP2101 PMU (battery %, mV, charge state, current, temp) and the
+ * The AXP2101 PMU (battery %, mV, charge state, current, die temperature) and the
  * PCF85063A RTC are polled by a dedicated low-priority task into a RAM struct
  * so the LVGL/UI task never blocks on I2C reads. Screens read the cached
  * snapshot via sensor_cache_get().
@@ -27,7 +27,7 @@ typedef struct {
     axp2101_charge_state_t chg_state;
     bool             chg_enabled;  /* charge function enabled */
     uint16_t         chg_ma;       /* configured charge current */
-    int16_t          batt_temp_c10;/* battery temperature, 0.1 C */
+    int16_t          pmu_die_temp_c10; /* PMIC die temperature, 0.1 C */
     bool             valid;        /* true when all reads succeeded */
 } sensor_cache_t;
 

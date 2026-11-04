@@ -90,7 +90,7 @@ typedef struct {
     axp2101_charge_state_t chg_state;
     bool     chg_enabled;
     uint16_t chg_ma;
-    int16_t  batt_temp_c10;
+    int16_t  pmu_die_temp_c10;
     bool     valid;
     uint32_t updated_ms;
 } sensor_cache_t;

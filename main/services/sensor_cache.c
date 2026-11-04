@@ -140,7 +140,7 @@ static void cache_task(void *arg)
         if (axp2101_get_charge_current_ma(twatch_pmu_dev, &c.chg_ma) != ESP_OK) {
             ok = false;
         }
-        if (axp2101_get_battery_temp(twatch_pmu_dev, &c.batt_temp_c10) != ESP_OK) {
+        if (axp2101_get_die_temp(twatch_pmu_dev, &c.pmu_die_temp_c10) != ESP_OK) {
             ok = false;
         }
         c.valid = ok;

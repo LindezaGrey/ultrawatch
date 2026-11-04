@@ -70,7 +70,7 @@ void sensor_cache_get(sensor_cache_t *out)
         default: out->chg_state = AXP2101_CHG_DONE; break;
         }
     }
-    out->batt_temp_c10 = (int16_t)(250 + ((long)elapsed_s % 50));   /* ~25.0-29.9 C */
+    out->pmu_die_temp_c10 = (int16_t)(350 + ((long)elapsed_s % 50)); /* synthetic die temperature */
     out->valid = true;
 }
 

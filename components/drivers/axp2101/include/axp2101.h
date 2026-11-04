@@ -119,8 +119,8 @@ esp_err_t axp2101_is_charge_enabled(i2c_master_dev_handle_t dev, bool *enabled);
 esp_err_t axp2101_is_button_batt_charge_enabled(i2c_master_dev_handle_t dev, bool *enabled);
 esp_err_t axp2101_get_charge_current_ma(i2c_master_dev_handle_t dev, uint16_t *ma);
 esp_err_t axp2101_set_charge_current_ma(i2c_master_dev_handle_t dev, uint16_t ma);
-/* Battery temperature in 0.1 deg C (TS ADC). */
-esp_err_t axp2101_get_battery_temp(i2c_master_dev_handle_t dev, int16_t *tenths_c);
+/* AXP2101 internal die temperature in 0.1 deg C (not battery temperature). */
+esp_err_t axp2101_get_die_temp(i2c_master_dev_handle_t dev, int16_t *tenths_c);
 
 #ifdef __cplusplus
 }

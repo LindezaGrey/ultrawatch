@@ -186,7 +186,7 @@ static void append_battery_line(const struct tm *lt)
             (unsigned)c.batt_pct, (unsigned)c.batt_mv,
             c.valid ? charge_state_name(c.chg_state) : "invalid",
             (unsigned)(c.chg_enabled ? 1 : 0), (unsigned)c.chg_ma,
-            (int)c.batt_temp_c10);
+            (int)c.pmu_die_temp_c10);
     fclose(b);
 }
 
