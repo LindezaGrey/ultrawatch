@@ -17,8 +17,19 @@ jobs:
         run: |
           apt-get update
           apt-get install --yes cmake cppcheck libsdl2-dev pkg-config
+      - name: Fetch pinned public BHI260AP firmware
+        run: |
+          mkdir -p assets/bhi260
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/BoschSensortec/BHI2xy_SensorAPI/master/firmware/bhi260ap/BHI260AP.fw \
+            --output assets/bhi260/BHI260AP.fw
+          echo "318def511fd8eb762bf1e61cf02cfd6ecac70f8627d3bacfa7d24a1641f9e915  assets/bhi260/BHI260AP.fw" | sha256sum --check
+
       - name: Build firmware
-        run: idf.py build
+        shell: bash
+        run: |
+          source /opt/esp/idf/export.sh
+          idf.py build
       - name: Test AXP2101 pure logic
         run: |
           gcc -Wall -Wextra -Werror -std=c11 \
