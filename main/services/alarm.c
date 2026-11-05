@@ -10,9 +10,9 @@
  *    weekday) - re-run on every list edit and after every fire.
  *  - The ring runs on a dedicated task so it never blocks LVGL or the sensor
  *    cache, shared between alarms and main/cd_timer.c's countdown timer via
- *    alarm_ring_now(). Beep (MAX98357A) enables the BLDO2 amp rail;
- *    vibration (DRV2605) acquires the shared audio/haptic supply plus M_EN;
- *    both pulse on the same cadence, using whichever ring_mode was passed to alarm_ring_now()
+ *    alarm_ring_now(). Beep (MAX98357A) acquires the shared AV rail;
+ *    vibration (DRV2605) acquires the same AV rail plus M_EN; both pulse on
+ *    the same cadence, using whichever ring_mode was passed to alarm_ring_now()
  *    for the current ring cycle (s_ring_mode_active).
  *  - Dismissing an alarm-sourced ring clears AF + re-arms the next earliest
  *    occurrence across the whole list. Snooze (alarms only) swaps the alarm

@@ -40,7 +40,7 @@ without it.
 | `drv2605_set_waveform(dev, slot, wave)` | Program one sequencer slot |
 | `drv2605_go(dev)` | Start the waveform sequence |
 | `drv2605_play(dev, wave)` | Set slot 0, clear slots 1–7, and go (single effect) |
-| `drv2605_auto_calibrate(dev)` | Run the on-chip auto-calibration and save to NVS |
+| `drv2605_auto_calibrate(dev)` | Run auto-calibration; reports mode, I2C, timeout and NVS errors |
 | `drv2605_calibrate_restore(dev)` | Reload the stored calibration from NVS |
 
 ## Calibration persistence (important)
@@ -78,8 +78,8 @@ So the host persists the calibration:
   arduino-esp32 variant (`DRV_EN=6`).
 - The motor shares BLDO2 with the MAX98357A speaker amplifier. Board-owned
   reference-counted rail leases keep the rail on while either audio or haptics
-  is active; M_EN is independently reference-counted for overlapping haptic
-  consumers.
+  is active and preserve the rail if another subsystem already owns it. M_EN
+  is independently reference-counted for overlapping haptic consumers.
 - The driver sits on I2C at `0x5A`; a read-back of the MODE register is used
   as a presence check at init (`DRV2605 initialized (mode=0x00, ERM, library
   1)`).

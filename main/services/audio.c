@@ -121,6 +121,9 @@ static void audio_task(void *arg)
                     audio_cmd_t pending;
                     if (xQueueReceive(s_cmd_q, &pending, 0) == pdTRUE) {
                         if (pending.type == AUDIO_CMD_ALARM_START && alarm) {
+                            /* Transfer the PCM operation's existing rail lease
+                             * to the preempting alarm instead of acquiring a
+                             * second reference that stop could not balance. */
                             alarm_n = render_alarm_cycle(alarm, alarm_cap, pending.amplitude);
                             alarm_active = true;
                             result = ESP_ERR_INVALID_STATE;
