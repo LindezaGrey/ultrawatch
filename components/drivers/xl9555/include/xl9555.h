@@ -20,7 +20,13 @@ extern "C" {
 #define XL9555_I2C_ADDR 0x20
 
 esp_err_t xl9555_init(i2c_master_dev_handle_t dev);
+/* Set direction only. If switching to output, the output latch is retained;
+ * use xl9555_config_output() when an initial level must be guaranteed. */
 esp_err_t xl9555_pin_mode(i2c_master_dev_handle_t dev, uint8_t pin, bool output);
+/* Preload the output latch before enabling output direction to avoid a
+ * power-on latch level glitch. */
+esp_err_t xl9555_config_output(i2c_master_dev_handle_t dev, uint8_t pin, bool initial_level);
+/* Set a pin that is already configured as output. */
 esp_err_t xl9555_set_output(i2c_master_dev_handle_t dev, uint8_t pin, bool level);
 esp_err_t xl9555_read_input(i2c_master_dev_handle_t dev, uint8_t pin, bool *level);
 esp_err_t xl9555_read_port(i2c_master_dev_handle_t dev, uint16_t *state);

@@ -48,6 +48,15 @@ jobs:
             -o /tmp/test_i2c_bus_frame
           /tmp/test_i2c_bus_frame
 
+      - name: Test XL9555 pin mapping
+        run: |
+          gcc -Wall -Wextra -Werror -std=c11 \
+            -I components/drivers/xl9555 \
+            components/drivers/xl9555/test/test_xl9555_logic.c \
+            components/drivers/xl9555/xl9555_logic.c \
+            -o /tmp/test_xl9555_logic
+          /tmp/test_xl9555_logic
+
       - name: Run static analysis
         run: bash tools/run_cppcheck.sh
       - name: Build simulator and capture the watch face

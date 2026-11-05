@@ -222,25 +222,25 @@ esp_err_t twatch_board_init(void)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "xl9555 init failed: %s", esp_err_to_name(err));
     } else {
-        err = xl9555_pin_mode(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, true);
-        if (err != ESP_OK) ESP_LOGE(TAG, "disp pwr mode: %s", esp_err_to_name(err));
-        err = xl9555_pin_mode(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, true);
-        if (err != ESP_OK) ESP_LOGE(TAG, "haptic mode: %s", esp_err_to_name(err));
-        err = xl9555_pin_mode(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, true);
-        if (err != ESP_OK) ESP_LOGE(TAG, "touch rst mode: %s", esp_err_to_name(err));
-        err = xl9555_pin_mode(twatch_xl9555_dev, TWATCH_XL_GPIO_LORA_SEL, true);
-        if (err != ESP_OK) ESP_LOGE(TAG, "lora sel mode: %s", esp_err_to_name(err));
+        /* Set the output latch before changing direction. This avoids a
+         * power-on-high glitch on active-high haptic enable and initializes
+         * the other board-control pins to known safe levels. */
+        err = xl9555_config_output(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, false);
+        if (err != ESP_OK) ESP_LOGE(TAG, "disp pwr output config: %s", esp_err_to_name(err));
+        err = xl9555_config_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
+        if (err != ESP_OK) ESP_LOGE(TAG, "haptic output config: %s", esp_err_to_name(err));
+        err = xl9555_config_output(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, true);
+        if (err != ESP_OK) ESP_LOGE(TAG, "touch rst output config: %s", esp_err_to_name(err));
+        err = xl9555_config_output(twatch_xl9555_dev, TWATCH_XL_GPIO_LORA_SEL, true);
+        if (err != ESP_OK) ESP_LOGE(TAG, "lora sel output config: %s", esp_err_to_name(err));
+
         /* Pulse the display power low->high so the CO5300 always starts from a
          * clean power-on state: a panel stuck from an earlier sleep/wake or
          * low-battery power state survives ESP resets (ALDO2 never drops), and
          * only an actual power cut brings it back. */
-        xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, false);
         vTaskDelay(pdMS_TO_TICKS(200));
-        xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, true);
-        xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
-        xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_TOUCH_RST, true);
-        /* Route the SX1262 to the built-in antenna, not the USB-C SBU path. */
-        xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_LORA_SEL, true);
+        err = xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_DISP_PWR, true);
+        if (err != ESP_OK) ESP_LOGE(TAG, "disp pwr on: %s", esp_err_to_name(err));
     }
 
     /* 2. PMU: verify chip, then bring up the power tree (display, SD, LoRa,
