@@ -27,7 +27,6 @@ static const char *TAG = "pcf85063a";
 #define CTRL2_COF_OFF   0x07       /* COF[2:0] = 111 -> CLKOUT disabled */
 
 #define SEC_OS          0x80
-#define MON_CENTURY     0x80
 #define ALM_AEN         0x80
 
 /* Timer_mode (0x11): TCF[1:0] at bits 4:3 (00=4.096k, 01=64 Hz, 10=1 Hz,
@@ -38,7 +37,6 @@ static const char *TAG = "pcf85063a";
 #define TIMER_TIE       (1 << 1)
 #define TIMER_TI_TP     (1 << 0)   /* 0 = INT follows TF flag, 1 = pulse */
 
-static uint8_t bcd_to_bin(uint8_t v) { return (uint8_t)((v & 0x0f) + ((v >> 4) * 10)); }
 static uint8_t bin_to_bcd(uint8_t v) { return (uint8_t)(((v / 10) << 4) | (v % 10)); }
 
 static esp_err_t read_regs(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t *buf, size_t n)
@@ -68,10 +66,14 @@ esp_err_t pcf85063a_init(i2c_master_dev_handle_t dev)
         ESP_LOGI(TAG, "cleared oscillator STOP bit");
     }
 
+    /* Stop the battery-backed countdown timer as well as clearing its flag;
+     * Control_2 flags do not disable Timer_mode.TE. This prevents an old
+     * snooze/debug timer surviving an MCU reset and asserting a stale wake. */
+    ESP_RETURN_ON_ERROR(write_byte(dev, REG_TIMER_MODE, 0x00), TAG, "stop timer on init");
+
     /* Normalize Control_2: clear the alarm/timer flags and the MI/HMI
-     * minute-interrupt enables so a stale CTRL2 left over from older firmware
-     * or from the battery-backed registers cannot assert INT/TF every minute.
-     * AIE is re-armed by pcf85063a_set_alarm() when needed. CLKOUT off. */
+     * minute-interrupt enables so stale battery-backed state cannot assert
+     * INT after reset. AIE is re-armed by pcf85063a_set_alarm(). CLKOUT off. */
     ESP_RETURN_ON_ERROR(write_byte(dev, REG_CTRL2, CTRL2_COF_OFF), TAG, "init ctrl2");
 
     pcf85063a_time_t t;
@@ -86,6 +88,9 @@ esp_err_t pcf85063a_init(i2c_master_dev_handle_t dev)
 
 esp_err_t pcf85063a_get_time(i2c_master_dev_handle_t dev, pcf85063a_time_t *t)
 {
+    if (!dev || !t) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t r[7];
     ESP_RETURN_ON_ERROR(read_regs(dev, REG_SEC, r, sizeof(r)), TAG, "read time");
 
@@ -93,22 +98,33 @@ esp_err_t pcf85063a_get_time(i2c_master_dev_handle_t dev, pcf85063a_time_t *t)
         /* Oscillator stopped (e.g. backup battery drained) -> invalid time. */
         return ESP_ERR_INVALID_STATE;
     }
-    if (!t) {
-        return ESP_ERR_INVALID_ARG;
-    }
 
-    t->sec     = bcd_to_bin(r[0] & 0x7f);
-    t->min     = bcd_to_bin(r[1] & 0x7f);
-    t->hour    = bcd_to_bin(r[2] & 0x3f);
-    t->day     = bcd_to_bin(r[3] & 0x3f);
-    t->weekday = (uint8_t)(r[4] & 0x07);
-    t->month   = bcd_to_bin(r[5] & 0x1f);
-    t->year    = (uint16_t)(2000 + ((r[5] & MON_CENTURY) ? 100 : 0) + bcd_to_bin(r[6]));
+    pcf85063a_time_t decoded = { 0 };
+    uint8_t year = 0;
+    if (!pcf85063a_decode_bcd_field(r[0] & 0x7f, 0x07, 59, &decoded.sec) ||
+        !pcf85063a_decode_bcd_field(r[1] & 0x7f, 0x07, 59, &decoded.min) ||
+        !pcf85063a_decode_bcd_field(r[2] & 0x3f, 0x03, 23, &decoded.hour) ||
+        !pcf85063a_decode_bcd_field(r[3] & 0x3f, 0x03, 31, &decoded.day) ||
+        (r[4] & 0xf8) != 0 ||
+        !pcf85063a_decode_bcd_field(r[5] & 0x1f, 0x01, 12, &decoded.month) ||
+        !pcf85063a_decode_bcd_field(r[6], 0x0f, 99, &year)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    decoded.year = (uint16_t)(2000 + year);
+    decoded.weekday = (uint8_t)(r[4] & 0x07);
+    if (!pcf85063a_time_is_valid(&decoded)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    *t = decoded;
     return ESP_OK;
 }
 
 esp_err_t pcf85063a_set_time(i2c_master_dev_handle_t dev, const pcf85063a_time_t *t)
 {
+    if (!dev || !pcf85063a_time_is_valid(t)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     /* Datasheet 7.2.1.2: halt the time circuits first - they only accept a
      * setting while STOP is set and do not increment until it is released,
      * which is what keeps a running divider from landing the calendar in an
@@ -124,7 +140,7 @@ esp_err_t pcf85063a_set_time(i2c_master_dev_handle_t dev, const pcf85063a_time_t
     r[2] = bin_to_bcd(t->hour) & 0x3f;
     r[3] = bin_to_bcd(t->day) & 0x3f;
     r[4] = (uint8_t)(t->weekday & 0x07);
-    r[5] = (bin_to_bcd(t->month) & 0x1f) | ((t->year >= 2100) ? MON_CENTURY : 0);
+    r[5] = bin_to_bcd(t->month) & 0x1f;
     r[6] = bin_to_bcd((uint8_t)(t->year % 100));
     esp_err_t err = write_regs(dev, REG_SEC, r, sizeof(r));
 
@@ -142,11 +158,30 @@ esp_err_t pcf85063a_set_time(i2c_master_dev_handle_t dev, const pcf85063a_time_t
 
 esp_err_t pcf85063a_get_second(i2c_master_dev_handle_t dev, uint8_t *sec)
 {
-    return read_regs(dev, REG_SEC, sec, 1);
+    if (!dev || !sec) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t raw = 0, value = 0;
+    ESP_RETURN_ON_ERROR(read_regs(dev, REG_SEC, &raw, 1), TAG, "read seconds");
+    if (raw & SEC_OS) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!pcf85063a_decode_bcd_field(raw & 0x7f, 0x07, 59, &value)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    *sec = value;
+    return ESP_OK;
 }
 
 esp_err_t pcf85063a_set_alarm(i2c_master_dev_handle_t dev, const pcf85063a_alarm_t *alarm)
 {
+    if (!dev || !alarm ||
+        !pcf85063a_alarm_fields_are_valid(alarm->time.sec, alarm->time.min,
+                                          alarm->time.hour, alarm->time.day,
+                                          alarm->time.weekday, alarm->mask_day,
+                                          alarm->mask_weekday)) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t r[5];
     r[0] = (bin_to_bcd(alarm->time.sec) & 0x7f) | (alarm->mask_sec ? ALM_AEN : 0);
     r[1] = (bin_to_bcd(alarm->time.min) & 0x7f) | (alarm->mask_min ? ALM_AEN : 0);
@@ -168,6 +203,7 @@ esp_err_t pcf85063a_set_alarm(i2c_master_dev_handle_t dev, const pcf85063a_alarm
 
 esp_err_t pcf85063a_clear_alarm(i2c_master_dev_handle_t dev)
 {
+    if (!dev) return ESP_ERR_INVALID_ARG;
     uint8_t ctrl2 = 0;
     ESP_RETURN_ON_ERROR(read_regs(dev, REG_CTRL2, &ctrl2, 1), TAG, "read ctrl2");
     ctrl2 &= (uint8_t)~(CTRL2_AF | CTRL2_AIE);
@@ -176,6 +212,9 @@ esp_err_t pcf85063a_clear_alarm(i2c_master_dev_handle_t dev)
 
 esp_err_t pcf85063a_alarm_triggered(i2c_master_dev_handle_t dev, bool *triggered)
 {
+    if (!dev || !triggered) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t ctrl2 = 0;
     ESP_RETURN_ON_ERROR(read_regs(dev, REG_CTRL2, &ctrl2, 1), TAG, "read ctrl2");
     *triggered = (ctrl2 & CTRL2_AF) != 0;
@@ -185,6 +224,7 @@ esp_err_t pcf85063a_alarm_triggered(i2c_master_dev_handle_t dev, bool *triggered
 /* Clear the countdown-timer flag TF (Control_2 bit 3). */
 esp_err_t pcf85063a_timer_flag_clear(i2c_master_dev_handle_t dev)
 {
+    if (!dev) return ESP_ERR_INVALID_ARG;
     uint8_t ctrl2 = 0;
     ESP_RETURN_ON_ERROR(read_regs(dev, REG_CTRL2, &ctrl2, 1), TAG, "read ctrl2");
     ctrl2 &= (uint8_t)~CTRL2_TF;
@@ -197,6 +237,7 @@ esp_err_t pcf85063a_timer_flag_clear(i2c_master_dev_handle_t dev)
 static esp_err_t timer_start(i2c_master_dev_handle_t dev, uint8_t value,
                              uint8_t tcf, bool enable_int)
 {
+    if (!dev) return ESP_ERR_INVALID_ARG;
     /* Stop first: changing T with TE=1 is not recommended by the datasheet. */
     ESP_RETURN_ON_ERROR(write_byte(dev, REG_TIMER_MODE, 0x00), TAG, "timer stop");
     ESP_RETURN_ON_ERROR(pcf85063a_timer_flag_clear(dev), TAG, "clear TF");
@@ -229,6 +270,7 @@ esp_err_t pcf85063a_set_timer_minutes(i2c_master_dev_handle_t dev, uint8_t minut
 
 esp_err_t pcf85063a_timer_stop(i2c_master_dev_handle_t dev)
 {
+    if (!dev) return ESP_ERR_INVALID_ARG;
     /* Disable the timer (TE=0) and its interrupt (TIE=0); clear TF too. */
     ESP_RETURN_ON_ERROR(write_byte(dev, REG_TIMER_MODE, 0x00), TAG, "timer off");
     return pcf85063a_timer_flag_clear(dev);
@@ -236,6 +278,9 @@ esp_err_t pcf85063a_timer_stop(i2c_master_dev_handle_t dev)
 
 esp_err_t pcf85063a_timer_triggered(i2c_master_dev_handle_t dev, bool *triggered)
 {
+    if (!dev || !triggered) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t ctrl2 = 0;
     ESP_RETURN_ON_ERROR(read_regs(dev, REG_CTRL2, &ctrl2, 1), TAG, "read ctrl2");
     *triggered = (ctrl2 & CTRL2_TF) != 0;
@@ -254,6 +299,9 @@ esp_err_t pcf85063a_write_ram(i2c_master_dev_handle_t dev, uint8_t val)
 
 esp_err_t pcf85063a_read_ram(i2c_master_dev_handle_t dev, uint8_t *val)
 {
+    if (!dev || !val) {
+        return ESP_ERR_INVALID_ARG;
+    }
     return read_regs(dev, REG_RAM, val, 1);
 }
 

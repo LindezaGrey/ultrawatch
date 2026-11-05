@@ -7,6 +7,7 @@
  */
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
 
@@ -29,12 +30,22 @@ typedef struct {
     uint16_t year;    /* full year, e.g. 2026 */
 } pcf85063a_time_t;
 
-/* Convert between a pcf85063a_time_t (treated as a plain UTC calendar
- * breakdown - the RTC's own convention) and a UTC time_t epoch. Direct
- * civil-date<->days-since-epoch math (proleptic Gregorian, Howard Hinnant's
- * algorithm): unlike mktime()/localtime_r(), neither applies the process TZ
- * or DST, so these are safe to use before app_main() sets TZ and never
- * touch tm_isdst. pcf85063a_epoch_to_time() also fills weekday. */
+/* RTC calendar conversion is supported only for years 2000..2099. The chip
+ * has no century bit and treats year 00 as leap; do not use this RTC calendar
+ * for 2100-century dates.
+ *
+ * Convert between a pcf85063a_time_t (plain UTC calendar) and a UTC time_t
+ * epoch using proleptic Gregorian civil-date arithmetic. Unlike libc
+ * mktime()/localtime_r(), these helpers do not use process TZ/DST. The epoch
+ * converter fills weekday. */
+bool pcf85063a_time_is_valid(const pcf85063a_time_t *t);
+/* Alarm fields are validated according to which fields participate in match. */
+bool pcf85063a_alarm_fields_are_valid(uint8_t sec, uint8_t min, uint8_t hour,
+                                      uint8_t day, uint8_t weekday,
+                                      bool mask_day, bool mask_weekday);
+/* Validate and decode one packed BCD field after masking its register bits. */
+bool pcf85063a_decode_bcd_field(uint8_t raw, uint8_t tens_mask,
+                                uint8_t max_value, uint8_t *value);
 time_t pcf85063a_time_to_epoch(const pcf85063a_time_t *t);
 void pcf85063a_epoch_to_time(time_t epoch, pcf85063a_time_t *out);
 

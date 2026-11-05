@@ -13,7 +13,7 @@ Fastest loop (no cmake configure step):
 
 ```sh
 cd components/drivers/pcf85063a
-gcc -Wall -Wextra -std=c11 -I include test/test_pcf85063a_time.c pcf85063a_time.c -o /tmp/test_pcf85063a_time && /tmp/test_pcf85063a_time
+gcc -Wall -Wextra -Werror -std=c11 -I include test/test_pcf85063a_time.c pcf85063a_time.c -o /tmp/test_pcf85063a_time && /tmp/test_pcf85063a_time
 ```
 
 Or via CMake/CTest:

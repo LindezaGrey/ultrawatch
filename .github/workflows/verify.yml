@@ -57,6 +57,15 @@ jobs:
             -o /tmp/test_xl9555_logic
           /tmp/test_xl9555_logic
 
+      - name: Test PCF85063A calendar logic
+        run: |
+          gcc -Wall -Wextra -Werror -std=c11 \
+            -I components/drivers/pcf85063a/include \
+            components/drivers/pcf85063a/test/test_pcf85063a_time.c \
+            components/drivers/pcf85063a/pcf85063a_time.c \
+            -o /tmp/test_pcf85063a_time
+          /tmp/test_pcf85063a_time
+
       - name: Run static analysis
         run: bash tools/run_cppcheck.sh
       - name: Build simulator and capture the watch face

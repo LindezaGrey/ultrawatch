@@ -117,8 +117,74 @@ static void test_pre_1970_negative_epoch(void)
     CHECK(back.hour == 23 && back.min == 59 && back.sec == 59);
 }
 
+static void test_calendar_field_validation(void)
+{
+    pcf85063a_time_t valid = {
+        .sec = 59, .min = 59, .hour = 23, .day = 29,
+        .weekday = 4, .month = 2, .year = 2024,
+    };
+    CHECK(pcf85063a_time_is_valid(&valid));
+    CHECK(pcf85063a_time_to_epoch(&valid) != (time_t)-1);
+
+    valid.year = 2023;
+    CHECK(!pcf85063a_time_is_valid(&valid)); /* no Feb 29 in a common year */
+    CHECK(pcf85063a_time_to_epoch(&valid) == (time_t)-1);
+    valid.year = 2024;
+    valid.day = 31;
+    CHECK(!pcf85063a_time_is_valid(&valid));
+    valid.day = 1;
+    valid.month = 13;
+    CHECK(!pcf85063a_time_is_valid(&valid));
+    valid.month = 1;
+    valid.hour = 24;
+    CHECK(!pcf85063a_time_is_valid(&valid));
+    valid.hour = 0;
+    valid.weekday = 7;
+    CHECK(!pcf85063a_time_is_valid(&valid));
+    valid.weekday = 0;
+    valid.year = 2100;
+    CHECK(!pcf85063a_time_is_valid(&valid));
+    valid.year = 2000;
+    valid.month = 2;
+    valid.day = 29;
+    CHECK(pcf85063a_time_is_valid(&valid));
+    valid.year = 2001;
+    CHECK(!pcf85063a_time_is_valid(&valid));
+    CHECK(!pcf85063a_time_is_valid(NULL));
+}
+
+static void test_alarm_field_validation(void)
+{
+    CHECK(pcf85063a_alarm_fields_are_valid(0, 0, 0, 0, 0, true, true));
+    CHECK(pcf85063a_alarm_fields_are_valid(59, 59, 23, 31, 6, false, false));
+    CHECK(!pcf85063a_alarm_fields_are_valid(60, 0, 0, 1, 1, false, false));
+    CHECK(!pcf85063a_alarm_fields_are_valid(0, 60, 0, 1, 1, false, false));
+    CHECK(!pcf85063a_alarm_fields_are_valid(0, 0, 24, 1, 1, false, false));
+    CHECK(!pcf85063a_alarm_fields_are_valid(0, 0, 0, 0, 1, false, false));
+    CHECK(!pcf85063a_alarm_fields_are_valid(0, 0, 0, 1, 7, false, false));
+    CHECK(pcf85063a_alarm_fields_are_valid(0, 0, 0, 0, 7, true, true));
+    CHECK(pcf85063a_alarm_fields_are_valid(0, 0, 0, 32, 6, true, false));
+    CHECK(pcf85063a_alarm_fields_are_valid(0, 0, 0, 32, 6, true, true));
+}
+
+static void test_bcd_field_validation(void)
+{
+    uint8_t value = 0xAA;
+    CHECK(pcf85063a_decode_bcd_field(0x59, 0x07, 59, &value) && value == 59);
+    CHECK(pcf85063a_decode_bcd_field(0x23, 0x03, 23, &value) && value == 23);
+    CHECK(pcf85063a_decode_bcd_field(0x12, 0x01, 12, &value) && value == 12);
+    CHECK(!pcf85063a_decode_bcd_field(0x6A, 0x07, 59, &value));
+    CHECK(!pcf85063a_decode_bcd_field(0x60, 0x07, 59, &value));
+    CHECK(!pcf85063a_decode_bcd_field(0x2A, 0x03, 23, &value));
+    CHECK(!pcf85063a_decode_bcd_field(0x92, 0x01, 12, &value)); /* reserved bits */
+    CHECK(!pcf85063a_decode_bcd_field(0x10, 0x01, 12, NULL));
+}
+
 int main(void)
 {
+    test_calendar_field_validation();
+    test_alarm_field_validation();
+    test_bcd_field_validation();
     test_epoch_zero_is_1970_01_01_thursday();
     test_roundtrip_real_world_value();
     test_weekday_matches_tm_wday();
