@@ -164,18 +164,22 @@ esp_err_t haptic_calibrate(void)
     return err != ESP_OK ? err : stop;
 }
 
-void haptic_play_test(uint8_t wave_id)
+esp_err_t haptic_play_wave(uint8_t wave_id)
 {
     esp_err_t err = haptic_output_start();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to start haptic output: %s", esp_err_to_name(err));
-        return;
-    }
+    if (err != ESP_OK) return err;
     err = drv2605_play(twatch_haptic_dev, wave_id);
     if (err == ESP_OK) vTaskDelay(pdMS_TO_TICKS(400));
     esp_err_t stop = haptic_output_stop();
-    if (err != ESP_OK) ESP_LOGE(TAG, "haptic preview failed: %s", esp_err_to_name(err));
-    if (stop != ESP_OK) ESP_LOGE(TAG, "haptic output stop failed: %s", esp_err_to_name(stop));
+    return err != ESP_OK ? err : stop;
+}
+
+void haptic_play_test(uint8_t wave_id)
+{
+    esp_err_t err = haptic_play_wave(wave_id);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "haptic preview failed: %s", esp_err_to_name(err));
+    }
 }
 
 static portMUX_TYPE s_test_mux = portMUX_INITIALIZER_UNLOCKED;

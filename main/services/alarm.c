@@ -10,9 +10,9 @@
  *    weekday) - re-run on every list edit and after every fire.
  *  - The ring runs on a dedicated task so it never blocks LVGL or the sensor
  *    cache, shared between alarms and main/cd_timer.c's countdown timer via
- *    alarm_ring_now(). Beep (MAX98357A) acquires the shared AV rail;
- *    vibration (DRV2605) acquires the same AV rail plus M_EN; both pulse on
- *    the same cadence, using whichever ring_mode was passed to alarm_ring_now()
+ *    alarm_ring_now(). Beep (MAX98357A) and vibration (DRV2605) each acquire
+ *    a lease on their shared AV rail; haptic playback additionally gates M_EN.
+ *    Both pulse on the same cadence, using the ring_mode passed to alarm_ring_now()
  *    for the current ring cycle (s_ring_mode_active).
  *  - Dismissing an alarm-sourced ring clears AF + re-arms the next earliest
  *    occurrence across the whole list. Snooze (alarms only) swaps the alarm
@@ -248,7 +248,8 @@ static int16_t ring_amplitude(void)
 
 static void ring_vibrate(void)
 {
-    drv2605_play(twatch_haptic_dev, haptic_get_wave_id());
+    esp_err_t err = haptic_play_wave(haptic_get_wave_id());
+    if (err != ESP_OK) ESP_LOGE(TAG, "haptic effect failed: %s", esp_err_to_name(err));
 }
 
 static esp_err_t ring_send(ring_cmd_t cmd)
@@ -296,15 +297,6 @@ static void ring_task(void *arg)
          * change to the ringing entry's own Beep/Vib/Both. */
         bool vib  = sound_enabled &&
                     (s_ring_mode_active == ALARM_RING_VIB || s_ring_mode_active == ALARM_RING_BOTH);
-        bool haptic_started = false;
-        if (vib) {
-            esp_err_t haptic_err = haptic_output_start();
-            if (haptic_err == ESP_OK) haptic_started = true;
-            else {
-                ESP_LOGE(TAG, "haptic start failed: %s", esp_err_to_name(haptic_err));
-                vib = false;
-            }
-        }
 
         /* The audio task owns I2S TX and the speaker rail. This task only
          * coordinates alarm timing, haptics, and the UI lifecycle. */
@@ -344,12 +336,6 @@ static void ring_task(void *arg)
             }
         }
 
-        if (haptic_started) {
-            esp_err_t haptic_err = haptic_output_stop();
-            if (haptic_err != ESP_OK) {
-                ESP_LOGE(TAG, "haptic output stop failed: %s", esp_err_to_name(haptic_err));
-            }
-        }
         audio_alarm_stop();
 
         /* Update snooze/dismiss state and RTC before the UI callback, so the

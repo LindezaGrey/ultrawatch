@@ -77,9 +77,9 @@ So the host persists the calibration:
 - M_EN lives on XL9555 GPIO6 (`TWATCH_XL_GPIO_HAPTIC_EN`); matches the
   arduino-esp32 variant (`DRV_EN=6`).
 - The motor shares BLDO2 with the MAX98357A speaker amplifier. Board-owned
-  reference-counted rail leases keep the rail on while either audio or haptics
-  is active and preserve the rail if another subsystem already owns it. M_EN
-  is independently reference-counted for overlapping haptic consumers.
+  reference-counted rail leases keep BLDO2 on while audio or haptics is active.
+  The haptic controller separately reference-counts M_EN around each effect,
+  including vibration alarms.
 - The driver sits on I2C at `0x5A`; a read-back of the MODE register is used
   as a presence check at init (`DRV2605 initialized (mode=0x00, ERM, library
   1)`).

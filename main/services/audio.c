@@ -148,11 +148,7 @@ static void audio_task(void *arg)
         }
 
         if (xQueueReceive(s_cmd_q, &cmd, 0) == pdTRUE) {
-            if (cmd.type == AUDIO_CMD_ALARM_STOP) {
-                alarm_active = false;
-                esp_err_t rail_err = twatch_board_av_rail_release();
-                if (rail_err != ESP_OK) ESP_LOGE(TAG, "alarm speaker rail release: %s", esp_err_to_name(rail_err));
-            } else if (cmd.type == AUDIO_CMD_ALARM_START) {
+            if (cmd.type == AUDIO_CMD_ALARM_START) {
                 alarm_n = render_alarm_cycle(alarm, alarm_cap, cmd.amplitude);
             } else {
                 audio_reply(&cmd, ESP_ERR_INVALID_STATE);

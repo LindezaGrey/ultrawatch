@@ -38,11 +38,12 @@ void haptic_set_pattern_index(size_t idx);
  * ring_vibrate() and mesh_log.c's notification tap should actually play. */
 uint8_t haptic_get_wave_id(void);
 
-/* Pair around each active playback/calibration caller. Acquires/releases the
+/* Pair around multi-effect sessions such as alarms. Acquires/releases the
  * shared speaker/haptic supply and reference-counts M_EN for overlapping
- * haptic clients. */
+ * haptic clients. One-shot haptic_play_wave() manages its own lease. */
 esp_err_t haptic_output_start(void);
 esp_err_t haptic_output_stop(void);
+esp_err_t haptic_play_wave(uint8_t wave_id);
 esp_err_t haptic_calibrate(void);
 
 /* Self-contained one-shot preview: enables HAPTIC_EN, plays `wave_id`,

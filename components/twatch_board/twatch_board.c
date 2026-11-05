@@ -46,7 +46,6 @@ i2s_chan_handle_t twatch_audio_rx;
 static SemaphoreHandle_t s_av_rail_mutex;
 static portMUX_TYPE s_av_rail_init_mux = portMUX_INITIALIZER_UNLOCKED;
 static unsigned s_av_rail_users;
-static bool s_av_rail_external_hold;
 
 static esp_err_t twatch_i2s_init(void)
 {
@@ -129,11 +128,7 @@ esp_err_t twatch_board_av_rail_acquire(void)
     xSemaphoreTake(mutex, portMAX_DELAY);
     esp_err_t err = ESP_OK;
     if (s_av_rail_users == 0) {
-        err = axp2101_is_rail_enabled(twatch_pmu_dev, AXP2101_BLDO2,
-                                      &s_av_rail_external_hold);
-        if (err == ESP_OK && !s_av_rail_external_hold) {
-            err = axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);
-        }
+        err = axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);
     }
     if (err == ESP_OK) s_av_rail_users++;
     xSemaphoreGive(mutex);
@@ -150,13 +145,10 @@ esp_err_t twatch_board_av_rail_release(void)
         return ESP_ERR_INVALID_STATE;
     }
     esp_err_t err = ESP_OK;
-    if (s_av_rail_users == 1 && !s_av_rail_external_hold) {
+    if (s_av_rail_users == 1) {
         err = axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
     }
-    if (err == ESP_OK) {
-        s_av_rail_users--;
-        if (s_av_rail_users == 0) s_av_rail_external_hold = false;
-    }
+    if (err == ESP_OK) s_av_rail_users--;
     xSemaphoreGive(mutex);
     return err;
 }

@@ -320,13 +320,7 @@ void debug_cmd_motor(const char *args)
          * short vibration. Usage: "motor" or "motor 47" (waveform id).
          * Default 47 = strong click (library 1). */
         int wave = 47;
-        esp_err_t err = haptic_output_start();
-        if (err == ESP_OK) {
-            err = drv2605_play(twatch_haptic_dev, (uint8_t)wave);
-            if (err == ESP_OK) vTaskDelay(pdMS_TO_TICKS(400));
-            esp_err_t stop = haptic_output_stop();
-            if (err == ESP_OK) err = stop;
-        }
+        esp_err_t err = haptic_play_wave((uint8_t)wave);
         printf("motor: wave=%d %s\n", wave, (err == ESP_OK) ? "ok" : esp_err_to_name(err));
     } else if (strcmp(args, "cal") == 0) {
         /* Run the on-chip auto-calibration and save to NVS. The motor
