@@ -11,7 +11,7 @@ Verified on hardware unless marked otherwise.
 | I2C address | `0x5A` |
 | Enable pin | XL9555 **GPIO6** (M_EN, active high) |
 | Actuator | ERM (eccentric rotating mass) motor, library 1 |
-| Power | AXP2101 BLDO2 (speaker rail, 3.3 V) |
+| Power | AXP2101 BLDO2 shared audio/haptic rail (3.3 V) |
 
 The driver is controlled over the board's shared I2C bus. The **M_EN** line on
 the XL9555 must be asserted *before* any motor activity: it powers the
@@ -39,7 +39,7 @@ without it.
 | `drv2605_init(dev)` | Exit standby, internal trigger, ERM library 1; read-back check; restores NVS calibration if present |
 | `drv2605_set_waveform(dev, slot, wave)` | Program one sequencer slot |
 | `drv2605_go(dev)` | Start the waveform sequence |
-| `drv2605_play(dev, wave)` | Set slot 0 and go (single buzz) |
+| `drv2605_play(dev, wave)` | Set slot 0, clear slots 1–7, and go (single effect) |
 | `drv2605_auto_calibrate(dev)` | Run the on-chip auto-calibration and save to NVS |
 | `drv2605_calibrate_restore(dev)` | Reload the stored calibration from NVS |
 
@@ -52,11 +52,13 @@ motor — undesirable on every boot.
 
 So the host persists the calibration:
 
-- `drv2605_auto_calibrate()` runs the chip's auto-calibration and stores the
-  resulting `AUTOCALCOMP`/`AUTOCALEMP` in NVS (`drv2605` namespace, keys
+- `drv2605_auto_calibrate()` runs the chip's auto-calibration, returns timeout,
+  I2C, or NVS persistence errors instead of reporting false success, and stores
+  the resulting `AUTOCALCOMP`/`AUTOCALEMP` in NVS (`drv2605` namespace, keys
   `cal_comp` / `cal_emf`).
-- `drv2605_init()` restores them on boot if present (verified: `comp=0x04`,
-  `emf=0x9C`).
+- `drv2605_init()` restores them on boot if present (a serial log shows
+  `comp=0x04`, `emf=0xAE`; an older note recorded `emf=0x9C`, so calibrate on
+  the target unit rather than treating either sample as universal).
 - Auto-calibration is **not** run automatically at init because it needs M_EN
   (the motor rail), which the board keeps off during init. Run it once with
   the `motor cal` console command (or a future UI path that asserts M_EN
@@ -74,8 +76,28 @@ So the host persists the calibration:
 
 - M_EN lives on XL9555 GPIO6 (`TWATCH_XL_GPIO_HAPTIC_EN`); matches the
   arduino-esp32 variant (`DRV_EN=6`).
-- The motor shares BLDO2 with the MAX98357A speaker amplifier. Playback and
-  haptic paths coordinate the rail around actual use.
+- The motor shares BLDO2 with the MAX98357A speaker amplifier. Board-owned
+  reference-counted rail leases keep the rail on while either audio or haptics
+  is active; M_EN is independently reference-counted for overlapping haptic
+  consumers.
 - The driver sits on I2C at `0x5A`; a read-back of the MODE register is used
   as a presence check at init (`DRV2605 initialized (mode=0x00, ERM, library
   1)`).
+
+## Pending device verification for the revised shared-rail path
+
+Before calling the rail-ownership integration verified on hardware, test with
+BLDO2 initially off:
+
+1. Haptic-only settings preview and `motor` command each move the motor and
+   release BLDO2/M_EN afterward.
+2. `motor cal` completes, persists calibration, and reports timeout/I2C/NVS
+   failures accurately if induced.
+3. A vibration-only alarm works with no audio playback active.
+4. Overlapping audio and haptic use keeps BLDO2 on until both consumers release
+   their leases; no premature rail drop or stuck-on rail after either order.
+5. Repeated alarm, preview, and calibration cycles remain responsive.
+
+Code/build and host tests are complete; these physical checks are still
+**pending**. Do not flash or run the motor test until the operator authorizes
+hardware validation.

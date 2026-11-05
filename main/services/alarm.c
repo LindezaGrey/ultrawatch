@@ -11,8 +11,8 @@
  *  - The ring runs on a dedicated task so it never blocks LVGL or the sensor
  *    cache, shared between alarms and main/cd_timer.c's countdown timer via
  *    alarm_ring_now(). Beep (MAX98357A) enables the BLDO2 amp rail;
- *    vibration (DRV2605) enables the haptic M_EN line; both pulse on the
- *    same cadence, using whichever ring_mode was passed to alarm_ring_now()
+ *    vibration (DRV2605) acquires the shared audio/haptic supply plus M_EN;
+ *    both pulse on the same cadence, using whichever ring_mode was passed to alarm_ring_now()
  *    for the current ring cycle (s_ring_mode_active).
  *  - Dismissing an alarm-sourced ring clears AF + re-arms the next earliest
  *    occurrence across the whole list. Snooze (alarms only) swaps the alarm
@@ -29,7 +29,6 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "twatch_board.h"
-#include "xl9555.h"
 #include "pcf85063a.h"
 #include "drv2605.h"
 #include "haptic.h"
@@ -247,13 +246,6 @@ static int16_t ring_amplitude(void)
                      steps * (RING_AMP_MAX - RING_AMP) / ALARM_AUTO_SNOOZE_MAX);
 }
 
-static void ring_set_outputs(bool on)
-{
-    if (s_ring_mode_active == ALARM_RING_VIB || s_ring_mode_active == ALARM_RING_BOTH) {
-        xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, on);  /* M_EN */
-    }
-}
-
 static void ring_vibrate(void)
 {
     drv2605_play(twatch_haptic_dev, haptic_get_wave_id());
@@ -302,12 +294,17 @@ static void ring_task(void *arg)
         /* Global mute: screen/dismiss/snooze/auto-snooze timing all still
          * work normally, just silently - a master off-switch, not a mode
          * change to the ringing entry's own Beep/Vib/Both. */
-        if (sound_enabled) {
-            ring_set_outputs(true);
-        }
-
         bool vib  = sound_enabled &&
                     (s_ring_mode_active == ALARM_RING_VIB || s_ring_mode_active == ALARM_RING_BOTH);
+        bool haptic_started = false;
+        if (vib) {
+            esp_err_t haptic_err = haptic_output_start();
+            if (haptic_err == ESP_OK) haptic_started = true;
+            else {
+                ESP_LOGE(TAG, "haptic start failed: %s", esp_err_to_name(haptic_err));
+                vib = false;
+            }
+        }
 
         /* The audio task owns I2S TX and the speaker rail. This task only
          * coordinates alarm timing, haptics, and the UI lifecycle. */
@@ -347,7 +344,12 @@ static void ring_task(void *arg)
             }
         }
 
-        ring_set_outputs(false);
+        if (haptic_started) {
+            esp_err_t haptic_err = haptic_output_stop();
+            if (haptic_err != ESP_OK) {
+                ESP_LOGE(TAG, "haptic output stop failed: %s", esp_err_to_name(haptic_err));
+            }
+        }
         audio_alarm_stop();
 
         /* Update snooze/dismiss state and RTC before the UI callback, so the

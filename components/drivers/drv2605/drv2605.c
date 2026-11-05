@@ -44,6 +44,7 @@ static const char *TAG = "drv2605";
 #define DRV2605_AUTOCALEMP    0x19
 #define DRV2605_DATA_REG      0x1D
 
+#define DRV2605_MODE_INT_TRIGGER 0x00
 #define DRV2605_MODE_STANDBY  (1u << 7)
 #define DRV2605_MODE_RTPIN    (1u << 6)
 #define DRV2605_MODE_ERM_LRA  (1u << 5)   /* 1=LRA, 0=ERM */
@@ -65,7 +66,7 @@ static esp_err_t drv2605_read_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint
 
 esp_err_t drv2605_set_waveform(i2c_master_dev_handle_t dev, uint8_t slot, uint8_t wave)
 {
-    if (slot > 7) {
+    if (!dev || slot > 7) {
         return ESP_ERR_INVALID_ARG;
     }
     return drv2605_write_reg(dev, DRV2605_WAVEFORM0 + slot, wave);
@@ -73,38 +74,63 @@ esp_err_t drv2605_set_waveform(i2c_master_dev_handle_t dev, uint8_t slot, uint8_
 
 esp_err_t drv2605_go(i2c_master_dev_handle_t dev)
 {
+    if (!dev) {
+        return ESP_ERR_INVALID_ARG;
+    }
     return drv2605_write_reg(dev, DRV2605_GO_REG, 1);
 }
 
 esp_err_t drv2605_play(i2c_master_dev_handle_t dev, uint8_t wave)
 {
+    if (!dev) {
+        return ESP_ERR_INVALID_ARG;
+    }
     ESP_RETURN_ON_ERROR(drv2605_set_waveform(dev, 0, wave), TAG, "set_waveform failed");
-    ESP_RETURN_ON_ERROR(drv2605_set_waveform(dev, 1, 0), TAG, "stop slot");
+    /* Single-effect playback must terminate the whole eight-slot sequence;
+     * higher slots may have been configured by an earlier sequencer user. */
+    for (uint8_t slot = 1; slot < 8; ++slot) {
+        ESP_RETURN_ON_ERROR(drv2605_set_waveform(dev, slot, 0), TAG, "clear sequence slot");
+    }
     return drv2605_go(dev);
 }
 
-/* Save calibration values to NVS. */
-static void cal_save(uint8_t comp, uint8_t emf)
+/* Save calibration values to NVS and report persistence failures to caller. */
+static esp_err_t cal_save(uint8_t comp, uint8_t emf)
 {
     nvs_handle_t h;
-    if (nvs_open(DRV2605_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
-        nvs_set_u8(h, NVS_KEY_COMP, comp);
-        nvs_set_u8(h, NVS_KEY_EMF, emf);
-        nvs_commit(h);
-        nvs_close(h);
+    esp_err_t err = nvs_open(DRV2605_NVS_NS, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        return err;
     }
+    err = nvs_set_u8(h, NVS_KEY_COMP, comp);
+    if (err == ESP_OK) {
+        err = nvs_set_u8(h, NVS_KEY_EMF, emf);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    return err;
 }
 
 /* Read stored calibration; returns true if both values exist. */
 static bool cal_load(uint8_t *comp, uint8_t *emf)
 {
+    if (!comp || !emf) {
+        return false;
+    }
     nvs_handle_t h;
     if (nvs_open(DRV2605_NVS_NS, NVS_READONLY, &h) != ESP_OK) {
         return false;
     }
-    bool ok = (nvs_get_u8(h, NVS_KEY_COMP, comp) == ESP_OK &&
-               nvs_get_u8(h, NVS_KEY_EMF, emf) == ESP_OK);
+    uint8_t comp_value = 0, emf_value = 0;
+    bool ok = (nvs_get_u8(h, NVS_KEY_COMP, &comp_value) == ESP_OK &&
+               nvs_get_u8(h, NVS_KEY_EMF, &emf_value) == ESP_OK);
     nvs_close(h);
+    if (ok) {
+        *comp = comp_value;
+        *emf = emf_value;
+    }
     return ok;
 }
 
@@ -112,30 +138,60 @@ static bool cal_load(uint8_t *comp, uint8_t *emf)
  * (~1 s); the motor vibrates during this. Returns the compensation value. */
 esp_err_t drv2605_auto_calibrate(i2c_master_dev_handle_t dev)
 {
-    ESP_RETURN_ON_ERROR(drv2605_write_reg(dev, DRV2605_MODE_REG,
-                                          DRV2605_MODE_AUTOCAL),
-                        TAG, "autocal mode");
-    ESP_RETURN_ON_ERROR(drv2605_go(dev), TAG, "autocal go");
+    if (!dev) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t err = drv2605_write_reg(dev, DRV2605_MODE_REG, DRV2605_MODE_AUTOCAL);
+    if (err != ESP_OK) {
+        return err;
+    }
+    err = drv2605_go(dev);
+    if (err != ESP_OK) {
+        esp_err_t restore = drv2605_write_reg(dev, DRV2605_MODE_REG, DRV2605_MODE_INT_TRIGGER);
+        return restore == ESP_OK ? err : restore;
+    }
 
     /* Wait for GO to self-clear (indicates calibration finished). */
+    bool completed = false;
     for (int i = 0; i < 200; i++) {
         uint8_t go = 0;
-        if (drv2605_read_reg(dev, DRV2605_GO_REG, &go) == ESP_OK && (go & 0x01) == 0) {
+        err = drv2605_read_reg(dev, DRV2605_GO_REG, &go);
+        if (err != ESP_OK) {
+            esp_err_t restore = drv2605_write_reg(dev, DRV2605_MODE_REG, DRV2605_MODE_INT_TRIGGER);
+            return restore == ESP_OK ? err : restore;
+        }
+        if ((go & 0x01) == 0) {
+            completed = true;
             break;
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
+    if (!completed) {
+        esp_err_t restore = drv2605_write_reg(dev, DRV2605_MODE_REG, DRV2605_MODE_INT_TRIGGER);
+        return restore == ESP_OK ? ESP_ERR_TIMEOUT : restore;
+    }
+
     uint8_t comp = 0, emf = 0;
-    ESP_RETURN_ON_ERROR(drv2605_read_reg(dev, DRV2605_AUTOCALCOMP, &comp), TAG, "read comp");
-    ESP_RETURN_ON_ERROR(drv2605_read_reg(dev, DRV2605_AUTOCALEMP, &emf), TAG, "read emf");
+    err = drv2605_read_reg(dev, DRV2605_AUTOCALCOMP, &comp);
+    if (err == ESP_OK) {
+        err = drv2605_read_reg(dev, DRV2605_AUTOCALEMP, &emf);
+    }
 
-    /* Back to normal operation. */
-    ESP_RETURN_ON_ERROR(drv2605_write_reg(dev, DRV2605_MODE_REG,
-                                          DRV2605_MODE_INT_TRIGGER),
-                        TAG, "autocal restore mode");
+    /* Always leave calibration mode, including the read-error path. */
+    esp_err_t restore = drv2605_write_reg(dev, DRV2605_MODE_REG, DRV2605_MODE_INT_TRIGGER);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (restore != ESP_OK) {
+        return restore;
+    }
 
-    cal_save(comp, emf);
+    err = cal_save(comp, emf);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to save calibration: %s", esp_err_to_name(err));
+        return err;
+    }
     ESP_LOGI(TAG, "auto-calibration: comp=0x%02X emf=0x%02X (saved)", comp, emf);
     return ESP_OK;
 }
@@ -144,12 +200,15 @@ esp_err_t drv2605_auto_calibrate(i2c_master_dev_handle_t dev)
  * if a stored calibration was applied. */
 esp_err_t drv2605_calibrate_restore(i2c_master_dev_handle_t dev)
 {
+    if (!dev) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t comp = 0, emf = 0;
     if (!cal_load(&comp, &emf)) {
         return ESP_ERR_NOT_FOUND;
     }
-    /* The drive profile derives from AUTOCALCOMP; write it back as the
-     * compensation and store the BEMF sample. */
+    /* Calibration constants live in volatile device registers; these writes
+     * don't drive the actuator and can safely restore on the common rail. */
     ESP_RETURN_ON_ERROR(drv2605_write_reg(dev, DRV2605_AUTOCALCOMP, comp), TAG, "restore comp");
     ESP_RETURN_ON_ERROR(drv2605_write_reg(dev, DRV2605_AUTOCALEMP, emf), TAG, "restore emf");
     ESP_LOGI(TAG, "restored calibration comp=0x%02X emf=0x%02X", comp, emf);
@@ -158,6 +217,9 @@ esp_err_t drv2605_calibrate_restore(i2c_master_dev_handle_t dev)
 
 esp_err_t drv2605_init(i2c_master_dev_handle_t dev)
 {
+    if (!dev) {
+        return ESP_ERR_INVALID_ARG;
+    }
     /* Take out of standby, internal trigger, ERM (default library 1). */
     ESP_RETURN_ON_ERROR(drv2605_write_reg(dev, DRV2605_MODE_REG,
                                           DRV2605_MODE_INT_TRIGGER),

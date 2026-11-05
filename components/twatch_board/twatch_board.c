@@ -6,6 +6,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #include "axp2101.h"
 #include "xl9555.h"
@@ -39,6 +40,12 @@ i2c_master_dev_handle_t twatch_xl9555_dev;
  * modes cannot share one controller (the mode register is per-controller). */
 i2s_chan_handle_t twatch_audio_tx;
 i2s_chan_handle_t twatch_audio_rx;
+
+/* BLDO2 is shared by MAX98357A and DRV2605. Serialize refcount updates so
+ * the first consumer enables it and the last consumer disables it. */
+static SemaphoreHandle_t s_av_rail_mutex;
+static portMUX_TYPE s_av_rail_init_mux = portMUX_INITIALIZER_UNLOCKED;
+static unsigned s_av_rail_users;
 
 static esp_err_t twatch_i2s_init(void)
 {
@@ -88,6 +95,54 @@ static esp_err_t twatch_i2c_init(void)
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(twatch_i2c_bus, &dev_cfg, &twatch_xl9555_dev), TAG, "xl9555 add failed");
 
     return ESP_OK;
+}
+
+static esp_err_t twatch_av_rail_mutex_init(void)
+{
+    if (!s_av_rail_mutex) {
+        SemaphoreHandle_t mutex = xSemaphoreCreateMutex();
+        if (!mutex) return ESP_ERR_NO_MEM;
+        portENTER_CRITICAL(&s_av_rail_init_mux);
+        if (!s_av_rail_mutex) {
+            s_av_rail_mutex = mutex;
+            mutex = NULL;
+        }
+        portEXIT_CRITICAL(&s_av_rail_init_mux);
+        if (mutex) vSemaphoreDelete(mutex);
+    }
+    return ESP_OK;
+}
+
+esp_err_t twatch_board_av_rail_acquire(void)
+{
+    SemaphoreHandle_t mutex = s_av_rail_mutex;
+    if (!mutex || !twatch_pmu_dev) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    esp_err_t err = ESP_OK;
+    if (s_av_rail_users == 0) {
+        err = axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);
+    }
+    if (err == ESP_OK) s_av_rail_users++;
+    xSemaphoreGive(mutex);
+    return err;
+}
+
+esp_err_t twatch_board_av_rail_release(void)
+{
+    SemaphoreHandle_t mutex = s_av_rail_mutex;
+    if (!mutex || !twatch_pmu_dev) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    if (s_av_rail_users == 0) {
+        xSemaphoreGive(mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = ESP_OK;
+    if (s_av_rail_users == 1) {
+        err = axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
+    }
+    if (err == ESP_OK) s_av_rail_users--;
+    xSemaphoreGive(mutex);
+    return err;
 }
 
 bool twatch_sd_card_seated(void)
@@ -193,7 +248,12 @@ void twatch_board_sync_system_time(void)
 
 esp_err_t twatch_board_init(void)
 {
-    esp_err_t err = ESP_OK;
+    esp_err_t err = twatch_av_rail_mutex_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "AV rail mutex init failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    err = ESP_OK;
 
     gpio_config_t boot_btn = {
         .pin_bit_mask = 1ULL << TWATCH_PIN_BOOT_BUTTON,

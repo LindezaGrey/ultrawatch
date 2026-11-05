@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #define HAPTIC_NVS_NS  "haptic"
 static const char *TAG = "haptic";
@@ -28,9 +29,28 @@ const haptic_pattern_t HAPTIC_PATTERNS[HAPTIC_PATTERN_COUNT] = {
 };
 
 static size_t s_pattern_idx;
+static SemaphoreHandle_t s_output_mutex;
+static portMUX_TYPE s_output_init_mux = portMUX_INITIALIZER_UNLOCKED;
+static unsigned s_output_users;
 
 void haptic_init(void)
 {
+    if (!s_output_mutex) {
+        SemaphoreHandle_t mutex = xSemaphoreCreateMutex();
+        if (!mutex) {
+            ESP_LOGE(TAG, "failed to create output state mutex");
+            return;
+        }
+        portENTER_CRITICAL(&s_output_init_mux);
+        if (!s_output_mutex) {
+            s_output_mutex = mutex;
+            mutex = NULL;
+        }
+        portEXIT_CRITICAL(&s_output_init_mux);
+        if (mutex) vSemaphoreDelete(mutex);
+    }
+    SemaphoreHandle_t mutex = s_output_mutex;
+    xSemaphoreTake(mutex, portMAX_DELAY);
     nvs_handle_t h;
     if (nvs_open(HAPTIC_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
         uint8_t v = 0;
@@ -39,39 +59,123 @@ void haptic_init(void)
         }
         nvs_close(h);
     }
+    xSemaphoreGive(mutex);
 }
 
 size_t haptic_get_pattern_index(void)
 {
-    return s_pattern_idx;
+    SemaphoreHandle_t mutex = s_output_mutex;
+    if (!mutex) return 0;
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    size_t idx = s_pattern_idx;
+    xSemaphoreGive(mutex);
+    return idx;
 }
 
 void haptic_set_pattern_index(size_t idx)
 {
-    if (idx >= HAPTIC_PATTERN_COUNT || idx == s_pattern_idx) {
+    if (idx >= HAPTIC_PATTERN_COUNT) {
         return;
     }
-    s_pattern_idx = idx;
+    SemaphoreHandle_t mutex = s_output_mutex;
+    if (!mutex) {
+        ESP_LOGE(TAG, "pattern selection before haptic_init");
+        return;
+    }
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    if (idx == s_pattern_idx) {
+        xSemaphoreGive(mutex);
+        return;
+    }
     nvs_handle_t h;
-    if (nvs_open(HAPTIC_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
-        nvs_set_u8(h, "pattern", (uint8_t)idx);
-        nvs_commit(h);
+    esp_err_t err = nvs_open(HAPTIC_NVS_NS, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_u8(h, "pattern", (uint8_t)idx);
+        if (err == ESP_OK) err = nvs_commit(h);
         nvs_close(h);
     }
+    if (err == ESP_OK) {
+        s_pattern_idx = idx;
+    } else {
+        ESP_LOGW(TAG, "failed to persist pattern: %s", esp_err_to_name(err));
+    }
+    xSemaphoreGive(mutex);
 }
 
 uint8_t haptic_get_wave_id(void)
 {
-    return HAPTIC_PATTERNS[s_pattern_idx].wave_id;
+    return HAPTIC_PATTERNS[haptic_get_pattern_index()].wave_id;
+}
+
+esp_err_t haptic_output_start(void)
+{
+    SemaphoreHandle_t mutex = s_output_mutex;
+    if (!mutex) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    esp_err_t err = twatch_board_av_rail_acquire();
+    if (err != ESP_OK) {
+        xSemaphoreGive(mutex);
+        return err;
+    }
+
+    if (s_output_users == 0) {
+        err = xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, true);
+        if (err == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        } else {
+            twatch_board_av_rail_release();
+            xSemaphoreGive(mutex);
+            return err;
+        }
+    }
+    s_output_users++;
+    xSemaphoreGive(mutex);
+    return ESP_OK;
+}
+
+esp_err_t haptic_output_stop(void)
+{
+    SemaphoreHandle_t mutex = s_output_mutex;
+    if (!mutex) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    if (s_output_users == 0) {
+        xSemaphoreGive(mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = ESP_OK;
+    if (s_output_users == 1) {
+        err = xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
+    }
+    if (err == ESP_OK) {
+        s_output_users--;
+        err = twatch_board_av_rail_release();
+        if (err != ESP_OK) s_output_users++;
+    }
+    xSemaphoreGive(mutex);
+    return err;
+}
+
+esp_err_t haptic_calibrate(void)
+{
+    esp_err_t err = haptic_output_start();
+    if (err != ESP_OK) return err;
+    err = drv2605_auto_calibrate(twatch_haptic_dev);
+    esp_err_t stop = haptic_output_stop();
+    return err != ESP_OK ? err : stop;
 }
 
 void haptic_play_test(uint8_t wave_id)
 {
-    xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, true);
-    vTaskDelay(pdMS_TO_TICKS(20));
-    drv2605_play(twatch_haptic_dev, wave_id);
-    vTaskDelay(pdMS_TO_TICKS(400));
-    xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
+    esp_err_t err = haptic_output_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to start haptic output: %s", esp_err_to_name(err));
+        return;
+    }
+    err = drv2605_play(twatch_haptic_dev, wave_id);
+    if (err == ESP_OK) vTaskDelay(pdMS_TO_TICKS(400));
+    esp_err_t stop = haptic_output_stop();
+    if (err != ESP_OK) ESP_LOGE(TAG, "haptic preview failed: %s", esp_err_to_name(err));
+    if (stop != ESP_OK) ESP_LOGE(TAG, "haptic output stop failed: %s", esp_err_to_name(stop));
 }
 
 static portMUX_TYPE s_test_mux = portMUX_INITIALIZER_UNLOCKED;

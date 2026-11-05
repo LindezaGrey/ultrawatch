@@ -152,6 +152,11 @@ extern i2s_chan_handle_t twatch_audio_rx;
  */
 esp_err_t twatch_board_init(void);
 
+/* Shared BLDO2 supply serves both the speaker amplifier and haptic motor.
+ * Each caller must pair a successful acquire with one release. */
+esp_err_t twatch_board_av_rail_acquire(void);
+esp_err_t twatch_board_av_rail_release(void);
+
 /* Explicit display recovery primitive.  Normal display power policy must not
  * use this: only display_controller may request a rail cycle. */
 esp_err_t twatch_board_cycle_display_rail(void);

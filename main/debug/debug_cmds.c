@@ -18,6 +18,7 @@
 #include "sd_log.h"
 #include "crash_dump.h"
 #include "drv2605.h"
+#include "haptic.h"
 #include "xl9555.h"
 #include "co5300.h"
 #include "display_controller.h"
@@ -319,21 +320,19 @@ void debug_cmd_motor(const char *args)
          * short vibration. Usage: "motor" or "motor 47" (waveform id).
          * Default 47 = strong click (library 1). */
         int wave = 47;
-        xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, true);
-        vTaskDelay(pdMS_TO_TICKS(20));
-        esp_err_t err = drv2605_play(twatch_haptic_dev, (uint8_t)wave);
+        esp_err_t err = haptic_output_start();
+        if (err == ESP_OK) {
+            err = drv2605_play(twatch_haptic_dev, (uint8_t)wave);
+            if (err == ESP_OK) vTaskDelay(pdMS_TO_TICKS(400));
+            esp_err_t stop = haptic_output_stop();
+            if (err == ESP_OK) err = stop;
+        }
         printf("motor: wave=%d %s\n", wave, (err == ESP_OK) ? "ok" : esp_err_to_name(err));
-        vTaskDelay(pdMS_TO_TICKS(400));
-        drv2605_go(twatch_haptic_dev);
-        xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
     } else if (strcmp(args, "cal") == 0) {
         /* Run the on-chip auto-calibration and save to NVS. The motor
          * vibrates for ~1 s during calibration. */
-        xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, true);
-        vTaskDelay(pdMS_TO_TICKS(20));
-        esp_err_t err = drv2605_auto_calibrate(twatch_haptic_dev);
+        esp_err_t err = haptic_calibrate();
         printf("motor cal: %s\n", (err == ESP_OK) ? "ok" : esp_err_to_name(err));
-        xl9555_set_output(twatch_xl9555_dev, TWATCH_XL_GPIO_HAPTIC_EN, false);
     } else if (strcmp(args, "calrestore") == 0) {
         esp_err_t err = drv2605_calibrate_restore(twatch_haptic_dev);
         printf("motor calrestore: %s\n",

@@ -8,7 +8,6 @@
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "axp2101.h"
 #include "max98357a.h"
 #include "twatch_board.h"
 
@@ -104,12 +103,20 @@ static void audio_task(void *arg)
                     ESP_LOGE(TAG, "no memory for alarm tone");
                     continue;
                 }
+                esp_err_t rail_err = twatch_board_av_rail_acquire();
+                if (rail_err != ESP_OK) {
+                    ESP_LOGE(TAG, "alarm speaker rail acquire: %s", esp_err_to_name(rail_err));
+                    continue;
+                }
                 alarm_n = render_alarm_cycle(alarm, alarm_cap, cmd.amplitude);
                 alarm_active = true;
-                axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);
             } else if (cmd.type == AUDIO_CMD_PCM) {
-                axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, true);
-                esp_err_t result = ESP_OK;
+                esp_err_t result = twatch_board_av_rail_acquire();
+                if (result != ESP_OK) {
+                    audio_reply(&cmd, result);
+                    continue;
+                }
+                result = ESP_OK;
                 for (size_t off = 0; off < cmd.sample_count;) {
                     audio_cmd_t pending;
                     if (xQueueReceive(s_cmd_q, &pending, 0) == pdTRUE) {
@@ -128,8 +135,11 @@ static void audio_task(void *arg)
                     if (result != ESP_OK) break;
                     off += n;
                 }
+                if (!alarm_active) {
+                    esp_err_t rail_err = twatch_board_av_rail_release();
+                    if (result == ESP_OK) result = rail_err;
+                }
                 audio_reply(&cmd, result);
-                if (!alarm_active) axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
             }
             continue;
         }
@@ -137,7 +147,8 @@ static void audio_task(void *arg)
         if (xQueueReceive(s_cmd_q, &cmd, 0) == pdTRUE) {
             if (cmd.type == AUDIO_CMD_ALARM_STOP) {
                 alarm_active = false;
-                axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
+                esp_err_t rail_err = twatch_board_av_rail_release();
+                if (rail_err != ESP_OK) ESP_LOGE(TAG, "alarm speaker rail release: %s", esp_err_to_name(rail_err));
             } else if (cmd.type == AUDIO_CMD_ALARM_START) {
                 alarm_n = render_alarm_cycle(alarm, alarm_cap, cmd.amplitude);
             } else {
@@ -153,13 +164,15 @@ static void audio_task(void *arg)
             if (err != ESP_OK) {
                 ESP_LOGE(TAG, "alarm playback: %s", esp_err_to_name(err));
                 alarm_active = false;
-                axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
+                esp_err_t rail_err = twatch_board_av_rail_release();
+                if (rail_err != ESP_OK) ESP_LOGE(TAG, "alarm speaker rail release: %s", esp_err_to_name(rail_err));
                 break;
             }
             if (xQueueReceive(s_cmd_q, &cmd, 0) == pdTRUE) {
                 if (cmd.type == AUDIO_CMD_ALARM_STOP) {
                     alarm_active = false;
-                    axp2101_enable_rail(twatch_pmu_dev, AXP2101_BLDO2, false);
+                    esp_err_t rail_err = twatch_board_av_rail_release();
+                    if (rail_err != ESP_OK) ESP_LOGE(TAG, "alarm speaker rail release: %s", esp_err_to_name(rail_err));
                 } else if (cmd.type == AUDIO_CMD_ALARM_START) {
                     alarm_n = render_alarm_cycle(alarm, alarm_cap, cmd.amplitude);
                 } else {

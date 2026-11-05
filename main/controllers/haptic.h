@@ -12,6 +12,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "esp_err.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,6 +37,13 @@ void haptic_set_pattern_index(size_t idx);
 /* The currently-selected pattern's DRV2605 waveform id - what alarm.c's
  * ring_vibrate() and mesh_log.c's notification tap should actually play. */
 uint8_t haptic_get_wave_id(void);
+
+/* Pair around each active playback/calibration caller. Acquires/releases the
+ * shared speaker/haptic supply and reference-counts M_EN for overlapping
+ * haptic clients. */
+esp_err_t haptic_output_start(void);
+esp_err_t haptic_output_stop(void);
+esp_err_t haptic_calibrate(void);
 
 /* Self-contained one-shot preview: enables HAPTIC_EN, plays `wave_id`,
  * waits for it to finish, disables HAPTIC_EN again - same sequence as the
