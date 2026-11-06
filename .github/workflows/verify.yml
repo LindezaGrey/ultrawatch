@@ -66,6 +66,15 @@ jobs:
             -o /tmp/test_pcf85063a_time
           /tmp/test_pcf85063a_time
 
+      - name: Test CST9217 geometry logic
+        run: |
+          gcc -Wall -Wextra -Werror -std=c11 \
+            -I components/drivers/cst9217 \
+            components/drivers/cst9217/test/test_cst9217_logic.c \
+            components/drivers/cst9217/cst9217_logic.c \
+            -o /tmp/test_cst9217_logic
+          /tmp/test_cst9217_logic
+
       - name: Run static analysis
         run: bash tools/run_cppcheck.sh
       - name: Build simulator and capture the watch face

@@ -37,6 +37,7 @@
 #include "power_mgmt.h"
 #include "display_controller.h"
 #include "touch_controller.h"
+#include "cst9217.h"
 #include "alarm.h"
 #include "cd_timer.h"
 #include "gpx_log.h"
@@ -1003,6 +1004,7 @@ esp_err_t lvgl_app_start(void)
     esp_lcd_touch_handle_t tp = touch_controller_get_handle();
     if (tp) {
         esp_lv_adapter_touch_config_t touch_cfg = ESP_LV_ADAPTER_TOUCH_DEFAULT_CONFIG(disp, tp);
+        touch_cfg.callbacks.custom_touch_read = cst9217_read_points;
         uint16_t nx = 0, ny = 0;
         if (touch_controller_get_resolution(&nx, &ny) == ESP_OK && nx && ny) {
             touch_cfg.scale.x = (float)CO5300_RES_X / nx;

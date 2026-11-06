@@ -39,6 +39,7 @@ esp_err_t touch_controller_get_resolution(uint16_t *x, uint16_t *y)
 
 esp_err_t touch_controller_set_wake_enabled(bool enabled)
 {
+    if (!s_initialized) return ESP_ERR_INVALID_STATE;
     if (enabled) {
         return gpio_wakeup_enable(TWATCH_PIN_TOUCH_INT, GPIO_INTR_LOW_LEVEL);
     }
