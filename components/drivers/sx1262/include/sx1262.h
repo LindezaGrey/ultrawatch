@@ -32,11 +32,12 @@ extern "C" {
 
 /* LoRa modem/packet configuration. Fields use the SX1262's own raw enum
  * values (see the datasheet's SetModulationParams/SetPacketParams tables),
- * not human units - callers build these from a preset, not by hand. */
+ * not human units - callers build these from a preset, not by hand. `sync_word`
+ * carries the 8-bit public/private value (for example 0x34/0x12). */
 typedef struct {
     uint32_t freq_hz;
     uint8_t  sf;                    /* 5..12 */
-    uint8_t  bw;                    /* SX1262 BW enum: 0x04=125k 0x05=250k 0x06=500k */
+    uint8_t  bw;                    /* SX1262 LoRa BW (0x04=125k, 0x05=250k, 0x06=500k) */
     uint8_t  cr;                    /* SX1262 CR enum: 0x01=4/5 .. 0x04=4/8 */
     bool     low_data_rate_optimize;
     uint16_t preamble_len;          /* symbols */
@@ -48,10 +49,9 @@ typedef struct {
     bool     boosted_rx_gain;       /* reg 0x08AC = 0x96 (boosted) vs 0x94 (power-saving) */
 } sx1262_lora_params_t;
 
-/* Bring up the chip: GPIO setup, reset pulse, land in STDBY_RC. Logs and
- * returns ESP_OK even on failure (matches every other board driver's
- * log-and-continue convention) - a GetStatus sanity read is logged so a
- * missing/dead chip is at least visible in the boot log. */
+/* Bring up the chip: configure GPIO/IRQ, reset, request STDBY_RC, and verify
+ * command/status and device-error access. Returns the first failure; no later
+ * SX1262 API is valid unless initialization succeeds. */
 esp_err_t sx1262_init(spi_device_handle_t spi);
 
 /* Configure the chip for LoRa RX/TX with the given parameters (the full
@@ -59,10 +59,13 @@ esp_err_t sx1262_init(spi_device_handle_t spi);
 esp_err_t sx1262_configure_lora(const sx1262_lora_params_t *params);
 
 /* Retune the carrier frequency only (owns the Hz -> RfFreq register
- * formula); does not touch modulation/packet params. */
+ * formula); accepts only the SX1262's 150-960 MHz range and is valid in
+ * standby, after successful initialization. Retuning invalidates LoRa setup;
+ * call sx1262_configure_lora() again before starting RX. */
 esp_err_t sx1262_set_frequency(uint32_t freq_hz);
 
-/* Enter RX Continuous mode (stays in RX indefinitely across packets). */
+/* Enter RX Continuous mode (stays in RX indefinitely across packets). Requires
+ * successful init and LoRa configuration; rejects a second start while active. */
 esp_err_t sx1262_rx_start(void);
 
 /* Leave RX (SetStandby). */
@@ -73,8 +76,9 @@ esp_err_t sx1262_rx_stop(void);
  * folded into the return code, since a CRC-failed frame is still useful
  * raw-capture signal. Returns ESP_ERR_TIMEOUT if nothing arrived (a
  * host-clock-bounded wait: RX Continuous mode never fires a hardware
- * Timeout IRQ on its own). buf must be >=256 bytes (PayloadLength in
- * SetPacketParams is only an accept-filter ceiling, not the real length). */
+ * Timeout IRQ on its own). `timeout_ms` must be nonnegative. `buf_cap` must
+ * cover the whole received frame; a too-small buffer returns
+ * ESP_ERR_INVALID_SIZE rather than truncating. */
 esp_err_t sx1262_recv(uint8_t *buf, size_t buf_cap, size_t *out_len,
                        int16_t *rssi_dbm, int8_t *snr_db, bool *crc_ok,
                        int timeout_ms);
@@ -89,9 +93,13 @@ esp_err_t sx1262_get_rssi_inst(int16_t *rssi_dbm);
 
 /* Sticky hardware error flags (calibration/XOSC/PLL faults etc, datasheet
  * Table 13-85) - a finer-grained health check than GetStatus's coarse mode
- * bits. */
+ * bits. `errors` must point to a writable 16-bit value. */
 esp_err_t sx1262_get_device_errors(uint16_t *errors);
 esp_err_t sx1262_clear_device_errors(void);
+
+/* Shared-SPI power policy callback: true while the radio is in RX and its
+ * rail must remain on to keep the bus electrically safe. */
+bool sx1262_spi2_power_needed(void);
 
 #ifdef __cplusplus
 }

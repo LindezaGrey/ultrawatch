@@ -3,6 +3,7 @@
  */
 #include "mesh_log.h"
 #include "meshtastic_radio.h"
+#include "sx1262.h"
 #include "meshtastic_packet.h"
 #include "meshtastic_data.h"
 #include "meshtastic_user.h"
@@ -11,6 +12,7 @@
 #include "axp2101.h"
 #include "haptic.h"
 #include "sd_log.h"
+#include "spi2_power.h"
 #include "sensor_cache.h"
 #include "pcf85063a.h"
 #include "esp_log.h"
@@ -20,6 +22,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include <stdio.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <time.h>
 
@@ -60,8 +63,11 @@ static size_t s_node_count;
  * state (settable from any task via mesh_log_set_enabled()); s_mesh_rx_active
  * is mesh_log_task's own record of what's actually powered right now - only
  * that task ever writes it, so no lock needed for it specifically. */
-static bool s_mesh_enabled;
+static volatile bool s_mesh_enabled;
 static bool s_mesh_rx_active;
+static bool s_mesh_transition_failed;
+static atomic_uint s_mesh_toggle_generation;
+static uint32_t s_mesh_failed_generation;
 
 static bool s_notify_enabled = true;
 static char s_presets[MESH_PRESET_COUNT][MESH_PRESET_MAX_LEN + 1] = {
@@ -148,41 +154,95 @@ static void mesh_text_log_append(const char *sender, const char *text)
  * from mesh_log_task's own context, the sole owner of the radio driver -
  * see the shutdown-handshake comment on s_shutdown_req/s_shutdown_done
  * above for why nothing else may touch it directly. */
-static void mesh_radio_power(bool on)
+static esp_err_t mesh_radio_power(bool on)
 {
+    if (!twatch_pmu_dev) {
+        return ESP_ERR_INVALID_STATE;
+    }
     if (on) {
-        axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, true);
-        vTaskDelay(pdMS_TO_TICKS(50));   /* settle before SPI, matches sd_log.c's rail-on pattern */
-        meshtastic_radio_init();
-        esp_err_t err = meshtastic_radio_start_rx();
+        /* Hold SPI2 while changing ALDO3 so it cannot clamp another client
+         * during its session. Once RX starts, sx1262_spi2_power_needed()
+         * keeps the shared policy rail up automatically even after this
+         * transition hold is released. */
+        esp_err_t err = spi2_power_hold(AXP2101_RAIL_MAX);
+        if (err != ESP_OK) {
+            return err;
+        }
+        err = axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, true);
+        if (err != ESP_OK) {
+            spi2_power_release(AXP2101_RAIL_MAX);
+            return err;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));   /* extra settle time before radio commands */
+        err = meshtastic_radio_stop_rx();
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+            spi2_power_release(AXP2101_RAIL_MAX);
+            return err;
+        }
+        err = meshtastic_radio_init();
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "radio init failed: %s", esp_err_to_name(err));
+            /* Allow the final transition-hold release to power down ALDO3,
+             * unless another client (e.g. NFC/SD) still owns SPI2. */
+            spi2_power_release(AXP2101_RAIL_MAX);
+            return err;
+        }
+        err = meshtastic_radio_start_rx();
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "start_rx failed: %s", esp_err_to_name(err));
+            meshtastic_radio_stop_rx();
+            /* stop_rx clears the radio's shared-rail need predicate. */
+            spi2_power_release(AXP2101_RAIL_MAX);
+            return err;
         }
+        spi2_power_release(AXP2101_RAIL_MAX);
         ESP_LOGI(TAG, "LoRa radio on");
-    } else {
-        meshtastic_radio_stop_rx();
-        axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);
-        ESP_LOGI(TAG, "LoRa radio off");
+        return ESP_OK;
     }
+
+    esp_err_t hold_err = spi2_power_hold(AXP2101_RAIL_MAX);
+    if (hold_err != ESP_OK) {
+        return hold_err;
+    }
+    esp_err_t stop_err = meshtastic_radio_stop_rx();
+    if (stop_err != ESP_OK) {
+        ESP_LOGW(TAG, "stop_rx failed while powering radio off: %s", esp_err_to_name(stop_err));
+        spi2_power_release(AXP2101_RAIL_MAX);
+        return stop_err;
+    }
+    /* Clearing the need callback in stop_rx lets the final release lower
+     * ALDO3 only after any concurrent NFC/SD session has completed. */
+    spi2_power_release(AXP2101_RAIL_MAX);
+    ESP_LOGI(TAG, "LoRa radio off");
+    return ESP_OK;
 }
 
 static void mesh_log_task(void *arg)
 {
     (void)arg;
-    /* Apply the persisted on/off state at boot. ALDO3 defaults ON (see
-     * axp2101_set_default_power()) and twatch_board_init() already ran
-     * meshtastic_radio_init() unconditionally - if the user has the radio
-     * switched off, undo both of those instead of leaving them be, since
-     * "off" here means actually powered down, not just not-listening. */
+    /* Apply the persisted on/off state at boot. The board driver performs
+     * only the one-time SX1262 reset/IRQ setup; this task owns RF config and
+     * power transitions. "Off" means physically powered down, not merely
+     * not-listening. */
     if (s_mesh_enabled) {
-        esp_err_t err = meshtastic_radio_start_rx();
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "start_rx failed: %s", esp_err_to_name(err));
+        esp_err_t err = mesh_radio_power(true);
+        if (err == ESP_OK) {
+            s_mesh_rx_active = true;
+        } else {
+            ESP_LOGW(TAG, "initial LoRa radio start failed: %s", esp_err_to_name(err));
+            s_mesh_transition_failed = true;
+            s_mesh_failed_generation = s_mesh_toggle_generation;
         }
-        s_mesh_rx_active = true;
     } else {
-        meshtastic_radio_stop_rx();
-        axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);
+        /* Board init reset the chip but doesn't start RX. Reconcile its
+         * default-on ALDO3 with persisted OFF via the shared policy; avoid
+         * sending standby commands if another path already cut the rail. */
+        esp_err_t err = spi2_power_hold(AXP2101_RAIL_MAX);
+        if (err == ESP_OK) {
+            spi2_power_release(AXP2101_RAIL_MAX);
+        } else {
+            ESP_LOGW(TAG, "initial LoRa rail reconcile failed: %s", esp_err_to_name(err));
+        }
         s_mesh_rx_active = false;
     }
 
@@ -197,7 +257,13 @@ static void mesh_log_task(void *arg)
          * so parking here is correct, not a leak. */
         if (xSemaphoreTake(s_shutdown_req, 0) == pdTRUE) {
             if (s_mesh_rx_active) {
-                meshtastic_radio_stop_rx();
+                esp_err_t err = mesh_radio_power(false);
+                if (err != ESP_OK) {
+                    ESP_LOGW(TAG, "Sparmodus radio stop failed: %s", esp_err_to_name(err));
+                }
+                /* power_mgmt's deep-sleep path cuts ALDO3 after this
+                 * acknowledgement even if standby failed. */
+                s_mesh_rx_active = false;
             }
             xSemaphoreGive(s_shutdown_done);
             vTaskSuspend(NULL);
@@ -207,9 +273,21 @@ static void mesh_log_task(void *arg)
         /* User toggle (Mesh screen switch, mesh_log_set_enabled()) - applied
          * here rather than in the switch's own callback so only this task
          * ever touches the radio driver or its rail. */
-        if (s_mesh_enabled != s_mesh_rx_active) {
-            mesh_radio_power(s_mesh_enabled);
-            s_mesh_rx_active = s_mesh_enabled;
+        if (s_mesh_enabled == s_mesh_rx_active ||
+            atomic_load(&s_mesh_toggle_generation) != s_mesh_failed_generation) {
+            s_mesh_transition_failed = false;
+        }
+        if (s_mesh_enabled != s_mesh_rx_active && !s_mesh_transition_failed) {
+            esp_err_t power_err = mesh_radio_power(s_mesh_enabled);
+            if (power_err == ESP_OK) {
+                s_mesh_rx_active = s_mesh_enabled;
+                s_mesh_transition_failed = false;
+            } else {
+                ESP_LOGW(TAG, "LoRa power transition to %s failed: %s",
+                         s_mesh_enabled ? "on" : "off", esp_err_to_name(power_err));
+                s_mesh_transition_failed = true;
+                s_mesh_failed_generation = atomic_load(&s_mesh_toggle_generation);
+            }
         }
         if (!s_mesh_rx_active) {
             vTaskDelay(pdMS_TO_TICKS(100));
@@ -420,6 +498,7 @@ void mesh_log_set_enabled(bool on)
         return;
     }
     s_mesh_enabled = on;
+    atomic_fetch_add(&s_mesh_toggle_generation, 1);
     nvs_handle_t h;
     if (nvs_open(MESH_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
         nvs_set_u8(h, "radio_en", on ? 1 : 0);

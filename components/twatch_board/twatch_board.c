@@ -331,12 +331,11 @@ esp_err_t twatch_board_init(void)
     /* 2b. SPI2 bus power policy: register which rails must be kept up for
      *    SPI2 reads to be trustworthy (see spi2_power.h). Must happen after
      *    axp2101/xl9555 are both up (twatch_sd_card_seated() reads XL9555)
-     *    and before anything below can call spi2_power_hold() - sx1262_init()
-     *    doesn't hold the bus itself, but st25r3916_open() and sd_log_mount()
-     *    (called from main after this returns) do. */
+     *    and before any client calls spi2_power_hold(). The LoRa callback
+     *    lets RX keep ALDO3 alive without treating an idle radio as needed. */
     spi2_power_init(twatch_pmu_dev);
     spi2_power_register(AXP2101_ALDO1, SPI2_POWER_SHARED, twatch_sd_card_seated);
-    spi2_power_register(AXP2101_ALDO3, SPI2_POWER_SHARED, NULL);
+    spi2_power_register(AXP2101_ALDO3, SPI2_POWER_SHARED, sx1262_spi2_power_needed);
     spi2_power_register(AXP2101_DLDO1, SPI2_POWER_OWNED, NULL);
 
     /* 3. Peripheral driver init (skeletons). Touch reset/init is owned by
@@ -348,8 +347,17 @@ esp_err_t twatch_board_init(void)
     max98357a_init(twatch_audio_tx);
     t3902_init(twatch_audio_rx);
     m10q_init(twatch_pmu_dev, twatch_rtc_dev);
-    sx1262_init(twatch_lora_spi_dev);
-    meshtastic_radio_init();
+    err = spi2_power_hold(AXP2101_RAIL_MAX);
+    if (err == ESP_OK) {
+        err = sx1262_init(twatch_lora_spi_dev);
+        spi2_power_release(AXP2101_RAIL_MAX);
+    } else {
+        ESP_LOGW(TAG, "SX1262 init skipped; SPI2 power hold failed: %s",
+                 esp_err_to_name(err));
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "sx1262 init failed: %s", esp_err_to_name(err));
+    }
     st25r3916_init(twatch_nfc_spi_dev, twatch_pmu_dev);
 
     ESP_LOGI(TAG, "T-Watch Ultra board init finished");

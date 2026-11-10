@@ -1,11 +1,12 @@
 /*
- * connectivity/mesh_log.h - always-on background Meshtastic message log.
+ * connectivity/mesh_log.h - background Meshtastic message log and radio owner.
  *
- * Starts the LoRa radio listening in the background at boot (RX Continuous,
- * ALDO3 stays powered across sleep - see power_mgmt.c) and keeps the last
- * few received packets in a RAM ring buffer for the UI (Mesh screen) to
- * read. Every packet with a valid header is kept, not just ones we can
- * decrypt and parse as text: `kind` tells the UI which case it is. Lost on
+ * Applies the persisted LoRa radio setting (off by default), owns SX1262
+ * power/RX transitions in one background task, and keeps the last few received
+ * packets in a RAM ring buffer for the UI (Mesh screen) to read. During normal
+ * light sleep, RX/ALDO3 remain active; Ultra-Sparmodus requests an orderly
+ * radio stop before cutting the rail. Every valid packet header is retained,
+ * not just decryptable text: `kind` tells the UI which case it is. Lost on
  * reboot - this is intentionally simple, not a persisted inbox.
  */
 #pragma once

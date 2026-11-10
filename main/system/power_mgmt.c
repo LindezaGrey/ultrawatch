@@ -538,15 +538,19 @@ void power_mgmt_sparmodus_enter_sleep(void)
      * can't just be yanked out from under it (same bug class as the SD
      * card crash this session already hit) - mesh_log_stop_radio_for_sleep()
      * asks the task itself to stop cleanly and waits for confirmation
-     * before it's safe to cut power. A timeout is logged and treated as
-     * "proceed anyway" rather than blocking sleep entry indefinitely on a
-     * stuck task. */
+     * before it's safe to cut power. On success, the task releases the
+     * shared-SPI hold and the power manager cuts ALDO3; timeout is logged and
+     * treated as "proceed anyway" rather than blocking sleep indefinitely. */
     esp_err_t mesh_stop_err = mesh_log_stop_radio_for_sleep();
     if (mesh_stop_err != ESP_OK) {
         ESP_LOGW(TAG, "Ultra-Sparmodus: mesh_log radio stop: %s (cutting rail anyway)",
                  esp_err_to_name(mesh_stop_err));
     }
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);
+    esp_err_t lora_rail_err = axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, false);
+    if (lora_rail_err != ESP_OK) {
+        ESP_LOGW(TAG, "Ultra-Sparmodus: LoRa rail off failed: %s",
+                 esp_err_to_name(lora_rail_err));
+    }
 
     /* BHI260AP motion sensor (ALDO4): the normal light-sleep path only
      * suspends it (bhi260ap_ap_suspend(), keeping ~0.1-0.3 mA alive) to
@@ -1321,11 +1325,10 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
      * BHI260AP runs its wake-up sensors in AP-suspend mode (wrist-raise wake)
      * at ~0.1-0.3 mA, avoiding the firmware re-upload + data freeze after a
      * rail power-cycle. Keep ALDO2 (display/touch) for touch wake.
-     * ALDO3 (LoRa) is KEPT ON, unconditionally: mesh_log.c's background task
-     * keeps the SX1262 in RX Continuous mode for always-on Meshtastic
-     * listening, and a rail power-cycle would mean re-running the whole
-     * TCXO/RF-switch/frequency bring-up sequence on every wake instead of
-     * just continuing to listen. */
+     * ALDO3 (LoRa) stays on through ordinary light sleep while RX is active:
+     * mesh_log owns the session and the shared-SPI power predicate holds the
+     * rail for the full listening lifetime. Ultra-Sparmodus separately stops
+     * RX and cuts ALDO3 before deep sleep. */
     /* The GNSS worker owns BLDO1 during normal operation, including display
      * sleep. Do not race its power transitions or interrupt a background fix. */
     /* BLDO2 (speaker) isn't touched here - it's left off at boot (see
@@ -1345,9 +1348,10 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
      * Whether the rail is then cut is spi2_power's call, not ours: ALDO1 is
      * registered as an SPI2_POWER_SHARED rail (twatch_board.c), because an
      * unpowered card clamps the shared MISO net and the SX1262 still services
-     * LoRa RX from its DIO1 interrupt during light sleep. It's cut only when
-     * the socket is empty - see spi2_power.h and sd_log.c's
-     * sd_rail_reconcile(). */
+     * LoRa RX from its DIO1 interrupt during light sleep. ALDO3's shared-rail
+     * predicate independently keeps the radio power available while RX is
+     * active. ALDO1 is cut only when the socket is empty - see spi2_power.h
+     * and sd_log.c's sd_rail_reconcile(). */
     daily_log_flush();
     sd_log_unmount();
 
@@ -1373,8 +1377,8 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
     ESP_LOGI(TAG, "waking: src=0x%x causes=0x%x slept=%dms panel=wake",
              (unsigned)src, (unsigned)causes, (int)(slept_us / 1000));
 
-    /* Restore rails. ALDO3 (LoRa) stayed on across sleep, untouched; the
-     * rest are rearmed. */
+    /* Restore peripherals. Any active LoRa RX session kept ALDO3 raised
+     * through the shared-SPI predicate; an idle radio remains off. */
     /* BLDO2 (speaker) isn't restored here - it stays off across sleep and
      * wake alike; see enter_sleep's comment. */
 

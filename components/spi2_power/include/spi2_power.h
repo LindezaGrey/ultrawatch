@@ -14,10 +14,10 @@
  * to behave the same way until measured.
  *
  * This module is the single place that owns each SPI2-adjacent rail's
- * on/off policy, replacing the ad hoc, single-purpose rail-holding logic
- * that used to be duplicated between the NFC and SD drivers. It cannot
- * live inside twatch_board (which depends on the NFC/SD/LoRa drivers,
- * so those drivers calling into it would be circular) or inside axp2101
+ * on/off policy, replacing ad hoc rail holds in the NFC, SD and LoRa
+ * lifecycles. It cannot live inside twatch_board (which depends on the
+ * NFC/SD/LoRa drivers, so those drivers calling into it would be circular)
+ * or inside axp2101
  * (a chip-generic PMU driver with no business knowing about this board's
  * bus topology) - hence its own small component, depended on directly by
  * twatch_board and by each SPI2 driver.
@@ -44,9 +44,8 @@ typedef enum {
      *
      * For rails that stay wired to the shared bus even when off and can
      * corrupt every OTHER device's reads: the SD card's ALDO1 (need_fn
-     * checks whether a card is physically seated) and LoRa's ALDO3 (no
-     * "removed" state for a soldered module - unconditional, NULL
-     * need_fn, until measured otherwise). */
+     * checks whether a card is physically seated) and LoRa's ALDO3 (need_fn
+     * tracks whether RX is active; inactive LoRa can be powered down). */
     SPI2_POWER_SHARED,
 
     /* Raised only when its own registrant explicitly asks for it, by

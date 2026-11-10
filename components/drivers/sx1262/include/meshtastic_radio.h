@@ -2,8 +2,8 @@
  * meshtastic_radio.h - Meshtastic-specific LoRa preset over sx1262.h.
  *
  * Sibling file inside the sx1262 component (not a separate component):
- * keeps sx1262.c chip-generic while this file owns the one thing that's
- * actually Meshtastic-specific today - the ShortSlow/EU_868 parameter set.
+ * keeps sx1262.c chip-generic while this file owns the Meshtastic-specific
+ * ShortSlow/EU_868 parameter set.
  * Milestone 2 (protobuf/AES packet decode) gets its next function here.
  */
 #pragma once
@@ -17,9 +17,10 @@
 extern "C" {
 #endif
 
-/* Configure the radio for the "ShortSlow" preset, EU_868 region. Leaves the
- * chip in STDBY_RC (call meshtastic_radio_start_rx() to actually start
- * listening). */
+/* Configure the radio for the "ShortSlow" preset, EU_868 region. Requires a
+ * successful sx1262_init() and leaves the chip in STDBY_RC (call
+ * meshtastic_radio_start_rx() to actually start listening). Also re-run after
+ * any ALDO3 power cycle, as the radio loses its configuration when unpowered. */
 esp_err_t meshtastic_radio_init(void);
 
 esp_err_t meshtastic_radio_start_rx(void);

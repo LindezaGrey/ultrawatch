@@ -11,23 +11,14 @@ false trail diagnosing the ST25R3916 as broken (see `docs/nfc.md`), fixed narrow
 first (`sd_log_unmount()` keeping ALDO1 up while a card is seated, `st25r3916_open()`
 independently holding it as a session-scoped backstop) and then generalized here.
 
-LoRa's rail (ALDO3) is about to stop being permanently on, which raised the same
-question for a second device: does cutting ALDO3 reproduce the same clamp for whoever
-else is using SPI2 at the time? The schematic gave circumstantial evidence for "yes" -
-the SX1262 module (HPB16B3) has a single VCC pin for the whole package, no separate
-always-on I/O rail like the ST25R3916 has - so the design here was built assuming the
-worst case, with a debug probe (`nfcprobe`, extended to sweep ALDO3 alongside SD/NFC)
-added to check it. **Measured on hardware: the assumption doesn't hold.** With the SD
-card's rail up, NFC's identity register reads correctly regardless of whether ALDO3 is
-on or off - LoRa's rail does not appear to clamp the bus, unlike the SD card's. See
-`docs/nfc.md` for the actual sweep results. The registration below still treats ALDO3
-as a `SPI2_POWER_SHARED` rail (raised defensively whenever the bus is held) despite the
-measurement, because it costs nothing in this pass - ALDO3 is already permanently on,
-so the registration has no observable effect yet - and because one measurement session
-on one unit isn't grounds to declare the hazard categorically absent. Whoever
-implements LoRa's actual on-demand power-down should treat this as a data point to
-build on, not a settled fact, and is free to relax the registration once they've
-verified it further under their own power-down policy's actual timing.
+LoRa's rail (ALDO3) was previously left on permanently. As the radio gained an
+on-demand power switch, the same question arose: can ALDO3 be safely cut while another
+SPI2 client is active? Hardware measurements found no evidence that ALDO3 clamps the
+bus, unlike ALDO1 with a seated SD card, but the software conservatively retains ALDO3
+as a `SPI2_POWER_SHARED` rail. Its predicate now reports true only while the SX1262
+receiver is active; a transition hold serializes enable/disable against NFC and SD
+sessions, and the final release powers the radio rail down only when no other bus
+client is holding it. `docs/nfc.md` records the measurements and policy.
 
 ## The abstraction
 
@@ -37,7 +28,7 @@ can't live inside `twatch_board` - `twatch_board` already depends on `st25r3916`
 be circular (confirmed by reading both components' `CMakeLists.txt`). It doesn't
 belong inside `axp2101` either - that's a chip-generic PMU driver, portable to other
 boards, with no business knowing this specific board's bus topology. So it's its own
-component, depended on directly by `twatch_board`, `st25r3916`, and `sd_log`.
+component, depended on directly by `twatch_board`, `st25r3916`, `sd_log`, and `sx1262`.
 
 Each rail is registered once, during board bring-up, with one of two policies:
 
@@ -46,9 +37,8 @@ Each rail is registered once, during board bring-up, with one of two policies:
   only on the *last* `spi2_power_release()`, re-evaluating that predicate fresh at
   that moment rather than trusting anything cached from when the hold started. This
   is for rails that stay wired to the shared bus even when off and can corrupt every
-  other device's reads: ALDO1 (predicate: `twatch_sd_card_seated()`) and ALDO3 (no
-  predicate - see the measurement above for why that's a deliberately conservative
-  default, not a proven necessity).
+  other device's reads: ALDO1 (predicate: `twatch_sd_card_seated()`) and ALDO3
+  (predicate: `sx1262_spi2_power_needed()`, true during RX).
 - **`SPI2_POWER_OWNED`** - raised only when its own registrant explicitly names it in
   a `spi2_power_hold()` call, and never auto-lowered by `spi2_power_release()`. This
   is for DLDO1 (NFC): its host interface runs off the always-on DC3V3 rail
@@ -66,7 +56,8 @@ entry points as ALDO1/ALDO3 - rather than leaving it as ad hoc direct
 looked like before this - was a deliberate design goal, not an accident of the
 implementation: one module owns every SPI2-adjacent rail's on/off policy, expressed
 as data (the policy enum) rather than as scattered special cases in caller code, even
-though the policies themselves differ.
+though the policies themselves differ. LoRa's `need_fn` tracks RX state so the radio
+rail stays up while listening but can be reconciled OFF on the last bus-session release.
 
 ## Considered options
 

@@ -6,6 +6,7 @@ idf_component_register(
         esp_driver_gpio
         esp_common
         log
+        freertos
     PRIV_REQUIRES
         mbedtls
 )

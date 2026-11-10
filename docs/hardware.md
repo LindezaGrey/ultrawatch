@@ -136,7 +136,7 @@ The panel has rounded corners; `assets/ui/safe_area_transparent.png` is the tran
 
 - The onboard LoRa module (schematic ref "HPB16B3") has **no external crystal** visible on the schematic (unlike the ESP32's own crystal or the RTC's 32.768kHz crystal, both drawn explicitly) - it uses an internal **TCXO at 3.0V**, powered via the SX1262's DIO3 pin (`SetDIO3AsTcxoCtrl`, voltage code `0x06`). Confirmed against LilyGO's own reference firmware (`LilyGoLib`'s `examples/radio/SX1262/SX126x_Receive.ino`: `radio.setTCXO(3.0)`). Without this, the chip has no working 32MHz reference for any frequency-dependent operation (PLL, RF frequency, RX/TX) - symptoms are a cold-boot `XOSC_START_ERR` device error and a receiver that reports a flat, pinned-at-minimum RSSI floor (no real RF energy ever reaches the demodulator).
 - **DIO2 drives the antenna TX/RX switch** (`SetDIO2AsRfSwitchCtrl(enable=true)`), separate from the SX1262's own antenna-path relative to the board-level `LORA_SEL` XL9555 pin above. Also confirmed against the same LilyGO reference firmware (`radio.setDio2AsRfSwitch()`) and the SKY13453 RF switch visible on the schematic next to the antenna connector.
-- Both are configured once, early, in `sx1262_configure_lora()` (`components/drivers/sx1262/sx1262.c`), before any packet-type/frequency/modulation setup.
+- `SetDIO3AsTcxoCtrl` and `SetDIO2AsRfSwitchCtrl` are configured in `sx1262_configure_lora()` (`components/drivers/sx1262/sx1262.c`) before frequency and modulation setup. The board-init path only resets and validates the device; the mesh task owns preset configuration and RX/power lifecycle.
 
 ### RTC crystal load capacitance (PCF85063A)
 

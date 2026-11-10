@@ -385,7 +385,7 @@ error reports "seated", because wrongly believing the socket is empty is what
 silently corrupts the whole bus.
 
 Every SPI2 session (SD's own mount/unmount, NFC's open/close, and LoRa's
-future on-demand power-down) now goes through the same `spi2_power` module for
+on-demand power transitions) now goes through the same `spi2_power` module for
 this, rather than each driver managing ALDO1 directly — see below.
 
 **What this costs.** A seated card's idle draw is now permanent rather than
@@ -414,8 +414,9 @@ once (in `twatch_board.c`) with one of two policies:
   supplied predicate currently says so (or unconditionally, with no
   predicate), lowered only on the *last* `spi2_power_release()`, re-evaluating
   the predicate fresh at that moment. ALDO1 (predicate:
-  `twatch_sd_card_seated()`) and ALDO3 (no predicate — see below) are
-  registered this way.
+  `twatch_sd_card_seated()`) and ALDO3 (predicate:
+  `sx1262_spi2_power_needed()`, true only while RX is active) are registered
+  this way.
 - **`SPI2_POWER_OWNED`** — raised only when its own registrant explicitly asks
   (by naming its rail in `spi2_power_hold()`), never auto-lowered by
   `spi2_power_release()`. DLDO1 is registered this way: it was never a bus
@@ -430,12 +431,12 @@ Full design rationale: `docs/adr/0005-spi2-bus-power-abstraction.md`.
 
 ### Measured: does LoRa's rail clamp the bus the same way SD's does?
 
-LoRa's rail (ALDO3) is about to stop being permanently on, which raises the
-same question SD already answered: does cutting it corrupt SPI2 reads for
-everyone else? The schematic gives circumstantial evidence for "yes" — the
+LoRa's ALDO3 rail is now switched on demand with the mesh radio. That raises
+the same question SD already answered: can cutting it corrupt SPI2 reads for
+another client? The schematic gives circumstantial evidence for "yes" — the
 SX1262 module (HPB16B3) has one VCC pin for the whole package, no separate
-always-on I/O rail like the ST25R3916 has — so `spi2_power`'s design (above)
-registers ALDO3 as `SPI2_POWER_SHARED` on that assumption.
+always-on I/O rail like the ST25R3916 has — so `spi2_power` keeps ALDO3 as a
+`SPI2_POWER_SHARED` rail, with an RX-needed predicate and transition holds.
 
 **Measured on hardware, it doesn't hold.** `nfcprobe` (extended to sweep SD ×
 LoRa × NFC × SPI settings) reads the identity register through every
@@ -457,16 +458,12 @@ SPI clock" — independent of LoRa's rail state.) Whether ALDO3 is on or off
 makes **no difference** to whether reads succeed, as long as ALDO1 is on. SD
 is still the deciding factor; LoRa isn't.
 
-This doesn't retroactively make the `SPI2_POWER_SHARED` registration for
-ALDO3 wrong — it costs nothing today (ALDO3 is still permanently on, so the
-registration has no observable effect yet) and one measurement session isn't
-grounds to declare the hazard categorically absent on every unit. But it is a
-real data point against the worst-case assumption, and whoever implements
-LoRa's actual on-demand power-down should treat it as exactly that — evidence
-to build on, not a settled fact — and is free to relax the registration once
-they've verified further under their own power-down policy's actual timing
-(this sweep used a 150 ms settle per state; a longer, sustained rail-off is
-untested).
+This supports retaining ALDO3 as `SPI2_POWER_SHARED` defensively, while its
+predicate allows it to be lowered when RX is inactive. Every mesh radio
+transition brackets the SX1262 SPI commands and ALDO3 change with a shared
+SPI2 hold; the final release lowers ALDO3 only if no concurrent NFC/SD session
+still needs the bus. The sweep used a 150 ms settle per state; a longer,
+sustained rail-off remains untested.
 
 One more thing this run showed: the SX1262's RF configuration (TCXO,
 frequency, modulation) survived the probe's brief ALDO3 toggling well enough

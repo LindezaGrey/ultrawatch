@@ -35,6 +35,7 @@
 #include "pcf85063a.h"
 #include "st25r3916.h"
 #include "spi2_power.h"
+#include "sx1262.h"
 #include "ndef.h"
 #include "esp_lv_adapter.h"
 #include "display/lv_display_private.h"
@@ -665,12 +666,19 @@ void debug_cmd_nfcprobe(const char *args)
         return;
     }
 
-    /* Unmount cleanly first if the card is up: cutting the rail from under a
-     * mounted card is what leaves it unable to remount (sd_log.c). */
+    if (mesh_log_get_enabled()) {
+        st25r3916_probe_end();
+        printf("nfcprobe: turn the LoRa radio off before sweeping SPI2 rails\n");
+        return;
+    }
+
+    /* The mesh task owns SX1262 commands and its ALDO3 transition; probing
+     * while the persisted mesh switch is on would power-cycle an active radio. */
     bool was_mounted = sd_log_available();
     if (was_mounted) {
         esp_err_t unmount_err = sd_log_unmount();
         if (unmount_err != ESP_OK) {
+            sd_log_mount();
             st25r3916_probe_end();
             printf("nfcprobe: cannot unmount SD before rail sweep: %s\n",
                    esp_err_to_name(unmount_err));
@@ -679,8 +687,8 @@ void debug_cmd_nfcprobe(const char *args)
     }
 
     printf("nfcprobe: sweeping SD rail x LoRa rail x NFC rail (settle %dms)\n", settle);
-    printf("nfcprobe: CAUTION - this briefly cycles LoRa's rail; a real sustained\n");
-    printf("nfcprobe:   power-down (unlike this quick sweep) may still need a reboot to resume RX\n");
+    printf("nfcprobe: CAUTION - this briefly cycles LoRa's rail; the mesh switch\n");
+    printf("nfcprobe:   must be OFF, and the radio may need reconfiguration after the sweep\n");
 
     for (int sd_on = 0; sd_on <= 1; sd_on++) {
         axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO1, sd_on != 0);
@@ -699,12 +707,9 @@ void debug_cmd_nfcprobe(const char *args)
         }
     }
 
-    /* Restore: NFC and LoRa rails on (normal operation - LoRa stays
-     * permanently on, unchanged in this pass), SD reconciled to its actual
-     * steady-state policy (card seated or not) rather than forced off,
-     * which is what spi2_power now owns. */
+    /* Restore NFC; let the shared policy reconcile the idle LoRa/SD rails
+     * rather than forcing ALDO3 on after the diagnostic sweep. */
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_DLDO1, true);
-    axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO3, true);
     spi2_power_hold(AXP2101_RAIL_MAX);
     spi2_power_release(AXP2101_RAIL_MAX);
     if (was_mounted) {
