@@ -82,8 +82,8 @@ Five distinct satellite reports smooth the signal estimate; sustained good
 reception can extend acquisition. A fresh valid position renews the no-fix
 budget, and even with an apparently strong sky no-fix acquisition is capped at
 **10 minutes**. These are conservative fallback limits, not a signal-quality
-classification or a promise that an indoor fix is possible. These more forgiving
-fallback limits still need verification in repeated outdoor and indoor sessions.
+classification or a promise that an indoor fix is possible. Verify them in
+repeated outdoor and indoor sessions.
 
 On timeout the worker saves GPS as off. The page reports **Poor signal**,
 **No data**, or **No fix - GPS off**. Turn the switch on again, or run
