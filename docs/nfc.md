@@ -5,7 +5,9 @@ Notes from bringing up the ST **ST25R3916** NFC/HF reader on the T-Watch Ultra.
 Every register address, bit position, direct-command opcode and timing figure
 below was checked against **DS12484 Rev 8** (`Datasheets/ST25R3916_datasheet.pdf`),
 section numbers given inline. Items marked *unverified* have not yet been
-confirmed on hardware.
+confirmed on hardware. The current working tree also has pending driver-review
+hardening; those changes have passed build/static checks but have not yet had
+NFC hardware verification or been committed.
 
 ## Part & interface
 
@@ -90,6 +92,17 @@ a real re-enumeration test.
 > `en`, and it was being issued before the oscillator was enabled, where the
 > command is rejected and A/D output register `0x25` still holds the previous
 > conversion. Trust the PMU-side read of `0x99` instead.
+
+## Current driver behavior and error handling
+
+The reader API is session-scoped: `st25r3916_open()` owns the reader and its
+SPI2 rail hold, then callers may perform one or more `st25r3916_try()` attempts
+before `st25r3916_close()`. A competing scan/console session gets
+`ESP_ERR_INVALID_STATE` instead of interleaving register setup or touching the
+antenna while another task is using it. Tag selection checks the anticollision
+BCC and cascade-level SAK before publishing a UID; Type 2 reads stop at the
+memory size advertised by the Capability Container. `nfcprobe` is a separate
+rail sweep and must not overlap a reader session.
 
 ## Bring-up sequence
 

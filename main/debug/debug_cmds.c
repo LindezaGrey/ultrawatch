@@ -467,7 +467,17 @@ void debug_cmd_nfcpoll(const char *args)
     err = ESP_ERR_NOT_FOUND;
     TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(secs * 1000);
     while (xTaskGetTickCount() < deadline) {
-        err = st25r3916_try(&tag, 300);
+        TickType_t remaining = deadline - xTaskGetTickCount();
+        int timeout_ms = (int)(remaining * portTICK_PERIOD_MS);
+        if (timeout_ms > 300) timeout_ms = 300;
+        if (timeout_ms <= 0) break;
+        err = st25r3916_try(&tag, timeout_ms);
+        if ((err == ESP_ERR_INVALID_RESPONSE || err == ESP_ERR_TIMEOUT) &&
+            xTaskGetTickCount() < deadline) {
+            /* A tag removed mid-cascade is a scan miss, not a fatal console
+             * error; the next REQA starts a fresh attempt. */
+            err = ESP_ERR_NOT_FOUND;
+        }
         if (err != ESP_ERR_NOT_FOUND) {
             break;
         }
@@ -549,7 +559,11 @@ void debug_cmd_nfctune(const char *args)
         TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(secs * 1000);
         printf("nfctune: polling at this setting for %ds...\n", secs);
         while (xTaskGetTickCount() < deadline) {
-            err = st25r3916_try(&tag, 300);
+            TickType_t remaining = deadline - xTaskGetTickCount();
+            int timeout_ms = (int)(remaining * portTICK_PERIOD_MS);
+            if (timeout_ms > 300) timeout_ms = 300;
+            if (timeout_ms <= 0) break;
+            err = st25r3916_try(&tag, timeout_ms);
             attempts++;
             if (err == ESP_OK) {
                 reads++;
@@ -562,7 +576,9 @@ void debug_cmd_nfctune(const char *args)
                     break;
                 }
                 vTaskDelay(pdMS_TO_TICKS(100));
-            } else if (err == ESP_ERR_NOT_FOUND) {
+            } else if (err == ESP_ERR_NOT_FOUND ||
+                       ((err == ESP_ERR_INVALID_RESPONSE || err == ESP_ERR_TIMEOUT) &&
+                        xTaskGetTickCount() < deadline)) {
                 if (tag_present) {
                     printf("nfctune: tag lost\n");
                     tag_present = false;
@@ -574,7 +590,8 @@ void debug_cmd_nfctune(const char *args)
     }
     st25r3916_close();
 
-    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
+    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND && err != ESP_ERR_INVALID_RESPONSE &&
+        err != ESP_ERR_TIMEOUT) {
         printf("nfctune: %s\n", esp_err_to_name(err));
     } else if (parsed == 3 && secs > 0) {
         printf("nfctune: tag reads=%u/%u\n", reads, attempts);
@@ -635,6 +652,7 @@ void debug_cmd_nfcprobe(const char *args)
      *
      * "nfcprobe [settle_ms]" - rail settle time, default 150ms. */
     int settle = (args[0] != '\0') ? atoi(args) : 150;
+    if (settle > 1000) settle = 1000;
     if (settle < 20) {
         settle = 20;
     }
@@ -642,8 +660,8 @@ void debug_cmd_nfcprobe(const char *args)
     /* This sweep drives the rails directly, which is only safe while nobody
      * is using them - cutting DLDO1 under an open() session would pull the
      * chip out from under it mid-transfer. */
-    if (st25r3916_busy()) {
-        printf("nfcprobe: an NFC session is active (UI scan or nfcpoll) - try again\n");
+    if (st25r3916_probe_begin() != ESP_OK) {
+        printf("nfcprobe: an NFC session/probe is active (UI scan or nfcpoll) - try again\n");
         return;
     }
 
@@ -651,7 +669,13 @@ void debug_cmd_nfcprobe(const char *args)
      * mounted card is what leaves it unable to remount (sd_log.c). */
     bool was_mounted = sd_log_available();
     if (was_mounted) {
-        sd_log_unmount();
+        esp_err_t unmount_err = sd_log_unmount();
+        if (unmount_err != ESP_OK) {
+            st25r3916_probe_end();
+            printf("nfcprobe: cannot unmount SD before rail sweep: %s\n",
+                   esp_err_to_name(unmount_err));
+            return;
+        }
     }
 
     printf("nfcprobe: sweeping SD rail x LoRa rail x NFC rail (settle %dms)\n", settle);
@@ -686,6 +710,7 @@ void debug_cmd_nfcprobe(const char *args)
     if (was_mounted) {
         sd_log_mount();
     }
+    st25r3916_probe_end();
     printf("nfcprobe: done\n");
 }
 

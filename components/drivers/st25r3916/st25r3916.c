@@ -197,6 +197,7 @@ static const char *TAG = "st25r3916";
 #define OSC_START_TIMEOUT_MS 500
 #define FIELD_ON_TIMEOUT_MS  30   /* reference driver's own budget is 10ms; small margin */
 #define ADJUST_REGULATORS_TIMEOUT_MS 10   /* datasheet: max 5ms */
+#define FIELD_ON_EXTERNAL 0xE1
 
 static spi_device_handle_t s_spi;
 static i2c_master_dev_handle_t s_pmu;
@@ -243,11 +244,11 @@ static bool session_held(void)
 static esp_err_t reg_write(uint8_t addr, const uint8_t *data, size_t len)
 {
     uint8_t tx[1 + 8];
-    if (len > sizeof(tx) - 1) {
+    if ((!data && len > 0) || len > sizeof(tx) - 1) {
         return ESP_ERR_INVALID_ARG;
     }
     tx[0] = addr & 0x3F;   /* top two bits 00 = register write */
-    memcpy(tx + 1, data, len);
+    if (len > 0) memcpy(tx + 1, data, len);
     spi_transaction_t t = {
         .length = (size_t)(1 + len) * 8,
         .tx_buffer = tx,
@@ -264,7 +265,7 @@ static esp_err_t reg_read(uint8_t addr, uint8_t *data, size_t len)
 {
     uint8_t tx[1 + 8] = { 0 };
     uint8_t rx[1 + 8] = { 0 };
-    if (len > sizeof(tx) - 1) {
+    if ((!data && len > 0) || len > sizeof(tx) - 1) {
         return ESP_ERR_INVALID_ARG;
     }
     tx[0] = (addr & 0x3F) | SPI_REG_READ_BIT;   /* top two bits 01 = register read */
@@ -274,7 +275,7 @@ static esp_err_t reg_read(uint8_t addr, uint8_t *data, size_t len)
         .rx_buffer = rx,
     };
     esp_err_t err = spi_device_polling_transmit(s_spi, &t);
-    if (err == ESP_OK) {
+    if (err == ESP_OK && len > 0) {
         memcpy(data, rx + 1, len);
     }
     return err;
@@ -301,12 +302,12 @@ static esp_err_t reg_change_bits(uint8_t addr, uint8_t mask, uint8_t value)
 static esp_err_t reg_write_b(uint8_t addr, const uint8_t *data, size_t len)
 {
     uint8_t tx[2 + 8];
-    if (len > sizeof(tx) - 2) {
+    if ((!data && len > 0) || len > sizeof(tx) - 2) {
         return ESP_ERR_INVALID_ARG;
     }
     tx[0] = 0xFB;
     tx[1] = addr & 0x3F;
-    memcpy(tx + 2, data, len);
+    if (len > 0) memcpy(tx + 2, data, len);
     spi_transaction_t t = {
         .length = (size_t)(2 + len) * 8,
         .tx_buffer = tx,
@@ -359,11 +360,11 @@ static esp_err_t direct_cmd(uint8_t code)
 static esp_err_t fifo_load(const uint8_t *data, size_t len)
 {
     uint8_t tx[1 + 16];
-    if (len > sizeof(tx) - 1) {
+    if ((!data && len > 0) || len > sizeof(tx) - 1) {
         return ESP_ERR_INVALID_ARG;
     }
     tx[0] = SPI_FIFO_LOAD;
-    memcpy(tx + 1, data, len);
+    if (len > 0) memcpy(tx + 1, data, len);
     spi_transaction_t t = {
         .length = (size_t)(1 + len) * 8,
         .tx_buffer = tx,
@@ -375,7 +376,7 @@ static esp_err_t fifo_read(uint8_t *buf, size_t len)
 {
     uint8_t tx[1 + 16] = { 0 };
     uint8_t rx[1 + 16] = { 0 };
-    if (len > sizeof(tx) - 1) {
+    if ((!buf && len > 0) || len > sizeof(tx) - 1) {
         return ESP_ERR_INVALID_ARG;
     }
     tx[0] = SPI_FIFO_READ;
@@ -385,7 +386,7 @@ static esp_err_t fifo_read(uint8_t *buf, size_t len)
         .rx_buffer = rx,
     };
     esp_err_t err = spi_device_polling_transmit(s_spi, &t);
-    if (err == ESP_OK) {
+    if (err == ESP_OK && len > 0) {
         memcpy(buf, rx + 1, len);
     }
     return err;
@@ -393,6 +394,9 @@ static esp_err_t fifo_read(uint8_t *buf, size_t len)
 
 static esp_err_t fifo_byte_count(size_t *n)
 {
+    if (!n) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t s1 = 0, s2 = 0;
     ESP_RETURN_ON_ERROR(reg_read1(REG_FIFO_STATUS1, &s1), TAG, "fifo status1");
     ESP_RETURN_ON_ERROR(reg_read1(REG_FIFO_STATUS2, &s2), TAG, "fifo status2");
@@ -460,6 +464,9 @@ static esp_err_t wait_reg_bit(uint8_t addr, uint8_t bit, TickType_t deadline)
 
 static esp_err_t irq_poll(uint32_t *sticky)
 {
+    if (!sticky) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t regs[4] = { 0 };
     ESP_RETURN_ON_ERROR(reg_read(REG_MAIN_IRQ, regs, sizeof(regs)), TAG, "irq snapshot");
     *sticky |= IRQ_MAIN(regs[0]) | IRQ_TIMER(regs[1]) |
@@ -469,6 +476,9 @@ static esp_err_t irq_poll(uint32_t *sticky)
 
 static esp_err_t wait_irq(uint32_t want, uint32_t *sticky, TickType_t deadline)
 {
+    if (!sticky) {
+        return ESP_ERR_INVALID_ARG;
+    }
     for (;;) {
         ESP_RETURN_ON_ERROR(irq_poll(sticky), TAG, "irq poll");
         if (*sticky & want) {
@@ -496,8 +506,11 @@ static esp_err_t wait_response(uint32_t *sticky, TickType_t deadline)
                  (*sticky & IRQ_MAIN(IRQ_MAIN_TXE)) ? "yes" : "NO",
                  (unsigned)((*sticky >> 8) & 0xFF), (unsigned)((*sticky >> 16) & 0xFF));
     } else if (err == ESP_OK && (*sticky & IRQ_ERROR_ANY)) {
-        ESP_LOGW(TAG, "response had CRC/parity/framing errors (error irq=0x%02x)",
-                 (unsigned)((*sticky >> 16) & 0xFF));
+        uint8_t errors = (uint8_t)(*sticky >> 16);
+        ESP_LOGW(TAG, "response had CRC/parity/framing errors (error irq=0x%02x)", errors);
+        if (errors & (IRQ_ERR_CRC | IRQ_ERR_PAR | IRQ_ERR_HARD)) {
+            return ESP_ERR_INVALID_RESPONSE;
+        }
     }
     return err;
 }
@@ -515,6 +528,9 @@ static const uint8_t s_sel_cmd[3] = { 0x93, 0x95, 0x97 };   /* SEL_CL1/2/3 */
  * being 0x88 (cascade tag marker) means another level is needed. */
 static esp_err_t cascade_level(uint8_t level, uint8_t *uid4, uint8_t *sak, TickType_t deadline)
 {
+    if (level >= sizeof(s_sel_cmd) || !uid4 || !sak) {
+        return ESP_ERR_INVALID_ARG;
+    }
     uint8_t sel = s_sel_cmd[level];
 
     /* Anticollision request: SEL + NVB(0x20) = "give me your whole UID",
@@ -539,11 +555,16 @@ static esp_err_t cascade_level(uint8_t level, uint8_t *uid4, uint8_t *sak, TickT
     }
     size_t n = 0;
     ESP_RETURN_ON_ERROR(fifo_byte_count(&n), TAG, "fifo count (anticoll)");
-    if (n < 5) {
-        return ESP_ERR_INVALID_RESPONSE;   /* need 4 UID bytes + BCC */
+    if (n != 5) {
+        return ESP_ERR_INVALID_RESPONSE;   /* need exactly 4 UID bytes + BCC */
     }
     uint8_t reply[5];
     ESP_RETURN_ON_ERROR(fifo_read(reply, sizeof(reply)), TAG, "fifo read anticoll");
+    uint8_t bcc = (uint8_t)(reply[0] ^ reply[1] ^ reply[2] ^ reply[3]);
+    if (bcc != reply[4]) {
+        ESP_LOGW(TAG, "anticollision BCC mismatch: calc=%02x received=%02x", bcc, reply[4]);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
     memcpy(uid4, reply, 4);
 
     /* Select: SEL + NVB(0x70) + the 4 UID bytes + BCC just read back -
@@ -564,10 +585,15 @@ static esp_err_t cascade_level(uint8_t level, uint8_t *uid4, uint8_t *sak, TickT
         return err;
     }
     ESP_RETURN_ON_ERROR(fifo_byte_count(&n), TAG, "fifo count (select)");
-    if (n < 1) {
+    if (n != 1) {
         return ESP_ERR_INVALID_RESPONSE;
     }
-    return fifo_read(sak, 1);
+    ESP_RETURN_ON_ERROR(fifo_read(sak, 1), TAG, "fifo read SAK");
+    /* The cascade bit is SAK bit 2; compare it with the UID cascade tag. */
+    if (((*sak & 0x04) != 0) != (reply[0] == 0x88)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
 }
 
 /* Board-level analog/RF tuning (TX driver, receiver gain/AGC, correlator,
@@ -584,41 +610,37 @@ static esp_err_t cascade_level(uint8_t level, uint8_t *uid4, uint8_t *sak, TickT
  * the chip is actually about to transmit/receive. */
 static esp_err_t apply_analog_defaults_pre_osc(void)
 {
-    esp_err_t err = ESP_OK;
-    err |= reg_change_bits(REG_IO_CONF1, 0x07, 0x07);                 /* disable MCU_CLK */
-    err |= reg_write1(REG_IO_CONF2, IOCONF2_INIT_VALUE);              /* sup3V, MISO pulldowns, AAT enable */
-    err |= reg_change_bits(REG_TX_DRIVER, 0x0F, 0x00);                /* RFO resistance, active TX */
-    err |= reg_write1_b(REG_B_RES_AM_MOD, 0x80);                      /* minimum non-overlap */
-    err |= reg_change_bits(REG_FIELD_THRESHOLD_ACTV, 0x7F, 0x13);     /* activation threshold */
-    err |= reg_change_bits(REG_FIELD_THRESHOLD_DEACTV, 0x7F, 0x02);   /* deactivation threshold */
-    err |= reg_change_bits_b(REG_B_AUX_MOD, 0x30, 0x10);              /* internal (not external) load modulation */
-    err |= reg_change_bits(REG_PASSIVE_TARGET, 0xF0, 0x50);           /* FDT alignment with the bit grid */
-    err |= reg_write1_b(REG_B_PT_MOD, 0x5F);                          /* reduced RFO resistance, modulated state */
-    err |= reg_change_bits_b(REG_B_EMD_SUP_CONF, 0x40, 0x40);         /* EMD suppression: start on first 4 bits */
-    err |= reg_write1(REG_ANT_TUNE_A, 0x82);                          /* board-calibrated AAT: series */
-    err |= reg_write1(REG_ANT_TUNE_B, 0x00);                          /* board-calibrated AAT: parallel */
-    return (err == ESP_OK) ? ESP_OK : ESP_FAIL;
+    ESP_RETURN_ON_ERROR(reg_change_bits(REG_IO_CONF1, 0x07, 0x07), TAG, "disable MCU_CLK");
+    ESP_RETURN_ON_ERROR(reg_write1(REG_IO_CONF2, IOCONF2_INIT_VALUE), TAG, "IO_CONF2");
+    ESP_RETURN_ON_ERROR(reg_change_bits(REG_TX_DRIVER, 0x0F, 0x00), TAG, "TX driver");
+    ESP_RETURN_ON_ERROR(reg_write1_b(REG_B_RES_AM_MOD, 0x80), TAG, "RES_AM_MOD");
+    ESP_RETURN_ON_ERROR(reg_change_bits(REG_FIELD_THRESHOLD_ACTV, 0x7F, 0x13), TAG, "field threshold active");
+    ESP_RETURN_ON_ERROR(reg_change_bits(REG_FIELD_THRESHOLD_DEACTV, 0x7F, 0x02), TAG, "field threshold inactive");
+    ESP_RETURN_ON_ERROR(reg_change_bits_b(REG_B_AUX_MOD, 0x30, 0x10), TAG, "AUX_MOD");
+    ESP_RETURN_ON_ERROR(reg_change_bits(REG_PASSIVE_TARGET, 0xF0, 0x50), TAG, "FDT alignment");
+    ESP_RETURN_ON_ERROR(reg_write1_b(REG_B_PT_MOD, 0x5F), TAG, "PT_MOD");
+    ESP_RETURN_ON_ERROR(reg_change_bits_b(REG_B_EMD_SUP_CONF, 0x40, 0x40), TAG, "EMD suppression");
+    ESP_RETURN_ON_ERROR(reg_write1(REG_ANT_TUNE_A, 0x82), TAG, "AAT series");
+    return reg_write1(REG_ANT_TUNE_B, 0x00);
 }
 
 static esp_err_t apply_analog_defaults_nfca_106(void)
 {
-    esp_err_t err = ESP_OK;
-    err |= reg_change_bits(REG_AUX, 0x04, 0x00);            /* correlator receiver, not coherent */
-    err |= reg_write1_b(REG_B_OVERSHOOT_CONF1, 0x40);
-    err |= reg_write1_b(REG_B_OVERSHOOT_CONF2, 0x03);
-    err |= reg_write1_b(REG_B_UNDERSHOOT_CONF1, 0x40);
-    err |= reg_write1_b(REG_B_UNDERSHOOT_CONF2, 0x03);
-    err |= reg_write1(REG_RX_CONF1, 0x08);
-    err |= reg_write1(REG_RX_CONF2, 0x2D);
-    err |= reg_write1(REG_RX_CONF3, 0x00);
-    err |= reg_write1(REG_RX_CONF4, 0x00);
+    ESP_RETURN_ON_ERROR(reg_change_bits(REG_AUX, 0x04, 0x00), TAG, "correlator receiver");
+    ESP_RETURN_ON_ERROR(reg_write1_b(REG_B_OVERSHOOT_CONF1, 0x40), TAG, "overshoot conf1");
+    ESP_RETURN_ON_ERROR(reg_write1_b(REG_B_OVERSHOOT_CONF2, 0x03), TAG, "overshoot conf2");
+    ESP_RETURN_ON_ERROR(reg_write1_b(REG_B_UNDERSHOOT_CONF1, 0x40), TAG, "undershoot conf1");
+    ESP_RETURN_ON_ERROR(reg_write1_b(REG_B_UNDERSHOOT_CONF2, 0x03), TAG, "undershoot conf2");
+    ESP_RETURN_ON_ERROR(reg_write1(REG_RX_CONF1, 0x08), TAG, "RX_CONF1");
+    ESP_RETURN_ON_ERROR(reg_write1(REG_RX_CONF2, 0x2D), TAG, "RX_CONF2");
+    ESP_RETURN_ON_ERROR(reg_write1(REG_RX_CONF3, 0x00), TAG, "RX_CONF3");
+    ESP_RETURN_ON_ERROR(reg_write1(REG_RX_CONF4, 0x00), TAG, "RX_CONF4");
     /* CORR_CONF1 = 0x11: the NFC-A/106k base value (0x51) with corr_s6
      * cleared, folding in RFAL's separate "anticollision" adjustment (see
      * this file's top-of-file comment on why this driver doesn't
      * dynamically switch configs per frame type like RFAL does). */
-    err |= reg_write1_b(REG_B_CORR_CONF1, 0x11);
-    err |= reg_write1_b(REG_B_CORR_CONF2, 0x00);
-    return (err == ESP_OK) ? ESP_OK : ESP_FAIL;
+    ESP_RETURN_ON_ERROR(reg_write1_b(REG_B_CORR_CONF1, 0x11), TAG, "CORR_CONF1");
+    return reg_write1_b(REG_B_CORR_CONF2, 0x00);
 }
 
 /* One-time-per-bring-up regulator calibration (datasheet "Adjust
@@ -672,20 +694,21 @@ static esp_err_t field_on(void)
                              xTaskGetTickCount() + pdMS_TO_TICKS(FIELD_ON_TIMEOUT_MS));
     if (err == ESP_OK && (irq & IRQ_TIMER(IRQ_TIMER_CAC))) {
         ESP_LOGW(TAG, "field_on: external field detected during collision avoidance - transmitter stays off");
-        return ESP_ERR_INVALID_STATE;
+        ESP_RETURN_ON_ERROR(reg_write1(REG_OP_CONTROL, OP_EN | OP_RX_EN), TAG,
+                            "disable TX after external-field detect");
+        return FIELD_ON_EXTERNAL;
     }
     if (err == ESP_OK) {
         err = wait_irq(IRQ_TIMER(IRQ_TIMER_CAT), &irq,
                         xTaskGetTickCount() + pdMS_TO_TICKS(FIELD_ON_TIMEOUT_MS));
     }
-    if (err != ESP_OK) {
+    if (err == ESP_ERR_TIMEOUT) {
         /* Non-fatal while the reader is still being brought up: the field
          * demonstrably comes on either way (RFI amplitude confirms it), and
-         * the REQA that follows is a far more informative failure than
-         * stopping here. */
+         * the REQA that follows is a more informative reception check. */
         ESP_LOGW(TAG, "field_on: no I_apon/I_cat within %dms (irq seen 0x%08" PRIx32 ") - continuing",
                  FIELD_ON_TIMEOUT_MS, irq);
-        err = ESP_OK;
+        return ESP_OK;
     }
     return err;
 }
@@ -705,18 +728,34 @@ static esp_err_t measure_tuning(uint8_t *amplitude, uint8_t *phase)
 
 esp_err_t st25r3916_init(spi_device_handle_t spi, i2c_master_dev_handle_t pmu)
 {
+    if (!spi || !pmu) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_spi || s_pmu) {
+        return ESP_ERR_INVALID_STATE;
+    }
     s_spi = spi;
     s_pmu = pmu;
 
     if (!s_session_lock) {
         s_session_lock = xSemaphoreCreateMutex();
+        if (!s_session_lock) {
+            s_spi = NULL;
+            s_pmu = NULL;
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     gpio_config_t irq_io = {
         .pin_bit_mask = 1ULL << ST25R3916_PIN_IRQ,
         .mode = GPIO_MODE_INPUT,
     };
-    gpio_config(&irq_io);
+    esp_err_t gpio_err = gpio_config(&irq_io);
+    if (gpio_err != ESP_OK) {
+        s_spi = NULL;
+        s_pmu = NULL;
+        return gpio_err;
+    }
 
     /* DLDO1 stays off until a poll actually happens (st25r3916_poll() owns
      * it on demand) - nothing further to configure or probe here without
@@ -732,6 +771,10 @@ esp_err_t st25r3916_open(void)
      * behind an 8-second scan. */
     ESP_RETURN_ON_FALSE(s_session_lock && xSemaphoreTake(s_session_lock, 0) == pdTRUE,
                         ESP_ERR_INVALID_STATE, TAG, "another NFC session is active");
+    if (!s_spi || !s_pmu) {
+        xSemaphoreGive(s_session_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
     /* What the PMU actually has programmed for DLDO1 (reg 0x99, low 5 bits
      * = (mV - 500) / 100). Read over I2C from the PMU, so it is valid
      * whether or not the NFC chip answers SPI - which makes it the number to
@@ -749,7 +792,11 @@ esp_err_t st25r3916_open(void)
      * to trust its SPI2 reads, including DLDO1 itself, and settles for
      * however long any of them actually needed (a no-op if everything was
      * already on - see spi2_power.h). */
-    spi2_power_hold(AXP2101_DLDO1);
+    esp_err_t hold_err = spi2_power_hold(AXP2101_DLDO1);
+    if (hold_err != ESP_OK) {
+        xSemaphoreGive(s_session_lock);
+        return hold_err;
+    }
 
     /* Confirm the rail enable actually landed on DLDO1's bit (REG 0x90 bit7)
      * rather than being silently dropped - the enable bit was wrong until
@@ -779,12 +826,7 @@ esp_err_t st25r3916_open(void)
         ESP_LOGW(TAG, "st25r3916 not responding correctly (ic_identity=0x%02x, expected type 0x%02x in mask 0x%02x) - chip absent/unpowered/misconfigured",
                  ic_id, IC_IDENTITY_TYPE_ST25R3916, IC_IDENTITY_TYPE_MASK);
         /* Bring-up never completed, so unlike a normal close() there is
-         * nothing running to lose from a power cycle - actively lower
-         * DLDO1 (bypassing spi2_power's SPI2_POWER_OWNED "never auto-lower"
-         * policy on purpose, same as sd_log.c's own retry-toggle recovery
-         * dance bypasses spi2_power for its own hardware-recovery reason)
-         * so the next open() gets a genuine cold start rather than retrying
-         * against a chip stuck in whatever state it's currently in. */
+         * nothing running to lose from a power cycle. */
         axp2101_enable_rail(s_pmu, AXP2101_DLDO1, false);
         spi2_power_release(AXP2101_RAIL_MAX);
         xSemaphoreGive(s_session_lock);
@@ -828,6 +870,13 @@ esp_err_t st25r3916_open(void)
         err = field_on();
     }
     if (err != ESP_OK) {
+        if (err == FIELD_ON_EXTERNAL) {
+            /* Collision avoidance stopped before successful field-on. Keep
+             * the reader configured and let a later open() retry normally. */
+            spi2_power_release(AXP2101_DLDO1);
+            xSemaphoreGive(s_session_lock);
+            return ESP_ERR_INVALID_STATE;
+        }
         ESP_LOGW(TAG, "st25r3916 bring-up failed: %s", esp_err_to_name(err));
         /* See the identity-mismatch path above for why this bypasses
          * spi2_power's normal "never auto-lower DLDO1" policy. */
@@ -917,14 +966,28 @@ bool st25r3916_busy(void)
     return s_session_lock && xSemaphoreGetMutexHolder(s_session_lock) != NULL;
 }
 
+esp_err_t st25r3916_probe_begin(void)
+{
+    if (!s_session_lock) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return xSemaphoreTake(s_session_lock, 0) == pdTRUE ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
+
+void st25r3916_probe_end(void)
+{
+    if (session_held()) {
+        xSemaphoreGive(s_session_lock);
+    }
+}
+
 esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
 {
-    if (!tag) {
+    if (!tag || timeout_ms <= 0) {
         return ESP_ERR_INVALID_ARG;
     }
     ESP_RETURN_ON_FALSE(session_held(), ESP_ERR_INVALID_STATE, TAG, "try outside a session");
     memset(tag, 0, sizeof(*tag));
-
     TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
 
     /* RFAL's rfalPrepareTransceive() (reader/writer branch) resets the
@@ -936,14 +999,16 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
      * recover from mid-session. That observation is now suspect for the same
      * reason as the field_on() one (see st25r3916_open()), so STOP_ALL is
      * worth re-testing once the read path is confirmed solid. */
-    direct_cmd(DCMD_CLEAR_FIFO);
-    reg_write1(REG_ISO14443A_NFC, 0x00);   /* antcl off - REQA/WUPA get automatic CRC-free handling */
+    ESP_RETURN_ON_ERROR(direct_cmd(DCMD_CLEAR_FIFO), TAG, "clear FIFO before REQA");
+    ESP_RETURN_ON_ERROR(reg_write1(REG_ISO14443A_NFC, 0x00), TAG,
+                        "disable anticollision for REQA");
     /* "Clear nbtx bits before sending WUPA/REQA - otherwise ST25R3916 will
      * report parity error" (RFAL's own comment at this exact point in
      * rfalISO14443ATransceiveShortFrame()). Stale nbtx bits shouldn't
      * persist here in practice (nothing else sets them before this point in
      * a session), but it's what the reference sequence does. */
-    reg_write1(REG_NUM_TX_BYTES2, 0x00);
+    ESP_RETURN_ON_ERROR(reg_write1(REG_NUM_TX_BYTES2, 0x00), TAG,
+                        "clear REQA TX bit count");
 
     /* Clear FIFO above cleared the interrupt status bits, so this mask starts
      * clean. One wait, not two: I_txe and I_rxe arrive within a few hundred
@@ -973,9 +1038,13 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
 
     uint8_t uid[10] = { 0 };
     uint8_t uid_len = 0;
+    bool selected = false;
     for (uint8_t level = 0; level < 3; level++) {
         uint8_t part[4] = { 0 }, sak = 0;
         err = cascade_level(level, part, &sak, deadline);
+        if (err == ESP_ERR_TIMEOUT) {
+            return (level > 0) ? ESP_ERR_INVALID_RESPONSE : ESP_ERR_NOT_FOUND;
+        }
         if (err != ESP_OK) {
             return err;
         }
@@ -988,8 +1057,15 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
         memcpy(uid + uid_len, part + copy_off, copy_n);
         uid_len = (uint8_t)(uid_len + copy_n);
         if (!cascade_more) {
+            selected = true;
             break;
         }
+        if (level == 2) {
+            return ESP_ERR_INVALID_RESPONSE;   /* cascade tag cannot appear in CL3 */
+        }
+    }
+    if (!selected || uid_len == 0) {
+        return ESP_ERR_INVALID_RESPONSE;
     }
 
     memcpy(tag->uid, uid, uid_len);
@@ -1019,6 +1095,12 @@ esp_err_t st25r3916_try(st25r3916_tag_t *tag, int timeout_ms)
  * -> read back whatever the FIFO actually holds. */
 static esp_err_t type2_read_pages(uint8_t page, uint8_t out16[16], TickType_t deadline)
 {
+    if (!out16) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (xTaskGetTickCount() >= deadline) {
+        return ESP_ERR_TIMEOUT;
+    }
     ESP_RETURN_ON_ERROR(direct_cmd(DCMD_CLEAR_FIFO), TAG, "clear fifo (type2 read)");
     uint8_t cmd[2] = { 0x30, page };
     ESP_RETURN_ON_ERROR(fifo_load(cmd, sizeof(cmd)), TAG, "fifo load (type2 read)");
@@ -1044,11 +1126,11 @@ static esp_err_t type2_read_pages(uint8_t page, uint8_t out16[16], TickType_t de
 
 esp_err_t st25r3916_read_type2(uint8_t *out, size_t out_cap, size_t *out_len, int timeout_ms)
 {
-    if (!out || !out_len || out_cap == 0) {
+    if (!out || !out_len || out_cap == 0 || timeout_ms <= 0) {
         return ESP_ERR_INVALID_ARG;
     }
-    ESP_RETURN_ON_FALSE(session_held(), ESP_ERR_INVALID_STATE, TAG, "read outside a session");
     *out_len = 0;
+    ESP_RETURN_ON_FALSE(session_held(), ESP_ERR_INVALID_STATE, TAG, "read outside a session");
     TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
 
     /* Page 0-3 in one READ: pages 0-1 are the UID, page 2 lock/internal
@@ -1058,11 +1140,28 @@ esp_err_t st25r3916_read_type2(uint8_t *out, size_t out_cap, size_t *out_len, in
      * parsing whatever happens to be there. Not an error: a tag with no
      * NDEF content at all is a normal, expected outcome. */
     uint8_t hdr16[16];
-    if (type2_read_pages(0, hdr16, deadline) != ESP_OK) {
-        return ESP_ERR_NOT_FOUND;
+    esp_err_t header_err = type2_read_pages(0, hdr16, deadline);
+    if (header_err != ESP_OK) {
+        return (header_err == ESP_ERR_TIMEOUT || header_err == ESP_ERR_INVALID_RESPONSE)
+                   ? ESP_ERR_NOT_FOUND : header_err;
     }
     if (hdr16[12] != 0xE1) {
         return ESP_ERR_NOT_FOUND;
+    }
+    /* CC size is in 8-byte units of user memory starting at page 4, not
+     * an absolute page number. Each Type 2 page is 4 bytes. */
+    uint16_t page_count = 4u + (uint16_t)hdr16[14] * 2u;
+    if (hdr16[14] == 0) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    /* READ's start-page argument is 8-bit; cap the supported address space
+     * to the last complete 4-page READ within pages 0..255. */
+    if (page_count > 256) {
+        page_count = 256;   /* last READ starts at page 252 and ends at 255 */
+    }
+    uint8_t read_access = hdr16[15] >> 4;
+    if (read_access != 0) {
+        return ESP_ERR_NOT_SUPPORTED;   /* authenticated/denied CC read access is unsupported */
     }
 
     /* User memory / TLV area starts at page 4. Read forward in 4-page (one
@@ -1071,19 +1170,28 @@ esp_err_t st25r3916_read_type2(uint8_t *out, size_t out_cap, size_t *out_len, in
      * not a driver error, so it ends the read with whatever was gathered
      * rather than propagating an error the caller would have to unwrap. */
     size_t got = 0;
-    uint8_t page = 4;
-    while (got < out_cap) {
+    uint16_t page = 4;
+    while (got < out_cap && page < page_count) {
         uint8_t chunk[16];
-        if (type2_read_pages(page, chunk, deadline) != ESP_OK) {
+        esp_err_t read_err = type2_read_pages((uint8_t)page, chunk, deadline);
+        if (read_err != ESP_OK) {
+            if (read_err != ESP_ERR_TIMEOUT && read_err != ESP_ERR_INVALID_RESPONSE) {
+                return read_err;
+            }
             break;
         }
+        size_t readable = (size_t)(page_count - page) * 4u;
+        if (readable > sizeof(chunk)) readable = sizeof(chunk);
         size_t take = out_cap - got;
-        if (take > 16) {
-            take = 16;
+        if (take > sizeof(chunk)) {
+            take = sizeof(chunk);
+        }
+        if (take > readable) {
+            take = readable;
         }
         memcpy(out + got, chunk, take);
         got += take;
-        page = (uint8_t)(page + 4);
+        page = (uint16_t)(page + 4);
     }
 
     *out_len = got;
@@ -1104,13 +1212,20 @@ esp_err_t st25r3916_read_type2(uint8_t *out, size_t out_cap, size_t *out_len, in
  * both reads agree and carry the ST25R3916 type nibble. */
 bool st25r3916_probe_identity(uint8_t out_id[2])
 {
+    if (!out_id || !s_spi || !s_pmu || !session_held()) {
+        return false;
+    }
     out_id[0] = 0;
     out_id[1] = 0;
 
-    direct_cmd(DCMD_SET_DEFAULT);
+    if (direct_cmd(DCMD_SET_DEFAULT) != ESP_OK) {
+        return false;
+    }
     vTaskDelay(pdMS_TO_TICKS(2));
-    reg_read1(REG_IC_IDENTITY, &out_id[0]);
-    reg_read1(REG_IC_IDENTITY, &out_id[1]);
+    if (reg_read1(REG_IC_IDENTITY, &out_id[0]) != ESP_OK ||
+        reg_read1(REG_IC_IDENTITY, &out_id[1]) != ESP_OK) {
+        return false;
+    }
 
     return ((out_id[0] & IC_IDENTITY_TYPE_MASK) == IC_IDENTITY_TYPE_ST25R3916) &&
            out_id[0] == out_id[1];
@@ -1118,6 +1233,9 @@ bool st25r3916_probe_identity(uint8_t out_id[2])
 
 esp_err_t st25r3916_poll(st25r3916_tag_t *tag, int timeout_ms)
 {
+    if (!tag || timeout_ms <= 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
     esp_err_t err = st25r3916_open();
     if (err != ESP_OK) {
         st25r3916_close();

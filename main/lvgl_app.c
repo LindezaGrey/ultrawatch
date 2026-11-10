@@ -496,7 +496,17 @@ static void nfc_ctrl_task(void *arg)
                 esp_err_t try_err = ESP_ERR_NOT_FOUND;
                 TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(NFC_SCAN_TIMEOUT_MS);
                 while (xTaskGetTickCount() < deadline) {
-                    try_err = st25r3916_try(&tag, 300);
+                    TickType_t remaining = deadline - xTaskGetTickCount();
+                    int timeout_ms = (int)(remaining * portTICK_PERIOD_MS);
+                    if (timeout_ms > 300) timeout_ms = 300;
+                    if (timeout_ms <= 0) break;
+                    try_err = st25r3916_try(&tag, timeout_ms);
+                    if ((try_err == ESP_ERR_INVALID_RESPONSE || try_err == ESP_ERR_TIMEOUT) &&
+                        xTaskGetTickCount() < deadline) {
+                        /* A card may enter/leave during REQA or anticollision.
+                         * Treat a transient frame failure as a miss and retry. */
+                        try_err = ESP_ERR_NOT_FOUND;
+                    }
                     if (try_err != ESP_ERR_NOT_FOUND) {
                         break;
                     }
@@ -572,7 +582,7 @@ static void gps_ctrl_task(void *arg)
             gps_screen_set_powered(m10q_get_state() != M10Q_STATE_OFF);
             if (err == ESP_OK && on) {
                 gps_reception_start(&reception, (uint32_t)(esp_timer_get_time() / 1000));
-                ESP_LOGI(TAG, "GNSS on: 60s poor reception, 180s maximum acquisition");
+                ESP_LOGI(TAG, "GNSS on: 300s poor reception, 600s maximum acquisition");
             } else if (err != ESP_OK) {
                 ESP_LOGE(TAG, "GNSS power transition failed: %s", esp_err_to_name(err));
                 taskENTER_CRITICAL(&s_gps_ctrl_mux);

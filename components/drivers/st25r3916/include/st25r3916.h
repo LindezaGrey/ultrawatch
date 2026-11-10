@@ -6,23 +6,16 @@
  * REQA -> ATQA -> SEL_CLx anticollision/select cascade to recover a tag's
  * UID, plus a Type 2 Tag (NTAG21x/MIFARE Ultralight family) memory read
  * (st25r3916_read_type2()) once a tag is selected - hand its output to
- * components/ndef to decode an NDEF message. No card emulation, no P2P, no
- * genuine multi-tag collision resolution beyond what the chip's
- * anticollision framing support gives - see the driver's top-of-file
- * comment for the primary-source references.
+ * components/ndef to decode an NDEF message. No card emulation, no P2P, and no
+ * genuine multi-tag collision resolution; multi-tag collisions are reported as
+ * protocol errors. See the driver's top-of-file comment for source references.
  *
- * The rail (DLDO1) is dedicated to this chip and owned by this driver, but
- * unlike this codebase's other on-demand-rail drivers (sd_log_mount()/
- * unmount(), m10q_power()), the chip is NOT power-cycled per attempt:
- * LilyGo's own reference firmware (LilyGoWatchUltra.cpp's initPMU())
- * enables DLDO1 once at boot and leaves it on permanently, same as every
- * other rail, and repeatedly power-cycling it here (this driver's first
- * version did, once per st25r3916_poll() call) left only ~5ms of settle
- * time before hammering the chip with a full bring-up sequence on every
- * single call - a real, confirmed-different-from-reference behavior.
- * st25r3916_open() brings the chip up once (rail on, full config); repeat
- * st25r3916_try() calls only redo the REQA/cascade exchange; st25r3916_close()
- * powers back down when the caller is done. */
+ * The rail (DLDO1) is dedicated to this chip and owned by this driver. It is
+ * enabled during open() and remains on after a successful close(): the chip
+ * has not proven reliable after power-cycling following bring-up, and LilyGo's
+ * reference firmware leaves the rail on at boot. open() performs full config;
+ * repeated try() calls only redo REQA/anticollision. close() stops the RF field
+ * and releases shared SPI2 hazard rails, but leaves DLDO1 on. */
 #pragma once
 
 #include <stddef.h>
@@ -45,10 +38,9 @@ typedef struct {
     bool     found;
 } st25r3916_tag_t;
 
-/* Wire up the SPI device and the PMU handle (for on-demand DLDO1 power);
- * does not power the chip or talk to it - st25r3916_open() does that. Logs
- * and returns ESP_OK even on failure (matches every other board driver's
- * log-and-continue convention). */
+/* Wire up the SPI device and PMU handle (used for DLDO1 session power).
+ * Does not power or communicate with the chip; open() performs bring-up.
+ * Returns errors if handles, mutex allocation, or IRQ GPIO setup fail. */
 esp_err_t st25r3916_init(spi_device_handle_t spi, i2c_master_dev_handle_t pmu);
 
 /* Power the chip on and run its full bring-up (Set default, chip-identity
@@ -87,13 +79,12 @@ esp_err_t st25r3916_tuning_measure(uint8_t aat_a, uint8_t aat_b,
  * can answer another REQA. Preserves the current antenna-tuning registers. */
 esp_err_t st25r3916_field_reset(void);
 
-/* Reads a Type 2 Tag's (NTAG21x / MIFARE Ultralight family) user memory -
- * page 4 onward - into `out`, up to `out_cap` bytes; `*out_len` is set to
- * how much was actually read (may be less than out_cap: the tag's own
- * memory size, or a read failing partway, both end the read normally
- * rather than as an error). Checks the Capability Container's NDEF magic
- * byte (page 3 byte 0 = 0xE1) first and returns ESP_ERR_NOT_FOUND
- * immediately if it's absent - the tag was never NDEF-formatted.
+/* Reads Type 2 user memory (page 4 onward), bounded by `out_cap` and the
+ * Capability Container's advertised size; `*out_len` reports bytes copied.
+ * A read timeout/NAK after some data returns the partial data; a failed first
+ * user-memory read propagates unless it indicates an absent/short response.
+ * The CC must contain the NDEF magic byte (page 3 byte 0 = 0xE1); otherwise
+ * ESP_ERR_NOT_FOUND is returned. Authenticated reads are not supported.
  *
  * Only valid while a tag is selected: call it after a successful
  * st25r3916_try(), before st25r3916_close(). The bytes returned are raw
@@ -108,17 +99,19 @@ esp_err_t st25r3916_read_type2(uint8_t *out, size_t out_cap, size_t *out_len, in
  * task's). */
 void st25r3916_close(void);
 
-/* True while some task holds an open()/close() session. Cheap, non-blocking
- * check for callers that must not touch the chip or its bus at all while the
- * chip is mid-session (st25r3916_probe_identity() below, the nfcprobe rail
- * sweep). */
+/* True while some task owns the reader session or the exclusive probe guard. */
 bool st25r3916_busy(void);
 
-/* Diagnostic primitive: probe the IC identity register through the driver's
- * own permanent SPI device (the one wired up by st25r3916_init(), same one
- * st25r3916_open()/try() use) - deliberately does NOT create a temporary
- * spi_device_handle_t on the same CS pin. An earlier version did, and
- * ESP-IDF warned "GPIO 4 is conflict with others and be overwritten" every
+/* Reserve the reader against open() for a diagnostic that must manipulate
+ * NFC/SPI2 rails outside normal driver policy (nfcprobe). Non-blocking. Only
+ * the owning task can probe or release the reservation. */
+esp_err_t st25r3916_probe_begin(void);
+void st25r3916_probe_end(void);
+
+/* Diagnostic primitive: called only by the task owning probe_begin(); probes
+ * the IC identity through the permanent SPI device used by the reader API,
+ * and does NOT create a temporary spi_device_handle_t on the same CS pin.
+ * An earlier version did, and ESP-IDF warned "GPIO 4 is conflict with others and be overwritten" every
  * time it ran: adding a second device on a CS pin already bound to an
  * existing one reprograms the GPIO matrix routing for that pin, and nothing
  * guarantees spi_bus_remove_device() restores it correctly afterward for the
@@ -129,12 +122,9 @@ bool st25r3916_busy(void);
  * matrix state rather than a chip-side fault (a temporary device's own
  * reads were fine throughout).
  *
- * Touches no power rail either - lets a caller sweep whatever rail axes
- * matter (the NFC rail, the SD card's rail, LoRa's rail - any of which can
- * clamp this shared bus's MISO line through their own ESD protection
- * diodes when unpowered) without this call itself perturbing anything.
- * Fills out_id[2] with two consecutive reads and returns true when they
- * agree and carry the ST25R3916 type nibble.
+ * Touches no power rail; the probe owner controls the rail state. Fills
+ * out_id[2] with two consecutive reads and returns true when they agree and
+ * carry the ST25R3916 type nibble.
  *
  * No SPI mode/clock parameters (unlike the version this replaced): the
  * permanent device's settings are fixed at board-init time
@@ -143,11 +133,9 @@ bool st25r3916_busy(void);
  * timing section) and isn't worth the CS-sharing risk to re-ask. */
 bool st25r3916_probe_identity(uint8_t out_id[2]);
 
-/* Convenience wrapper: open(), one try(), close(). Equivalent to this
- * driver's original one-shot-per-call behavior - prefer st25r3916_open()/
- * st25r3916_try()/st25r3916_close() for anything that polls more than
- * once, since this pays the full bring-up cost (and a rail power-cycle)
- * on every call. */
+/* Convenience wrapper: open(), one try(), close(). Use open()/try()/close()
+ * for polling loops to avoid paying the full oscillator/configuration startup
+ * on every attempt. */
 esp_err_t st25r3916_poll(st25r3916_tag_t *tag, int timeout_ms);
 
 #ifdef __cplusplus
