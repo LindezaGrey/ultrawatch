@@ -70,6 +70,9 @@ void bhi260ap_reenable_sensors(void);
 /* True while the chip is in AP-suspend (host sleeping, FIFO polling paused). */
 bool bhi260ap_is_suspended(void);
 
+/* True when a wake-time resume failed and should be retried by the sensor task. */
+bool bhi260ap_resume_pending(void);
+
 /* Latest step count (persistent: on-chip counter + NVS base offset, so the
  * total survives reboots). */
 esp_err_t bhi260ap_get_step_count(uint32_t *steps);
@@ -102,7 +105,7 @@ esp_err_t bhi260ap_get_orientation(int16_t *heading, int16_t *pitch, int16_t *ro
 esp_err_t bhi260ap_get_rotation(int16_t *x, int16_t *y, int16_t *z, int16_t *w,
                                 uint16_t *accuracy);
 
-/* Latest activity-recognition class (bhi260ap_activity_t). */
+/* Latest activity-recognition class (bhi260ap_activity_t); activity must be non-NULL. */
 esp_err_t bhi260ap_get_activity(uint8_t *activity);
 
 /* Milliseconds credited to each activity class today (event-driven: exact

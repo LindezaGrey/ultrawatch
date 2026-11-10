@@ -803,10 +803,16 @@ static void bhi260_task(void *arg)
         fail_streak = 1;
     }
     for (;;) {
-        /* While the chip is in AP-suspend (host sleeping), no data flows by
-         * design: skip polling and the stale re-init so the wake-up gesture
-         * stream stays armed (re-init would leave AP-suspend and flood the
-         * wake task with gesture events). */
+        /* A wake-time resume can time out behind an in-flight FIFO read. Retry
+         * here rather than leaving the sensor task parked in AP-suspend. */
+        if (bhi260ap_resume_pending()) {
+            esp_err_t resume_err = bhi260ap_ap_resume();
+            if (resume_err != ESP_OK) {
+                ESP_LOGW(TAG, "BHI260AP resume retry failed: %s", esp_err_to_name(resume_err));
+            }
+        }
+        /* While still suspended, keep polling and stale recovery paused so the
+         * wake-up gesture stream stays armed. */
         if (bhi260ap_is_suspended()) {
             vTaskDelay(pdMS_TO_TICKS(200));
             continue;

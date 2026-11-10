@@ -327,19 +327,23 @@ static int8_t bhy2_hif_get_fifo(uint8_t reg,
                                 struct bhy2_hif_dev *hif)
 {
     int8_t rslt = BHY2_OK;
-    uint8_t n_bytes[2];
+    uint8_t n_bytes[2] = { 0 };
     uint32_t read_len;
     uint32_t read_write_len;
     uint32_t offset;
 
     if ((hif != NULL) && (fifo != NULL) && (bytes_read != NULL) && (bytes_remain != NULL))
     {
+        *bytes_read = 0;
         read_write_len = hif->read_write_len;
 
         if (*bytes_remain == 0)
         {
             rslt = bhy2_hif_get_regs(reg, n_bytes, 2, hif); /* Read the the available size */
-            *bytes_remain = BHY2_LE2U16(n_bytes);
+            if (rslt == BHY2_OK)
+            {
+                *bytes_remain = BHY2_LE2U16(n_bytes);
+            }
         }
 
         if ((*bytes_remain != 0) && (rslt == BHY2_OK))
@@ -367,12 +371,22 @@ static int8_t bhy2_hif_get_fifo(uint8_t reg,
                 offset += read_write_len;
             }
 
-            if (read_len != 0)
+            if ((rslt == BHY2_OK) && (read_len != 0))
             {
                 rslt = bhy2_hif_get_regs(reg, &fifo[offset], read_len, hif);
             }
 
-            *bytes_remain -= *bytes_read;
+            if (rslt == BHY2_OK)
+            {
+                *bytes_remain -= *bytes_read;
+            }
+            else
+            {
+                /* A failed read may have consumed part of the FIFO stream;
+                 * don't retain an offset based on the uncompleted request. */
+                *bytes_read = 0;
+                *bytes_remain = 0;
+            }
         }
     }
     else

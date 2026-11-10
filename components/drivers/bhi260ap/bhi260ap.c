@@ -50,6 +50,7 @@ static volatile uint32_t s_meta_print_count;
 static struct bhy2_dev s_bhy2;
 static bool s_initialized;
 static volatile bool s_ap_suspended;
+static volatile bool s_resume_pending;
 static uint32_t s_step_count;
 static uint32_t s_step_base;   /* persisted offset: total = base + count */
 static uint32_t s_last_data_tick;   /* tick at last sensor event (freshness) */
@@ -187,8 +188,11 @@ static void daily_capture_locked(int64_t now)
     activity_day_steps(&s_days.current, lifetime);
     s_step_base = lifetime;
     s_step_at_base = s_step_count;
-    if (s_day_ready) activity_day_credit(&s_days.current, s_activity, &s_activity_since_us, now);
-    else s_activity_since_us = now;
+    if (s_day_ready && !s_ap_suspended) {
+        activity_day_credit(&s_days.current, s_activity, &s_activity_since_us, now);
+    } else {
+        activity_day_resume(&s_activity_since_us, now);
+    }
 }
 
 esp_err_t bhi260ap_daily_checkpoint(void)
@@ -230,6 +234,16 @@ static void bhi260ap_delay_us(uint32_t period_us, void *intf_ptr)
     esp_rom_delay_us(period_us);
 }
 
+/* Gesture latches are shared by FIFO callbacks and consume_gestures(). */
+static portMUX_TYPE s_gesture_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static void latch_gesture(volatile bool *latch)
+{
+    portENTER_CRITICAL(&s_gesture_mux);
+    *latch = true;
+    portEXIT_CRITICAL(&s_gesture_mux);
+}
+
 /* ---- FIFO parse callbacks ---- */
 
 /* Called on any real sensor sample; marks the data stream as alive. */
@@ -252,6 +266,11 @@ uint32_t bhi260ap_get_data_age_ms(void)
 bool bhi260ap_is_suspended(void)
 {
     return s_ap_suspended;
+}
+
+bool bhi260ap_resume_pending(void)
+{
+    return s_resume_pending;
 }
 
 static void parse_meta_event(const struct bhy2_fifo_parse_data_info *callback_info, void *callback_ref)
@@ -401,7 +420,11 @@ static void parse_activity(const struct bhy2_fifo_parse_data_info *callback_info
     int64_t now = esp_timer_get_time();
     if (s_step_mux == NULL) return;
     xSemaphoreTake(s_step_mux, portMAX_DELAY);
-    if (s_day_ready) activity_day_credit(&s_days.current, s_activity, &s_activity_since_us, now);
+    if (s_day_ready && !s_ap_suspended) {
+        activity_day_credit(&s_days.current, s_activity, &s_activity_since_us, now);
+    } else {
+        activity_day_resume(&s_activity_since_us, now);
+    }
     s_activity = new_activity;
     s_activity_since_us = now;
     xSemaphoreGive(s_step_mux);
@@ -412,7 +435,7 @@ static void parse_wrist_tilt(const struct bhy2_fifo_parse_data_info *callback_in
 {
     (void)callback_ref;
     if (callback_info->data_size >= 1 && callback_info->data_ptr[0]) {
-        s_wrist_tilt = true;
+        latch_gesture(&s_wrist_tilt);
         ESP_LOGI(TAG, "wrist tilt event (fifo=%d)", (int)callback_info->fifo_type);
     }
 }
@@ -421,7 +444,7 @@ static void parse_wake_gesture(const struct bhy2_fifo_parse_data_info *callback_
 {
     (void)callback_ref;
     if (callback_info->data_size >= 1 && callback_info->data_ptr[0]) {
-        s_wake_gesture = true;
+        latch_gesture(&s_wake_gesture);
         ESP_LOGI(TAG, "wake gesture event (fifo=%d)", (int)callback_info->fifo_type);
     }
 }
@@ -430,7 +453,7 @@ static void parse_glance_gesture(const struct bhy2_fifo_parse_data_info *callbac
 {
     (void)callback_ref;
     if (callback_info->data_size >= 1 && callback_info->data_ptr[0]) {
-        s_glance_gesture = true;
+        latch_gesture(&s_glance_gesture);
     }
 }
 
@@ -438,7 +461,7 @@ static void parse_pickup_gesture(const struct bhy2_fifo_parse_data_info *callbac
 {
     (void)callback_ref;
     if (callback_info->data_size >= 1 && callback_info->data_ptr[0]) {
-        s_pickup_gesture = true;
+        latch_gesture(&s_pickup_gesture);
     }
 }
 
@@ -446,7 +469,7 @@ static void parse_tilt_detector(const struct bhy2_fifo_parse_data_info *callback
 {
     (void)callback_ref;
     if (callback_info->data_size >= 1 && callback_info->data_ptr[0]) {
-        s_tilt_detector = true;
+        latch_gesture(&s_tilt_detector);
     }
 }
 
@@ -717,10 +740,14 @@ void bhi260ap_reenable_sensors(void)
 /* Poll the FIFO once; returns ESP_OK on success. */
 esp_err_t bhi260ap_process_fifo(void)
 {
-    if (!s_initialized || s_ap_suspended) {
+    if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
     xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
+    if (!s_initialized || s_ap_suspended) {
+        xSemaphoreGiveRecursive(s_bhy2_mux);
+        return ESP_ERR_INVALID_STATE;
+    }
     uint8_t work[BHY2_FIFO_BUFFER_SIZE];
     int8_t rslt = bhy2_get_and_process_fifo(work, sizeof(work), &s_bhy2);
     xSemaphoreGiveRecursive(s_bhy2_mux);
@@ -738,14 +765,34 @@ esp_err_t bhi260ap_drain_wakeup_fifo(void)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
-    xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
-    for (int attempt = 0; attempt < 5 && gpio_get_level(GPIO_NUM_8) == 0; attempt++) {
-        uint8_t drain[BHY2_FIFO_BUFFER_SIZE];
-        bhy2_get_and_process_fifo(drain, sizeof(drain), &s_bhy2);
-        vTaskDelay(pdMS_TO_TICKS(20));
+    if (s_ap_suspended && s_resume_pending) {
+        return ESP_ERR_INVALID_STATE;
     }
-    esp_err_t ret = (gpio_get_level(GPIO_NUM_8) == 1) ? ESP_OK : ESP_ERR_TIMEOUT;
-    xSemaphoreGiveRecursive(s_bhy2_mux);
+    esp_err_t ret = ESP_OK;
+    for (int attempt = 0; attempt < 5 && gpio_get_level(GPIO_NUM_8) == 0; attempt++) {
+        xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
+        if (!s_initialized) {
+            xSemaphoreGiveRecursive(s_bhy2_mux);
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (s_ap_suspended && s_resume_pending) {
+            xSemaphoreGiveRecursive(s_bhy2_mux);
+            return ESP_ERR_INVALID_STATE;
+        }
+        uint8_t drain[BHY2_FIFO_BUFFER_SIZE];
+        int8_t rslt = bhy2_get_and_process_fifo(drain, sizeof(drain), &s_bhy2);
+        xSemaphoreGiveRecursive(s_bhy2_mux);
+        if (rslt != BHY2_OK) {
+            ret = ESP_FAIL;
+            break;
+        }
+        if (gpio_get_level(GPIO_NUM_8) == 0) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+    if (gpio_get_level(GPIO_NUM_8) != 1 && ret == ESP_OK) {
+        ret = ESP_ERR_TIMEOUT;
+    }
     return ret;
 }
 
@@ -761,79 +808,114 @@ esp_err_t bhi260ap_drain_wakeup_fifo(void)
  * wake gestures are kept. */
 esp_err_t bhi260ap_ap_suspend(void)
 {
-    if (!s_initialized) {
+    if (!s_initialized || s_bhy2_mux == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
     xSemaphoreTakeRecursive(s_bhy2_mux, portMAX_DELAY);
+    if (!s_initialized) {
+        xSemaphoreGiveRecursive(s_bhy2_mux);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_ap_suspended) {
+        xSemaphoreGiveRecursive(s_bhy2_mux);
+        return ESP_OK;
+    }
+
     step_fold();   /* persist steps accumulated since the last fold */
-    bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_GLANCE_GESTURE, 0.0f, 0, &s_bhy2);
-    bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_PICKUP_GESTURE, 0.0f, 0, &s_bhy2);
-    s_ap_suspended = true;
-    bhy2_flush_fifo(0xFF, &s_bhy2);   /* 0xFF = flush all virtual sensors */
+    int8_t rslt = bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_GLANCE_GESTURE, 0.0f, 0, &s_bhy2);
+    if (rslt == BHY2_OK) {
+        rslt = bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_PICKUP_GESTURE, 0.0f, 0, &s_bhy2);
+    }
+    if (rslt == BHY2_OK) {
+        rslt = bhy2_flush_fifo(0xFF, &s_bhy2);   /* 0xFF = flush all virtual sensors */
+    }
     uint8_t intr_ctrl = 0;
-    bhy2_get_host_interrupt_ctrl(&intr_ctrl, &s_bhy2);
-    int8_t rslt = bhy2_set_host_intf_ctrl(BHY2_HIF_CTRL_AP_SUSPENDED, &s_bhy2);
+    if (rslt == BHY2_OK) {
+        rslt = bhy2_get_host_interrupt_ctrl(&intr_ctrl, &s_bhy2);
+    }
+    if (rslt == BHY2_OK) {
+        rslt = bhy2_set_host_intf_ctrl(BHY2_HIF_CTRL_AP_SUSPENDED, &s_bhy2);
+    }
     if (rslt != BHY2_OK) {
+        /* A partial transition must not strand the task in its suspended
+         * polling branch. Best-effort restore the awake configuration. */
+        int8_t glance_rslt = bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_GLANCE_GESTURE, 1.0f, 0, &s_bhy2);
+        int8_t pickup_rslt = bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_PICKUP_GESTURE, 1.0f, 0, &s_bhy2);
+        int8_t resume_rslt = bhy2_set_host_intf_ctrl(0, &s_bhy2);
+        s_ap_suspended = resume_rslt != BHY2_OK;
+        s_resume_pending = s_ap_suspended || glance_rslt != BHY2_OK || pickup_rslt != BHY2_OK;
         ESP_LOGW(TAG, "AP suspend failed: %d", rslt);
         xSemaphoreGiveRecursive(s_bhy2_mux);
         return ESP_FAIL;
     }
 
-    /* Drain any event that slipped into the wake-up FIFO during the suspend
-     * transition (disabling glance/pickup, the FIFO flush, or the AP-suspend
-     * handshake can each leave one behind, and a real gesture can land at the
-     * same time). With the WU watermark at 1 such a leftover holds the INT line
-     * low while the host sleeps, and the arming gate in pm_arm_gpio_wakeup()
-     * would then see GPIO8 low and disable gesture wake for the whole cycle.
-     * Consume them now so the line de-asserts back to its idle-high state
-     * before the ESP32 arms the level wake. */
-    bhi260ap_drain_wakeup_fifo();
+    int64_t now = esp_timer_get_time();
+    xSemaphoreTake(s_step_mux, portMAX_DELAY);
+    if (s_day_ready) activity_day_pause(&s_days.current, s_activity, &s_activity_since_us, now);
+    else s_activity_since_us = now;
+    s_ap_suspended = true;
+    xSemaphoreGive(s_step_mux);
+    s_resume_pending = false;
 
     ESP_LOGI(TAG, "AP suspend (host sleeping) intr_ctrl=0x%02x gpio8=%d",
              (unsigned)intr_ctrl, (int)gpio_get_level(GPIO_NUM_8));
     xSemaphoreGiveRecursive(s_bhy2_mux);
-    return ESP_OK;
+
+    /* Clear any event that arrived during the suspend handshake. Do this
+     * outside the outer transaction lock so each drain attempt can release it. */
+    return bhi260ap_drain_wakeup_fifo();
 }
 
 /* Host is awake again; resume the normal (non-wakeup) sensor streams.
  *
- * Called from power_mgmt.c's wake path, BEFORE the panel is woken - a
- * live incident showed the display stuck white after a GPIO wake, with the
- * rest of the system (console, scheduler) still responsive, and a full
- * panel-level recovery (power-cycle the display rail, resend wake commands)
- * unable to bring it back. Root cause wasn't conclusively pinned down (the
- * device had to be rebooted to restore it before more diagnostics could be
- * taken), but this function sitting ahead of co5300_wake() in the wake
- * sequence means anything that makes it block would delay the panel wake
- * indefinitely - so unlike every other bhy2 entry point here, this one
- * takes the lock with a bounded wait rather than portMAX_DELAY: if it can't
- * get in quickly (bhi260_task mid-poll, or worse, wedged), skip resuming
- * the IMU cleanly rather than risk blocking the caller (and therefore the
- * panel wake) forever. A skipped resume just means gesture sensitivity
- * stays at its suspended settings for one cycle - not user-visible the way
- * a stuck white screen is. See power_mgmt.c's wake function, which also
- * now wakes the panel first regardless. */
+ * Called from power_mgmt.c's wake path after the panel has been made visible,
+ * so a slow sensor transaction cannot delay the user's screen. Use a bounded
+ * lock wait anyway: a wedged bhy2 transaction must not block the wake path.
+ * Failed or deferred resume is retried by the sensor task after this call
+ * returns. */
 esp_err_t bhi260ap_ap_resume(void)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
+    if (!s_ap_suspended && !s_resume_pending) {
+        return ESP_OK;
+    }
     if (xSemaphoreTakeRecursive(s_bhy2_mux, pdMS_TO_TICKS(200)) != pdTRUE) {
-        ESP_LOGW(TAG, "AP resume: bhy2 busy, skipping this cycle");
+        s_resume_pending = true;
+        ESP_LOGW(TAG, "AP resume: bhy2 busy, scheduling retry");
         return ESP_ERR_TIMEOUT;
     }
-    /* No data flowed while the chip was in AP-suspend (by design), so the
-     * staleness clock reads old. Reset it so the FIFO re-init logic doesn't
-     * declare the resumed stream dead before its first sample arrives. */
-    bhi260ap_mark_data();
-    /* Re-enable the gestures that were paused during sleep. */
-    bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_GLANCE_GESTURE, 1.0f, 0, &s_bhy2);
-    bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_PICKUP_GESTURE, 1.0f, 0, &s_bhy2);
-    int8_t rslt = bhy2_set_host_intf_ctrl(0, &s_bhy2);
-    s_ap_suspended = false;
+    if (!s_initialized) {
+        xSemaphoreGiveRecursive(s_bhy2_mux);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    int8_t resume_rslt = BHY2_OK;
+    if (s_ap_suspended) {
+        resume_rslt = bhy2_set_host_intf_ctrl(0, &s_bhy2);
+        if (resume_rslt == BHY2_OK) {
+            xSemaphoreTake(s_step_mux, portMAX_DELAY);
+            activity_day_resume(&s_activity_since_us, esp_timer_get_time());
+            s_ap_suspended = false;
+            xSemaphoreGive(s_step_mux);
+            /* No data flowed during AP-suspend; give the resumed stream time to
+             * deliver its first sample before stale-data recovery runs. */
+            bhi260ap_mark_data();
+        }
+    }
+
+    int8_t glance_rslt = BHY2_OK;
+    int8_t pickup_rslt = BHY2_OK;
+    if (resume_rslt == BHY2_OK) {
+        glance_rslt = bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_GLANCE_GESTURE, 1.0f, 0, &s_bhy2);
+        pickup_rslt = bhy2_set_virt_sensor_cfg(BHY2_SENSOR_ID_PICKUP_GESTURE, 1.0f, 0, &s_bhy2);
+    }
+    s_resume_pending = (resume_rslt != BHY2_OK || glance_rslt != BHY2_OK || pickup_rslt != BHY2_OK);
     xSemaphoreGiveRecursive(s_bhy2_mux);
-    if (rslt != BHY2_OK) {
-        ESP_LOGW(TAG, "AP resume failed: %d", rslt);
+    if (s_resume_pending) {
+        ESP_LOGW(TAG, "AP resume incomplete: host=%d glance=%d pickup=%d",
+                 resume_rslt, glance_rslt, pickup_rslt);
         return ESP_FAIL;
     }
     ESP_LOGI(TAG, "AP resume (host awake)");
@@ -864,6 +946,7 @@ void bhi260ap_deinit(void)
 
     s_initialized = false;
     s_ap_suspended = false;
+    s_resume_pending = false;
     s_step_count = 0;
     s_step_at_base = 0;
     s_last_data_tick = 0;
@@ -878,11 +961,13 @@ void bhi260ap_deinit(void)
      * bhi260ap_daily_update(), and should survive a mid-day sensor
      * power-cycle. */
     s_activity_since_us = esp_timer_get_time();
+    portENTER_CRITICAL(&s_gesture_mux);
     s_wrist_tilt = false;
     s_wake_gesture = false;
     s_glance_gesture = false;
     s_pickup_gesture = false;
     s_tilt_detector = false;
+    portEXIT_CRITICAL(&s_gesture_mux);
 
     if (step_locked) {
         xSemaphoreGive(s_step_mux);
@@ -894,15 +979,17 @@ void bhi260ap_deinit(void)
 
 esp_err_t bhi260ap_get_step_count(uint32_t *steps)
 {
+    if (!steps) {
+        return ESP_ERR_INVALID_ARG;
+    }
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
-    uint32_t total = 0;
-    if (xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) == pdTRUE) {
-        total = s_step_base + (s_step_count - s_step_at_base);
-        xSemaphoreGive(s_step_mux);
+    if (s_step_mux == NULL || xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
     }
-    *steps = total;
+    *steps = s_step_base + (s_step_count - s_step_at_base);
+    xSemaphoreGive(s_step_mux);
     return ESP_OK;
 }
 
@@ -1094,10 +1181,17 @@ esp_err_t bhi260ap_get_rotation(int16_t *x, int16_t *y, int16_t *z, int16_t *w,
 
 esp_err_t bhi260ap_get_activity(uint8_t *activity)
 {
+    if (!activity) {
+        return ESP_ERR_INVALID_ARG;
+    }
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
+    if (s_step_mux == NULL || xSemaphoreTake(s_step_mux, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
     *activity = (uint8_t)s_activity;
+    xSemaphoreGive(s_step_mux);
     return ESP_OK;
 }
 
@@ -1124,13 +1218,14 @@ esp_err_t bhi260ap_get_activity_ms(uint32_t out_ms[BHI260AP_ACTIVITY_COUNT])
     }
     bhi260ap_activity_t cur = s_activity;
     int64_t since = s_activity_since_us;
+    bool suspended = s_ap_suspended;
     xSemaphoreGive(s_step_mux);
 
     /* Add the live elapsed time for the currently-active class: it hasn't
      * been credited to s_activity_ms yet, that only happens when it ends
      * (the next parse_activity() transition). Same pattern as
      * bhi260ap_get_step_count()'s base+live-delta combination. */
-    int64_t elapsed_us = esp_timer_get_time() - since;
+    int64_t elapsed_us = suspended ? 0 : esp_timer_get_time() - since;
     if (elapsed_us > 0) {
         uint32_t elapsed_ms = (uint32_t)(elapsed_us / 1000);
         if (out_ms[cur] <= UINT32_MAX - elapsed_ms) {
@@ -1146,6 +1241,7 @@ esp_err_t bhi260ap_consume_gestures(bool *wrist_tilt, bool *wake_gesture, bool *
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
+    portENTER_CRITICAL(&s_gesture_mux);
     if (wrist_tilt) {
         *wrist_tilt = s_wrist_tilt;
         s_wrist_tilt = false;
@@ -1166,6 +1262,7 @@ esp_err_t bhi260ap_consume_gestures(bool *wrist_tilt, bool *wake_gesture, bool *
         *tilt = s_tilt_detector;
         s_tilt_detector = false;
     }
+    portEXIT_CRITICAL(&s_gesture_mux);
     return ESP_OK;
 }
 

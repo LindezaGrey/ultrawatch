@@ -39,3 +39,14 @@ void activity_day_credit(activity_day_t *day, unsigned activity, int64_t *since_
         *since_us = now_us;
     }
 }
+
+void activity_day_pause(activity_day_t *day, unsigned activity, int64_t *since_us, int64_t now_us)
+{
+    activity_day_credit(day, activity, since_us, now_us);
+    *since_us = now_us;
+}
+
+void activity_day_resume(int64_t *since_us, int64_t now_us)
+{
+    *since_us = now_us;
+}

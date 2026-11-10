@@ -19,3 +19,5 @@ void activity_day_steps(activity_day_t *day, uint32_t lifetime);
 void activity_days_ack(activity_days_t *days);
 
 void activity_day_credit(activity_day_t *day, unsigned activity, int64_t *since_us, int64_t now_us);
+void activity_day_pause(activity_day_t *day, unsigned activity, int64_t *since_us, int64_t now_us);
+void activity_day_resume(int64_t *since_us, int64_t now_us);

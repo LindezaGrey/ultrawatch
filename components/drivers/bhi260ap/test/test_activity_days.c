@@ -63,5 +63,12 @@ int main(void)
     activity_day_credit(&fractional,0,&since,499);
     activity_day_credit(&fractional,0,&since,1001);
     assert(fractional.ms[0]==1 && since==1000);
+    /* Host sleep credits awake time before sleep, not the sleep interval. */
+    activity_day_t sleep_day = {0};
+    since=0;
+    activity_day_pause(&sleep_day,2,&since,10000000);
+    activity_day_resume(&since,110000000);
+    activity_day_credit(&sleep_day,2,&since,115000000);
+    assert(sleep_day.ms[2]==15000);
     return 0;
 }

@@ -75,6 +75,17 @@ jobs:
             -o /tmp/test_cst9217_logic
           /tmp/test_cst9217_logic
 
+      - name: Test BHI260AP activity accounting
+        run: |
+          gcc -D_GNU_SOURCE -Wall -Wextra -Werror -UNDEBUG -std=c11 \
+            -I components/drivers/bhi260ap/include \
+            -I main/services \
+            components/drivers/bhi260ap/test/test_activity_days.c \
+            components/drivers/bhi260ap/activity_days.c \
+            main/services/daily_archive.c \
+            -o /tmp/test_activity_days
+          /tmp/test_activity_days
+
       - name: Run static analysis
         run: bash tools/run_cppcheck.sh
       - name: Build simulator and capture the watch face

@@ -560,7 +560,11 @@ void power_mgmt_sparmodus_enter_sleep(void)
      * first for a clean stop of bhi260_task's I2C polling (same rationale
      * as the LoRa handshake above; that task already skips polling once
      * suspended) before cutting the rail a moment later. */
-    bhi260ap_ap_suspend();
+    esp_err_t imu_suspend_err = bhi260ap_ap_suspend();
+    if (imu_suspend_err != ESP_OK) {
+        ESP_LOGW(TAG, "Ultra-Sparmodus: BHI260AP suspend incomplete: %s",
+                 esp_err_to_name(imu_suspend_err));
+    }
     axp2101_enable_rail(twatch_pmu_dev, AXP2101_ALDO4, false);
 
     /* NFC (DLDO1): deliberately left untouched, matching the normal
@@ -1285,7 +1289,33 @@ esp_err_t power_mgmt_enter_sleep(void *ctx)
         return display_err;
     }
     /* Tracking needs live FIFO samples even with the display off. */
-    if (!tracking_is_active()) bhi260ap_ap_suspend();
+    if (!tracking_is_active()) {
+        esp_err_t imu_suspend_err = bhi260ap_ap_suspend();
+        if (imu_suspend_err != ESP_OK) {
+            bool imu_ready = false;
+            bhi260ap_get_status(&imu_ready, NULL);
+            if (!imu_ready) {
+                /* No running IMU means there is no active stream to suspend. */
+                ESP_LOGW(TAG, "BHI260AP unavailable during sleep setup: %s",
+                         esp_err_to_name(imu_suspend_err));
+            } else {
+                if (bhi260ap_is_suspended()) {
+                    /* AP suspend succeeded but FIFO draining/verification failed.
+                     * Roll back before aborting sleep. */
+                    esp_err_t resume_err = bhi260ap_ap_resume();
+                    if (resume_err != ESP_OK) {
+                        ESP_LOGW(TAG, "BHI260AP suspend rollback deferred: %s",
+                                 esp_err_to_name(resume_err));
+                    }
+                }
+                ESP_LOGW(TAG, "BHI260AP suspend incomplete; aborting sleep: %s",
+                         esp_err_to_name(imu_suspend_err));
+                display_controller_request_visible(DISPLAY_REASON_WAKE);
+                power_mgmt_report_activity();
+                return imu_suspend_err;
+            }
+        }
+    }
 
     /* Disable unused peripheral rails. ALDO4 (sensor) is kept ON: the
      * BHI260AP runs its wake-up sensors in AP-suspend mode (wrist-raise wake)
@@ -1412,8 +1442,11 @@ esp_err_t power_mgmt_exit_sleep(void *ctx)
 
     /* Resume the IMU wake-up streams now that the panel is up - see the
      * comment above co5300_wake() for why this moved to run after, not
-     * before, the panel wake. */
-    bhi260ap_ap_resume();
+     * before, the panel wake. The sensor task retries failures asynchronously. */
+    esp_err_t imu_resume_err = bhi260ap_ap_resume();
+    if (imu_resume_err != ESP_OK) {
+        ESP_LOGW(TAG, "BHI260AP resume deferred: %s", esp_err_to_name(imu_resume_err));
+    }
 
     /* Safety net: clear any pending AXP IRQ (de-asserts the GPIO7 line).
      * Detailed power-key reporting happens in pm_wake_task. */

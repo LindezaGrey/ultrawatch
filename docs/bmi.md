@@ -11,7 +11,7 @@ T-Watch Ultra. Verified on hardware unless marked otherwise.
 | I2C address | `0x28` |
 | INT pin | ESP32 **GPIO8** (`TWATCH_PIN_IMU_INT`) |
 | Power rail | AXP2101 **ALDO4** (sensor) |
-| Firmware | `/assets/bhi260/BHI260AP.fw`, 106,156 bytes (SPIFFS) |
+| Firmware | `/assets/bhi260/BHI260AP.fw`, 103,676 bytes (SPIFFS; SHA-256 `318def51…f9e915`) |
 | Product ID | `0x89` (expected `0x89`) |
 | Kernel version | 5991 |
 
@@ -83,7 +83,7 @@ So the driver uses:
   vector); heading is reported as `0` (magnetometer-only).
 
 Gestures are natively wake-type; the `*_WU` sensor variants (ACC_WU, STC_WU,
-…) also exist and could replace the non-wake streams during AP-suspend.
+…) also exist in the API, but are not configured as separate streams here.
 
 ## AP-suspend wake architecture
 
@@ -105,9 +105,13 @@ Sequence on sleep (`power_mgmt_enter_sleep`):
 
 On wake (`power_mgmt_exit_sleep`):
 
-1. `bhi260ap_ap_resume()` — clear the AP-suspend bit.
-2. `co5300_wake()` + brightness, then `lvgl_force_redraw()` (the SPI flush path
-   does not auto-refresh on resume, and the GRAM was blanked).
+1. Wake and restore the panel first, so a delayed IMU bus transaction cannot
+   block visible recovery.
+2. `bhi260ap_ap_resume()` clears the AP-suspend bit and restores paused gestures.
+   If the bounded bus-lock wait or a sensor command fails, `bhi260_task` retries
+   asynchronously rather than remaining parked in the suspended state. If sleep
+   setup itself fails, the light-sleep callback returns an error and requests the
+   panel visible again instead of entering sleep with an awake or uncertain IMU.
 
 ### Wake path wiring
 
@@ -121,13 +125,13 @@ On wake (`power_mgmt_exit_sleep`):
 ### Two gotchas found while debugging
 
 1. **Wake-up FIFO watermark defaults to 0** (never asserts the interrupt).
-   `bhy2_set_fifo_wmark_wkup(4, ...)` is required for gesture wake. This was
+   `bhy2_set_fifo_wmark_wkup(1, ...)` is required for gesture wake. This was
    the root cause of "wrist-raise doesn't wake".
 2. **Do not re-init while suspended.** The sensor task's stale-data watchdog
    would deinit + re-init the chip during AP-suspend (no data flows by
    design), which leaves AP-suspend and floods the wake task with gesture
-   events. The task now skips polling and stale-checking while
-   `bhi260ap_is_suspended()`.
+   events. The task skips polling and stale-checking while suspended, but checks
+   for and retries any deferred resume before it takes that branch.
 
 ## Gestures
 

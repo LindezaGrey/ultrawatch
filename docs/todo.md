@@ -1024,17 +1024,10 @@ dropping a completed day; the lock order `s_bhy2_mux` → `s_persist_mux` →
 `day_steps=0, lifetime=82971` at 14 Oct 04:06 — the daily counter rolled at the
 next boot and the lifetime total survived all three night reboots.
 
-1. [pending] **Medium: light sleep is credited as activity time.**
-   `bhi260ap_ap_suspend()` (`bhi260ap.c:762`) folds steps but leaves
-   `s_activity_since_us` open, and `BHY2_SENSOR_ID_AR` is an AP-FIFO sensor that
-   `ap_suspend()` even flushes, so no transition is seen while asleep. The next
-   `parse_activity()` or `bhi260ap_daily_update()` then credits the whole sleep to
-   the class that happened to be current when the watch dozed — session 1 slept in
-   290 s stretches, so that is minutes at a time. Usually the class is STILL,
-   which is harmless; the 14 Oct morning shows 250 of 404 samples as `unknown`,
-   and every one of those minutes is booked to `UNKNOWN`. Decide the intended
-   meaning of `ms[UNKNOWN]` and either close the window in `ap_suspend()`/reopen
-   it in `ap_resume()`, or subtract the slept interval.
+1. [fixed, awaiting device validation] **Medium: light sleep was credited as
+   activity time.** The activity clock now closes at AP-suspend and restarts at
+   AP-resume; host tests cover a sleep gap. `UNKNOWN` retains its existing
+   meaning for awake intervals where the classifier has no active class.
 2. [pending] **Low: dead legacy NVS keys.** `step_base_load()` reads
    `STEP_NVS_DAY`, `STEP_NVS_TOTAL`, `STEP_NVS_DAY_START` and `STEP_NVS_DAY_LAST`,
    and nothing in the tree writes any of them; `STEP_NVS_DAY_ID` is neither read
