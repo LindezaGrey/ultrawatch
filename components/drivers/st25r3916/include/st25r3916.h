@@ -15,7 +15,8 @@
  * has not proven reliable after power-cycling following bring-up, and LilyGo's
  * reference firmware leaves the rail on at boot. open() performs full config;
  * repeated try() calls only redo REQA/anticollision. close() stops the RF field
- * and releases shared SPI2 hazard rails, but leaves DLDO1 on. */
+ * and releases shared SPI2 hazard rails, but leaves DLDO1 on. A failed initial
+ * bring-up may power-cycle DLDO1 before returning, as no working session exists. */
 #pragma once
 
 #include <stddef.h>
@@ -56,7 +57,9 @@ esp_err_t st25r3916_init(spi_device_handle_t spi, i2c_master_dev_handle_t pmu);
  * console command can never interleave bring-up, RF field state, or the
  * antenna-tuning registers. try()/tuning_measure()/field_reset()/
  * read_type2() answer the same way if called outside the caller's own
- * session. */
+ * session. An external-field collision-avoidance veto returns
+ * ESP_ERR_INVALID_STATE without cycling the initialized rail; on that veto,
+ * open() releases ownership and callers should not call close(). */
 esp_err_t st25r3916_open(void);
 
 /* One REQA + anticollision/select cascade attempt against whatever chip
@@ -111,7 +114,7 @@ void st25r3916_probe_end(void);
 /* Diagnostic primitive: called only by the task owning probe_begin(); probes
  * the IC identity through the permanent SPI device used by the reader API,
  * and does NOT create a temporary spi_device_handle_t on the same CS pin.
- * An earlier version did, and ESP-IDF warned "GPIO 4 is conflict with others and be overwritten" every
+ * An earlier version did, and ESP-IDF warned about a GPIO 4 conflict each
  * time it ran: adding a second device on a CS pin already bound to an
  * existing one reprograms the GPIO matrix routing for that pin, and nothing
  * guarantees spi_bus_remove_device() restores it correctly afterward for the
