@@ -6,6 +6,8 @@ idf_component_register(
         esp_common
         log
     PRIV_REQUIRES
+        esp_timer
+        freertos
         nvs_flash
         i2c_bus
 )

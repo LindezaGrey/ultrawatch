@@ -342,7 +342,10 @@ esp_err_t twatch_board_init(void)
      * touch_controller after the board has made buses and pins available. */
     pcf85063a_init(twatch_rtc_dev);
     sync_system_time();
-    drv2605_init(twatch_haptic_dev);
+    err = drv2605_init(twatch_haptic_dev);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "DRV2605 init failed: %s", esp_err_to_name(err));
+    }
     err = twatch_i2s_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "audio I2S channel init failed: %s", esp_err_to_name(err));
