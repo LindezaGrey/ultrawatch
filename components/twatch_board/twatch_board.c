@@ -343,8 +343,15 @@ esp_err_t twatch_board_init(void)
     pcf85063a_init(twatch_rtc_dev);
     sync_system_time();
     drv2605_init(twatch_haptic_dev);
-    twatch_i2s_init();
-    max98357a_init(twatch_audio_tx);
+    err = twatch_i2s_init();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "audio I2S channel init failed: %s", esp_err_to_name(err));
+    } else {
+        err = max98357a_init(twatch_audio_tx);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "MAX98357A init failed: %s", esp_err_to_name(err));
+        }
+    }
     t3902_init(twatch_audio_rx);
     m10q_init(twatch_pmu_dev, twatch_rtc_dev);
     err = spi2_power_hold(AXP2101_RAIL_MAX);
