@@ -11,6 +11,7 @@ managed_components/
 
 # SD card mount / logs
 sdcard/
+logs/
 
 # OpenOCD / tooling temp files
 openocd.log
