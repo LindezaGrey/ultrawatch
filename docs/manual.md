@@ -145,7 +145,8 @@ the UI never blocks on the I2C bus:
 
 - **BHI260AP** (accel/gyro/RV/steps/activity) — own `bhi260` task polls the FIFO;
   the UI reads cached RAM values.
-- **M10Q GNSS** — own UART RX task parses fixes; the UI reads cached RAM values.
+- **M10Q GNSS** — ubxlib handles UART RX; short callbacks update cached RAM data,
+  while a worker handles first-fix persistence and logging. The UI reads the cache.
 - **AXP2101 PMU + PCF85063A RTC** — a low-priority `sensor_cache` task polls
   them once per second into a RAM struct; the watch face and power screen read
   this snapshot instead of doing I2C reads. `cachedump` shows the cache.

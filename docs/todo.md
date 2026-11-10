@@ -18,7 +18,7 @@ This document captures the differences between the `docs/m10Q.md` best-practices
 - Dynamic platform model (Airborne<2g=7, Automotive=4, Pedestrian=3, Stationary=2)
 - Signal integrity (Super-S, ITFM interference detection)
 - Power save mode (PSM/CT, cyclic tracking)
-- UART & output rates (115200+/baud, NMEA filtering)
+- UART baud increase/probing beyond factory 38400 and output-rate tuning
 - Quick checklist for drone/High-Performance
 - Example `UBX-CFG-VALSET` sequence (pseudo-code)
 

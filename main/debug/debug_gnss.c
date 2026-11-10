@@ -63,11 +63,8 @@ void debug_gnss_status(const char *args)
     /* Dump GNSS state, fix, and satellites. */
     m10q_fix_t fix;
     m10q_get_fix(&fix);
-    uint32_t rx = 0, lines = 0;
-    m10q_get_dbg(&rx, &lines);
-    printf("gnss: state=%d valid=%d rx=%lu lines=%lu gsv=%lu\n",
+    printf("gnss: state=%d valid=%d gsv=%lu\n",
            (int)m10q_get_state(), (int)fix.valid,
-           (unsigned long)rx, (unsigned long)lines,
            (unsigned long)m10q_get_gsv_count());
     if (fix.valid) {
         printf("gnss: pos %.5f %.5f alt %.0fm\n", fix.lat, fix.lon, fix.alt_m);
@@ -95,10 +92,7 @@ void debug_gnss_status(const char *args)
                (unsigned long)st.total_fixes, (unsigned long)st.fixes_today,
                (unsigned long)st.ttf_avg_ms, (unsigned long)st.ttf_best_ms);
     }
-    uint16_t agc = 0;
-    if (m10q_get_agc(&agc) == ESP_OK) {
-        printf("gnss: agc=%u\n", (unsigned)agc);
-    }
+    printf("gnss: AGC unavailable (MIA-M10Q does not support MON-RF)\n");
 }
 
 void debug_gnss_check(const char *args)
@@ -141,11 +135,7 @@ void debug_gnss_lpk(const char *args)
 void debug_gnss_raw(const char *args)
 {
     (void)args;
-    printf("gnssraw: dumping raw UART for 8 s...\n");
-    m10q_set_raw_dump(true);
-    vTaskDelay(pdMS_TO_TICKS(8000));
-    m10q_set_raw_dump(false);
-    printf("gnssraw: dump stopped\n");
+    puts("gnssraw: unavailable; ubxlib owns UART RX");
 }
 
 void debug_gnss_probe(const char *args)

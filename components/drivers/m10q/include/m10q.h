@@ -1,8 +1,8 @@
 /*
- * m10q.h - u-blox MIA-M10Q GNSS receiver (UART, NMEA-0183).
+ * m10q.h - u-blox MIA-M10Q GNSS receiver (UART, UBX via ubxlib).
  *
- * Uses the Espressif UART driver; NMEA parsing (GGA/RMC/GSV) is implemented
- * in this component. TX 43 -> GNSS RX, RX 44 <- GNSS TX, PPS 13.
+ * ubxlib owns UART RX and parses the configured UBX messages. TX 43 -> GNSS
+ * RX, RX 44 <- GNSS TX, PPS 13.
  *
  * Power: the receiver runs on AXP2101 BLDO1. It is normally powered off; the
  * always-on VRTC backup rail keeps the receiver's RTC + ephemeris alive at
@@ -65,17 +65,17 @@ m10q_state_t m10q_get_state(void);
 /* Cumulative fix statistics. */
 esp_err_t m10q_get_stats(m10q_stats_t *stats);
 
-/* Last MON-RF AGC counter (0 = weak signal, 8191 = saturated). */
+/* MON-RF is not supported by the MIA-M10Q; returns ESP_ERR_NOT_SUPPORTED. */
 esp_err_t m10q_get_agc(uint16_t *agc);
 
-/* Re-poll MON-RF AGC now (the receiver answers asynchronously). */
+/* Deprecated no-op: MON-RF diagnostics are not supported by this receiver. */
 void m10q_poll_agc(void);
 
 /* Seed the receiver with an approximate position (degrees) via MGA-INI
  * POS_LLH for faster acquisition when no ephemeris is stored. */
 void m10q_seed_position(double lat, double lon);
 
-/* Debug counters: bytes received and NMEA lines parsed since power-on. */
+/* Deprecated debug counters; currently return zero (raw UART access belongs to ubxlib). */
 void m10q_get_dbg(uint32_t *rx_bytes, uint32_t *nmea_lines);
 
 /* Debug: number of GSV sentences seen since power-on. */
@@ -85,7 +85,7 @@ uint32_t m10q_get_gsv_count(void);
  * validity flags. updated=false until the first message arrives. */
 esp_err_t m10q_get_nav_status(m10q_nav_status_t *nav);
 
-/* Debug: toggle raw UART dump (prints every received NMEA/UBX byte). */
+/* Deprecated no-op: ubxlib owns the UART RX stream, so raw dumping is unavailable. */
 void m10q_set_raw_dump(bool on);
 
 /* Force a PPS-based RTC drift calibration now (re-runs even if a previous

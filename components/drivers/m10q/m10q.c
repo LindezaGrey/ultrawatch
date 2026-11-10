@@ -28,6 +28,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
 
 #include "ubxlib.h"
 #include "u_gnss_module_type.h"
@@ -40,13 +41,15 @@
 #define TAG "m10q"
 
 #define M10Q_UART_NUM    1       /* ESP32 UART1 for the GNSS receiver */
-#define M10Q_BAUD        115200  /* target UART speed (raised at init) */
+#define M10Q_BAUD        38400   /* factory UART speed used by this driver */
 
 /* ---- static state ---- */
 static i2c_master_dev_handle_t s_pmu;
 static i2c_master_dev_handle_t s_rtc;
-static bool s_powered;
-static bool s_opened;            /* uDeviceOpen done */
+static bool s_powered;            /* receiver fully configured and running */
+static bool s_rail_on;            /* last observed BLDO1 state */
+static bool s_rail_state_known;
+static bool s_opened;             /* uDeviceOpen done */
 static uGnssVersionType_t s_versions;
 static bool s_versions_valid;
 static bool s_session_time_synced;
@@ -55,11 +58,19 @@ static uDeviceHandle_t s_gnss;   /* ubxlib GNSS device handle */
 static m10q_fix_t s_fix;
 static m10q_stats_t s_stats;
 static m10q_nav_status_t s_nav_status;
-static uint32_t s_rx_bytes;      /* debug */
-static uint32_t s_nmea_lines;    /* debug */
-static uint32_t s_gsv_count;     /* debug */
-static uint16_t s_agc;           /* always 0 (MIA-M10Q does not answer MON-RF) */
-static volatile bool s_dump_raw;
+typedef struct {
+    uint32_t generation;
+    bool valid;
+    double lat, lon;
+    uint16_t sats;
+    time_t utc;
+} m10q_fix_event_t;
+
+static uint32_t s_power_generation;
+static TaskHandle_t s_fix_task;
+static QueueHandle_t s_fix_queue;
+static SemaphoreHandle_t s_fix_work_mux;
+static uint32_t s_gsv_count;     /* NAV-SAT frames received */
 
 static bool s_had_fix;
 static uint32_t s_ttf_start_ms;
@@ -99,9 +110,35 @@ static time_t s_pending_utc;             /* UTC epoch from last fix; 0 = none */
 static void rtc_sync_from_utc(time_t utc);
 static void cal_run(void);
 static void cal_task(void *arg);
+static void fix_task(void *arg);
+static void position_updated(bool valid, double lat, double lon, uint16_t sats, time_t utc);
 static void offset_save(void);
 static void offset_load(void);
 static void mga_ini_seed(void);
+
+/* Verify BLDO1 changes before recording the observed hardware state. */
+static esp_err_t m10q_set_rail(bool enable)
+{
+    if (s_pmu == NULL) return ESP_ERR_INVALID_STATE;
+    esp_err_t set_err = axp2101_enable_rail(s_pmu, AXP2101_BLDO1, enable);
+    if (set_err == ESP_OK) {
+        s_rail_on = enable;
+        s_rail_state_known = true;
+        return ESP_OK;
+    }
+    bool enabled = false;
+    esp_err_t read_err = axp2101_is_rail_enabled(s_pmu, AXP2101_BLDO1, &enabled);
+    if (read_err != ESP_OK) {
+        s_rail_state_known = false;
+        return read_err;
+    }
+    s_rail_on = enabled;
+    s_rail_state_known = true;
+    if (enabled != enable) {
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
 
 /* ---- RTC sync + PPS drift calibration ----
  * GNSS time is UTC (from UBX-NAV-PVT timeUtc); the RTC stores UTC too, so
@@ -170,6 +207,24 @@ static void cal_task(void *arg)
             cal_run();
         }
         s_cal_active = false;
+    }
+}
+
+static void fix_task(void *arg)
+{
+    (void)arg;
+    m10q_fix_event_t event;
+    for (;;) {
+        if (xQueueReceive(s_fix_queue, &event, portMAX_DELAY) == pdTRUE) {
+            xSemaphoreTake(s_fix_work_mux, portMAX_DELAY);
+            m10q_data_lock();
+            bool current = event.generation == s_power_generation && s_powered;
+            m10q_data_unlock();
+            if (current) {
+                position_updated(event.valid, event.lat, event.lon, event.sats, event.utc);
+            }
+            xSemaphoreGive(s_fix_work_mux);
+        }
     }
 }
 
@@ -558,6 +613,9 @@ static void nav_pvt_cb(uDeviceHandle_t handle, const uGnssMessageId_t *id,
 {
     (void)arg;
     if (length != 100 || !id || id->type != U_GNSS_PROTOCOL_UBX || id->id.ubx != 0x0107) return;
+    m10q_data_lock();
+    uint32_t generation = s_power_generation;
+    m10q_data_unlock();
     uint8_t frame[100];
     if (uGnssMsgReceiveCallbackRead(handle, (char *)frame, sizeof(frame)) != sizeof(frame)) return;
     m10q_data_lock();
@@ -567,7 +625,18 @@ static void nav_pvt_cb(uDeviceHandle_t handle, const uGnssMessageId_t *id,
     uint16_t sats = s_fix.sat_count;
     time_t utc = fix_utc_epoch(&s_fix);
     m10q_data_unlock();
-    if (decoded) position_updated(valid, lat, lon, sats, utc);
+    if (decoded && s_fix_queue != NULL) {
+        m10q_fix_event_t event;
+        event.generation = generation;
+        event.valid = valid;
+        event.lat = lat;
+        event.lon = lon;
+        event.sats = sats;
+        event.utc = utc;
+        if (xQueueSend(s_fix_queue, &event, 0) != pdTRUE) {
+            ESP_LOGW(TAG, "GNSS fix event queue full; dropped event");
+        }
+    }
 }
 
 static void nav_dop_cb(uDeviceHandle_t handle, const uGnssMessageId_t *id,
@@ -584,20 +653,73 @@ static void nav_dop_cb(uDeviceHandle_t handle, const uGnssMessageId_t *id,
 
 /* ---- Public API ---- */
 
+/* Caller holds s_fix_work_mux to exclude pending first-fix persistence. */
+static void m10q_clear_runtime_state(void)
+{
+    m10q_data_lock();
+    s_powered = false;
+    s_had_fix = false;
+    s_power_generation++;
+    memset(&s_fix, 0, sizeof(s_fix));
+    s_fix.hdop = UINT16_MAX;
+    memset(&s_nav_status, 0, sizeof(s_nav_status));
+    m10q_data_unlock();
+    s_pending_utc = 0;
+    if (s_cal_active) {
+        s_cal_active = false;
+        gpio_set_intr_type(M10Q_PIN_PPS, GPIO_INTR_DISABLE);
+        gpio_isr_handler_remove(M10Q_PIN_PPS);
+    }
+    if (s_fix_queue) {
+        xQueueReset(s_fix_queue);
+    }
+}
+
 esp_err_t m10q_init(i2c_master_dev_handle_t pmu, i2c_master_dev_handle_t rtc)
 {
     s_pmu = pmu;
     s_rtc = rtc;
     s_powered = false;
+    s_rail_state_known = false;
     s_opened = false;
     s_pending_utc = 0;
     memset(&s_fix, 0, sizeof(s_fix));
     if (!s_data_mux) {
         s_data_mux = xSemaphoreCreateMutex();
+        if (!s_data_mux) {
+            return ESP_ERR_NO_MEM;
+        }
     }
     stats_load();
     offset_load();
     if (xTaskCreate(cal_task, "rtccal", 4096, NULL, 3, &s_cal_task) != pdPASS) {
+        s_cal_task = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    s_fix_queue = xQueueCreate(4, sizeof(m10q_fix_event_t));
+    if (!s_fix_queue) {
+        vTaskDelete(s_cal_task);
+        s_cal_task = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    s_fix_work_mux = xSemaphoreCreateMutex();
+    if (!s_fix_work_mux) {
+        vQueueDelete(s_fix_queue);
+        s_fix_queue = NULL;
+        vTaskDelete(s_cal_task);
+        s_cal_task = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+    m10q_data_lock();
+    s_power_generation = 0;
+    m10q_data_unlock();
+    if (xTaskCreate(fix_task, "gnss_fix", 4096, NULL, 3, &s_fix_task) != pdPASS) {
+        s_fix_task = NULL;
+        vSemaphoreDelete(s_fix_work_mux);
+        s_fix_work_mux = NULL;
+        vQueueDelete(s_fix_queue);
+        s_fix_queue = NULL;
+        vTaskDelete(s_cal_task);
         s_cal_task = NULL;
         return ESP_ERR_NO_MEM;
     }
@@ -606,7 +728,37 @@ esp_err_t m10q_init(i2c_master_dev_handle_t pmu, i2c_master_dev_handle_t rtc)
 
 esp_err_t m10q_power(bool on)
 {
-    if (on == s_powered) {
+    if (!s_data_mux || !s_fix_queue || !s_fix_work_mux) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (on && s_powered && s_opened && s_rail_state_known && s_rail_on) {
+        return ESP_OK;
+    }
+    if (on && s_powered && (!s_opened || !s_rail_state_known || !s_rail_on)) {
+        if (!s_fix_work_mux) return ESP_ERR_INVALID_STATE;
+        xSemaphoreTake(s_fix_work_mux, portMAX_DELAY);
+        if (s_opened) {
+            int32_t close_err = uDeviceClose(s_gnss, false);
+            if (close_err != 0) {
+                m10q_data_lock();
+                s_powered = false;
+                m10q_data_unlock();
+                xSemaphoreGive(s_fix_work_mux);
+                return ESP_FAIL;
+            }
+            s_opened = false;
+            s_gnss = NULL;
+            uart_driver_delete(M10Q_UART_NUM);
+        }
+        esp_err_t rail_err = m10q_set_rail(false);
+        if (rail_err != ESP_OK) {
+            xSemaphoreGive(s_fix_work_mux);
+            return rail_err;
+        }
+        m10q_clear_runtime_state();
+        xSemaphoreGive(s_fix_work_mux);
+    }
+    if (!on && !s_powered && !s_opened && s_rail_state_known && !s_rail_on) {
         return ESP_OK;
     }
     if (on) {
@@ -622,12 +774,26 @@ esp_err_t m10q_power(bool on)
             s_ubxlib_init = true;
         }
 
-        /* Power the receiver rail and let it boot. */
-        axp2101_enable_rail(s_pmu, AXP2101_BLDO1, true);
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        /* Start a distinct session so queued callback work from an older
+         * power cycle cannot persist stale fix statistics. */
+        xSemaphoreTake(s_fix_work_mux, portMAX_DELAY);
         m10q_data_lock();
-        s_powered = true;
+        s_power_generation++;
+        s_powered = false;
+        memset(&s_fix, 0, sizeof(s_fix));
+        s_fix.hdop = UINT16_MAX;
+        memset(&s_nav_status, 0, sizeof(s_nav_status));
         m10q_data_unlock();
+        xQueueReset(s_fix_queue);
+
+        /* Power the receiver rail and let it boot. */
+        esp_err_t rail_err = m10q_set_rail(true);
+        if (rail_err != ESP_OK) {
+            ESP_LOGE(TAG, "BLDO1 enable failed: %s", esp_err_to_name(rail_err));
+            xSemaphoreGive(s_fix_work_mux);
+            return rail_err;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
 
         if (!s_opened) {
             uDeviceCfg_t cfg;
@@ -637,33 +803,51 @@ esp_err_t m10q_power(bool on)
             cfg.deviceCfg.cfgGnss.pinEnablePower = -1;   /* rail via AXP */
             cfg.transportType = U_DEVICE_TRANSPORT_TYPE_UART;
             cfg.transportCfg.cfgUart.uart = M10Q_UART_NUM;
-            cfg.transportCfg.cfgUart.baudRate = 38400;   /* factory baud; module reverts on power cycle */
+            cfg.transportCfg.cfgUart.baudRate = M10Q_BAUD; /* factory baud; module reverts on power cycle */
             cfg.transportCfg.cfgUart.pinTxd = M10Q_PIN_TX;
             cfg.transportCfg.cfgUart.pinRxd = M10Q_PIN_RX;
             cfg.transportCfg.cfgUart.pinCts = -1;
             cfg.transportCfg.cfgUart.pinRts = -1;
             int32_t err = uDeviceOpen(&cfg, &s_gnss);
             if (err != 0) {
-                /* The module may be mid-restart or at an unexpected baud
-                 * (RAM/BBRAM config persists via VRTC). A failed open can leave
-                 * the UART driver holding a power-management lock; delete it so
-                 * the retry starts clean and light-sleep stays possible. */
+                s_gnss = NULL;
+                /* A failed open can leave the UART driver holding a power-
+                 * management lock; delete it so retry starts clean and
+                 * light-sleep remains possible. */
                 ESP_LOGW(TAG, "uDeviceOpen failed (%d) on power-on #%lu; power-cycling and retrying",
                          (int)err, (unsigned long)pwr_no);
                 uart_driver_delete(M10Q_UART_NUM);
-                axp2101_enable_rail(s_pmu, AXP2101_BLDO1, false);
+                esp_err_t off_err = m10q_set_rail(false);
+                if (off_err != ESP_OK) {
+                    ESP_LOGE(TAG, "BLDO1 retry power-off failed: %s", esp_err_to_name(off_err));
+                    xSemaphoreGive(s_fix_work_mux);
+                    return off_err;
+                }
                 vTaskDelay(pdMS_TO_TICKS(500));
-                axp2101_enable_rail(s_pmu, AXP2101_BLDO1, true);
+                esp_err_t on_err = m10q_set_rail(true);
+                if (on_err != ESP_OK) {
+                    ESP_LOGE(TAG, "BLDO1 retry power-on failed: %s", esp_err_to_name(on_err));
+                    xSemaphoreGive(s_fix_work_mux);
+                    return on_err;
+                }
                 vTaskDelay(pdMS_TO_TICKS(1500));
                 err = uDeviceOpen(&cfg, &s_gnss);
                 if (err != 0) {
+                    s_gnss = NULL;
                     ESP_LOGE(TAG, "uDeviceOpen failed again (power-on #%lu): %d",
                              (unsigned long)pwr_no, (int)err);
+                    uart_driver_delete(M10Q_UART_NUM);
+                    esp_err_t cleanup_err = m10q_set_rail(false);
+                    if (cleanup_err != ESP_OK) {
+                        ESP_LOGE(TAG, "BLDO1 cleanup after open failure failed: %s",
+                                 esp_err_to_name(cleanup_err));
+                        xSemaphoreGive(s_fix_work_mux);
+                        return cleanup_err;
+                    }
                     m10q_data_lock();
                     s_powered = false;
                     m10q_data_unlock();
-                    uart_driver_delete(M10Q_UART_NUM);
-                    axp2101_enable_rail(s_pmu, AXP2101_BLDO1, false);
+                    xSemaphoreGive(s_fix_work_mux);
                     return ESP_ERR_INVALID_STATE;
                 }
             }
@@ -674,9 +858,26 @@ esp_err_t m10q_power(bool on)
         if (pwr_err != 0) {
             ESP_LOGE(TAG, "uGnssPwrOn failed (power-on #%lu): %d",
                      (unsigned long)pwr_no, (int)pwr_err);
-            m10q_power(false);
+            int32_t close_err = uDeviceClose(s_gnss, false);
+            if (close_err == 0) {
+                s_opened = false;
+                s_gnss = NULL;
+            }
+            uart_driver_delete(M10Q_UART_NUM);
+            esp_err_t rail_err = m10q_set_rail(false);
+            if (close_err != 0 || rail_err != ESP_OK) {
+                xSemaphoreGive(s_fix_work_mux);
+                return close_err != 0 ? ESP_FAIL : rail_err;
+            }
+            m10q_data_lock();
+            s_powered = false;
+            m10q_data_unlock();
+            xSemaphoreGive(s_fix_work_mux);
             return ESP_FAIL;
         }
+        m10q_data_lock();
+        s_powered = true;
+        m10q_data_unlock();
 
         m10q_data_lock();
         memset(&s_fix, 0, sizeof(s_fix));
@@ -738,7 +939,35 @@ esp_err_t m10q_power(bool on)
         int32_t rx = rate_err == 0 ? uGnssMsgReceiveStart(s_gnss, &pvt, nav_pvt_cb, NULL) : rate_err;
         if (rx < 0 || rate_err != 0) {
             ESP_LOGE(TAG, "NAV-PVT startup failed: %ld", (long)rx);
-            m10q_power(false);
+            m10q_data_lock();
+            s_powered = false;
+            m10q_data_unlock();
+            int32_t stop_err = uGnssMsgReceiveStopAll(s_gnss);
+            int32_t pwr_off_err = uGnssPwrOff(s_gnss);
+            int32_t close_err = uDeviceClose(s_gnss, false);
+            if (close_err == 0) {
+                s_opened = false;
+                s_gnss = NULL;
+            }
+            if (stop_err != 0 || pwr_off_err != 0 || close_err != 0) {
+                ESP_LOGW(TAG, "NAV-PVT rollback: stop=%ld power-off=%ld close=%ld",
+                         (long)stop_err, (long)pwr_off_err, (long)close_err);
+            }
+            uart_driver_delete(M10Q_UART_NUM);
+            if (pwr_off_err != 0 || close_err != 0) {
+                m10q_data_lock();
+                s_powered = true;
+                m10q_data_unlock();
+                xSemaphoreGive(s_fix_work_mux);
+                return ESP_FAIL;
+            }
+            esp_err_t rail_err = m10q_set_rail(false);
+            if (rail_err != ESP_OK) {
+                xSemaphoreGive(s_fix_work_mux);
+                return rail_err;
+            }
+            m10q_clear_runtime_state();
+            xSemaphoreGive(s_fix_work_mux);
             return ESP_FAIL;
         }
         int32_t dop_cfg = U_GNSS_CFG_SET_VAL_RAM(s_gnss, MSGOUT_UBX_NAV_DOP_UART1_U1, 1);
@@ -748,14 +977,39 @@ esp_err_t m10q_power(bool on)
 
         s_power_on_count = pwr_no;
         power_on_count_save();
+        xSemaphoreGive(s_fix_work_mux);
         ESP_LOGI(TAG, "POWER-ON #%lu complete (BLDO1 at %u baud)", (unsigned long)pwr_no,
                  (unsigned)M10Q_BAUD);
     } else {
+        xSemaphoreTake(s_fix_work_mux, portMAX_DELAY);
+        int32_t close_err = 0;
         if (s_opened) {
-            uGnssMsgReceiveStopAll(s_gnss);
-            uGnssPwrOff(s_gnss);
-            uDeviceClose(s_gnss, false);
-            s_opened = false;
+            int32_t stop_err = uGnssMsgReceiveStopAll(s_gnss);
+            int32_t pwr_off_err = uGnssPwrOff(s_gnss);
+            if (pwr_off_err != 0) {
+                ESP_LOGW(TAG, "uGnssPwrOff failed (%ld); keeping receiver rail on", (long)pwr_off_err);
+                m10q_data_lock();
+                s_powered = true;
+                m10q_data_unlock();
+                xSemaphoreGive(s_fix_work_mux);
+                return ESP_FAIL;
+            }
+            close_err = uDeviceClose(s_gnss, false);
+            if (close_err == 0) {
+                s_opened = false;
+                s_gnss = NULL;
+            }
+            if (stop_err != 0 || pwr_off_err != 0 || close_err != 0) {
+                ESP_LOGW(TAG, "ubxlib shutdown: stop=%ld power-off=%ld close=%ld",
+                         (long)stop_err, (long)pwr_off_err, (long)close_err);
+            }
+            if (close_err != 0) {
+                m10q_data_lock();
+                s_powered = false;
+                m10q_data_unlock();
+                xSemaphoreGive(s_fix_work_mux);
+                return ESP_FAIL;
+            }
         }
         /* Ensure the UART driver is fully removed so it does not hold a power
          * lock that would block light sleep. */
@@ -764,26 +1018,30 @@ esp_err_t m10q_power(bool on)
         m10q_fix_t final_fix;
         m10q_get_fix(&final_fix);
         if (final_fix.valid) {
+            /* A valid PVT event may still be queued behind this shutdown lock.
+             * Record it here before the queue is cleared; the worker drops it
+             * afterward because the power generation changes at shutdown. */
+            if (!s_had_fix) {
+                position_updated(true, final_fix.lat, final_fix.lon, final_fix.sat_count,
+                                 fix_utc_epoch(&final_fix));
+            }
             int32_t olat = 0, olon = 0;
             lkp_load(&olat, &olon);
             if (m10q_distance_m(olat / 1e7, olon / 1e7, final_fix.lat, final_fix.lon) >= 50) {
                 lkp_persist(final_fix.lat, final_fix.lon);
             }
         }
-        axp2101_enable_rail(s_pmu, AXP2101_BLDO1, false);
-        m10q_data_lock();
-        s_powered = false;
-        memset(&s_fix, 0, sizeof(s_fix));
-        s_fix.hdop = UINT16_MAX;
-        memset(&s_nav_status, 0, sizeof(s_nav_status));
-        m10q_data_unlock();
-        s_pending_utc = 0;
-        /* Abort an in-flight PPS calibration (GNSS rail is now off). */
-        if (s_cal_active) {
-            s_cal_active = false;
-            gpio_set_intr_type(M10Q_PIN_PPS, GPIO_INTR_DISABLE);
-            gpio_isr_handler_remove(M10Q_PIN_PPS);
+        esp_err_t rail_err = m10q_set_rail(false);
+        if (rail_err != ESP_OK) {
+            ESP_LOGE(TAG, "BLDO1 disable failed: %s", esp_err_to_name(rail_err));
+            m10q_data_lock();
+            s_powered = false;
+            m10q_data_unlock();
+            xSemaphoreGive(s_fix_work_mux);
+            return rail_err;
         }
+        m10q_clear_runtime_state();
+        xSemaphoreGive(s_fix_work_mux);
         ESP_LOGI(TAG, "POWER-OFF #%lu (backup RAM kept)", (unsigned long)s_power_on_count);
     }
     return ESP_OK;
@@ -844,13 +1102,13 @@ esp_err_t m10q_get_agc(uint16_t *agc)
     if (!agc) {
         return ESP_ERR_INVALID_ARG;
     }
-    *agc = s_agc;
-    return ESP_OK;
+    *agc = 0;
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
 void m10q_poll_agc(void)
 {
-    /* MIA-M10Q does not answer UBX-MON-RF; s_agc stays 0. */
+    /* MON-RF is unsupported by this receiver. */
 }
 
 void m10q_seed_position(double lat, double lon)
@@ -871,12 +1129,8 @@ void m10q_seed_position(double lat, double lon)
 
 void m10q_get_dbg(uint32_t *rx_bytes, uint32_t *nmea_lines)
 {
-    if (rx_bytes) {
-        *rx_bytes = s_rx_bytes;
-    }
-    if (nmea_lines) {
-        *nmea_lines = s_nmea_lines;
-    }
+    if (rx_bytes) *rx_bytes = 0;
+    if (nmea_lines) *nmea_lines = 0;
 }
 
 uint32_t m10q_get_gsv_count(void)
@@ -978,7 +1232,7 @@ static void mga_ini_seed(void)
 
 void m10q_set_raw_dump(bool on)
 {
-    s_dump_raw = on;
+    (void)on;
 }
 
 void m10q_rtc_calibrate(void)

@@ -549,8 +549,8 @@ void lvgl_build_nfc_screen(void)
 }
 
 /* Worker task that actually powers the GNSS receiver. m10q_power() blocks for
- * up to a few seconds (baud probe + configuration), so it must not run on the
- * LVGL task or the UI freezes. */
+ * up to a few seconds (receiver startup + configuration), so it must not run
+ * on the LVGL task or the UI freezes. */
 static void gps_ctrl_task(void *arg)
 {
     (void)arg;

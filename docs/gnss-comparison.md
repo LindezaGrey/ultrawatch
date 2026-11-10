@@ -7,19 +7,19 @@ the implementation that can be verified here.
 
 ## Receiver and protocol
 
-- u-blox MIA-M10Q on UART, with baud probing at 38400/115200/9600 and normal
-  operation at 115200 baud.
-- NMEA GGA/RMC/GSV provide fix, speed, course and per-satellite skyplot data.
-- UBX NAV-PVT supplies measured horizontal accuracy; MON-VER identifies the
-  module; MON-RF exposes AGC diagnostics.
-- Validity requires the expected NMEA fix status. Position is stored in
-  degrees, altitude in metres, and horizontal accuracy in millimetres.
+- u-blox MIA-M10Q on UART, opened at the module's factory 38400 baud. This
+  driver does not probe alternate rates or change the module baud.
+- UBX NAV-PVT provides position, time, speed, course, fix quality and accuracy;
+  NAV-SAT supplies skyplot data.
+- MON-VER identifies the module. MON-RF is unsupported by this receiver, so AGC
+  is unavailable.
+- Fix validity comes from the NAV-PVT fix type/flags. Position is stored in
+  degrees, altitude in metres, and horizontal accuracy in metres.
 
 ## Configuration and aiding
 
-- GPS, Galileo, BeiDou B1I, QZSS and SBAS are enabled; B1C and GLONASS are
-  disabled.
-- The receiver uses automatic 2D/3D fix mode with a three-satellite minimum.
+- Constellation selection, dynamic model, and minimum satellite count are not
+  configured by this driver; receiver defaults or persisted module settings apply.
 - RTC UTC time and the persisted last-known position are sent as MGA-INI aiding
   when useful.
 - TTFF, fix counts and the last-known position are persisted in NVS.
