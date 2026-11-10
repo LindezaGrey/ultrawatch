@@ -44,8 +44,12 @@ sleep keeps the existing ALDO2/touch policy.
 - it owns CST9217 reset/init and arming/disarming GPIO12 as a wake source;
 - `power_mgmt` decides whether touch wake is permitted, including night mode;
 - the LVGL adapter consumes touch samples, and the UI owns gestures and navigation;
-- display recovery may ask it to quiesce only if a future recovery path needs
-  to disturb shared touch hardware.
+- current CO5300 recovery resets panel GPIO37 and/or cycles XL9555 P7 `VCI_EN`;
+  it does not switch AXP2101 ALDO2 / connector `LCD_VDD`, pulse CST9217 reset
+  (XL9555 P8), or change touch-wake policy (GPIO12). The schematic separates
+  those signals, so the display recovery path should not power-cycle touch. If
+  future recovery needs to reset or power-cycle touch, it must coordinate
+  through `touch_controller` rather than manipulate those resources directly.
 
 `touch_controller` is deliberately a service rather than a task: touch reset
 and startup occur once, and wake configuration runs synchronously as part of
@@ -87,8 +91,7 @@ Any state -> RECOVERING -> AWAITING_DRAW | FAULT
 
 `READY` means the panel is initialised, blank, and output-off. `AWAITING_DRAW`
 means it is ready to accept pixels but must remain output-off until a real draw
-completes. `FAULT` is safe black/off state after an unrecoverable command
-failure and is visible through diagnostics.
+completes. `FAULT` records an unrecoverable command failure and is visible through diagnostics. A visible request from `FAULT` retries panel reset, reinitialisation, blanking, and brightness before requesting a full redraw.
 
 Brightness is controller state, but brightness policy is not: `power_mgmt`
 persists normal brightness, decides the night-mode override, and submits the

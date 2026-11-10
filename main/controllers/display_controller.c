@@ -177,7 +177,8 @@ static void display_controller_task(void *arg)
         }
 
         if (cmd.type == DISPLAY_CMD_VISIBLE) {
-            if ((s_state == DISPLAY_STATE_READY || s_state == DISPLAY_STATE_SLEEPING) && s_lvgl_attached) {
+            if ((s_state == DISPLAY_STATE_READY || s_state == DISPLAY_STATE_SLEEPING ||
+                 s_state == DISPLAY_STATE_FAULT) && s_lvgl_attached) {
                 esp_err_t err = ESP_OK;
                 if (s_state == DISPLAY_STATE_READY) {
                     if (esp_lv_adapter_lock(1000) != ESP_OK) {
@@ -188,7 +189,7 @@ static void display_controller_task(void *arg)
                     esp_lv_adapter_unlock();
                 } else {
                     if (esp_lv_adapter_lock(1000) != ESP_OK) {
-                        ESP_LOGW(TAG, "panel wake: LVGL lock timeout");
+                        ESP_LOGW(TAG, "panel wake/recovery: LVGL lock timeout");
                         continue;
                     }
                     err = co5300_reinit(true, true);
@@ -202,7 +203,7 @@ static void display_controller_task(void *arg)
                 }
                 if (err != ESP_OK) {
                     s_state = DISPLAY_STATE_FAULT;
-                    ESP_LOGE(TAG, "panel wake: %s", esp_err_to_name(err));
+                    ESP_LOGE(TAG, "panel wake/recovery: %s", esp_err_to_name(err));
                     continue;
                 }
                 s_state = DISPLAY_STATE_AWAITING_DRAW;

@@ -19,7 +19,7 @@ parser caps points at one); multi-touch gestures are not enabled.
 - The LVGL adapter owns the touch interrupt callback. The power-management
   layer separately arms/disarms GPIO12 as an active-low light-sleep wake source;
   wake-configuration errors are logged.
-- Reset is on XL9555 P8 and is owned by `touch_controller`/the board API.
+- Reset is on XL9555 P8 and is owned by `touch_controller`/the board API. CO5300 recovery uses its separate GPIO37 reset and XL9555 P7 panel-VCI control; ALDO2 / connector `LCD_VDD` (which powers touch) remains on, and touch wake configuration is unchanged. The schematic supports this separation; functional touch behavior after display VCI cycling has not been device-tested.
 
 Host tests cover project-owned resolution/coordinate bounds logic. They do not
 exercise the vendor parser, I²C transactions, GPIO interrupt timing, or touch

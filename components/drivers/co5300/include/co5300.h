@@ -52,7 +52,7 @@ esp_err_t co5300_deinit(void);
  * reflecting what it is sent. Caller must hold the LVGL lock. */
 esp_err_t co5300_reinit(bool with_hw_reset, bool leave_display_off);
 
-/* Panel sleep (SLPIN) / wake (SLPOUT + DISPON + brightness). */
+/* Panel sleep (SLPIN) / wake (SLPOUT + delay + brightness; DISPON is separate). */
 esp_err_t co5300_sleep(void);
 esp_err_t co5300_wake(void);
 
