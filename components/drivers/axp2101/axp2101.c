@@ -1,0 +1,552 @@
+#include <string.h>
+#include "axp2101.h"
+#include "axp2101_logic.h"
+#include "esp_check.h"
+#include "esp_log.h"
+#include "i2c_bus.h"
+
+static const char *TAG = "axp2101";
+
+#define AXP2101_I2C_TIMEOUT_MS 100
+
+#define AXP_REG_IC_TYPE         0x03
+#define AXP_REG_DC_ONOFF_DVM    0x80
+#define AXP_REG_LDO_ONOFF0      0x90
+#define AXP_REG_LDO_ONOFF1      0x91
+#define AXP_REG_LDO_VOL0        0x92 /* ALDO1 */
+#define AXP_REG_ADC_CHANNEL     0x30
+#define AXP_REG_ADC_DATA0       0x34 /* batt volt hi */
+#define AXP_REG_ADC_DATA1       0x35 /* batt volt lo */
+#define AXP_REG_ADC_DATA_TEMP0  0x3C /* die/battery temp hi (H6L8) */
+#define AXP_REG_ADC_DATA_TEMP1  0x3D
+#define AXP_REG_CHG_GAUGE_WDT   0x18 /* charging + gauge + watchdog ctrl */
+#define AXP_REG_LOW_SOC_LVL     0x1A /* low battery warning levels (see axp2101_set_low_soc_levels) */
+#define AXP_REG_ICC_CHG_SET     0x62 /* constant charge current */
+#define AXP_REG_BTN_BATT_CHG_V  0x6A /* button battery charge termination voltage */
+#define AXP_REG_BAT_PERCENT     0xA4
+#define AXP_REG_STATUS1         0x00
+#define AXP_REG_STATUS2         0x01
+#define AXP_REG_INTEN1     0x40
+#define AXP_REG_INTEN2     0x41
+#define AXP_REG_INTSTS1    0x48
+#define AXP_REG_INTSTS2    0x49
+#define AXP_REG_INTSTS3    0x4A
+#define AXP_REG_COMMON_CFG 0x10 /* bit0 = Soft PWROFF (RWAC) */
+#define AXP_REG_PWROFF_EN  0x22 /* bit1 = PWRON>OFFLEVEL as POWEROFF source enable */
+#define AXP_REG_OFFLEVEL   0x27 /* bits3:2 = OFFLEVEL (long-press threshold) */
+
+#define AXP_INTEN2_PEK    0x0F   /* bits 0-3: press/release edge, long, short */
+#define AXP_INTEN2_VBUS_INSERT (1u << 7)   /* datasheet REG41 bit7: vinsert_irq enable */
+/* REG40 ("IRQ Enable 0") bit4: the fuel gauge's periodic "new SOC reading"
+ * interrupt. Not a low-battery alarm despite the name power_mgmt.c gives the
+ * matching status bit - it simply fires every time the gauge refreshes its
+ * state-of-charge estimate, roughly every 20 s, forever. */
+#define AXP_INTEN1_NEWSOC (1u << 4)
+/* REG40 bits 7/6: the gauge's two low-SOC alarms, whose levels REG1AH sets.
+ * Both are enabled by the system reset default; axp2101_set_low_soc_levels()
+ * sets them explicitly anyway. */
+#define AXP_INTEN1_SOCWL2 (1u << 7)   /* "SOC drop to Warning Level2" */
+#define AXP_INTEN1_SOCWL1 (1u << 6)   /* "SOC drop to Warning Level1" */
+#define AXP_PWROFF_EN_PWRON_OFFLEVEL  (1u << 1)
+#define AXP_COMMON_CFG_SOFT_PWROFF    (1u << 0)
+#define AXP_OFFLEVEL_MASK   0x0C   /* bits 3:2 */
+#define AXP_OFFLEVEL_4S     0x00   /* 00: 4s, 01: 6s (POR default), 10: 8s, 11: 10s */
+
+/* 0x18 bit 1 = main (Cell) battery charging enabled (CHARGE_GAUGE_WDT_CTRL). */
+#define AXP_CHG_CTRL_CHARGE  (1u << 1)
+/* 0x18 bit 2 = Button Battery (RTC backup) charging enabled. Defaults
+ * disabled and resets to disabled on every system reset. */
+#define AXP_CHG_CTRL_BTN_BATT (1u << 2)
+
+/* 0x6A bits 2:0 = button battery charge termination voltage, 2.6-3.3V in
+ * 100mV steps; 011b = 2.9V is also the chip's own reset default. */
+#define AXP_BTN_BATT_CHG_V_MASK  0x07
+#define AXP_BTN_BATT_CHG_V_2V9   0x03
+
+/* 0x62 charge current code (XPowers AXP2101 CHG_CUR encoding):
+ * 0=0mA 4=100mA 5=125 6=150 7=175 8=200 9=300 10=400 11=500 ... 16=1000. */
+#define AXP_ICC_CHG_MASK     0x1F
+
+#define AXP_BATT_VOLT_MSB_BITS  5
+
+#define AXP_LDO_VOLT_MIN_MV     500
+#define AXP_LDO_VOLT_STEP_MV    100
+#define AXP_LDO_VOLT_MASK       0x1F
+
+/* 0x90 enable bits */
+#define AXP_EN_ALDO1   (1u << 0)
+#define AXP_EN_ALDO2   (1u << 1)
+#define AXP_EN_ALDO3   (1u << 2)
+#define AXP_EN_ALDO4   (1u << 3)
+#define AXP_EN_BLDO1   (1u << 4)
+#define AXP_EN_BLDO2   (1u << 5)
+/* REG 0x90 bit7 = dldo1, bit6 = cpusldo (datasheet 6.13.2.75). These were
+ * swapped here: DLDO1 was using bit6, so every "enable/disable DLDO1" call
+ * actually toggled CPUSLDO while the NFC rail sat at its EFUSE default. */
+#define AXP_EN_DLDO1   (1u << 7)
+/* CPUSLDO is 0x90 bit6, not 0x91 bit0 - it was grouped under 0x91 below and
+ * the "disable cpusldo" call therefore wrote DLDO2's enable bit instead. */
+#define AXP_EN_CPUSLDO (1u << 6)
+
+/* 0x91 enable bits */
+#define AXP_EN_DLDO2   (1u << 0)
+
+/* 0x30 ADC channel enable bits */
+#define AXP_ADC_BATT   (1u << 0)
+#define AXP_ADC_VBUS   (1u << 2)
+#define AXP_ADC_SYS    (1u << 3)
+#define AXP_ADC_TEMP   (1u << 4)
+
+typedef struct {
+    uint8_t reg;
+    uint8_t en_mask;
+    uint16_t min_mv;
+    uint16_t max_mv;
+    uint16_t step_mv;
+    uint8_t vol_mask;
+} axp_rail_map_t;
+
+static const axp_rail_map_t s_rail_map[AXP2101_RAIL_MAX] = {
+    [AXP2101_ALDO1] = { AXP_REG_LDO_VOL0 + 0, AXP_EN_ALDO1, 500, 3500, 100, 0x1F },
+    [AXP2101_ALDO2] = { AXP_REG_LDO_VOL0 + 1, AXP_EN_ALDO2, 500, 3500, 100, 0x1F },
+    [AXP2101_ALDO3] = { AXP_REG_LDO_VOL0 + 2, AXP_EN_ALDO3, 500, 3500, 100, 0x1F },
+    [AXP2101_ALDO4] = { AXP_REG_LDO_VOL0 + 3, AXP_EN_ALDO4, 500, 3500, 100, 0x1F },
+    [AXP2101_BLDO1] = { AXP_REG_LDO_VOL0 + 4, AXP_EN_BLDO1, 500, 3500, 100, 0x1F },
+    [AXP2101_BLDO2] = { AXP_REG_LDO_VOL0 + 5, AXP_EN_BLDO2, 500, 3500, 100, 0x1F },
+    /* DLDO1's voltage register is 0x99, NOT 0x92+6=0x98 - 0x98 is CPUSLDO
+     * (datasheet 6.13.2.83/6.13.2.84). With +6 this wrote DLDO1's 3300mV
+     * encoding (0b11100) into CPUSLDO's register, where that value is
+     * reserved (CPUSLDO is 0.5-1.4V in 50mV steps), and left the real NFC
+     * rail unconfigured at its EFUSE default. DLDO1 itself is 0.5-3.4V in
+     * 100mV steps, so the min/step/mask below are correct; only the register
+     * index was wrong. */
+    [AXP2101_DLDO1] = { AXP_REG_LDO_VOL0 + 7, AXP_EN_DLDO1, 500, 3400, 100, 0x1F },
+};
+
+esp_err_t axp2101_read_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t *val)
+{
+    return i2c_bus_read(dev, reg, val, 1, AXP2101_I2C_TIMEOUT_MS);
+}
+
+esp_err_t axp2101_write_reg(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t val)
+{
+    return i2c_bus_write(dev, reg, &val, 1, AXP2101_I2C_TIMEOUT_MS);
+}
+
+static esp_err_t axp2101_set_bit(i2c_master_dev_handle_t dev, uint8_t reg, uint8_t mask, bool set)
+{
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, reg, &val), TAG, "read reg 0x%02x", reg);
+    if (set) {
+        val |= mask;
+    } else {
+        val &= (uint8_t)~mask;
+    }
+    return axp2101_write_reg(dev, reg, val);
+}
+
+esp_err_t axp2101_read_chip_id(i2c_master_dev_handle_t dev, uint8_t *id)
+{
+    return axp2101_read_reg(dev, AXP_REG_IC_TYPE, id);
+}
+
+esp_err_t axp2101_is_battery_present(i2c_master_dev_handle_t dev, bool *present)
+{
+    if (!present) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t st = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_STATUS1, &st), TAG, "read status1");
+    *present = (st & (1u << 3)) != 0;
+    return ESP_OK;
+}
+
+esp_err_t axp2101_is_vbus_present(i2c_master_dev_handle_t dev, bool *present)
+{
+    if (!present) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t st1 = 0, st2 = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_STATUS1, &st1), TAG, "read status1");
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_STATUS2, &st2), TAG, "read status2");
+    *present = ((st1 & (1u << 5)) != 0) && ((st2 & (1u << 3)) == 0);
+    return ESP_OK;
+}
+
+esp_err_t axp2101_init(i2c_master_dev_handle_t dev)
+{
+    uint8_t id = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_chip_id(dev, &id), TAG, "axp2101 read chip id failed");
+    if (id != AXP2101_CHIP_ID_EXPECTED) {
+        ESP_LOGW(TAG, "unexpected chip id 0x%02x (expected 0x%02x), continuing", id, AXP2101_CHIP_ID_EXPECTED);
+    } else {
+        ESP_LOGI(TAG, "AXP2101 found, chip id 0x%02x", id);
+    }
+
+    /* Clear PMU interrupt status by reading the status registers. */
+    uint8_t tmp[3] = { 0 };
+    for (int i = 0; i < 3; i++) {
+        axp2101_read_reg(dev, AXP_REG_INTSTS1 + i, &tmp[i]);
+    }
+
+    /* Enable ADC channels: battery voltage, vbus, system, temperature. */
+    ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_ADC_CHANNEL, AXP_ADC_BATT, true), TAG, "enable batt adc");
+    ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_ADC_CHANNEL, AXP_ADC_VBUS, true), TAG, "enable vbus adc");
+    ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_ADC_CHANNEL, AXP_ADC_SYS, true), TAG, "enable sys adc");
+    ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_ADC_CHANNEL, AXP_ADC_TEMP, true), TAG, "enable temp adc");
+
+    return ESP_OK;
+}
+
+esp_err_t axp2101_init_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, uint16_t mv)
+{
+    if ((unsigned)rail >= (unsigned)AXP2101_RAIL_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const axp_rail_map_t *m = &s_rail_map[rail];
+    if (mv < m->min_mv || (mv - m->min_mv) % m->step_mv != 0) {
+        ESP_LOGE(TAG, "invalid rail voltage %umV (min %umV, step %umV)", mv, m->min_mv, m->step_mv);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t vol = 0;
+    if (!axp2101_voltage_code(mv, m->min_mv, m->max_mv, m->step_mv,
+                              m->vol_mask, &vol)) {
+        ESP_LOGE(TAG, "invalid rail voltage %umV (range %u-%umV, step %umV)",
+                 mv, m->min_mv, m->max_mv, m->step_mv);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t cur = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, m->reg, &cur), TAG, "read vol reg 0x%02x", m->reg);
+    cur = (cur & ~m->vol_mask) | (vol & m->vol_mask);
+    ESP_RETURN_ON_ERROR(axp2101_write_reg(dev, m->reg, cur), TAG, "write vol reg 0x%02x", m->reg);
+
+    return axp2101_set_bit(dev, AXP_REG_LDO_ONOFF0, m->en_mask, true);
+}
+
+esp_err_t axp2101_set_default_power(i2c_master_dev_handle_t dev)
+{
+    /* Power tree per LilyGO T-Watch Ultra (LilyGoWatchUltra::initPMU). */
+    esp_err_t ret = axp2101_init_rail(dev, AXP2101_ALDO1, 3300); /* SD card */
+    ESP_RETURN_ON_ERROR(ret, TAG, "aldo1");
+    ret = axp2101_init_rail(dev, AXP2101_ALDO2, 3300);           /* display */
+    ESP_RETURN_ON_ERROR(ret, TAG, "aldo2");
+    ret = axp2101_init_rail(dev, AXP2101_ALDO3, 3300);           /* LoRa */
+    ESP_RETURN_ON_ERROR(ret, TAG, "aldo3");
+    ret = axp2101_init_rail(dev, AXP2101_ALDO4, 1800);           /* sensor */
+    ESP_RETURN_ON_ERROR(ret, TAG, "aldo4");
+    ret = axp2101_init_rail(dev, AXP2101_BLDO1, 3300);           /* GNSS */
+    ESP_RETURN_ON_ERROR(ret, TAG, "bldo1");
+    /* BLDO1 (GNSS): same treatment as BLDO2 below - axp2101_init_rail()
+     * always leaves a rail enabled, so configuring it here was silently
+     * powering the M10Q receiver (~25-30 mA) from boot and never stopping.
+     * Nothing switched it back off either: m10q owns this rail through
+     * m10q_power(), whose `if (on == s_powered) return ESP_OK;` guard makes
+     * every m10q_power(false) a no-op while its s_powered is still false -
+     * so the rail stayed on for the whole session with the UI correctly
+     * reporting GNSS as off. Measured as the dominant overnight battery
+     * drain (2026-09-01). m10q_power(true) enables it when GNSS is actually
+     * wanted, which is the only thing that should. */
+    ESP_RETURN_ON_ERROR(axp2101_enable_rail(dev, AXP2101_BLDO1, false), TAG, "bldo1 off");
+    ret = axp2101_init_rail(dev, AXP2101_BLDO2, 3300);           /* speaker */
+    ESP_RETURN_ON_ERROR(ret, TAG, "bldo2");
+    /* BLDO2 (speaker amp): voltage configured, but left OFF - the amp draws
+     * current whenever powered regardless of whether anything is playing,
+     * and every real playback path (alarm.c's ring_set_outputs(),
+     * debug_audio.c's tone/playrec/tonerec/sweep) already enables it around
+     * the actual audio and disables it after, so there's no reason to keep
+     * it on the rest of the time. axp2101_init_rail() always leaves a rail
+     * enabled, so turn it back off right after configuring it. */
+    ESP_RETURN_ON_ERROR(axp2101_enable_rail(dev, AXP2101_BLDO2, false), TAG, "bldo2 off");
+    /* DLDO1 (NFC): voltage configured for whenever an st25r3916 driver
+     * exists to use it. Left ON, matching LilyGo's own initPMU(), which
+     * enables DLDO1 at boot and never cycles it outside sleep.
+     *
+     * This rail was briefly disabled here as a power saving, on the premise
+     * that nothing used it. That was doubly wrong: the enable bit in use at
+     * the time was CPUSLDO's (bit6), so it never actually switched the NFC
+     * rail at all, and once the bit was corrected the ST25R3916 stopped
+     * responding after being power-cycled - it comes up reliably only when
+     * left continuously powered. Revisit NFC power saving once the driver
+     * works, and validate it against the chip actually re-enumerating. */
+    ret = axp2101_init_rail(dev, AXP2101_DLDO1, 3300);           /* NFC */
+    ESP_RETURN_ON_ERROR(ret, TAG, "dldo1");
+    /* ...and now switched back OFF at boot, on request (2026-09-01), as a
+     * power saving: the ST25R3916 draws current whenever powered, and nothing
+     * needs it until an actual NFC poll. This is what st25r3916.c already
+     * expects - "DLDO1 stays off until a poll actually happens", with
+     * st25r3916_poll() raising it through spi2_power_hold(AXP2101_DLDO1) and
+     * the rail registered SPI2_POWER_OWNED so release() never drops it again
+     * mid-session (this chip does not survive a rail power-cycle once it has
+     * completed bring-up).
+     *
+     * The history above is the risk here: last time this rail was cut the chip
+     * stopped responding. The difference now is that the driver owns the rail
+     * and brings it up before use, rather than nothing powering it at all - but
+     * NFC polling is exactly what to re-test, and reverting is this one line. */
+    ESP_RETURN_ON_ERROR(axp2101_enable_rail(dev, AXP2101_DLDO1, false), TAG, "dldo1 off");
+
+    /* Unused channels: DC2-DC5, CPUSLDO. */
+    ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_DC_ONOFF_DVM, 0x1E, false), TAG, "disable dc2-5");
+    ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_LDO_ONOFF0, AXP_EN_CPUSLDO, false), TAG, "disable cpusldo");
+
+    /* RTC backup battery (Seiko MS621FE-FL11E, rechargeable, on VBACKUP per
+     * schematic): its charge-enable bit defaults disabled and resets to
+     * disabled on every system reset, so without this the coin cell that
+     * keeps the RTC/BHI260AP VBACKUP time alive across power loss is never
+     * charged. */
+    ESP_RETURN_ON_ERROR(axp2101_set_bit(dev, AXP_REG_CHG_GAUGE_WDT, AXP_CHG_CTRL_BTN_BATT, true),
+                         TAG, "enable button battery charge");
+    uint8_t btn_v = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_BTN_BATT_CHG_V, &btn_v), TAG, "read button batt chg v");
+    btn_v = (btn_v & ~AXP_BTN_BATT_CHG_V_MASK) | AXP_BTN_BATT_CHG_V_2V9;
+    ESP_RETURN_ON_ERROR(axp2101_write_reg(dev, AXP_REG_BTN_BATT_CHG_V, btn_v), TAG, "set button batt chg v");
+
+    ESP_LOGI(TAG, "AXP2101 power tree configured");
+    return ESP_OK;
+}
+
+esp_err_t axp2101_get_battery_mv(i2c_master_dev_handle_t dev, uint16_t *mv)
+{
+    if (!mv) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    bool present = false;
+    ESP_RETURN_ON_ERROR(axp2101_is_battery_present(dev, &present), TAG, "battery present check");
+    if (!present) {
+        *mv = 0;
+        return ESP_OK;
+    }
+    uint8_t hi = 0, lo = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ADC_DATA0, &hi), TAG, "read batt hi");
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ADC_DATA1, &lo), TAG, "read batt lo");
+    /* 13-bit ADC, value in millivolts. */
+    *mv = (uint16_t)((hi & ((1u << AXP_BATT_VOLT_MSB_BITS) - 1)) << 8) | lo;
+    return ESP_OK;
+}
+
+esp_err_t axp2101_get_battery_pct(i2c_master_dev_handle_t dev, uint8_t *pct)
+{
+    if (!pct) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    bool present = false;
+    ESP_RETURN_ON_ERROR(axp2101_is_battery_present(dev, &present), TAG, "battery present check");
+    if (!present) {
+        *pct = 0;
+        return ESP_OK;
+    }
+    return axp2101_read_reg(dev, AXP_REG_BAT_PERCENT, pct);
+}
+
+esp_err_t axp2101_enable_rail(i2c_master_dev_handle_t dev, axp2101_rail_t rail, bool enable)
+{
+    if ((unsigned)rail >= (unsigned)AXP2101_RAIL_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return axp2101_set_bit(dev, AXP_REG_LDO_ONOFF0, s_rail_map[rail].en_mask, enable);
+}
+
+esp_err_t axp2101_is_rail_enabled(i2c_master_dev_handle_t dev, axp2101_rail_t rail, bool *enabled)
+{
+    if ((unsigned)rail >= (unsigned)AXP2101_RAIL_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_LDO_ONOFF0, &val), TAG, "read ldo_onoff0");
+    *enabled = (val & s_rail_map[rail].en_mask) != 0;
+    return ESP_OK;
+}
+
+esp_err_t axp2101_enable_pek_irq(i2c_master_dev_handle_t dev)
+{
+    /* Enable PEK interrupts (press/release edge, long/short press) in INTEN2. */
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTEN2, &val), TAG, "read inten2");
+    return axp2101_write_reg(dev, AXP_REG_INTEN2, (uint8_t)(val | AXP_INTEN2_PEK));
+}
+
+esp_err_t axp2101_enable_vbus_irq(i2c_master_dev_handle_t dev)
+{
+    /* Same physical register as axp2101_enable_pek_irq() (datasheet REG41,
+     * "IRQ Enable 1") - VBUS insert lives in bit7 of the same byte the PEK
+     * bits (0-3) already occupy, so this is a read-modify-write OR, same
+     * pattern, non-conflicting with whatever axp2101_enable_pek_irq() has
+     * already set. */
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTEN2, &val), TAG, "read inten2");
+    return axp2101_write_reg(dev, AXP_REG_INTEN2, (uint8_t)(val | AXP_INTEN2_VBUS_INSERT));
+}
+
+/* Mask the fuel gauge's periodic "new SOC reading" interrupt.
+ *
+ * The firmware only ever enables the PEK and VBUS bits (INTEN2 above) and
+ * never touches INTEN1, so the AXP2101's power-on defaults there stayed live -
+ * including this one. It asserts the shared IRQ line every ~20 s, which is a
+ * GPIO wake source while the host sleeps: measured 2026-09-01, every single
+ * light-sleep period ended with "AXP IRQ wake: irq=0x000010", pulling the
+ * watch fully awake (display on, full idle timeout) a few times a minute all
+ * night. A routine gauge refresh is not something the host needs to wake for -
+ * sensor_cache polls the battery on its own schedule while awake.
+ *
+ * Only this bit is cleared; the genuine SOC warning-level interrupts and the
+ * temperature/safety ones in the same register are left exactly as they were. */
+esp_err_t axp2101_disable_gauge_soc_irq(i2c_master_dev_handle_t dev)
+{
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTEN1, &val), TAG, "read inten1");
+    if (!(val & AXP_INTEN1_NEWSOC)) {
+        return ESP_OK;
+    }
+    ESP_LOGI(TAG, "masking gauge new-SOC IRQ (INTEN1 0x%02x -> 0x%02x)",
+             val, (uint8_t)(val & ~AXP_INTEN1_NEWSOC));
+    return axp2101_write_reg(dev, AXP_REG_INTEN1, (uint8_t)(val & ~AXP_INTEN1_NEWSOC));
+}
+
+esp_err_t axp2101_set_low_soc_levels(i2c_master_dev_handle_t dev, uint8_t warn_pct, uint8_t shutdown_pct)
+{
+    /* REG1AH: bits 7:4 = warning level 2 (5-20 %, 1 %/step, code = pct - 5),
+     * bits 3:0 = warning level 1, the level REG48H bit 6 calls "Shutdown Level"
+     * (0-15 %, code = pct). Crossing them only raises an IRQ - the gauge never
+     * powers anything off, and its VBAT_UVLOZ of 2.4 V is far below the point
+     * where DCDC1 stops holding up the SoC, so the host has to act. */
+    if (warn_pct < 5 || warn_pct > 20 || shutdown_pct > 15) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t val = (uint8_t)(((warn_pct - 5) << 4) | shutdown_pct);
+    ESP_RETURN_ON_ERROR(axp2101_write_reg(dev, AXP_REG_LOW_SOC_LVL, val), TAG, "write low soc levels");
+    ESP_LOGI(TAG, "gauge low-SOC levels: warning %u%%, shutdown %u%% (REG1A=0x%02x)",
+             warn_pct, shutdown_pct, val);
+    return axp2101_set_bit(dev, AXP_REG_INTEN1, AXP_INTEN1_SOCWL2 | AXP_INTEN1_SOCWL1, true);
+}
+
+esp_err_t axp2101_get_low_soc_levels(i2c_master_dev_handle_t dev, uint8_t *warn_pct, uint8_t *shutdown_pct)
+{
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_LOW_SOC_LVL, &val), TAG, "read low soc levels");
+    *warn_pct = (uint8_t)(5 + ((val >> 4) & 0x0F));
+    *shutdown_pct = (uint8_t)(val & 0x0F);
+    return ESP_OK;
+}
+
+esp_err_t axp2101_clear_irq(i2c_master_dev_handle_t dev)
+{
+    /* Write 0xFF to the status registers to clear all pending interrupts. */
+    for (int i = 0; i < 3; i++) {
+        esp_err_t ret = axp2101_write_reg(dev, AXP_REG_INTSTS1 + i, 0xFF);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+    }
+    return ESP_OK;
+}
+
+esp_err_t axp2101_get_irq_status(i2c_master_dev_handle_t dev, uint32_t *status)
+{
+    uint8_t s[3] = { 0, 0, 0 };
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTSTS1, &s[0]), TAG, "intsts1");
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTSTS2, &s[1]), TAG, "intsts2");
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_INTSTS3, &s[2]), TAG, "intsts3");
+    *status = ((uint32_t)s[2] << 16) | ((uint32_t)s[1] << 8) | s[0];
+    return ESP_OK;
+}
+
+esp_err_t axp2101_configure_pwrkey_shutdown(i2c_master_dev_handle_t dev)
+{
+    /* OFFLEVEL threshold = 4s (REG27H bits 3:2). Leaves ONLEVEL (bits 1:0)
+     * and the reserved bits alone - read-modify-write, not a blind overwrite. */
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_OFFLEVEL, &val), TAG, "read offlevel");
+    val = (uint8_t)((val & (uint8_t)~AXP_OFFLEVEL_MASK) | AXP_OFFLEVEL_4S);
+    ESP_RETURN_ON_ERROR(axp2101_write_reg(dev, AXP_REG_OFFLEVEL, val), TAG, "write offlevel");
+
+    /* Disable the chip's own automatic power-off when PWRON is held past
+     * OFFLEVEL (REG22H bit1) - see this function's header comment. The PEK
+     * long-press IRQ still fires at the same threshold regardless. */
+    return axp2101_set_bit(dev, AXP_REG_PWROFF_EN, AXP_PWROFF_EN_PWRON_OFFLEVEL, false);
+}
+
+esp_err_t axp2101_soft_poweroff(i2c_master_dev_handle_t dev)
+{
+    return axp2101_set_bit(dev, AXP_REG_COMMON_CFG, AXP_COMMON_CFG_SOFT_PWROFF, true);
+}
+
+/* Charging state: STATUS2 bits 0-2. Values per XPowers AXP2101:
+ * 0=tri 1=pre 2=CC 3=CV 4=done 5=stop. */
+esp_err_t axp2101_get_charge_status(i2c_master_dev_handle_t dev, axp2101_charge_state_t *state)
+{
+    uint8_t st = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_STATUS2, &st), TAG, "read status2");
+    *state = (axp2101_charge_state_t)(st & 0x07);
+    return ESP_OK;
+}
+
+esp_err_t axp2101_set_charge_enabled(i2c_master_dev_handle_t dev, bool enable)
+{
+    return axp2101_set_bit(dev, AXP_REG_CHG_GAUGE_WDT, AXP_CHG_CTRL_CHARGE, enable);
+}
+
+esp_err_t axp2101_is_charge_enabled(i2c_master_dev_handle_t dev, bool *enabled)
+{
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_CHG_GAUGE_WDT, &val), TAG, "read chg ctrl");
+    *enabled = (val & AXP_CHG_CTRL_CHARGE) != 0;
+    return ESP_OK;
+}
+
+/* Button-battery (RTC backup coin cell, see axp2101_set_default_power()'s
+ * header comment) charge-enable readback - same register/bit set there,
+ * exposed so live state can actually be confirmed instead of assumed. */
+esp_err_t axp2101_is_button_batt_charge_enabled(i2c_master_dev_handle_t dev, bool *enabled)
+{
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_CHG_GAUGE_WDT, &val), TAG, "read chg ctrl");
+    *enabled = (val & AXP_CHG_CTRL_BTN_BATT) != 0;
+    return ESP_OK;
+}
+
+/* Charge-current selections use sparse codes; conversion helpers are pure
+ * functions so the exact table is covered by host tests. */
+
+esp_err_t axp2101_get_charge_current_ma(i2c_master_dev_handle_t dev, uint16_t *ma)
+{
+    if (!ma) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ICC_CHG_SET, &val), TAG, "read chg current");
+    if (!axp2101_charge_current_ma(val & AXP_ICC_CHG_MASK, ma)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
+}
+
+esp_err_t axp2101_set_charge_current_ma(i2c_master_dev_handle_t dev, uint16_t ma)
+{
+    uint8_t code = 0;
+    if (!axp2101_charge_current_code(ma, &code)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t val = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ICC_CHG_SET, &val), TAG, "read chg current");
+    val = (uint8_t)((val & ~AXP_ICC_CHG_MASK) | (code & AXP_ICC_CHG_MASK));
+    return axp2101_write_reg(dev, AXP_REG_ICC_CHG_SET, val);
+}
+
+/* AXP2101 internal die temperature in 0.1 deg C from H6L8 @ 0x3C/0x3D.
+ * This is NOT battery temperature; the board's TS thermistor path is separate. */
+esp_err_t axp2101_get_die_temp(i2c_master_dev_handle_t dev, int16_t *tenths_c)
+{
+    if (!tenths_c) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t hi = 0, lo = 0;
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ADC_DATA_TEMP0, &hi), TAG, "read temp hi");
+    ESP_RETURN_ON_ERROR(axp2101_read_reg(dev, AXP_REG_ADC_DATA_TEMP1, &lo), TAG, "read temp lo");
+    uint16_t raw = (uint16_t)(((hi & 0x3F) << 8) | lo);
+    if (!axp2101_die_temperature_c10(raw, tenths_c)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
+}
