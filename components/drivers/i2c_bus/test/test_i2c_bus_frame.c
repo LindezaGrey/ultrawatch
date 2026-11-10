@@ -26,6 +26,10 @@ static void test_frame_size(void)
     CHECK(frame_len == 8);
     CHECK(!i2c_bus_frame_size(SIZE_MAX, &frame_len));
     CHECK(!i2c_bus_frame_size(0, NULL));
+
+    /* The wrapper must reject overflow before allocating a frame. */
+    CHECK(i2c_bus_frame_size(SIZE_MAX - 1, &frame_len));
+    CHECK(frame_len == SIZE_MAX);
 }
 
 /* One-byte payload: register address in out[0], payload byte in out[1]. */

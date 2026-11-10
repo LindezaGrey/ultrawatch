@@ -10,15 +10,21 @@
 esp_err_t i2c_bus_read(i2c_master_dev_handle_t dev, uint8_t reg,
                         uint8_t *buf, size_t len, uint32_t timeout_ms)
 {
+    if (!dev || !buf || len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
     return i2c_master_transmit_receive(dev, &reg, 1, buf, len, timeout_ms);
 }
 
 esp_err_t i2c_bus_write(i2c_master_dev_handle_t dev, uint8_t reg,
                          const uint8_t *buf, size_t len, uint32_t timeout_ms)
 {
-    size_t frame_len;
-    if ((!buf && len > 0) || !i2c_bus_frame_size(len, &frame_len)) {
+    if (!dev || (!buf && len > 0)) {
         return ESP_ERR_INVALID_ARG;
+    }
+    size_t frame_len;
+    if (!i2c_bus_frame_size(len, &frame_len)) {
+        return ESP_ERR_INVALID_SIZE;
     }
 
     uint8_t small[1 + I2C_BUS_SMALL_WRITE_MAX];

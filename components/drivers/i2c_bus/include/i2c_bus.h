@@ -30,7 +30,8 @@ extern "C" {
 #endif
 
 /* Read `len` bytes starting at register `reg` (8-bit register address,
- * write-then-read on one bus transaction). */
+ * write-then-read on one bus transaction). Requires a valid device handle,
+ * non-NULL buffer, and len > 0. */
 esp_err_t i2c_bus_read(i2c_master_dev_handle_t dev, uint8_t reg,
                         uint8_t *buf, size_t len, uint32_t timeout_ms);
 
@@ -39,9 +40,11 @@ esp_err_t i2c_bus_read(i2c_master_dev_handle_t dev, uint8_t reg,
  * BHI260AP) go on the stack; larger ones (BHI260AP's FIFO/firmware-upload
  * transfers, up to a few hundred bytes) heap-allocate the combined buffer,
  * same as bhi260ap.c's own write callback did before this extraction.
- * Returns ESP_ERR_NO_MEM if the heap allocation fails, ESP_ERR_INVALID_ARG
- * if buf is NULL while len > 0. The byte-layout logic itself is the pure,
- * host-tested i2c_bus_build_frame() in i2c_bus_frame.h. */
+ * Requires a valid device handle; buf may be NULL only when len is zero.
+ * Returns ESP_ERR_NO_MEM on allocation failure and ESP_ERR_INVALID_SIZE if
+ * len + 1 overflows. Register-only writes (len == 0) are allowed. The
+ * byte-layout logic itself is the pure, host-tested i2c_bus_build_frame() in
+ * i2c_bus_frame.h. */
 esp_err_t i2c_bus_write(i2c_master_dev_handle_t dev, uint8_t reg,
                          const uint8_t *buf, size_t len, uint32_t timeout_ms);
 
