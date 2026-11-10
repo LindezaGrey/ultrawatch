@@ -1,0 +1,157 @@
+/*
+ * bhi260ap.h - Bosch BHI260AP smart sensor / IMU (I2C, Bosch FSC protocol).
+ */
+#pragma once
+
+#include <stdint.h>
+#include "esp_err.h"
+#include "driver/i2c_master.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Activity recognition classes reported by BHY2_SENSOR_ID_AR. */
+typedef enum {
+    BHI260AP_ACTIVITY_STILL = 0,
+    BHI260AP_ACTIVITY_WALKING,
+    BHI260AP_ACTIVITY_RUNNING,
+    BHI260AP_ACTIVITY_ON_BICYCLE,
+    BHI260AP_ACTIVITY_IN_VEHICLE,
+    BHI260AP_ACTIVITY_TILTING,
+    BHI260AP_ACTIVITY_UNKNOWN,
+    BHI260AP_ACTIVITY_COUNT,
+} bhi260ap_activity_t;
+
+/* Bring up the BHI260AP: upload the RAM firmware from the SPIFFS assets
+ * partition, boot it, and enable the step counter. The assets partition must
+ * be mounted first. On failure logs and returns an error (never aborts). */
+esp_err_t bhi260ap_init(i2c_master_dev_handle_t dev);
+
+/* Poll the FIFO once (delivers queued sensor events to registered callbacks). */
+esp_err_t bhi260ap_process_fifo(void);
+
+/* Host (ESP32) sleep: switch the chip to AP-suspend mode so only the wake-up
+ * sensors run at low power. The sensor rail (ALDO4) must stay powered; call
+ * bhi260ap_ap_resume() on wake. */
+esp_err_t bhi260ap_ap_suspend(void);
+
+/* Host awake: leave AP-suspend mode and resume the normal sensor streams. */
+esp_err_t bhi260ap_ap_resume(void);
+
+/* Consume pending wake-up FIFO events until the INT line de-asserts high.
+ * Call at wake-arm time (after AP-suspend) so a leftover WU event - e.g. a
+ * real gesture that landed during the power-down window - doesn't hold the
+ * level-wake line low and get mistaken for a stuck sensor. */
+esp_err_t bhi260ap_drain_wakeup_fifo(void);
+
+/* Reset the driver to the uninitialized state after the sensor rail was
+ * power-cycled (e.g. auto-sleep), so it can be brought up again. */
+void bhi260ap_deinit(void);
+
+/* Age of the newest sensor sample in ms. Used to detect a dead/rebooted chip
+ * after the sensor rail was power-cycled: a live 12.5 Hz accel stream keeps
+ * this under ~1 s, while a powered-down or bootloader-mode chip goes stale. */
+uint32_t bhi260ap_get_data_age_ms(void);
+
+/* Quick liveness check (reads the product ID register) - call before a full
+ * bhi260ap_deinit()+bhi260ap_init() on staleness, so a transient stall
+ * (e.g. a dropped virtual-sensor config, not an actual dead/rebooted chip)
+ * doesn't trigger an unnecessary RAM-firmware reflash. Returns false if not
+ * initialized. */
+bool bhi260ap_ping(void);
+
+/* Soft recovery: re-applies the virtual-sensor enable list and resets the
+ * staleness clock, without a full deinit+reinit - for when bhi260ap_ping()
+ * confirms the chip is alive but data went stale anyway. No-op if not
+ * initialized. */
+void bhi260ap_reenable_sensors(void);
+
+/* True while the chip is in AP-suspend (host sleeping, FIFO polling paused). */
+bool bhi260ap_is_suspended(void);
+
+/* True when a wake-time resume failed and should be retried by the sensor task. */
+bool bhi260ap_resume_pending(void);
+
+/* Latest step count (persistent: on-chip counter + NVS base offset, so the
+ * total survives reboots). */
+esp_err_t bhi260ap_get_step_count(uint32_t *steps);
+
+/* Steps taken since the most recent midnight (daily count). Tracked as the
+ * increment of the lifetime total, persisted to NVS (so it survives reboots);
+ * reset automatically when a new calendar day is first sampled. */
+esp_err_t bhi260ap_get_daily_steps(uint32_t *steps);
+
+
+
+/* Sensor status: ready flag and latest step count. Either out-param may be
+ * NULL. Returns ESP_OK (never fails; reports the last known state). */
+esp_err_t bhi260ap_get_status(bool *ready, uint32_t *steps);
+
+/* Latest accelerometer values in mg. Any out-param may be NULL. */
+esp_err_t bhi260ap_get_accel(int16_t *x_mg, int16_t *y_mg, int16_t *z_mg);
+
+/* Latest gyroscope values in degrees per second. Any out-param may be NULL. */
+esp_err_t bhi260ap_get_gyro(int16_t *x_dps, int16_t *y_dps, int16_t *z_dps);
+
+/* Orientation in degrees: pitch/roll computed from the accelerometer (always
+ * available on this 6-DoF board); heading is always 0 (needs a magnetometer,
+ * which the T-Watch Ultra does not have). Any out-param may be NULL. */
+esp_err_t bhi260ap_get_orientation(int16_t *heading, int16_t *pitch, int16_t *roll);
+
+/* Latest game-rotation-vector quaternion (x/y/z/w, Q14 scaling) and its
+ * accuracy (0..3). From the 6-DoF GAMERV fusion (accel+gyro, no magnetometer
+ * needed). Either out-param may be NULL. */
+esp_err_t bhi260ap_get_rotation(int16_t *x, int16_t *y, int16_t *z, int16_t *w,
+                                uint16_t *accuracy);
+
+/* Latest activity-recognition class (bhi260ap_activity_t); activity must be non-NULL. */
+esp_err_t bhi260ap_get_activity(uint8_t *activity);
+
+/* Milliseconds credited to each activity class today (event-driven: exact
+ * elapsed time per class, not a periodic sample - every activity transition
+ * the FIFO reports is accounted for, even several in one bhi260ap_process_fifo()
+ * drain, not just whichever class happened to be active at a poll instant).
+ * Includes the live elapsed time for the currently-active class. Reset when
+ * bhi260ap_daily_update() sees a new calendar day. */
+esp_err_t bhi260ap_get_activity_ms(uint32_t out_ms[BHI260AP_ACTIVITY_COUNT]);
+
+/* Consume latched gesture events since the last call (wrist tilt, wake
+ * gesture, glance, pickup, tilt detector). Each non-NULL out-param is set to
+ * true if that gesture occurred and then cleared. */
+esp_err_t bhi260ap_consume_gestures(bool *wrist_tilt, bool *wake_gesture, bool *glance,
+                                    bool *pickup, bool *tilt);
+
+/* Wake-up FIFO sample tracer (debug): enable to tally WU-FIFO sample ids,
+ * then read per-id counts. Used to find the source of spurious wake events. */
+void bhi260ap_wu_trace_start(void);
+void bhi260ap_wu_trace_stop(void);
+uint32_t bhi260ap_wu_trace_get_count(uint8_t id);
+esp_err_t bhi260ap_set_sensor_rate(uint8_t id, float rate);
+
+/* GNSS data-injection readiness probe: reports GPS sensor availability,
+ * switches the BHI260AP into real-time injection mode and watches for a BSX
+ * injected-sensor-config request naming the GPS physical sensor. Returns
+ * BHY2_OK when a live GPS injection driver requests GPS data, else a negative
+ * bhy2 error code. */
+int8_t bhi260ap_gnss_inject_probe(void);
+
+/* Dump the firmware's present virtual-sensor ids to the console/log (debug). */
+void bhi260ap_dump_sensor_list(void);
+void bhi260ap_meta_hist_start(void);
+void bhi260ap_meta_hist_stop(void);
+uint8_t bhi260ap_meta_hist_len_get(void);
+void bhi260ap_meta_hist_get(uint8_t idx, uint8_t *key, uint8_t *count);
+void bhi260ap_meta_print(uint32_t n);
+
+#ifdef __cplusplus
+}
+#endif
+
+#include "activity_days.h"
+/* Called with a valid local calendar date; force checkpoints once per minute. */
+esp_err_t bhi260ap_daily_update(uint32_t ymd, bool force);
+esp_err_t bhi260ap_daily_checkpoint(void);
+esp_err_t bhi260ap_daily_snapshot(activity_day_t *out);
+esp_err_t bhi260ap_daily_pending(activity_day_t *out);
+esp_err_t bhi260ap_daily_ack(uint32_t ymd);
