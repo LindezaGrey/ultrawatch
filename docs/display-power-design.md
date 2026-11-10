@@ -219,9 +219,9 @@ firmware/hardware check. Screenshots use `UWATCH_SIM_SCREEN=apps` or
 `settings_disp` with `UWATCH_SIM_SHOT`, as for the existing screen previews.
 
 GNSS acquisition is bounded independently of display sleep: `gps_ctrl_task`
-uses `gps_reception.c` to switch off after 60 seconds without a fresh valid
-position. Position callback timestamps use `esp_timer_get_time()`, not LVGL
-uptime. The task polls instead of waiting inside a 120-second acquisition
-loop, so queued manual requests are handled throughout acquisition. It owns
-GNSS preference writes and shutdown; automatic cutoff saves the switch off.
+allows five minutes without adequate reception and caps no-fix acquisition at
+ten minutes. Position callback timestamps use `esp_timer_get_time()`, not LVGL
+uptime. The task polls instead of waiting inside a long acquisition loop, so
+queued manual requests are handled throughout acquisition. It owns GNSS
+preference writes and shutdown; automatic cutoff saves the switch off.
 The pure reception policy is covered by the `gps_reception` CTest target.

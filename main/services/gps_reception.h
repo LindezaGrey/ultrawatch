@@ -1,7 +1,7 @@
 #pragma once
 #include "m10q_types.h"
-#define GPS_NO_FIX_TIMEOUT_MS 60000u
-#define GPS_ACQUISITION_LIMIT_MS 180000u
+#define GPS_NO_FIX_TIMEOUT_MS 300000u
+#define GPS_ACQUISITION_LIMIT_MS 600000u
 typedef enum { GPS_RECEPTION_OK, GPS_POOR_SIGNAL, GPS_NO_TELEMETRY, GPS_NO_FIX } gps_reception_reason_t;
 typedef struct {
     uint32_t last_fix_ms, last_reception_ms, last_sats_ms;

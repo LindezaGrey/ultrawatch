@@ -42,7 +42,7 @@ uint32_t lvgl_flush_age_ms_get(void);
  * between ==SHOT:WxH== and ==ENDSHOT== markers (debug). Call from any task. */
 esp_err_t lvgl_app_dump_screenshot(void);
 
-/* Start/restart signal-aware acquisition: 60s poor reception, 180s hard limit. */
+/* Start/restart signal-aware acquisition: 300s poor reception, 600s hard limit. */
 void lvgl_gps_refresh(void);
 bool lvgl_gps_enabled(void);
 bool lvgl_gps_timed_out(void);

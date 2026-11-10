@@ -76,12 +76,14 @@ threshold simply re-triggers later).
 
 The GPS switch (or `gnsson` / `gpscheck` console command) starts a receiver
 session. Power-on/configuration runs in the background. Once ready, the
-receiver gets **60 seconds with weak or missing reception**. Five distinct
-satellite reports smooth the signal estimate: an average of at least four
-healthy, code-locked satellites at 30 dBHz extends acquisition; it falls back
-to weak reception below four at 25 dBHz. A fresh valid position renews the
-budget. Even with strong signals, no-fix acquisition is capped at **180 seconds**.
-These initial thresholds need verification on the watch outdoors and indoors.
+receiver gets **5 minutes with weak or missing reception** before switching
+itself off. This gives indoor/poor-view starts more time to find satellites.
+Five distinct satellite reports smooth the signal estimate; sustained good
+reception can extend acquisition. A fresh valid position renews the no-fix
+budget, and even with an apparently strong sky no-fix acquisition is capped at
+**10 minutes**. These are conservative fallback limits, not a signal-quality
+classification or a promise that an indoor fix is possible. These more forgiving
+fallback limits still need verification in repeated outdoor and indoor sessions.
 
 On timeout the worker saves GPS as off. The page reports **Poor signal**,
 **No data**, or **No fix - GPS off**. Turn the switch on again, or run
