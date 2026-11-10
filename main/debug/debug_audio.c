@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdatomic.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -20,7 +21,29 @@
 /* Audio test: buffer holding the last recording (PSRAM), shared by rec/playrec. */
 static int16_t *s_rec_buf;
 static size_t s_rec_n;
-static SemaphoreHandle_t s_rec_done;   /* signalled when a background rec finishes */
+static size_t s_rec_capacity;
+static SemaphoreHandle_t s_rec_done;
+static atomic_int s_rec_state = ATOMIC_VAR_INIT(0);
+static atomic_int s_rec_task_result;
+
+enum {
+    REC_STATE_IDLE = 0,
+    REC_STATE_BUSY,
+    REC_STATE_CAPTURING,
+    REC_STATE_CAPTURE_DONE,
+    REC_STATE_ABANDONED,
+};
+
+static bool rec_claim(int state)
+{
+    int expected = REC_STATE_IDLE;
+    return atomic_compare_exchange_strong(&s_rec_state, &expected, state);
+}
+
+static void rec_release(void)
+{
+    atomic_store(&s_rec_state, REC_STATE_IDLE);
+}
 
 /* Ensure s_rec_buf can hold n samples; returns true on success. On alloc/realloc
  * failure the previous buffer is left intact (it may still be NULL), so the
@@ -28,35 +51,55 @@ static SemaphoreHandle_t s_rec_done;   /* signalled when a background rec finish
  * When only shrinking, the existing larger buffer is reused as-is. */
 static bool rec_ensure_buf(size_t n)
 {
+    if (n == 0 || n > SIZE_MAX / sizeof(*s_rec_buf)) {
+        return false;
+    }
     if (!s_rec_buf) {
-        s_rec_buf = heap_caps_malloc(n * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    } else if (n > s_rec_n) {
-        int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(int16_t),
+        s_rec_buf = heap_caps_malloc(n * sizeof(*s_rec_buf), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (s_rec_buf) {
+            s_rec_capacity = n;
+        }
+    } else if (n > s_rec_capacity) {
+        int16_t *nb = heap_caps_realloc(s_rec_buf, n * sizeof(*s_rec_buf),
                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!nb) {
-            return false;   /* old (smaller) buffer kept, s_rec_n unchanged */
+            return false;   /* old buffer/capacity remain valid */
         }
         s_rec_buf = nb;
+        s_rec_capacity = n;
     }
     return s_rec_buf != NULL;
 }
 
-/* Background recorder: fills s_rec_buf while the speaker plays (the amp and
- * mic are on separate I2S controllers, so TX + RX can run concurrently). */
+/* Background recorder: fills the reserved recording buffer while the speaker
+ * plays (the amp and mic are on separate I2S controllers, so TX + RX can run
+ * concurrently). */
 static void rec_task(void *arg)
 {
     (void)arg;
     size_t n = s_rec_n;
-    if (!s_rec_buf || n == 0) {
+    int16_t *buf = s_rec_buf;
+    esp_err_t result = ESP_ERR_INVALID_ARG;
+    if (!buf || n == 0) {
         /* Never pass an empty or absent recording buffer into the I2S driver.
          * This task is asynchronous, so keep the validation at this final
          * boundary even though play_and_record() validated before spawning it. */
         printf("rec: no recording buffer\n");
     } else {
-        t3902_read(s_rec_buf, n);
+        result = t3902_read(buf, n);
+        if (result != ESP_OK) {
+            printf("rec: %s\n", esp_err_to_name(result));
+        }
     }
-    if (s_rec_done) {
-        xSemaphoreGive(s_rec_done);
+    atomic_store(&s_rec_task_result, result);
+    int expected = REC_STATE_CAPTURING;
+    if (atomic_compare_exchange_strong(&s_rec_state, &expected, REC_STATE_CAPTURE_DONE)) {
+        if (s_rec_done) {
+            xSemaphoreGive(s_rec_done);
+        }
+    } else if (expected == REC_STATE_ABANDONED) {
+        s_rec_n = 0;
+        rec_release();
     }
     vTaskDelete(NULL);
 }
@@ -69,21 +112,32 @@ static void rec_task(void *arg)
  * print its own "Hz/ms" announcement. */
 static void play_and_record(const int16_t *buf, size_t n, const char *tag, const char *info_line)
 {
+    if (!rec_claim(REC_STATE_BUSY)) {
+        printf("%s: another recording is still in progress\n", tag);
+        return;
+    }
+    atomic_store(&s_rec_task_result, ESP_ERR_INVALID_STATE);
     if (!s_rec_done) {
         s_rec_done = xSemaphoreCreateBinary();
         if (!s_rec_done) {
+            rec_release();
             printf("%s: no memory for recording completion signal\n", tag);
             return;
         }
     }
     xSemaphoreTake(s_rec_done, 0);
     if (!rec_ensure_buf(n)) {
+        rec_release();
         printf("%s: no mem for rec buffer\n", tag);
         return;
     }
     s_rec_n = n;
+    atomic_store(&s_rec_task_result, ESP_ERR_INVALID_ARG);
     printf("%s", info_line);
+    atomic_store(&s_rec_state, REC_STATE_CAPTURING);
     if (xTaskCreate(rec_task, tag, 2048, NULL, 5, NULL) != pdPASS) {
+        s_rec_n = 0;
+        rec_release();
         printf("%s: recording task allocation failed\n", tag);
         return;
     }
@@ -91,8 +145,21 @@ static void play_and_record(const int16_t *buf, size_t n, const char *tag, const
     esp_err_t err = audio_play_pcm(buf, n);
     printf("%s: playback %s\n", tag, (err == ESP_OK) ? "ok" : esp_err_to_name(err));
     if (xSemaphoreTake(s_rec_done, pdMS_TO_TICKS(n * 1000 / AUDIO_SAMPLE_RATE + 5000)) != pdTRUE) {
-        printf("%s: rec timed out\n", tag);
-    } else {
+        int expected = REC_STATE_CAPTURING;
+        if (atomic_compare_exchange_strong(&s_rec_state, &expected, REC_STATE_ABANDONED)) {
+            printf("%s: rec timed out\n", tag);
+            return;
+        }
+        if (expected != REC_STATE_CAPTURE_DONE) {
+            printf("%s: rec timed out\n", tag);
+            return;
+        }
+        /* The task commits CAPTURE_DONE before signalling; wait for that signal
+         * before releasing the shared buffer or starting another recording. */
+        xSemaphoreTake(s_rec_done, portMAX_DELAY);
+    }
+
+    if (atomic_load(&s_rec_task_result) == ESP_OK) {
         int32_t peak = 0;
         for (size_t i = 0; i < n; i++) {
             int32_t v = s_rec_buf[i];
@@ -100,7 +167,12 @@ static void play_and_record(const int16_t *buf, size_t n, const char *tag, const
             if (v > peak) peak = v;
         }
         printf("%s: recorded, peak amp %ld (play 'playrec' to hear)\n", tag, (long)peak);
+    } else {
+        s_rec_n = 0;
+        printf("%s: capture incomplete (%s); recording discarded\n",
+               tag, esp_err_to_name(atomic_load(&s_rec_task_result)));
     }
+    rec_release();
 }
 
 void debug_audio_tone(const char *args)
@@ -145,6 +217,11 @@ void debug_audio_tone(const char *args)
 
 void debug_audio_rec(const char *args)
 {
+    if (!rec_claim(REC_STATE_BUSY)) {
+        printf("rec: another recording is still in progress\n");
+        return;
+    }
+    atomic_store(&s_rec_task_result, ESP_ERR_INVALID_STATE);
     /* Record a short mono clip to a PSRAM buffer.
      * Usage: "rec" (2 s) or "rec <ms>". */
     int ms = 2000;
@@ -159,6 +236,7 @@ void debug_audio_rec(const char *args)
     }
     size_t n = (size_t)(AUDIO_SAMPLE_RATE * ms / 1000);
     if (!rec_ensure_buf(n)) {
+        rec_release();
         printf("rec: no mem for %u samples\n", (unsigned)n);
     } else {
         s_rec_n = n;
@@ -175,14 +253,20 @@ void debug_audio_rec(const char *args)
             }
             printf("rec: done, peak amp %ld\n", (long)peak);
         } else {
+            s_rec_n = 0;
             printf("rec: %s\n", esp_err_to_name(err));
         }
     }
+    rec_release();
 }
 
 void debug_audio_playrec(const char *args)
 {
     (void)args;
+    if (!rec_claim(REC_STATE_BUSY)) {
+        printf("playrec: recording is still in progress\n");
+        return;
+    }
     /* Play back the last recording (loops 3x so it's audible). */
     if (!s_rec_buf || s_rec_n == 0) {
         printf("playrec: nothing recorded yet (use rec first)\n");
@@ -197,6 +281,7 @@ void debug_audio_playrec(const char *args)
         }
         printf("playrec: done\n");
     }
+    rec_release();
 }
 
 void debug_audio_tonerec(const char *args)

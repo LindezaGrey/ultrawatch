@@ -21,10 +21,14 @@ extern "C" {
 #define AUDIO_SAMPLE_RATE  16000   /* mono 16-bit sample rate */
 
 /* Configure the given I2S0 RX channel for PDM mode (clk=17, dat=18) and start
- * it. Safe to call once. */
+ * it. Repeated calls with the same handle are safe and re-enable RX if needed;
+ * a different handle after setup returns ESP_ERR_INVALID_STATE. */
 esp_err_t t3902_init(i2s_chan_handle_t rx_handle);
 
-/* Read up to n mono 16-bit PCM samples from the mic (blocking). */
+/* Read exactly n mono 16-bit PCM samples from the mic (blocking until complete
+ * or timeout). Requires non-NULL storage and n > 0; callers should discard the
+ * destination buffer if an error is returned because it may contain a partial
+ * capture. */
 esp_err_t t3902_read(int16_t *samples, size_t n);
 
 #ifdef __cplusplus
