@@ -22,6 +22,9 @@ first.
 
 ## Peripheral components
 
+For a bus-level picture of how the peripherals connect to the ESP32-S3, see
+[Peripheral connectivity overview](docs/peripherals-overview.md).
+
 `components/drivers/` contains the board's I2C, I2S, and SPI peripherals,
 including AXP2101, XL9555, PCF85063A, DRV2605, MAX98357A, T3902, BHI260AP,
 M10Q, SX1262, ST25R3916, CO5300, and CST9217. `components/meshtastic/` contains
